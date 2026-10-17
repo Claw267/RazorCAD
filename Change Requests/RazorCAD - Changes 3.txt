@@ -1,0 +1,3 @@
+Sketches:
+
+- Involute gear tool. A tool to create involute gear systems from refernce centre points that can be selected and desired grear ratios. Allow users to set tolerances so they can adjust when prototyping like when 3d printing gears. The result must be closed involute gear sketches that can be extruded. Maybe the tool can use straight line sketches as reference where the endpoint of each line is the gear centrepoint. See the "Gear Tool Concept" image in the same folder as this doc. Implement however is practical and intuite to use. See if there are open source tools that use this or other other practical methods to come up with something intuitive.

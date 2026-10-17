@@ -1,0 +1,578 @@
+<title>RazorCAD Part Builder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: a drafting desk. Conversation on the left, the part (feature tree + sketch plates) on the right; one column on phones. */
+:root {
+  --paper: #f5f6f8; --sheet: #ffffff; --ink: #18202c; --ink-2: #4a5568; --rule: #d7dce4; --rule-2: #e8ebf0;
+  --accent: #1f5fd1; --accent-ink: #ffffff; --accent-soft: #e6eefc; --sketch: #1f5fd1; --constr: #8a94a6;
+  --cut: #b4462b; --ok: #1e7a4c; --warn: #9a5b00; --err: #b42318; --err-soft: #fdecea;
+  --f-display: 'IBM Plex Sans Condensed', 'Arial Narrow', Arial, sans-serif;
+  --f-body: 'IBM Plex Sans', 'Segoe UI', Roboto, Arial, sans-serif;
+  --f-mono: 'IBM Plex Mono', Consolas, 'Courier New', monospace;
+  --r: 6px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --paper: #11151c; --sheet: #181e27; --ink: #e6eaf0; --ink-2: #a3adbd; --rule: #2c3442; --rule-2: #222a36;
+  --accent: #6c9bff; --accent-ink: #0d1320; --accent-soft: #1d2a44; --sketch: #7aa6ff; --constr: #6b7588;
+  --cut: #f08a6c; --ok: #5fcf95; --warn: #e3a948; --err: #ff8b80; --err-soft: #3a1d1c; color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --paper: #11151c; --sheet: #181e27; --ink: #e6eaf0; --ink-2: #a3adbd; --rule: #2c3442; --rule-2: #222a36;
+  --accent: #6c9bff; --accent-ink: #0d1320; --accent-soft: #1d2a44; --sketch: #7aa6ff; --constr: #6b7588;
+  --cut: #f08a6c; --ok: #5fcf95; --warn: #e3a948; --err: #ff8b80; --err-soft: #3a1d1c; color-scheme: dark;
+}
+html, body { height: 100%; }
+body { background: var(--paper); color: var(--ink); font: 14px/1.5 var(--f-body); }
+.wrap { max-width: 1240px; margin: 0 auto; padding-inline: 16px; padding-block: 18px 28px; display: grid; gap: 16px; }
+header.top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; }
+header.top h1 { font: 600 26px/1.1 var(--f-display); letter-spacing: .01em; margin: 0; text-wrap: balance; }
+header.top p { margin: 0; color: var(--ink-2); max-width: 62ch; }
+.desk { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 16px; align-items: start; }
+@media (max-width: 860px) { .desk { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--r); min-width: 0; }
+.panel > h2 { font: 600 13px/1 var(--f-display); text-transform: uppercase; letter-spacing: .08em; color: var(--ink-2); margin: 0; padding: 12px 14px; border-bottom: 1px solid var(--rule-2); display: flex; align-items: center; gap: 8px; }
+.panel > h2 .sp { flex: 1; }
+
+/* conversation */
+.chat { display: flex; flex-direction: column; height: min(78vh, 760px); min-height: 460px; }
+.log { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.msg { max-width: 92%; min-width: 0; }
+.msg .who { font: 500 11px/1 var(--f-mono); color: var(--ink-2); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
+.msg .body { padding: 8px 11px; border-radius: var(--r); white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg.you { align-self: flex-end; }
+.msg.you .body { background: var(--accent-soft); }
+.msg.claude .body { background: var(--paper); border: 1px solid var(--rule-2); }
+.note { font-size: 12.5px; color: var(--ink-2); padding-left: 2px; }
+.note.ok { color: var(--ok); }
+.note.err { color: var(--err); }
+.empty { color: var(--ink-2); display: grid; gap: 10px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font: inherit; font-size: 12.5px; text-align: left; border: 1px solid var(--rule); background: var(--sheet); color: var(--ink); border-radius: 999px; padding: 5px 11px; cursor: pointer; }
+.chip:hover { border-color: var(--accent); }
+.composer { border-top: 1px solid var(--rule-2); padding: 10px; display: grid; gap: 8px; }
+.composer textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 64px; font: inherit; color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: var(--r); padding: 8px 10px; }
+.composer textarea:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.row .hint { flex: 1; font-size: 12px; color: var(--ink-2); min-width: 160px; }
+button.btn { font: 500 13px/1 var(--f-body); border-radius: var(--r); padding: 8px 13px; cursor: pointer; border: 1px solid var(--rule); background: var(--sheet); color: var(--ink); }
+button.btn:hover:not(:disabled) { border-color: var(--accent); }
+button.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button.btn:disabled { opacity: .5; cursor: default; }
+button.btn.small { padding: 5px 9px; font-size: 12px; }
+.spin { display: inline-block; width: 11px; height: 11px; border: 2px solid var(--ink-2); border-top-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -1px; margin-right: 6px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+
+/* part */
+.part-head { padding: 12px 14px; display: grid; gap: 10px; border-bottom: 1px solid var(--rule-2); }
+.part-head label { font: 500 11px/1 var(--f-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--ink-2); }
+.part-head input[type=text] { font: 600 18px/1.2 var(--f-display); color: var(--ink); background: transparent; border: 0; border-bottom: 1px dashed var(--rule); padding: 3px 0; width: 100%; min-width: 0; }
+.badge { font: 500 11px/1 var(--f-mono); padding: 4px 7px; border-radius: 999px; border: 1px solid var(--rule); color: var(--ink-2); white-space: nowrap; }
+.badge.example { color: var(--warn); border-color: currentColor; }
+.tree { list-style: none; margin: 0; padding: 6px 0; }
+.feat { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--rule-2); }
+.feat:last-child { border-bottom: 0; }
+.feat .ix { font: 500 12px/1.6 var(--f-mono); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.feat .name { font-weight: 600; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+.feat .type { font: 400 12px/1 var(--f-mono); color: var(--ink-2); }
+.feat .type.cut { color: var(--cut); }
+.feat .params { font: 400 12.5px/1.5 var(--f-mono); color: var(--ink-2); overflow-wrap: anywhere; }
+.feat.new { background: var(--accent-soft); }
+.plate { margin-top: 6px; border: 1px solid var(--rule-2); border-radius: 4px; background: var(--paper); max-width: 360px; }
+.plate svg { display: block; width: 100%; height: auto; }
+.plate .cap { font: 400 11.5px/1 var(--f-mono); color: var(--ink-2); padding: 6px 8px; border-top: 1px solid var(--rule-2); display: flex; justify-content: space-between; gap: 8px; font-variant-numeric: tabular-nums; }
+.out { padding: 12px 14px; border-top: 1px solid var(--rule-2); display: grid; gap: 8px; }
+.out p { margin: 0; font-size: 12.5px; color: var(--ink-2); }
+.out code { font-family: var(--f-mono); font-size: 12px; }
+.jsonbox { display: grid; gap: 6px; }
+.jsonbox textarea { width: 100%; box-sizing: border-box; height: 160px; font: 12px/1.4 var(--f-mono); color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 4px; }
+.banner { padding: 9px 12px; border-radius: var(--r); background: var(--err-soft); color: var(--err); font-size: 13px; }
+input[type=file] { display: none; }
+[hidden] { display: none !important; }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <h1>RazorCAD Part Builder</h1>
+    <p>Describe a part in plain words. Claude writes the RazorCAD feature tree (sketches, extrudes, holes, fillets, sheet metal); download it and open it in RazorCAD with File ▸ Open.</p>
+  </header>
+  <div id="banner" class="banner" hidden></div>
+  <div class="desk">
+    <section class="panel chat" aria-label="Conversation with Claude">
+      <h2>Conversation <span class="sp"></span><button class="btn small" id="newchat" type="button">New conversation</button></h2>
+      <div class="log" id="log"></div>
+      <form class="composer" id="composer">
+        <textarea id="prompt" rows="3" placeholder="e.g. a 60 mm diameter flange, 8 mm thick, with a 30 mm hub 20 mm tall and six 6.5 mm bolt holes on a 46 mm circle"></textarea>
+        <div class="row">
+          <span class="hint">Ctrl+Enter sends. Claude sees the feature list on the right and changes it.</span>
+          <button class="btn primary" id="send" type="submit">Send</button>
+        </div>
+      </form>
+    </section>
+    <section class="panel" aria-label="Part">
+      <h2>Part <span class="sp"></span><span class="badge" id="count">0 features</span></h2>
+      <div class="part-head">
+        <div class="row" style="align-items:end">
+          <div style="flex:1;min-width:0;display:grid;gap:4px">
+            <label for="pname">Part name</label>
+            <input type="text" id="pname" spellcheck="false" autocomplete="off">
+          </div>
+          <span class="badge example" id="exbadge" hidden>Example part</span>
+        </div>
+        <div class="row">
+          <button class="btn primary" id="download" type="button">Download .rcad</button>
+          <button class="btn" id="undo" type="button">Undo last change</button>
+          <button class="btn" id="load" type="button">Load a part…</button>
+          <input type="file" id="file" accept=".rcad,.json,application/json">
+        </div>
+      </div>
+      <ol class="tree" id="tree"></ol>
+      <div class="out">
+        <p>In RazorCAD: <code>File ▸ Open</code> and pick the downloaded file. It rebuilds there; sketches are unconstrained so you can drag and dimension them. RazorCAD also has a built-in <code>Tools ▸ Ask Claude</code> panel that edits the open part.</p>
+        <div class="jsonbox" id="jsonbox" hidden>
+          <p>Downloads are not available here. Copy the part and save it as a <code>.rcad</code> file:</p>
+          <textarea id="json" readonly></textarea>
+          <div class="row"><button class="btn small" id="copy" type="button">Copy</button><span class="note" id="copied"></span></div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+const GUIDE = __GUIDE__;
+
+// ---------------------------------------------------------------- the part (RazorCAD document)
+const BASE = { sketch: ['Sketch'], extrude: ['Boss-Extrude', 'Cut-Extrude'], revolve: ['Revolve', 'Cut-Revolve'], plane: ['Plane'],
+  lpattern: ['LPattern'], cpattern: ['CirPattern'], mirror: ['Mirror'], fillet: ['Fillet'], chamfer: ['Chamfer'], shell: ['Shell'],
+  smBase: ['Base-Flange'], smFlange: ['Edge-Flange'], smCornerRelief: ['Corner-Relief'], smClosedCorner: ['Closed-Corner'] };
+const DEFAULTS = {
+  sketch: { plane: { ref: 'front' }, points: [], curves: [], constraints: [], nextSid: 1 },
+  extrude: { sketch: null, op: 'add', merge: true, end: 'blind', depth: 10, reverse: false, toPoint: null, toVertex: null, toPlane: null, toFace: null, toOffset: 5, toFlip: false, thin: false, thinT: 2, thinDir: 'one', scopeAll: true, scope: [] },
+  revolve: { sketch: null, op: 'add', merge: true, axis: 'v', end: 'oneway', angle: 360, reverse: false, axisEdge: null, axisFace: null, scopeAll: true, scope: [] },
+  plane: { refs: [], offset: 20, flip: false, angle: 90, flipAngle: false, position: 'mid', bisector: false },
+  lpattern: { feature: null, dir1: 'x', rev1: false, dist1: 20, count1: 3, dir2: 'none', rev2: false, dist2: 20, count2: 2 },
+  cpattern: { feature: null, axis: 'y', angle: 360, count: 6, equal: true },
+  mirror: { feature: null, plane: 'right' },
+  fillet: { radius: 2, edges: [] },
+  chamfer: { chamferType: 'distance', distance: 1, distance2: 1, angle: 45, flip: false, edges: [] },
+  shell: { faces: [], thickness: 2, outward: false },
+  smBase: { sketch: null, thickness: 2, radius: 2, kFactor: 0.44, reverse: false },
+  smFlange: { edges: [], length: 20, lengthRef: 'outer', angle: 90, position: 'inside', offset: 0, flip: false, useDefaultRadius: true, radius: 2, reliefType: 'rect', reliefRatio: 0.5, corner: 'closed', cornerGap: 0.1, cornerSwap: false, cornerBend: 'vcut' },
+  smCornerRelief: { body: null, reliefType: 'rect', size: 4 },
+  smClosedCorner: { body: null, faces: [], cornerType: 'overlap', bendCorner: 'vcut', gap: 0.1, swap: false },
+};
+const newDoc = (name = 'Part1') => ({ version: 1, name, material: null, equations: [], features: [], nextId: 1 });
+const rev = () => Math.random().toString(36).slice(2, 10);
+
+function nextName(doc, type, op) {
+  const [base, cutBase] = BASE[type];
+  const b = op === 'cut' && cutBase ? cutBase : base;
+  const re = new RegExp('^' + b.replace(/-/g, '\\-') + '(\\d+)$');
+  let max = 0;
+  for (const f of doc.features) { const m = re.exec(f.name); if (m) max = Math.max(max, +m[1]); }
+  return b + (max + 1);
+}
+
+// Add Claude's features (same rules as RazorCAD's own Ask Claude panel). Throws when something is not valid.
+function applyPlan(doc, plan) {
+  if (plan.replace) doc.features = [];
+  const idMap = new Map(), added = [];
+  const known = (id) => ['front', 'top', 'right'].includes(id) || doc.features.some((f) => f.id === id);
+  const ref = (v) => (typeof v === 'string' && idMap.has(v) ? idMap.get(v) : v);
+  for (const raw of plan.features) {
+    if (!raw || !BASE[raw.type]) throw new Error(`Unknown feature type "${raw && raw.type}"`);
+    const { id: tmp, type, ...props } = raw;
+    delete props.name;
+    let f;
+    if (type === 'sketch') {
+      const plane = { ref: ref(props.plane && props.plane.ref) || 'front' };
+      if (!known(plane.ref)) throw new Error(`Sketch ${tmp || ''} is on an unknown plane "${plane.ref}"`);
+      const points = (props.points || []).map((p) => {
+        if (!isFinite(+p.x) || !isFinite(+p.y)) throw new Error(`Point ${p.id} has no numeric x / y`);
+        return { id: String(p.id), x: +p.x, y: +p.y };
+      });
+      const pid = new Set(['O', ...points.map((p) => p.id)]);
+      const curves = (props.curves || []).map((c) => {
+        const cu = { id: String(c.id), type: c.type, construction: !!c.construction };
+        if (c.type === 'line') Object.assign(cu, { p1: String(c.p1), p2: String(c.p2) });
+        else if (c.type === 'circle') { if (!(+c.r > 0)) throw new Error(`Circle ${c.id} needs a radius above 0`); Object.assign(cu, { c: String(c.c), r: +c.r }); }
+        else if (c.type === 'arc') Object.assign(cu, { c: String(c.c), p1: String(c.p1), p2: String(c.p2) });
+        else throw new Error(`Unknown sketch curve type "${c.type}"`);
+        for (const k of ['p1', 'p2', 'c']) if (cu[k] !== undefined && !pid.has(cu[k])) throw new Error(`Sketch curve ${c.id} uses a missing point ${cu[k]}`);
+        return cu;
+      });
+      const nextSid = 101 + Math.max(0, ...[...points, ...curves].map((x) => +String(x.id).replace(/\D/g, '') || 0));
+      f = { id: 'f' + doc.nextId++, type, name: '', suppressed: false, ...structuredClone(DEFAULTS.sketch), plane, points, curves, constraints: [], nextSid, rev: rev() };
+      f.name = nextName(doc, type);
+    } else {
+      for (const k of ['sketch', 'feature', 'plane']) if (k in props) props[k] = ref(props[k]);
+      if (Array.isArray(props.refs)) props.refs = props.refs.map((r) => ({ ...r, id: ref(r.id) }));
+      if ('sketch' in DEFAULTS[type] && !doc.features.some((x) => x.id === props.sketch && x.type === 'sketch')) throw new Error(`${tmp || type} refers to a missing sketch "${raw.sketch}"`);
+      if ('feature' in DEFAULTS[type] && !doc.features.some((x) => x.id === props.feature)) throw new Error(`${tmp || type} refers to a missing feature "${raw.feature}"`);
+      f = { id: 'f' + doc.nextId++, type, name: '', suppressed: false, ...structuredClone(DEFAULTS[type]), ...props };
+      if (type === 'extrude' || type === 'revolve') f.op = props.op === 'cut' ? 'cut' : 'add';
+      f.name = nextName(doc, type, f.op);
+    }
+    doc.features.push(f);
+    if (tmp) idMap.set(tmp, f.id);
+    added.push(f.id);
+  }
+  return added;
+}
+
+function describePart(doc) {
+  const num = (v) => (typeof v === 'number' ? +v.toFixed(4) : v);
+  const lines = [`Part "${doc.name}" (${doc.features.length} features).`];
+  for (const f of doc.features) {
+    const base = `- ${f.id} ${f.type} "${f.name}"`;
+    if (f.type === 'sketch') {
+      const pts = f.points.map((p) => `${p.id}(${num(p.x)},${num(p.y)})`).join(' ');
+      const crv = f.curves.map((c) => (c.type === 'circle' ? `${c.id}:circle ${c.c} r${num(c.r)}` : `${c.id}:${c.type} ${c.type === 'arc' ? c.c + ' ' : ''}${c.p1}-${c.p2}${c.construction ? ' (construction)' : ''}`)).join('; ');
+      lines.push(`${base} on ${f.plane.ref === 'face' ? 'a model face' : f.plane.ref}: points ${pts || '-'}; curves ${crv || '-'}`.slice(0, 1500));
+    } else {
+      const keys = Object.entries(f).filter(([k, v]) => !['id', 'type', 'name', 'suppressed', 'rev'].includes(k) && v !== null && v !== '' && typeof v !== 'object').map(([k, v]) => `${k}=${num(v)}`);
+      const extra = f.edges && f.edges.length ? ` edges at ${f.edges.map((e) => `[${(e.p || []).map(num).join(',')}]`).join(' ')}` : '';
+      lines.push(`${base} ${keys.join(' ')}${extra}`);
+    }
+  }
+  if (!doc.features.length) lines.push('The part is empty.');
+  lines.push('(This page cannot build the geometry, so there are no bodies or errors to report. Double-check positions yourself.)');
+  return lines.join('\n');
+}
+
+function parseReply(text) {
+  const m = /```(?:json)?\s*([\s\S]*?)```/.exec(text || '');
+  const message = (text || '').replace(/```(?:json)?[\s\S]*?```/, '').trim();
+  if (!m) return { message, plan: null };
+  let plan;
+  try { plan = JSON.parse(m[1]); } catch (e) { return { message, plan: null, error: 'the json block could not be read (' + e.message + ')' }; }
+  if (!plan || !Array.isArray(plan.features)) return { message, plan: null, error: 'the json block has no "features" list' };
+  return { message, plan };
+}
+
+// ---------------------------------------------------------------- state
+const $ = (s) => document.querySelector(s);
+const EXAMPLE = { replace: true, features: [
+  { id: 's1', type: 'sketch', plane: { ref: 'top' },
+    points: [{ id: 'p1', x: -40, y: -25 }, { id: 'p2', x: 40, y: -25 }, { id: 'p3', x: 40, y: 25 }, { id: 'p4', x: -40, y: 25 },
+      { id: 'p5', x: -32, y: -17 }, { id: 'p6', x: 32, y: -17 }, { id: 'p7', x: 32, y: 17 }, { id: 'p8', x: -32, y: 17 }],
+    curves: [{ id: 'c1', type: 'line', p1: 'p1', p2: 'p2' }, { id: 'c2', type: 'line', p1: 'p2', p2: 'p3' }, { id: 'c3', type: 'line', p1: 'p3', p2: 'p4' }, { id: 'c4', type: 'line', p1: 'p4', p2: 'p1' },
+      { id: 'c5', type: 'circle', c: 'p5', r: 2.5 }, { id: 'c6', type: 'circle', c: 'p6', r: 2.5 }, { id: 'c7', type: 'circle', c: 'p7', r: 2.5 }, { id: 'c8', type: 'circle', c: 'p8', r: 2.5 }] },
+  { id: 'e1', type: 'extrude', sketch: 's1', op: 'add', end: 'blind', depth: 6 },
+  { id: 's2', type: 'sketch', plane: { ref: 'top' }, points: [], curves: [{ id: 'c1', type: 'circle', c: 'O', r: 9 }] },
+  { id: 'e2', type: 'extrude', sketch: 's2', op: 'add', end: 'blind', depth: 18 },
+  { type: 'fillet', radius: 4, edges: [{ p: [40, 3, 25] }, { p: [-40, 3, 25] }, { p: [40, 3, -25] }, { p: [-40, 3, -25] }] },
+] };
+const S = { doc: null, example: true, chat: [], history: [], busy: false, newIds: new Set(), entries: [] };
+const STORE = 'razorcad-builder.v1';
+
+function save() {
+  try { localStorage.setItem(STORE, JSON.stringify({ doc: S.doc, example: S.example, chat: S.chat, entries: S.entries.slice(-60) })); } catch (e) { /* storage unavailable */ }
+}
+function restore() {
+  try {
+    const s = JSON.parse(localStorage.getItem(STORE) || 'null');
+    if (s && s.doc && Array.isArray(s.doc.features)) { Object.assign(S, { doc: s.doc, example: !!s.example, chat: s.chat || [], entries: s.entries || [] }); return true; }
+  } catch (e) { /* storage unavailable */ }
+  return false;
+}
+function loadExample() {
+  S.doc = newDoc('Mounting Plate');
+  applyPlan(S.doc, EXAMPLE);
+  S.example = true; S.chat = []; S.history = []; S.entries = []; S.newIds = new Set();
+}
+
+// ---------------------------------------------------------------- rendering: conversation
+const SUGGEST = [
+  'A 60 mm flange, 8 mm thick, with a 30 mm hub 20 mm tall, a 16 mm bore and six 6.5 mm bolt holes on a 46 mm circle',
+  'A sheet metal L-bracket, 2 mm steel, 80 × 40 base with a 30 mm flange and two 6 mm slots',
+  'A 100 × 60 × 40 box with 3 mm walls, open at the top, with 2 mm fillets on the outside vertical edges',
+];
+function renderLog() {
+  const log = $('#log');
+  log.textContent = '';
+  if (!S.entries.length) {
+    const e = document.createElement('div');
+    e.className = 'empty';
+    const p = document.createElement('div');
+    p.textContent = S.example ? 'The part on the right is an example. Describe your own part and Claude replaces it, or ask for a change to the example.' : 'Describe the next change.';
+    const chips = document.createElement('div');
+    chips.className = 'chips';
+    for (const t of SUGGEST) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'chip'; b.textContent = t;
+      b.onclick = () => { $('#prompt').value = t; $('#prompt').focus(); };
+      chips.appendChild(b);
+    }
+    e.append(p, chips);
+    log.appendChild(e);
+  }
+  for (const en of S.entries) log.appendChild(entryEl(en));
+  log.scrollTop = log.scrollHeight;
+}
+function entryEl(en) {
+  if (en.kind === 'note') {
+    const n = document.createElement('div');
+    n.className = 'note' + (en.tone ? ' ' + en.tone : '');
+    n.textContent = en.text;
+    return n;
+  }
+  const m = document.createElement('div');
+  m.className = 'msg ' + en.kind;
+  const who = document.createElement('div');
+  who.className = 'who'; who.textContent = en.kind === 'you' ? 'You' : 'Claude';
+  const body = document.createElement('div');
+  body.className = 'body'; body.textContent = en.text;
+  m.append(who, body);
+  return m;
+}
+function addEntry(kind, text, tone) {
+  const en = { kind, text, tone };
+  S.entries.push(en);
+  if (S.entries.length === 1) renderLog(); else { $('#log').appendChild(entryEl(en)); $('#log').scrollTop = $('#log').scrollHeight; }
+  return en;
+}
+
+// ---------------------------------------------------------------- rendering: part
+const fmt = (v) => (typeof v === 'number' ? String(+v.toFixed(3)) : String(v));
+function paramsOf(f) {
+  const ref = (id) => { const g = S.doc.features.find((x) => x.id === id); return g ? g.name : id; };
+  switch (f.type) {
+    case 'sketch': return `on ${f.plane.ref === 'top' || f.plane.ref === 'front' || f.plane.ref === 'right' ? f.plane.ref + ' plane' : ref(f.plane.ref)} · ${f.points.length} points · ${f.curves.length} curves`;
+    case 'extrude': return `${ref(f.sketch)} · ${f.end === 'blind' || f.end === 'midplane' ? fmt(f.depth) + ' mm ' : ''}${f.end}${f.reverse ? ' · reversed' : ''}${f.thin ? ` · thin ${fmt(f.thinT)} mm` : ''}`;
+    case 'revolve': return `${ref(f.sketch)} · ${fmt(f.angle)}° about ${f.axis}`;
+    case 'fillet': return `R ${fmt(f.radius)} · ${f.edges.length} edge${f.edges.length === 1 ? '' : 's'}`;
+    case 'chamfer': return `${fmt(f.distance)} mm · ${f.edges.length} edge${f.edges.length === 1 ? '' : 's'}`;
+    case 'plane': return `${fmt(f.offset)} mm from ${(f.refs || []).map((r) => ref(r.id)).join(', ')}`;
+    case 'lpattern': return `${ref(f.feature)} · ${f.count1} × ${fmt(f.dist1)} mm along ${f.dir1}${f.dir2 !== 'none' ? ` · ${f.count2} × ${fmt(f.dist2)} mm along ${f.dir2}` : ''}`;
+    case 'cpattern': return `${ref(f.feature)} · ${f.count} about ${f.axis} over ${fmt(f.angle)}°`;
+    case 'mirror': return `${ref(f.feature)} about ${ref(f.plane)}`;
+    case 'shell': return `${fmt(f.thickness)} mm walls · ${f.faces.length} face${f.faces.length === 1 ? '' : 's'} removed`;
+    case 'smBase': return `${ref(f.sketch)} · t ${fmt(f.thickness)} mm · R ${fmt(f.radius)} · K ${fmt(f.kFactor)}`;
+    case 'smFlange': return `${fmt(f.length)} mm at ${fmt(f.angle)}° · ${f.edges.length} edge${f.edges.length === 1 ? '' : 's'}`;
+    case 'smCornerRelief': return `${f.reliefType} · ${fmt(f.size)} mm`;
+    case 'smClosedCorner': return `gap ${fmt(f.gap)} mm`;
+    default: return '';
+  }
+}
+function sketchPlate(f) {
+  const P = new Map(f.points.map((p) => [p.id, p]));
+  P.set('O', { x: 0, y: 0 });
+  const segs = [];
+  let x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+  const ext = (x, y) => { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); };
+  for (const c of f.curves) {
+    let pts = [];
+    if (c.type === 'line') { const a = P.get(c.p1), b = P.get(c.p2); if (a && b) pts = [a, b]; }
+    else if (c.type === 'circle') { const o = P.get(c.c); if (o) for (let i = 0; i <= 48; i++) { const t = (i / 48) * Math.PI * 2; pts.push({ x: o.x + c.r * Math.cos(t), y: o.y + c.r * Math.sin(t) }); } }
+    else if (c.type === 'arc') {
+      const o = P.get(c.c), a = P.get(c.p1), b = P.get(c.p2);
+      if (o && a && b) {
+        const r = Math.hypot(a.x - o.x, a.y - o.y), t0 = Math.atan2(a.y - o.y, a.x - o.x);
+        let t1 = Math.atan2(b.y - o.y, b.x - o.x);
+        while (t1 <= t0) t1 += Math.PI * 2;
+        for (let i = 0; i <= 32; i++) { const t = t0 + ((t1 - t0) * i) / 32; pts.push({ x: o.x + r * Math.cos(t), y: o.y + r * Math.sin(t) }); }
+      }
+    }
+    pts.forEach((p) => ext(p.x, p.y));
+    if (pts.length) segs.push({ pts, construction: c.construction });
+  }
+  const w = Math.max(x1 - x0, 1e-6), h = Math.max(y1 - y0, 1e-6);
+  const W = 320, H = Math.max(110, Math.min(220, (W * h) / w)), pad = 14;
+  const s = Math.min((W - pad * 2) / w, (H - pad * 2) / h);
+  const ox = (W - w * s) / 2 - x0 * s, oy = (H + h * s) / 2 + y0 * s;
+  const X = (x) => (ox + x * s).toFixed(1), Y = (y) => (oy - y * s).toFixed(1);
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${W} ${H.toFixed(0)}`);
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', `${f.name} sketch preview`);
+  const grid = document.createElementNS(NS, 'path');
+  let gd = '';
+  const step = Math.pow(10, Math.floor(Math.log10(Math.max(w, h) / 4)));
+  if (step * s > 6) {
+    for (let gx = Math.ceil(x0 / step) * step; gx <= x1 + 1e-9; gx += step) gd += `M${X(gx)} ${Y(y0)}V${Y(y1)}`;
+    for (let gy = Math.ceil(y0 / step) * step; gy <= y1 + 1e-9; gy += step) gd += `M${X(x0)} ${Y(gy)}H${X(x1)}`;
+  }
+  grid.setAttribute('d', gd); grid.setAttribute('fill', 'none'); grid.setAttribute('stroke', 'var(--rule-2)'); grid.setAttribute('stroke-width', '1');
+  svg.appendChild(grid);
+  for (const sg of segs) {
+    const p = document.createElementNS(NS, 'polyline');
+    p.setAttribute('points', sg.pts.map((q) => `${X(q.x)},${Y(q.y)}`).join(' '));
+    p.setAttribute('fill', 'none');
+    p.setAttribute('stroke', sg.construction ? 'var(--constr)' : 'var(--sketch)');
+    p.setAttribute('stroke-width', sg.construction ? '1' : '1.6');
+    if (sg.construction) p.setAttribute('stroke-dasharray', '6 3 1.5 3');
+    p.setAttribute('stroke-linejoin', 'round');
+    svg.appendChild(p);
+  }
+  const o = document.createElementNS(NS, 'path');
+  o.setAttribute('d', `M${X(0) - 5} ${Y(0)}h10M${X(0)} ${Y(0) - 5}v10`);
+  o.setAttribute('stroke', 'var(--cut)'); o.setAttribute('stroke-width', '1.2'); o.setAttribute('fill', 'none');
+  svg.appendChild(o);
+  const plate = document.createElement('div');
+  plate.className = 'plate';
+  const cap = document.createElement('div');
+  cap.className = 'cap';
+  const a = document.createElement('span'); a.textContent = `${fmt(x1 - x0)} × ${fmt(y1 - y0)} mm`;
+  const b = document.createElement('span'); b.textContent = `x ${fmt(x0)}…${fmt(x1)}  y ${fmt(y0)}…${fmt(y1)}`;
+  cap.append(a, b);
+  plate.append(svg, cap);
+  return plate;
+}
+function renderPart() {
+  const doc = S.doc;
+  if (document.activeElement !== $('#pname')) $('#pname').value = doc.name;
+  $('#count').textContent = `${doc.features.length} feature${doc.features.length === 1 ? '' : 's'}`;
+  $('#exbadge').hidden = !S.example;
+  $('#undo').disabled = !S.history.length || S.busy;
+  const tree = $('#tree');
+  tree.textContent = '';
+  doc.features.forEach((f, i) => {
+    const li = document.createElement('li');
+    li.className = 'feat' + (S.newIds.has(f.id) ? ' new' : '');
+    const ix = document.createElement('div'); ix.className = 'ix'; ix.textContent = String(i + 1).padStart(2, '0');
+    const main = document.createElement('div'); main.style.minWidth = '0';
+    const nm = document.createElement('div'); nm.className = 'name';
+    const n = document.createElement('span'); n.textContent = f.name;
+    const t = document.createElement('span'); t.className = 'type' + (f.op === 'cut' ? ' cut' : ''); t.textContent = f.type + (f.op === 'cut' ? ' · cut' : '');
+    nm.append(n, t);
+    const pr = document.createElement('div'); pr.className = 'params'; pr.textContent = paramsOf(f);
+    main.append(nm, pr);
+    if (f.type === 'sketch' && f.curves.length) main.appendChild(sketchPlate(f));
+    li.append(ix, main);
+    tree.appendChild(li);
+  });
+  if (!$('#jsonbox').hidden) $('#json').value = partJSON();
+}
+const partJSON = () => JSON.stringify(S.doc, null, 2);
+
+// ---------------------------------------------------------------- asking Claude
+let sample = null;
+const use = (name) => (window.claude && window.claude.use ? window.claude.use(name) : Promise.resolve(null));
+function banner(text) { $('#banner').textContent = text || ''; $('#banner').hidden = !text; }
+function setBusy(on) {
+  S.busy = on;
+  $('#send').disabled = on;
+  $('#send').innerHTML = on ? '<span class="spin"></span>Working' : 'Send';
+  $('#undo').disabled = on || !S.history.length;
+}
+
+async function ask(text) {
+  if (S.busy || !text.trim()) return;
+  if (!sample) sample = await use('sample');
+  if (!sample) { banner('Asking Claude is not available in this view. Open the page on claude.ai while signed in.'); return; }
+  banner('');
+  $('#prompt').value = '';
+  addEntry('you', text);
+  const part = `<current_part>\n${describePart(S.doc).slice(0, 12000)}\n</current_part>`;
+  const first = !S.chat.length;
+  const msgs = [...S.chat, { role: 'user', content: (first ? GUIDE + '\n\n---\nThe user asks:\n' : '') + text + '\n\n' + part }];
+  setBusy(true);
+  const live = addEntry('claude', '…');
+  const liveEl = $('#log').lastElementChild.querySelector('.body');
+  const before = JSON.stringify(S.doc);
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const res = await sample(msgs, {
+        modelTier: 'complex', cache: false,
+        onText: ({ text: t }) => { liveEl.textContent = (t.split('```')[0].trim() || 'Thinking…'); },
+      });
+      const reply = res.text || '';
+      msgs.push({ role: 'assistant', content: reply });
+      const { message, plan, error } = parseReply(reply);
+      live.text = message || (plan ? 'Here is the part.' : reply);
+      liveEl.textContent = live.text;
+      let problem = error || null;
+      if (!problem && plan) {
+        try {
+          const prev = JSON.parse(before);
+          const added = applyPlan(S.doc, plan);
+          S.history.push(prev);
+          S.newIds = new Set(added);
+          S.example = false;
+          addEntry('note', `${plan.replace ? 'Part replaced with' : 'Added'} ${added.length} feature${added.length === 1 ? '' : 's'}.`, 'ok');
+        } catch (e) {
+          S.doc = JSON.parse(before);
+          problem = e.message;
+        }
+      }
+      if (res.truncated && !plan) problem = problem || 'the answer was cut off before the json block ended; send a shorter plan';
+      if (!problem) break;
+      if (attempt === 1) { addEntry('note', `It still could not be used (${problem}). The part was left as it was.`, 'err'); break; }
+      addEntry('note', `That could not be used (${problem}). Asking Claude to correct it…`);
+      msgs.push({ role: 'user', content: `Your features could not be used: ${problem}\nThe part is unchanged. Answer with the corrected json block (the complete list of features to add).` });
+    }
+  } catch (e) {
+    S.doc = JSON.parse(before);
+    const code = e && e.code;
+    addEntry('note', code === 'not_granted' ? 'Claude access was not allowed for this page.' : code === 'rate_limited' ? 'Too many requests right now. Wait a minute and send again.' : `Claude could not answer: ${(e && e.message) || e}`, 'err');
+    if (live.text === '…') { S.entries.splice(S.entries.indexOf(live), 1); renderLog(); }
+  } finally {
+    setBusy(false);
+  }
+  // keep the conversation without the old part descriptions; the guide stays in the first message
+  const keep = msgs.map((m) => ({ role: m.role, content: m.role === 'user' ? m.content.replace(/\n\n<current_part>[\s\S]*?<\/current_part>/, '') : m.content }));
+  while (keep.length && keep[keep.length - 1].role === 'user') keep.pop(); // unanswered (an error)
+  let tail = keep.slice(1);
+  if (tail.length > 16) { tail = tail.slice(-16); while (tail.length && tail[0].role !== 'assistant') tail.shift(); }
+  S.chat = keep.length ? [keep[0], ...tail] : [];
+  renderPart();
+  save();
+}
+
+// ---------------------------------------------------------------- controls
+$('#composer').addEventListener('submit', (e) => { e.preventDefault(); ask($('#prompt').value); });
+$('#prompt').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ask($('#prompt').value); } });
+$('#pname').addEventListener('input', () => { S.doc.name = $('#pname').value.trim() || 'Part1'; save(); });
+$('#newchat').addEventListener('click', () => {
+  S.chat = []; S.entries = [];
+  renderLog(); save();
+});
+$('#undo').addEventListener('click', () => {
+  if (!S.history.length || S.busy) return;
+  S.doc = S.history.pop();
+  S.newIds = new Set();
+  addEntry('note', 'Undid the last change. (Claude still remembers the conversation; mention it if you want something different.)');
+  renderPart(); save();
+});
+$('#load').addEventListener('click', () => $('#file').click());
+$('#file').addEventListener('change', async () => {
+  const file = $('#file').files[0];
+  $('#file').value = '';
+  if (!file) return;
+  try {
+    const doc = JSON.parse(await file.text());
+    if (!doc || !Array.isArray(doc.features)) throw new Error('it has no feature list');
+    doc.nextId = Math.max(doc.nextId || 1, 1 + Math.max(0, ...doc.features.map((f) => +String(f.id).replace(/\D/g, '') || 0)));
+    S.history.push(S.doc);
+    S.doc = doc; S.example = false; S.newIds = new Set();
+    addEntry('note', `Loaded "${doc.name}" (${doc.features.length} features). Claude sees its feature list.`, 'ok');
+    renderPart(); save();
+  } catch (e) {
+    banner(`That file is not a RazorCAD part: ${e.message}.`);
+  }
+});
+const fileName = () => `${(S.doc.name || 'Part1').replace(/[\\/:*?"<>|]+/g, '_')}.rcad`;
+$('#download').addEventListener('click', async () => {
+  let dl = null;
+  try { dl = await use('downloads'); } catch (e) { dl = null; }
+  if (!dl) { $('#jsonbox').hidden = false; $('#json').value = partJSON(); return; }
+  try {
+    await dl.save({ filename: fileName(), data: partJSON() });
+  } catch (e) {
+    $('#jsonbox').hidden = false; $('#json').value = partJSON();
+    if (!(e && /cancel|declin|abort/i.test(String(e.code || e.message)))) banner(`The download did not start (${(e && (e.message || e.code)) || e}). Copy the part below instead.`);
+  }
+});
+$('#copy').addEventListener('click', () => {
+  const t = $('#json');
+  navigator.clipboard.writeText(t.value).then(() => { $('#copied').textContent = 'Copied.'; }, () => { t.focus(); t.select(); $('#copied').textContent = 'Press Ctrl+C to copy.'; });
+});
+
+if (!restore()) loadExample();
+renderLog();
+renderPart();
+</script>

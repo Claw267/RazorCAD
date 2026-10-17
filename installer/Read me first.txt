@@ -1,0 +1,33 @@
+RazorCAD — beta test
+===================
+
+Version {VERSION}. You can also see the version in the setup window, in the setup file's Properties
+(Details tab) and in Windows Settings ▸ Apps ▸ Installed apps.
+
+Thank you for testing RazorCAD, a parametric 3D part modeler for Windows 10 and 11.
+
+INSTALLING
+1. Run RazorCAD-Setup-{VERSION}.exe.
+2. Windows may show "Windows protected your PC" (SmartScreen), because this test version is not
+   code-signed. Click "More info", then "Run anyway".
+3. Choose "Just for me" (no administrator rights needed) or "For everyone on this computer", pick a
+   folder if you want another one, and click Install.
+
+Setup also installs what RazorCAD needs if it is missing: the Microsoft Edge WebView2 Runtime and the
+.NET Framework (both from Microsoft; most up-to-date Windows 10/11 PCs already have them). An
+internet connection is only needed if one of these has to be downloaded.
+
+USING IT
+Start RazorCAD from the Start menu or the desktop shortcut. File ▸ Open Sample Part shows an example
+part; Help ▸ Keyboard Shortcuts lists the controls. Save your parts with File ▸ Save: parts are .rcad
+files, assemblies .rasm and drawings .rdrw.
+
+REPORTING PROBLEMS
+If RazorCAD runs into an error or crashes, it saves a crash report. Open Help ▸ Open Crash Reports
+Folder and send the newest folder (zip it) with a short note of what you were doing. Each report
+contains the error, the recent actions and the part that was open.
+
+UNINSTALLING
+Windows Settings ▸ Apps ▸ Installed apps ▸ RazorCAD ▸ Uninstall. Your part files are never removed.
+
+Silent install (for IT): RazorCAD-Setup-{VERSION}.exe /S [/D=C:\Folder\RazorCAD] [/ALLUSERS] [/NODESKTOP] [/NOSTARTMENU]

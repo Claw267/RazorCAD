@@ -1,0 +1,26 @@
+
+New Feature:
+- Sheetmetal Feature under it's own tab.
+- Allow closed sketches to be extruded as sheetmetal parts. This will be different than extruded bodies with different properties.
+- The sheetmetal feature must allow the user the set thickness and bend radius.
+- Sheetmetal parts will have the following properties: Thickness, No of Bends, Overall Size, Mass, Quantity. And any other relevant features that I may be missing.
+- Add a flange feature where flanges can be added to flat sheets. The angle and length can be defines and also how it is offset or the length of the flange is defined. Add auto relief features that add reliefs in corners when multiple fold are made. The user can choose the bend radius.
+- Add a corner relief feature
+- Add a closed corner feature so the user is can modify of the corners for folded parts line up.
+- The sheetmetal parts will have different icon in the feature tree.
+- When sheetmetal parts are created their bodies should be grouped under its own folder below the solid bodies folder so that users can easily manage parts.
+- All sheetmetal parts to be flattened to view their flat pattern. Use K-factors to correctly flatten parts that account for streching and compressing of material.
+- When a sheetmetal part is right clicked and export DXF is selected it must export the flat pattern.
+- When exporting DXF's add options for the user to include bend lines, bend notes, hidden lines and other potential relevant properties.
+- Creat a DXF mapping feature where the user can select the colour of bend lines where they can set seperate colours for up and down bends. By default up bends can be red and down can be blow. Etch lines must be yellow by default and a dashed line.
+- Allow DXF's to be bulk exported.
+- When bulk exportin or exporting DXF's in general allow the user to set the target directory.
+- Show a preview window of the DXF and add some tools that allows the user to change line types and colours. They can hit an okay button that will complete the export. If they hit cancel just cancel the exporting of that DXF and carry on to the next one. Have an abort bulk export option.
+- The DXF names are the sheetmetal body names under Sheetmetal Bodies Feature in the feature tree.
+- Add a undbend feature and bend feature that will be features that will appear in the feature tree, this can allow users to make modifications to the part in the flat state. Whith the unbend feature it will flatten the part relative to the face that selected. When bend feature is used if must bend back into the position it was before the unbend operation.
+- When flatted feature is used to preview the flat pattern show that part in isolation. And when the user exits the preview it must restore the views to the original state before flattening.
+- Allow extruded bodies to be converted to sheetmetal as well as surfaces. Two surfaces that are at different angels and the are knitted the intersecting line is where the bend is. The user can set the bend radiuses.
+
+
+
+That should cover the basics of sheetmetal parts. We can build on this further.

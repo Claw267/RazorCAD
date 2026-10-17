@@ -1,0 +1,28 @@
+# Build output (build.bat / installer)
+build/
+dist/
+*.spec
+RazorCAD.exe
+RazorCAD.old.exe
+*.dll
+*.pdb
+
+# Python
+__pycache__/
+*.pyc
+
+# Models: only the test model is tracked
+Test Parts/*
+!Test Parts/Part1.rcad
+*.autosave.rcad
+
+# Local manual change-tracking snapshot (Manual/check_changes.py)
+Manual/.tracking/
+
+# Unrelated drawing work
+bcl_redraw/
+
+# Local editor / OS files
+.claude/settings.local.json
+Thumbs.db
+desktop.ini

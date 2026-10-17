@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "razorcad",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["serve.py", "8765"],
+      "port": 8765
+    },
+    {
+      "name": "pb-curve-generator",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8791", "--directory", "C:/Users/chris/OneDrive/Documents/PB Fans Curve Generator"],
+      "port": 8791
+    }
+  ]
+}

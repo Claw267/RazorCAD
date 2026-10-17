@@ -1,0 +1,3477 @@
+{
+  "version": 1,
+  "name": "Part1",
+  "material": null,
+  "equations": [],
+  "features": [
+    {
+      "id": "f1",
+      "type": "sketch",
+      "name": "Sketch1",
+      "suppressed": false,
+      "plane": {
+        "ref": "top"
+      },
+      "points": [],
+      "curves": [
+        {
+          "id": "c1",
+          "type": "circle",
+          "c": "O",
+          "r": 50,
+          "construction": false
+        }
+      ],
+      "constraints": [
+        {
+          "id": "k4",
+          "type": "dim",
+          "refs": [
+            "c1"
+          ],
+          "kind": "diameter",
+          "value": 100,
+          "ang": 2.6979505226190637
+        }
+      ],
+      "nextSid": 5,
+      "rev": "69hvu2wc"
+    },
+    {
+      "id": "f2",
+      "type": "extrude",
+      "name": "Boss-Extrude1",
+      "suppressed": false,
+      "sketch": "f1",
+      "op": "add",
+      "merge": true,
+      "end": "blind",
+      "depth": 50,
+      "reverse": false,
+      "toPoint": null,
+      "toVertex": null,
+      "toPlane": null,
+      "toFace": null,
+      "toOffset": 5,
+      "toFlip": false
+    },
+    {
+      "id": "f3",
+      "type": "sketch",
+      "name": "Sketch2",
+      "suppressed": false,
+      "plane": {
+        "ref": "face",
+        "frame": {
+          "o": [
+            0,
+            50,
+            0
+          ],
+          "u": [
+            1,
+            0,
+            0
+          ],
+          "v": [
+            0,
+            0,
+            -1
+          ],
+          "n": [
+            0,
+            1,
+            0
+          ]
+        }
+      },
+      "points": [
+        {
+          "id": "p1",
+          "x": -35,
+          "y": -35
+        },
+        {
+          "id": "p2",
+          "x": 35,
+          "y": -35
+        },
+        {
+          "id": "p3",
+          "x": 35,
+          "y": 35
+        },
+        {
+          "id": "p4",
+          "x": -35,
+          "y": 35
+        }
+      ],
+      "curves": [
+        {
+          "id": "c5",
+          "type": "line",
+          "p1": "p1",
+          "p2": "p2",
+          "construction": false
+        },
+        {
+          "id": "c6",
+          "type": "line",
+          "p1": "p2",
+          "p2": "p3",
+          "construction": false
+        },
+        {
+          "id": "c7",
+          "type": "line",
+          "p1": "p3",
+          "p2": "p4",
+          "construction": false
+        },
+        {
+          "id": "c8",
+          "type": "line",
+          "p1": "p4",
+          "p2": "p1",
+          "construction": false
+        },
+        {
+          "id": "c13",
+          "type": "line",
+          "p1": "p1",
+          "p2": "p3",
+          "construction": true
+        },
+        {
+          "id": "c14",
+          "type": "line",
+          "p1": "p2",
+          "p2": "p4",
+          "construction": true
+        }
+      ],
+      "constraints": [
+        {
+          "id": "k9",
+          "type": "horizontal",
+          "refs": [
+            "c5"
+          ]
+        },
+        {
+          "id": "k10",
+          "type": "vertical",
+          "refs": [
+            "c6"
+          ]
+        },
+        {
+          "id": "k11",
+          "type": "horizontal",
+          "refs": [
+            "c7"
+          ]
+        },
+        {
+          "id": "k12",
+          "type": "vertical",
+          "refs": [
+            "c8"
+          ]
+        },
+        {
+          "id": "k15",
+          "type": "midpoint",
+          "refs": [
+            "O",
+            "c13"
+          ]
+        }
+      ],
+      "nextSid": 16,
+      "rev": "0o2nzt3m"
+    },
+    {
+      "id": "f4",
+      "type": "extrude",
+      "name": "Boss-Extrude2",
+      "suppressed": false,
+      "sketch": "f3",
+      "op": "add",
+      "merge": false,
+      "end": "blind",
+      "depth": 30,
+      "reverse": false,
+      "toPoint": null,
+      "toVertex": null,
+      "toPlane": null,
+      "toFace": null,
+      "toOffset": 5,
+      "toFlip": false
+    },
+    {
+      "id": "f5",
+      "type": "fillet",
+      "name": "Fillet1",
+      "suppressed": false,
+      "radius": 10,
+      "edges": [
+        {
+          "p": [
+            -35,
+            65,
+            35
+          ],
+          "t": "LINE",
+          "d": [
+            0,
+            1,
+            0
+          ],
+          "box": {
+            "min": [
+              -50,
+              0,
+              -50
+            ],
+            "max": [
+              50,
+              80,
+              50
+            ]
+          }
+        },
+        {
+          "p": [
+            35,
+            65,
+            35
+          ],
+          "t": "LINE",
+          "d": [
+            0,
+            1,
+            0
+          ],
+          "box": {
+            "min": [
+              -50,
+              0,
+              -50
+            ],
+            "max": [
+              50,
+              80,
+              50
+            ]
+          }
+        },
+        {
+          "p": [
+            -35,
+            65,
+            -35
+          ],
+          "t": "LINE",
+          "d": [
+            0,
+            1,
+            0
+          ],
+          "box": {
+            "min": [
+              -50,
+              0,
+              -50
+            ],
+            "max": [
+              50,
+              80,
+              50
+            ]
+          }
+        },
+        {
+          "p": [
+            35,
+            65,
+            -35
+          ],
+          "t": "LINE",
+          "d": [
+            0,
+            1,
+            0
+          ],
+          "box": {
+            "min": [
+              -50,
+              0,
+              -50
+            ],
+            "max": [
+              50,
+              80,
+              50
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "f6",
+      "type": "chamfer",
+      "name": "Chamfer1",
+      "suppressed": false,
+      "distance": 2,
+      "edges": [
+        {
+          "p": [
+            35,
+            80,
+            0
+          ],
+          "t": "LINE",
+          "d": [
+            0,
+            0,
+            -1
+          ],
+          "box": {
+            "min": [
+              -50,
+              0,
+              -50
+            ],
+            "max": [
+              50,
+              80,
+              50
+            ]
+          }
+        },
+        {
+          "p": [
+            35,
+            50,
+            0
+          ],
+          "t": "LINE",
+          "d": [
+            0,
+            0,
+            -1
+          ],
+          "box": {
+            "min": [
+              -50,
+              0,
+              -50
+            ],
+            "max": [
+              50,
+              80,
+              50
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "f7",
+      "type": "chamfer",
+      "name": "Chamfer2",
+      "suppressed": false,
+      "distance": 1,
+      "edges": [
+        {
+          "p": [
+            -50,
+            50,
+            -6.123233995736766e-15
+          ],
+          "t": "CIRCLE",
+          "box": {
+            "min": [
+              -50,
+              0,
+              -50
+            ],
+            "max": [
+              50,
+              80,
+              50
+            ]
+          },
+          "r": 50,
+          "c": [
+            0,
+            50,
+            0
+          ],
+          "n": [
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "p": [
+            -50,
+            0,
+            -6.123233995736766e-15
+          ],
+          "t": "CIRCLE",
+          "box": {
+            "min": [
+              -50,
+              0,
+              -50
+            ],
+            "max": [
+              50,
+              80,
+              50
+            ]
+          },
+          "r": 50,
+          "c": [
+            0,
+            0,
+            0
+          ],
+          "n": [
+            0,
+            1,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "id": "f8",
+      "type": "sketch",
+      "name": "Sketch3",
+      "suppressed": false,
+      "plane": {
+        "ref": "face",
+        "frame": {
+          "o": [
+            0,
+            80,
+            0
+          ],
+          "u": [
+            1,
+            0,
+            0
+          ],
+          "v": [
+            0,
+            0,
+            -1
+          ],
+          "n": [
+            0,
+            1,
+            0
+          ]
+        }
+      },
+      "points": [],
+      "curves": [
+        {
+          "id": "c1",
+          "type": "circle",
+          "c": "O",
+          "r": 20,
+          "construction": false
+        }
+      ],
+      "constraints": [
+        {
+          "id": "k2",
+          "type": "dim",
+          "refs": [
+            "c1"
+          ],
+          "kind": "diameter",
+          "value": 40,
+          "ang": 2.3598614789488286
+        }
+      ],
+      "nextSid": 3,
+      "rev": "1zadjdza"
+    },
+    {
+      "id": "f9",
+      "type": "extrude",
+      "name": "Cut-Extrude1",
+      "suppressed": false,
+      "sketch": "f8",
+      "op": "cut",
+      "merge": true,
+      "end": "upToSurface",
+      "depth": 10,
+      "reverse": false,
+      "toPoint": null,
+      "toVertex": null,
+      "toPlane": null,
+      "toFace": {
+        "p": [
+          -41.3540207755089,
+          50,
+          1.5652957721424627
+        ],
+        "n": [
+          0,
+          1,
+          0
+        ],
+        "box": {
+          "min": [
+            -50,
+            0,
+            -50
+          ],
+          "max": [
+            50,
+            80,
+            50
+          ]
+        }
+      },
+      "toOffset": 5,
+      "toFlip": false
+    },
+    {
+      "id": "f11",
+      "type": "sketch",
+      "name": "Sketch4",
+      "suppressed": false,
+      "plane": {
+        "ref": "face",
+        "frame": {
+          "o": [
+            0,
+            80,
+            0
+          ],
+          "u": [
+            1,
+            0,
+            0
+          ],
+          "v": [
+            0,
+            0,
+            -1
+          ],
+          "n": [
+            0,
+            1,
+            0
+          ]
+        }
+      },
+      "points": [
+        {
+          "id": "p1",
+          "x": -30,
+          "y": -30
+        },
+        {
+          "id": "p2",
+          "x": 30,
+          "y": -30
+        },
+        {
+          "id": "p3",
+          "x": 30,
+          "y": 30
+        },
+        {
+          "id": "p4",
+          "x": -30,
+          "y": 30
+        },
+        {
+          "id": "p17",
+          "x": 25,
+          "y": 35
+        },
+        {
+          "id": "p18",
+          "x": -25,
+          "y": 35
+        }
+      ],
+      "curves": [
+        {
+          "id": "c5",
+          "type": "line",
+          "p1": "p1",
+          "p2": "p2",
+          "construction": false
+        },
+        {
+          "id": "c6",
+          "type": "line",
+          "p1": "p2",
+          "p2": "p3",
+          "construction": false
+        },
+        {
+          "id": "c7",
+          "type": "line",
+          "p1": "p3",
+          "p2": "p4",
+          "construction": false
+        },
+        {
+          "id": "c8",
+          "type": "line",
+          "p1": "p4",
+          "p2": "p1",
+          "construction": false
+        },
+        {
+          "id": "c13",
+          "type": "line",
+          "p1": "p1",
+          "p2": "p3",
+          "construction": true
+        },
+        {
+          "id": "c14",
+          "type": "line",
+          "p1": "p2",
+          "p2": "p4",
+          "construction": true
+        },
+        {
+          "id": "c19",
+          "type": "line",
+          "p1": "p17",
+          "p2": "p18",
+          "construction": true
+        },
+        {
+          "id": "c22",
+          "type": "circle",
+          "c": "O",
+          "r": 22.5,
+          "construction": false
+        }
+      ],
+      "constraints": [
+        {
+          "id": "k9",
+          "type": "horizontal",
+          "refs": [
+            "c5"
+          ]
+        },
+        {
+          "id": "k10",
+          "type": "vertical",
+          "refs": [
+            "c6"
+          ]
+        },
+        {
+          "id": "k11",
+          "type": "horizontal",
+          "refs": [
+            "c7"
+          ]
+        },
+        {
+          "id": "k12",
+          "type": "vertical",
+          "refs": [
+            "c8"
+          ]
+        },
+        {
+          "id": "k15",
+          "type": "midpoint",
+          "refs": [
+            "O",
+            "c13"
+          ]
+        },
+        {
+          "id": "k16",
+          "type": "equal",
+          "refs": [
+            "c8",
+            "c7"
+          ]
+        },
+        {
+          "id": "k20",
+          "type": "projected",
+          "refs": [
+            "c19"
+          ],
+          "src": {
+            "kind": "edge",
+            "p": [
+              0,
+              78,
+              -35
+            ],
+            "idx": 0,
+            "of": 1,
+            "t": "LINE",
+            "d": [
+              -1,
+              0,
+              0
+            ],
+            "box": {
+              "min": [
+                -50,
+                0,
+                -50
+              ],
+              "max": [
+                50,
+                80,
+                50
+              ]
+            }
+          },
+          "pts": {
+            "p17": [
+              25,
+              35
+            ],
+            "p18": [
+              -25,
+              35
+            ]
+          }
+        },
+        {
+          "id": "k21",
+          "type": "dim",
+          "refs": [
+            "p17",
+            "c7"
+          ],
+          "kind": "pointLine",
+          "value": 5,
+          "s": -1
+        },
+        {
+          "id": "k23",
+          "type": "dim",
+          "refs": [
+            "c22"
+          ],
+          "kind": "diameter",
+          "value": 45,
+          "ang": 0.9725125612213497
+        }
+      ],
+      "nextSid": 24,
+      "rev": "u689tkxi"
+    },
+    {
+      "id": "f12",
+      "type": "extrude",
+      "name": "Cut-Extrude2",
+      "suppressed": false,
+      "sketch": "f11",
+      "op": "cut",
+      "merge": true,
+      "end": "offsetSurface",
+      "depth": 10,
+      "reverse": false,
+      "toPoint": null,
+      "toVertex": null,
+      "toPlane": null,
+      "toFace": {
+        "p": [
+          -44.60813614681126,
+          50,
+          -0.6670745797905511
+        ],
+        "n": [
+          0,
+          1,
+          0
+        ],
+        "box": {
+          "min": [
+            -50,
+            0,
+            -50
+          ],
+          "max": [
+            50,
+            80,
+            50
+          ]
+        }
+      },
+      "toOffset": 5,
+      "toFlip": false
+    },
+    {
+      "id": "f13",
+      "type": "fillet",
+      "name": "Fillet2",
+      "suppressed": false,
+      "radius": 8,
+      "edges": [
+        {
+          "p": [
+            -30,
+            67.5,
+            -30
+          ],
+          "t": "LINE",
+          "d": [
+            0,
+            1,
+            0
+          ],
+          "box": {
+            "min": [
+              -50,
+              0,
+              -50
+            ],
+            "max": [
+              50,
+              80,
+              50
+            ]
+          }
+        },
+        {
+          "p": [
+            30,
+            67.5,
+            -30
+          ],
+          "t": "LINE",
+          "d": [
+            0,
+            1,
+            0
+          ],
+          "box": {
+            "min": [
+              -50,
+              0,
+              -50
+            ],
+            "max": [
+              50,
+              80,
+              50
+            ]
+          }
+        },
+        {
+          "p": [
+            30,
+            67.5,
+            30
+          ],
+          "t": "LINE",
+          "d": [
+            0,
+            1,
+            0
+          ],
+          "box": {
+            "min": [
+              -50,
+              0,
+              -50
+            ],
+            "max": [
+              50,
+              80,
+              50
+            ]
+          }
+        },
+        {
+          "p": [
+            -30,
+            67.5,
+            30
+          ],
+          "t": "LINE",
+          "d": [
+            0,
+            1,
+            0
+          ],
+          "box": {
+            "min": [
+              -50,
+              0,
+              -50
+            ],
+            "max": [
+              50,
+              80,
+              50
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "f14",
+      "type": "fillet",
+      "name": "Fillet3",
+      "suppressed": false,
+      "radius": 2,
+      "edges": [
+        {
+          "p": [
+            0,
+            55,
+            30
+          ],
+          "t": "LINE",
+          "d": [
+            1,
+            0,
+            0
+          ],
+          "box": {
+            "min": [
+              -50,
+              0,
+              -50
+            ],
+            "max": [
+              50,
+              80,
+              50
+            ]
+          }
+        },
+        {
+          "p": [
+            -22.5,
+            55,
+            -2.7554552980815448e-15
+          ],
+          "t": "CIRCLE",
+          "box": {
+            "min": [
+              -50,
+              0,
+              -50
+            ],
+            "max": [
+              50,
+              80,
+              50
+            ]
+          },
+          "r": 22.5,
+          "c": [
+            0,
+            55,
+            0
+          ],
+          "n": [
+            0,
+            1,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "id": "f16",
+      "type": "sketch",
+      "name": "Sketch5",
+      "suppressed": false,
+      "plane": {
+        "ref": "face",
+        "frame": {
+          "o": [
+            0,
+            50,
+            0
+          ],
+          "u": [
+            1,
+            0,
+            0
+          ],
+          "v": [
+            0,
+            0,
+            -1
+          ],
+          "n": [
+            0,
+            1,
+            0
+          ]
+        }
+      },
+      "points": [
+        {
+          "id": "p1",
+          "x": 25,
+          "y": 35
+        },
+        {
+          "id": "p2",
+          "x": -25,
+          "y": 35
+        },
+        {
+          "id": "p5",
+          "x": 25.000000000000007,
+          "y": 25.000000000000007
+        },
+        {
+          "id": "p6",
+          "x": 35,
+          "y": 25
+        },
+        {
+          "id": "p7",
+          "x": 25,
+          "y": 35
+        },
+        {
+          "id": "p10",
+          "x": 35,
+          "y": -25
+        },
+        {
+          "id": "p11",
+          "x": 35,
+          "y": 25
+        },
+        {
+          "id": "p14",
+          "x": 25.000000000000007,
+          "y": -25.000000000000007
+        },
+        {
+          "id": "p15",
+          "x": 25,
+          "y": -35
+        },
+        {
+          "id": "p16",
+          "x": 35,
+          "y": -25
+        },
+        {
+          "id": "p19",
+          "x": -25,
+          "y": -35
+        },
+        {
+          "id": "p20",
+          "x": 25,
+          "y": -35
+        },
+        {
+          "id": "p23",
+          "x": -25.000000000000007,
+          "y": -25.000000000000007
+        },
+        {
+          "id": "p24",
+          "x": -35,
+          "y": -25
+        },
+        {
+          "id": "p25",
+          "x": -25,
+          "y": -35
+        },
+        {
+          "id": "p28",
+          "x": -35,
+          "y": 25
+        },
+        {
+          "id": "p29",
+          "x": -35,
+          "y": -25
+        },
+        {
+          "id": "p32",
+          "x": -25.000000000000007,
+          "y": 25.000000000000007
+        },
+        {
+          "id": "p33",
+          "x": -25,
+          "y": 35
+        },
+        {
+          "id": "p34",
+          "x": -35,
+          "y": 25
+        },
+        {
+          "id": "p37",
+          "x": 25,
+          "y": 35
+        },
+        {
+          "id": "p38",
+          "x": -25,
+          "y": 35
+        }
+      ],
+      "curves": [
+        {
+          "id": "c3",
+          "type": "line",
+          "p1": "p1",
+          "p2": "p2",
+          "construction": false
+        },
+        {
+          "id": "c8",
+          "type": "arc",
+          "c": "p5",
+          "p1": "p6",
+          "p2": "p7",
+          "construction": false
+        },
+        {
+          "id": "c12",
+          "type": "line",
+          "p1": "p10",
+          "p2": "p11",
+          "construction": false
+        },
+        {
+          "id": "c17",
+          "type": "arc",
+          "c": "p14",
+          "p1": "p15",
+          "p2": "p16",
+          "construction": false
+        },
+        {
+          "id": "c21",
+          "type": "line",
+          "p1": "p19",
+          "p2": "p20",
+          "construction": false
+        },
+        {
+          "id": "c26",
+          "type": "arc",
+          "c": "p23",
+          "p1": "p24",
+          "p2": "p25",
+          "construction": false
+        },
+        {
+          "id": "c30",
+          "type": "line",
+          "p1": "p28",
+          "p2": "p29",
+          "construction": false
+        },
+        {
+          "id": "c35",
+          "type": "arc",
+          "c": "p32",
+          "p1": "p33",
+          "p2": "p34",
+          "construction": false
+        },
+        {
+          "id": "c39",
+          "type": "line",
+          "p1": "p37",
+          "p2": "p38",
+          "construction": false
+        }
+      ],
+      "constraints": [
+        {
+          "id": "k4",
+          "type": "projected",
+          "refs": [
+            "c3"
+          ],
+          "src": {
+            "kind": "edge",
+            "p": [
+              0,
+              78,
+              -35
+            ],
+            "idx": 0,
+            "of": 1,
+            "t": "LINE",
+            "d": [
+              -1,
+              0,
+              0
+            ],
+            "box": {
+              "min": [
+                -50,
+                0,
+                -50
+              ],
+              "max": [
+                50,
+                80,
+                50
+              ]
+            }
+          },
+          "pts": {
+            "p1": [
+              25,
+              35
+            ],
+            "p2": [
+              -25,
+              35
+            ]
+          }
+        },
+        {
+          "id": "k9",
+          "type": "projected",
+          "refs": [
+            "c8"
+          ],
+          "src": {
+            "kind": "edge",
+            "p": [
+              32.071067811865476,
+              78,
+              -32.071067811865476
+            ],
+            "idx": 0,
+            "of": 1,
+            "t": "CIRCLE",
+            "box": {
+              "min": [
+                -50,
+                0,
+                -50
+              ],
+              "max": [
+                50,
+                80,
+                50
+              ]
+            },
+            "r": 10,
+            "c": [
+              25,
+              78,
+              -25
+            ],
+            "n": [
+              0,
+              1,
+              0
+            ]
+          },
+          "pts": {
+            "p5": [
+              25.000000000000007,
+              25.000000000000007
+            ],
+            "p6": [
+              35,
+              25
+            ],
+            "p7": [
+              25,
+              35
+            ]
+          }
+        },
+        {
+          "id": "k13",
+          "type": "projected",
+          "refs": [
+            "c12"
+          ],
+          "src": {
+            "kind": "edge",
+            "p": [
+              35,
+              78,
+              0
+            ],
+            "idx": 0,
+            "of": 1,
+            "t": "LINE",
+            "d": [
+              0,
+              0,
+              -1
+            ],
+            "box": {
+              "min": [
+                -50,
+                0,
+                -50
+              ],
+              "max": [
+                50,
+                80,
+                50
+              ]
+            }
+          },
+          "pts": {
+            "p10": [
+              35,
+              -25
+            ],
+            "p11": [
+              35,
+              25
+            ]
+          }
+        },
+        {
+          "id": "k18",
+          "type": "projected",
+          "refs": [
+            "c17"
+          ],
+          "src": {
+            "kind": "edge",
+            "p": [
+              32.071067811865476,
+              78,
+              32.071067811865476
+            ],
+            "idx": 0,
+            "of": 1,
+            "t": "CIRCLE",
+            "box": {
+              "min": [
+                -50,
+                0,
+                -50
+              ],
+              "max": [
+                50,
+                80,
+                50
+              ]
+            },
+            "r": 10,
+            "c": [
+              25,
+              78,
+              25
+            ],
+            "n": [
+              0,
+              1,
+              0
+            ]
+          },
+          "pts": {
+            "p14": [
+              25.000000000000007,
+              -25.000000000000007
+            ],
+            "p15": [
+              25,
+              -35
+            ],
+            "p16": [
+              35,
+              -25
+            ]
+          }
+        },
+        {
+          "id": "k22",
+          "type": "projected",
+          "refs": [
+            "c21"
+          ],
+          "src": {
+            "kind": "edge",
+            "p": [
+              0,
+              78,
+              35
+            ],
+            "idx": 0,
+            "of": 1,
+            "t": "LINE",
+            "d": [
+              1,
+              0,
+              0
+            ],
+            "box": {
+              "min": [
+                -50,
+                0,
+                -50
+              ],
+              "max": [
+                50,
+                80,
+                50
+              ]
+            }
+          },
+          "pts": {
+            "p19": [
+              -25,
+              -35
+            ],
+            "p20": [
+              25,
+              -35
+            ]
+          }
+        },
+        {
+          "id": "k27",
+          "type": "projected",
+          "refs": [
+            "c26"
+          ],
+          "src": {
+            "kind": "edge",
+            "p": [
+              -32.071067811865476,
+              78,
+              32.071067811865476
+            ],
+            "idx": 0,
+            "of": 1,
+            "t": "CIRCLE",
+            "box": {
+              "min": [
+                -50,
+                0,
+                -50
+              ],
+              "max": [
+                50,
+                80,
+                50
+              ]
+            },
+            "r": 10,
+            "c": [
+              -25,
+              78,
+              25
+            ],
+            "n": [
+              0,
+              1,
+              0
+            ]
+          },
+          "pts": {
+            "p23": [
+              -25.000000000000007,
+              -25.000000000000007
+            ],
+            "p24": [
+              -35,
+              -25
+            ],
+            "p25": [
+              -25,
+              -35
+            ]
+          }
+        },
+        {
+          "id": "k31",
+          "type": "projected",
+          "refs": [
+            "c30"
+          ],
+          "src": {
+            "kind": "edge",
+            "p": [
+              -35,
+              78,
+              0
+            ],
+            "idx": 0,
+            "of": 1,
+            "t": "LINE",
+            "d": [
+              0,
+              0,
+              1
+            ],
+            "box": {
+              "min": [
+                -50,
+                0,
+                -50
+              ],
+              "max": [
+                50,
+                80,
+                50
+              ]
+            }
+          },
+          "pts": {
+            "p28": [
+              -35,
+              25
+            ],
+            "p29": [
+              -35,
+              -25
+            ]
+          }
+        },
+        {
+          "id": "k36",
+          "type": "projected",
+          "refs": [
+            "c35"
+          ],
+          "src": {
+            "kind": "edge",
+            "p": [
+              -32.071067811865476,
+              78,
+              -32.071067811865476
+            ],
+            "idx": 0,
+            "of": 1,
+            "t": "CIRCLE",
+            "box": {
+              "min": [
+                -50,
+                0,
+                -50
+              ],
+              "max": [
+                50,
+                80,
+                50
+              ]
+            },
+            "r": 10,
+            "c": [
+              -25,
+              78,
+              -25
+            ],
+            "n": [
+              0,
+              1,
+              0
+            ]
+          },
+          "pts": {
+            "p32": [
+              -25.000000000000007,
+              25.000000000000007
+            ],
+            "p33": [
+              -25,
+              35
+            ],
+            "p34": [
+              -35,
+              25
+            ]
+          }
+        },
+        {
+          "id": "k40",
+          "type": "projected",
+          "refs": [
+            "c39"
+          ],
+          "src": {
+            "kind": "edge",
+            "p": [
+              0,
+              78,
+              -35
+            ],
+            "idx": 0,
+            "of": 1,
+            "t": "LINE",
+            "d": [
+              -1,
+              0,
+              0
+            ],
+            "box": {
+              "min": [
+                -50,
+                0,
+                -50
+              ],
+              "max": [
+                50,
+                80,
+                50
+              ]
+            }
+          },
+          "pts": {
+            "p37": [
+              25,
+              35
+            ],
+            "p38": [
+              -25,
+              35
+            ]
+          }
+        }
+      ],
+      "nextSid": 45,
+      "rev": "tcaq2pvv"
+    },
+    {
+      "id": "f17",
+      "type": "extrude",
+      "name": "Cut-Extrude3",
+      "suppressed": false,
+      "sketch": "f16",
+      "op": "cut",
+      "merge": true,
+      "end": "offsetSurface",
+      "depth": 10,
+      "reverse": false,
+      "toPoint": null,
+      "toVertex": null,
+      "toPlane": null,
+      "toFace": {
+        "p": [
+          26.990614663426754,
+          0,
+          -8.461481367473425
+        ],
+        "n": [
+          0,
+          -1,
+          0
+        ],
+        "box": {
+          "min": [
+            -50,
+            0,
+            -50
+          ],
+          "max": [
+            50,
+            80,
+            50
+          ]
+        }
+      },
+      "toOffset": 5,
+      "toFlip": false
+    },
+    {
+      "id": "f19",
+      "type": "moveBody",
+      "name": "Body-Move/Copy1",
+      "suppressed": false,
+      "bodies": [
+        "f4"
+      ],
+      "copy": true,
+      "copies": 1,
+      "mode": "translate",
+      "dx": 100,
+      "dy": 0,
+      "dz": 0,
+      "rotAxis": "none",
+      "angle": 0,
+      "rotCenter": "origin",
+      "mates": []
+    },
+    {
+      "id": "f20",
+      "type": "moveBody",
+      "name": "Body-Move/Copy2",
+      "suppressed": false,
+      "bodies": [
+        "f19"
+      ],
+      "copy": false,
+      "copies": 1,
+      "mode": "mates",
+      "dx": 0,
+      "dy": 0,
+      "dz": 0,
+      "rotAxis": "none",
+      "angle": 0,
+      "rotCenter": "origin",
+      "mates": [
+        {
+          "type": "coincident",
+          "a": {
+            "kind": "face",
+            "p": [
+              76.03373828171789,
+              50,
+              17.311428267613564
+            ],
+            "n": [
+              0,
+              -1,
+              0
+            ]
+          },
+          "b": {
+            "kind": "face",
+            "p": [
+              18.410970828705217,
+              2.2737367544323206e-13,
+              24.25553250712119
+            ],
+            "n": [
+              0,
+              -1,
+              0
+            ]
+          },
+          "value": 10,
+          "flip": false
+        },
+        {
+          "type": "concentric",
+          "a": {
+            "kind": "face",
+            "p": [
+              8.995136874739046,
+              62.50510975524969,
+              -17.855677287147728
+            ]
+          },
+          "b": {
+            "kind": "face",
+            "p": [
+              99.4038608676949,
+              68.49392427743567,
+              -19.986475250124613
+            ]
+          },
+          "value": 10,
+          "flip": false
+        },
+        {
+          "type": "parallel",
+          "a": {
+            "kind": "face",
+            "p": [
+              3.01996159235091,
+              59.66634087167307,
+              34.99999999999977
+            ],
+            "n": [
+              0,
+              0,
+              1
+            ]
+          },
+          "b": {
+            "kind": "face",
+            "p": [
+              86.52635368836013,
+              64.41830716325785,
+              35
+            ],
+            "n": [
+              0,
+              0,
+              1
+            ]
+          },
+          "value": 10,
+          "flip": false
+        }
+      ]
+    },
+    {
+      "id": "f24",
+      "type": "sketch",
+      "name": "Sketch6",
+      "suppressed": false,
+      "plane": {
+        "ref": "front"
+      },
+      "points": [
+        {
+          "id": "p1",
+          "x": -71.99387630764885,
+          "y": 25.463018543567852
+        },
+        {
+          "id": "p2",
+          "x": -30.68488742200978,
+          "y": 25.463018543567852
+        },
+        {
+          "id": "p5",
+          "x": -45.45408687815333,
+          "y": 25.463018543567852
+        },
+        {
+          "id": "p7",
+          "x": -45.45408687815333,
+          "y": 40.23221799971141
+        },
+        {
+          "id": "p9",
+          "x": -71.99744951024623,
+          "y": 40.23221799971141
+        }
+      ],
+      "curves": [
+        {
+          "id": "c3",
+          "type": "line",
+          "p1": "p1",
+          "p2": "p2",
+          "construction": true
+        },
+        {
+          "id": "c8",
+          "type": "arc",
+          "c": "p5",
+          "p1": "p2",
+          "p2": "p7",
+          "construction": false
+        },
+        {
+          "id": "c10",
+          "type": "line",
+          "p1": "p7",
+          "p2": "p9",
+          "construction": false
+        },
+        {
+          "id": "c12",
+          "type": "line",
+          "p1": "p9",
+          "p2": "p1",
+          "construction": true
+        }
+      ],
+      "constraints": [
+        {
+          "id": "k4",
+          "type": "horizontal",
+          "refs": [
+            "c3"
+          ]
+        },
+        {
+          "id": "k6",
+          "type": "onCurve",
+          "refs": [
+            "p5",
+            "c3"
+          ]
+        },
+        {
+          "id": "k11",
+          "type": "horizontal",
+          "refs": [
+            "c10"
+          ]
+        },
+        {
+          "id": "k13",
+          "type": "tangent",
+          "refs": [
+            "c10",
+            "c8"
+          ],
+          "s": 1
+        }
+      ],
+      "nextSid": 14,
+      "rev": "0apksie0"
+    },
+    {
+      "id": "f25",
+      "type": "surfRevolve",
+      "name": "Surface-Revolve1",
+      "suppressed": false,
+      "sketch": "f24",
+      "axis": "c3",
+      "angle": 360
+    },
+    {
+      "id": "f26",
+      "type": "split",
+      "name": "Split1",
+      "suppressed": false,
+      "tool": "f25",
+      "toolFace": null,
+      "bodies": [
+        "f2"
+      ],
+      "keep": "all"
+    },
+    {
+      "id": "f27",
+      "type": "moveBody",
+      "name": "Body-Move/Copy3",
+      "suppressed": false,
+      "bodies": [
+        "f2"
+      ],
+      "copy": true,
+      "copies": 1,
+      "mode": "translate",
+      "dx": 100,
+      "dy": 0,
+      "dz": 0,
+      "rotAxis": "none",
+      "angle": 0,
+      "rotCenter": "origin",
+      "mates": []
+    },
+    {
+      "id": "f28",
+      "type": "fillet",
+      "name": "Fillet4",
+      "suppressed": false,
+      "radius": 2,
+      "edges": [
+        {
+          "p": [
+            65,
+            15.030314190459142,
+            -1.277637799248524e-15
+          ],
+          "t": "CIRCLE",
+          "box": {
+            "min": [
+              -50.0000001,
+              -29.999999999999773,
+              -50.0000001
+            ],
+            "max": [
+              150.0000001,
+              80,
+              50.0000001
+            ]
+          },
+          "r": 10.43270435310871,
+          "c": [
+            65,
+            25.463018543567852,
+            0
+          ],
+          "n": [
+            -1,
+            0,
+            0
+          ]
+        },
+        {
+          "p": [
+            50.000000467230734,
+            10.693820669212535,
+            -0.006835447457058805
+          ],
+          "t": "BSPLINE_CURVE",
+          "box": {
+            "min": [
+              -50.0000001,
+              -29.999999999999773,
+              -50.0000001
+            ],
+            "max": [
+              150.0000001,
+              80,
+              50.0000001
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "f31",
+      "type": "axis",
+      "name": "Axis1",
+      "suppressed": false,
+      "axisType": "edge",
+      "planeA": "front",
+      "planeB": "top",
+      "pointA": null,
+      "pointB": null,
+      "edge": {
+        "p": [
+          50,
+          49,
+          -6.123233995736766e-15
+        ],
+        "t": "CIRCLE",
+        "box": {
+          "min": [
+            -50.0000001,
+            -29.999999999999773,
+            -50.0000001
+          ],
+          "max": [
+            150.0000001,
+            80,
+            50.0000001
+          ]
+        },
+        "r": 50,
+        "c": [
+          100,
+          49,
+          0
+        ],
+        "n": [
+          0,
+          1,
+          0
+        ]
+      },
+      "sketchLine": null
+    },
+    {
+      "id": "f32",
+      "type": "moveBody",
+      "name": "Body-Move/Copy4",
+      "suppressed": false,
+      "bodies": [
+        "f27"
+      ],
+      "copy": false,
+      "copies": 1,
+      "mode": "translate",
+      "dx": 0,
+      "dy": 0,
+      "dz": 0,
+      "rotAxis": "f31",
+      "angle": 90,
+      "rotCenter": "origin",
+      "mates": []
+    },
+    {
+      "id": "f35",
+      "type": "sketch",
+      "name": "Sketch7",
+      "suppressed": false,
+      "plane": {
+        "ref": "face",
+        "frame": {
+          "o": [
+            0,
+            50,
+            0
+          ],
+          "u": [
+            1,
+            0,
+            0
+          ],
+          "v": [
+            0,
+            0,
+            -1
+          ],
+          "n": [
+            0,
+            1,
+            0
+          ]
+        }
+      },
+      "points": [
+        {
+          "id": "p1",
+          "x": 100.00000000000001,
+          "y": 1.2977330619609634e-10
+        },
+        {
+          "id": "p3",
+          "x": 100.00000000000001,
+          "y": 25.000000000249116
+        },
+        {
+          "id": "p6",
+          "x": 100.00000000000001,
+          "y": 5.190933520581134e-11
+        }
+      ],
+      "curves": [
+        {
+          "id": "c2",
+          "type": "circle",
+          "c": "p1",
+          "r": 25.000000000032443,
+          "construction": false
+        },
+        {
+          "id": "c5",
+          "type": "line",
+          "p1": "p1",
+          "p2": "p3",
+          "construction": true
+        },
+        {
+          "id": "c7",
+          "type": "circle",
+          "c": "p6",
+          "r": 49,
+          "construction": true
+        }
+      ],
+      "constraints": [
+        {
+          "id": "k4",
+          "type": "onCurve",
+          "refs": [
+            "p3",
+            "c2"
+          ]
+        },
+        {
+          "id": "k8",
+          "type": "projected",
+          "refs": [
+            "c7"
+          ],
+          "src": {
+            "kind": "edge",
+            "p": [
+              100,
+              50,
+              49
+            ],
+            "idx": 0,
+            "of": 1,
+            "t": "CIRCLE",
+            "box": {
+              "min": [
+                -50.0000001,
+                -29.999999999999773,
+                -50.0000001
+              ],
+              "max": [
+                150.0000001,
+                80,
+                50.00000010000104
+              ]
+            },
+            "r": 49,
+            "c": [
+              100.00000000000001,
+              50,
+              0
+            ],
+            "n": [
+              0,
+              1,
+              0
+            ]
+          },
+          "pts": {
+            "p6": [
+              100.00000000000001,
+              0
+            ]
+          },
+          "r": 49
+        },
+        {
+          "id": "k9",
+          "type": "concentric",
+          "refs": [
+            "c7",
+            "c2"
+          ]
+        },
+        {
+          "id": "k10",
+          "type": "dim",
+          "refs": [
+            "c2"
+          ],
+          "kind": "diameter",
+          "value": 50,
+          "ang": 0.31383261424530295
+        },
+        {
+          "id": "k11",
+          "type": "vertical",
+          "refs": [
+            "c5"
+          ]
+        }
+      ],
+      "nextSid": 12,
+      "rev": "nu3s9w00"
+    },
+    {
+      "id": "f36",
+      "type": "extrude",
+      "name": "Boss-Extrude3",
+      "suppressed": false,
+      "sketch": "f35",
+      "op": "add",
+      "merge": true,
+      "end": "blind",
+      "depth": 10,
+      "reverse": false,
+      "toPoint": null,
+      "toVertex": null,
+      "toPlane": null,
+      "toFace": null,
+      "toOffset": 5,
+      "toFlip": false
+    },
+    {
+      "id": "f37",
+      "type": "sketch",
+      "name": "Sketch8",
+      "suppressed": false,
+      "plane": {
+        "ref": "face",
+        "frame": {
+          "o": [
+            0,
+            60,
+            0
+          ],
+          "u": [
+            1,
+            0,
+            0
+          ],
+          "v": [
+            0,
+            0,
+            -1
+          ],
+          "n": [
+            0,
+            1,
+            0
+          ]
+        }
+      },
+      "points": [
+        {
+          "id": "p1",
+          "x": 100.00000000000001,
+          "y": 1.2977047897609247e-10
+        },
+        {
+          "id": "p3",
+          "x": 100.00000000000001,
+          "y": 1.2977047897609247e-10
+        }
+      ],
+      "curves": [
+        {
+          "id": "c2",
+          "type": "circle",
+          "c": "p1",
+          "r": 21.000000000032443,
+          "construction": false
+        },
+        {
+          "id": "c4",
+          "type": "circle",
+          "c": "p3",
+          "r": 25.000000000032443,
+          "construction": true
+        }
+      ],
+      "constraints": [
+        {
+          "id": "k5",
+          "type": "projected",
+          "refs": [
+            "c4"
+          ],
+          "src": {
+            "kind": "edge",
+            "p": [
+              74.99999999996757,
+              60,
+              -1.297763678130942e-10
+            ],
+            "idx": 0,
+            "of": 1,
+            "t": "CIRCLE",
+            "box": {
+              "min": [
+                -50.0000001,
+                -29.999999999999773,
+                -50.0000001
+              ],
+              "max": [
+                150.0000001,
+                80,
+                50.00000010000104
+              ]
+            },
+            "r": 25.000000000032443,
+            "c": [
+              100.00000000000001,
+              60,
+              -1.2977330619609634e-10
+            ],
+            "n": [
+              0,
+              1,
+              0
+            ]
+          },
+          "pts": {
+            "p3": [
+              100.00000000000001,
+              1.2977047897609247e-10
+            ]
+          },
+          "r": 25.000000000032443
+        },
+        {
+          "id": "k6",
+          "type": "concentric",
+          "refs": [
+            "c2",
+            "c4"
+          ]
+        },
+        {
+          "id": "k7",
+          "type": "dim",
+          "refs": [
+            "c2",
+            "c4"
+          ],
+          "kind": "arcDist",
+          "value": 4,
+          "off": 2.1459759378055082e-15,
+          "ang": -3.003314257879011,
+          "cond": "min",
+          "nested": true
+        }
+      ],
+      "nextSid": 8,
+      "rev": "1jaw0eql"
+    },
+    {
+      "id": "f38",
+      "type": "extrude",
+      "name": "Cut-Extrude4",
+      "suppressed": false,
+      "sketch": "f37",
+      "op": "cut",
+      "merge": true,
+      "end": "blind",
+      "depth": 10,
+      "reverse": true,
+      "toPoint": null,
+      "toVertex": null,
+      "toPlane": null,
+      "toFace": null,
+      "toOffset": 5,
+      "toFlip": false
+    },
+    {
+      "id": "f39",
+      "type": "fillet",
+      "name": "Fillet5",
+      "suppressed": false,
+      "radius": 1.9,
+      "edges": [
+        {
+          "p": [
+            74.99999999996757,
+            60,
+            -1.297763678130942e-10
+          ],
+          "t": "CIRCLE",
+          "box": {
+            "min": [
+              -50.0000001,
+              -29.999999999999773,
+              -50.0000001
+            ],
+            "max": [
+              150.0000001,
+              80,
+              50.00000010000104
+            ]
+          },
+          "r": 25.000000000032443,
+          "c": [
+            100.00000000000001,
+            60,
+            -1.2977330619609634e-10
+          ],
+          "n": [
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "p": [
+            78.99999999996757,
+            60,
+            -1.297730507343707e-10
+          ],
+          "t": "CIRCLE",
+          "box": {
+            "min": [
+              -50.0000001,
+              -29.999999999999773,
+              -50.0000001
+            ],
+            "max": [
+              150.0000001,
+              80,
+              50.00000010000104
+            ]
+          },
+          "r": 21.000000000032443,
+          "c": [
+            100.00000000000001,
+            60,
+            -1.2977047897609247e-10
+          ],
+          "n": [
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "p": [
+            74.99999999996757,
+            50,
+            -1.297763678130942e-10
+          ],
+          "t": "CIRCLE",
+          "box": {
+            "min": [
+              -50.0000001,
+              -29.999999999999773,
+              -50.0000001
+            ],
+            "max": [
+              150.0000001,
+              80,
+              50.00000010000104
+            ]
+          },
+          "r": 25.000000000032443,
+          "c": [
+            100.00000000000001,
+            50,
+            -1.2977330619609634e-10
+          ],
+          "n": [
+            0,
+            1,
+            0
+          ]
+        },
+        {
+          "p": [
+            78.99999999996757,
+            50,
+            -1.297730507343707e-10
+          ],
+          "t": "CIRCLE",
+          "box": {
+            "min": [
+              -50.0000001,
+              -29.999999999999773,
+              -50.0000001
+            ],
+            "max": [
+              150.0000001,
+              80,
+              50.00000010000104
+            ]
+          },
+          "r": 21.000000000032443,
+          "c": [
+            100.00000000000001,
+            50,
+            -1.2977047897609247e-10
+          ],
+          "n": [
+            0,
+            1,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "id": "f40",
+      "type": "deleteBody",
+      "name": "Body-Delete1",
+      "suppressed": false,
+      "bodies": [
+        "f36"
+      ]
+    },
+    {
+      "id": "f41",
+      "type": "sketch",
+      "name": "Sketch9",
+      "suppressed": false,
+      "plane": {
+        "ref": "face",
+        "frame": {
+          "o": [
+            0,
+            0,
+            0
+          ],
+          "u": [
+            -1,
+            0,
+            0
+          ],
+          "v": [
+            0,
+            0,
+            -1
+          ],
+          "n": [
+            0,
+            -1,
+            0
+          ]
+        }
+      },
+      "points": [
+        {
+          "id": "p1",
+          "x": -100.00000000000001,
+          "y": 0
+        }
+      ],
+      "curves": [
+        {
+          "id": "c2",
+          "type": "circle",
+          "c": "p1",
+          "r": 49,
+          "construction": true
+        },
+        {
+          "id": "c4",
+          "type": "circle",
+          "c": "p1",
+          "r": 37.5,
+          "construction": false
+        }
+      ],
+      "constraints": [
+        {
+          "id": "k3",
+          "type": "projected",
+          "refs": [
+            "c2"
+          ],
+          "src": {
+            "kind": "edge",
+            "p": [
+              100,
+              0,
+              49
+            ],
+            "idx": 0,
+            "of": 1,
+            "t": "CIRCLE",
+            "r": 49,
+            "c": [
+              100.00000000000001,
+              0,
+              0
+            ],
+            "n": [
+              0,
+              1,
+              0
+            ],
+            "box": {
+              "min": [
+                -50.0000001,
+                -29.999999999999773,
+                -50.0000001
+              ],
+              "max": [
+                150.0000001,
+                80,
+                50.00000010000104
+              ]
+            }
+          },
+          "pts": {
+            "p1": [
+              -100.00000000000001,
+              0
+            ]
+          },
+          "r": 49,
+          "ref": true
+        },
+        {
+          "id": "k5",
+          "type": "dim",
+          "refs": [
+            "c4"
+          ],
+          "kind": "diameter",
+          "value": 75,
+          "ang": 1.8660074024524307
+        }
+      ],
+      "nextSid": 6,
+      "rev": "9y0l6kbc"
+    },
+    {
+      "id": "f42",
+      "type": "extrude",
+      "name": "Boss-Extrude4",
+      "suppressed": false,
+      "sketch": "f41",
+      "op": "add",
+      "merge": true,
+      "end": "blind",
+      "depth": 10,
+      "reverse": false,
+      "toPoint": null,
+      "toVertex": null,
+      "toPlane": null,
+      "toFace": null,
+      "toOffset": 5,
+      "toFlip": false,
+      "thin": true,
+      "thinT": 4,
+      "thinDir": "mid",
+      "scopeAll": true,
+      "scope": []
+    },
+    {
+      "id": "f43",
+      "type": "sketch",
+      "name": "Sketch10",
+      "suppressed": false,
+      "plane": {
+        "ref": "face",
+        "frame": {
+          "o": [
+            0,
+            0,
+            35
+          ],
+          "u": [
+            1,
+            0,
+            0
+          ],
+          "v": [
+            0,
+            1,
+            0
+          ],
+          "n": [
+            0,
+            0,
+            1
+          ]
+        }
+      },
+      "points": [
+        {
+          "id": "p1",
+          "x": -35,
+          "y": 65
+        },
+        {
+          "id": "p7",
+          "x": -35,
+          "y": 52
+        },
+        {
+          "id": "p8",
+          "x": -35,
+          "y": 78
+        }
+      ],
+      "curves": [
+        {
+          "id": "c2",
+          "type": "circle",
+          "c": "p1",
+          "r": 2.5,
+          "construction": false
+        },
+        {
+          "id": "c9",
+          "type": "line",
+          "p1": "p7",
+          "p2": "p8",
+          "construction": true
+        }
+      ],
+      "constraints": [
+        {
+          "id": "k10",
+          "type": "projected",
+          "refs": [
+            "c9"
+          ],
+          "src": {
+            "kind": "edge",
+            "p": [
+              -35,
+              65,
+              25
+            ],
+            "idx": 0,
+            "of": 1,
+            "t": "LINE",
+            "d": [
+              0,
+              1,
+              0
+            ],
+            "box": {
+              "min": [
+                -50.0000001,
+                -29.999999999999773,
+                -50.0000001
+              ],
+              "max": [
+                150.0000001,
+                80,
+                50.00000010000104
+              ]
+            }
+          },
+          "pts": {
+            "p7": [
+              -35,
+              52
+            ],
+            "p8": [
+              -35,
+              78
+            ]
+          },
+          "ref": true
+        },
+        {
+          "id": "k11",
+          "type": "onCurve",
+          "refs": [
+            "p1",
+            "c9"
+          ]
+        },
+        {
+          "id": "k12",
+          "type": "midpoint",
+          "refs": [
+            "p1",
+            "c9"
+          ]
+        },
+        {
+          "id": "k13",
+          "type": "dim",
+          "refs": [
+            "c2"
+          ],
+          "kind": "diameter",
+          "value": 5,
+          "ang": 2.4657404693943645
+        }
+      ],
+      "nextSid": 14,
+      "rev": "9h50lipw"
+    },
+    {
+      "id": "f44",
+      "type": "extrude",
+      "name": "Cut-Extrude5",
+      "suppressed": false,
+      "sketch": "f43",
+      "op": "cut",
+      "merge": true,
+      "end": "through2",
+      "depth": 10,
+      "reverse": false,
+      "toPoint": null,
+      "toVertex": null,
+      "toPlane": null,
+      "toFace": null,
+      "toOffset": 5,
+      "toFlip": false,
+      "thin": false,
+      "thinT": 2,
+      "thinDir": "one",
+      "scopeAll": true,
+      "scope": []
+    },
+    {
+      "id": "f45",
+      "type": "plane",
+      "name": "Plane1",
+      "suppressed": false,
+      "refs": [
+        {
+          "kind": "face",
+          "p": [
+            -1.4021517322731825,
+            50,
+            46.21675667817249
+          ],
+          "n": [
+            0,
+            1,
+            0
+          ],
+          "box": {
+            "min": [
+              -50.0000001,
+              -29.999999999999773,
+              -50.0000001
+            ],
+            "max": [
+              150.0000001,
+              80,
+              50.00000010000104
+            ]
+          }
+        }
+      ],
+      "offset": 20,
+      "flip": false,
+      "angle": 90,
+      "flipAngle": false,
+      "position": "mid",
+      "bisector": false
+    },
+    {
+      "id": "f46",
+      "type": "sketch",
+      "name": "Sketch11",
+      "suppressed": false,
+      "plane": {
+        "ref": "f45"
+      },
+      "points": [
+        {
+          "id": "p1",
+          "x": -25,
+          "y": -35
+        },
+        {
+          "id": "p2",
+          "x": 25,
+          "y": -35
+        },
+        {
+          "id": "p5",
+          "x": -25.000000000000004,
+          "y": -25
+        },
+        {
+          "id": "p6",
+          "x": -35,
+          "y": -25
+        },
+        {
+          "id": "p7",
+          "x": -25,
+          "y": -35
+        }
+      ],
+      "curves": [
+        {
+          "id": "c3",
+          "type": "line",
+          "p1": "p1",
+          "p2": "p2",
+          "construction": false
+        },
+        {
+          "id": "c8",
+          "type": "arc",
+          "c": "p5",
+          "p1": "p6",
+          "p2": "p7",
+          "construction": false
+        }
+      ],
+      "constraints": [
+        {
+          "id": "k4",
+          "type": "projected",
+          "refs": [
+            "c3"
+          ],
+          "src": {
+            "kind": "edge",
+            "p": [
+              0,
+              78,
+              35
+            ],
+            "idx": 0,
+            "of": 1,
+            "t": "LINE",
+            "d": [
+              1,
+              0,
+              0
+            ],
+            "box": {
+              "min": [
+                -50.0000001,
+                -29.999999999999773,
+                -50.0000001
+              ],
+              "max": [
+                150.0000001,
+                80,
+                50.00000010000104
+              ]
+            }
+          },
+          "pts": {
+            "p1": [
+              -25,
+              -35
+            ],
+            "p2": [
+              25,
+              -35
+            ]
+          }
+        },
+        {
+          "id": "k9",
+          "type": "projected",
+          "refs": [
+            "c8"
+          ],
+          "src": {
+            "kind": "edge",
+            "p": [
+              -32.071067811865476,
+              78,
+              32.071067811865476
+            ],
+            "idx": 0,
+            "of": 1,
+            "t": "CIRCLE",
+            "r": 10,
+            "c": [
+              -25,
+              78,
+              25
+            ],
+            "n": [
+              0,
+              1,
+              0
+            ],
+            "box": {
+              "min": [
+                -50.0000001,
+                -29.999999999999773,
+                -50.0000001
+              ],
+              "max": [
+                150.0000001,
+                80,
+                50.00000010000104
+              ]
+            }
+          },
+          "pts": {
+            "p5": [
+              -25.000000000000004,
+              -25
+            ],
+            "p6": [
+              -35,
+              -25
+            ],
+            "p7": [
+              -25,
+              -35
+            ]
+          }
+        }
+      ],
+      "nextSid": 10,
+      "rev": "hbxpf883"
+    },
+    {
+      "id": "f47",
+      "type": "sketch",
+      "name": "Sketch12",
+      "suppressed": false,
+      "plane": {
+        "ref": "front"
+      },
+      "points": [],
+      "curves": [],
+      "constraints": [],
+      "nextSid": 1,
+      "rev": "j5l5lsvn"
+    },
+    {
+      "id": "f48",
+      "type": "thread",
+      "name": "Thread-Cut1",
+      "suppressed": false,
+      "op": "cut",
+      "face": {
+        "p": [
+          11.250945407361542,
+          72.34804086292081,
+          -16.512923471214208
+        ]
+      },
+      "system": "metric",
+      "size": "M36",
+      "diameter": 10,
+      "pitch": "",
+      "leftHand": false,
+      "end": "through",
+      "depth": 10,
+      "toPlane": null,
+      "toFace": null,
+      "reverse": false,
+      "autoSize": true
+    },
+    {
+      "id": "f50",
+      "type": "sketch",
+      "name": "Sketch13",
+      "suppressed": false,
+      "plane": {
+        "ref": "face",
+        "frame": {
+          "o": [
+            0,
+            0,
+            0
+          ],
+          "u": [
+            -1,
+            0,
+            0
+          ],
+          "v": [
+            0,
+            0,
+            -1
+          ],
+          "n": [
+            0,
+            -1,
+            0
+          ]
+        }
+      },
+      "points": [
+        {
+          "id": "p1",
+          "x": -100.00000000000001,
+          "y": -1.4517145696727307e-14
+        }
+      ],
+      "curves": [
+        {
+          "id": "c2",
+          "type": "circle",
+          "c": "p1",
+          "r": 39.5,
+          "construction": true
+        },
+        {
+          "id": "c5",
+          "type": "circle",
+          "c": "p1",
+          "r": 39.7,
+          "construction": false
+        },
+        {
+          "id": "c7",
+          "type": "circle",
+          "c": "p1",
+          "r": 43.7,
+          "construction": false
+        }
+      ],
+      "constraints": [
+        {
+          "id": "k3",
+          "type": "projected",
+          "refs": [
+            "c2"
+          ],
+          "src": {
+            "kind": "edge",
+            "p": [
+              139.5,
+              -10,
+              -4.8373548566320455e-15
+            ],
+            "idx": 0,
+            "of": 1,
+            "t": "CIRCLE",
+            "r": 39.5,
+            "c": [
+              100.00000000000001,
+              -10,
+              0
+            ],
+            "n": [
+              0,
+              -1,
+              0
+            ],
+            "box": {
+              "min": [
+                -50.0000001,
+                -29.999999999999773,
+                -50.0000001
+              ],
+              "max": [
+                150.0000001,
+                80.00000158561076,
+                50.00000010000104
+              ]
+            }
+          },
+          "pts": {
+            "p1": [
+              -100.00000000000001,
+              -1.4517145696727307e-14
+            ]
+          },
+          "r": 39.5
+        },
+        {
+          "id": "k4",
+          "type": "dim",
+          "refs": [
+            "c2",
+            "c5"
+          ],
+          "kind": "offset",
+          "value": 0.2
+        },
+        {
+          "id": "k6",
+          "type": "offset",
+          "refs": [
+            "c2",
+            "c5"
+          ],
+          "s": 1,
+          "dim": "k4",
+          "v": 3.7568
+        },
+        {
+          "id": "k9",
+          "type": "dim",
+          "refs": [
+            "c5",
+            "c7"
+          ],
+          "kind": "arcDist",
+          "value": 4,
+          "off": 9.482437337071364e-15,
+          "ang": -1.6178981885211112,
+          "cond": "min",
+          "nested": true
+        }
+      ],
+      "nextSid": 10,
+      "rev": "ccaye9d4",
+      "texts": [],
+      "gearTrains": []
+    },
+    {
+      "id": "f52",
+      "type": "extrude",
+      "name": "Boss-Extrude5",
+      "suppressed": false,
+      "sketch": "f50",
+      "op": "add",
+      "merge": false,
+      "end": "blind",
+      "depth": 10,
+      "reverse": false,
+      "toPoint": null,
+      "toVertex": null,
+      "toPlane": null,
+      "toFace": null,
+      "toOffset": 5,
+      "toFlip": false,
+      "thin": false,
+      "thinT": 2,
+      "thinDir": "one",
+      "scopeAll": true,
+      "scope": []
+    },
+    {
+      "id": "f53",
+      "type": "chamfer",
+      "name": "Chamfer3",
+      "suppressed": false,
+      "chamferType": "distance",
+      "distance": 1,
+      "distance2": 1,
+      "angle": 45,
+      "flip": false,
+      "edges": [
+        {
+          "p": [
+            139.70000000000002,
+            -10,
+            9.655297904112314e-15
+          ],
+          "t": "CIRCLE",
+          "r": 39.7,
+          "c": [
+            100.00000000000001,
+            -10,
+            1.4517145696727307e-14
+          ],
+          "n": [
+            0,
+            -1,
+            0
+          ],
+          "box": {
+            "min": [
+              -50.0000001,
+              -29.999999999999773,
+              -50.0000001
+            ],
+            "max": [
+              150.0000001,
+              80.00000158561076,
+              50.00000010000104
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "f54",
+      "type": "chamfer",
+      "name": "Chamfer4",
+      "suppressed": false,
+      "chamferType": "distance",
+      "distance": 1,
+      "distance2": 1,
+      "angle": 45,
+      "flip": false,
+      "edges": [
+        {
+          "p": [
+            139.70000000000002,
+            0,
+            9.655297904112314e-15
+          ],
+          "t": "CIRCLE",
+          "r": 39.7,
+          "c": [
+            100.00000000000001,
+            0,
+            1.4517145696727307e-14
+          ],
+          "n": [
+            0,
+            -1,
+            0
+          ],
+          "box": {
+            "min": [
+              -50.0000001,
+              -29.999999999999773,
+              -50.0000001
+            ],
+            "max": [
+              150.0000001,
+              80.00000158561076,
+              50.00000010000104
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "f55",
+      "type": "fillet",
+      "name": "Fillet6",
+      "suppressed": false,
+      "radius": 2,
+      "edges": [
+        {
+          "p": [
+            139.70000000000002,
+            -9,
+            9.655297904112314e-15
+          ],
+          "t": "CIRCLE",
+          "r": 39.7,
+          "c": [
+            100.00000000000001,
+            -9,
+            1.4517145696727307e-14
+          ],
+          "n": [
+            0,
+            -1,
+            0
+          ],
+          "box": {
+            "min": [
+              -50.0000001,
+              -29.999999999999773,
+              -50.0000001
+            ],
+            "max": [
+              150.0000001,
+              80.00000158561076,
+              50.00000010000104
+            ]
+          }
+        },
+        {
+          "p": [
+            139.70000000000002,
+            -1,
+            9.655297904112314e-15
+          ],
+          "t": "CIRCLE",
+          "r": 39.7,
+          "c": [
+            100.00000000000001,
+            -1,
+            1.4517145696727307e-14
+          ],
+          "n": [
+            0,
+            -1,
+            0
+          ],
+          "box": {
+            "min": [
+              -50.0000001,
+              -29.999999999999773,
+              -50.0000001
+            ],
+            "max": [
+              150.0000001,
+              80.00000158561076,
+              50.00000010000104
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "f56",
+      "type": "thread",
+      "name": "Thread-Cut2",
+      "suppressed": false,
+      "op": "cut",
+      "face": {
+        "p": [
+          -1.1598405569510533,
+          -18.429019906898134,
+          -19.952424915890788
+        ]
+      },
+      "system": "metric",
+      "size": "M36",
+      "diameter": 10,
+      "pitch": "",
+      "leftHand": false,
+      "end": "through",
+      "depth": 10,
+      "toPlane": null,
+      "toFace": null,
+      "reverse": false,
+      "autoSize": true
+    }
+  ],
+  "nextId": 57,
+  "bodies": {
+    "f2": {
+      "name": "Body Cylinder",
+      "material": "copper",
+      "description": "",
+      "props": []
+    },
+    "f4": {
+      "name": "Body Square",
+      "material": "stainless",
+      "description": "",
+      "props": []
+    },
+    "f36": {
+      "name": "",
+      "material": "al6061",
+      "description": "",
+      "props": []
+    },
+    "f27": {
+      "name": "",
+      "material": null,
+      "description": "",
+      "props": []
+    }
+  },
+  "rollbackAt": null
+}

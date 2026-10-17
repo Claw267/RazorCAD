@@ -1,0 +1,20 @@
+Implement the following:
+
+UI:
+
+- For features with shortcuts show the shortcut key on the icon in the bottom right hand corner of the icon. Only for the feature icons on the toolbar.
+
+Features:
+
+- Add a sweep extrude and a sweep extrude feature.
+- Add a loft feature where a solid body is created from two sketches. Allow a third sketch reference to match the loft with the sketch shape. If lofting for example from a square to a circle automatically split the circle into equal points as the square (or any polygon) so lofting happens smoothly. If the user has manually drawn a circle with multiple unequel arc segments use the points of the segments to create the loft. If the number of points on the arc do not match the number of points on the polygon notify the user of the error instead of trying to force the feature. Make any adjustments as you see fit for this feature. Allow a thin loft as well similar to how the this extrude works.
+- Add helix drawing feature so that users can draw parts/features like springs or threads. This feature must be intuitive to use.
+- Create and automatic thread feature that when selecting a bore it will cut a thread up through the length of the bore or up to a certain depth or even up to a selected reference. When selecting a "shaft" or an outside cylinder to add thread. Allow the user to define the pitch of the thread. Allow the user to select a default standard metric or imperial thread, if the the bore or shaft does not match the correct diameter for a standard thread, automatically adjust the bore or shaft size to match within as long as it does not exceed the bounds of the body especially in the case for holes. This can be split into two features such as Thread Cut and Thread Extrude. Create relevant icons for this.
+- Fix the issue with fillets in the case where there is for example a 4mm thick wall and a user wants to add a 2mm fillet. This should result in a rounded top and not an error.
+
+
+Sketches:
+
+- Allow the user to convert or offset entities where the sketch plane intersects with a body or surface. Highlight the intersecting surface when the convert or offset entities tool is selected.
+- Add a text tool for sketches that allow users to cut or extrude text features. The text must be closed boundaries so that the extrude boss and extrude cut features can work. Add multiple font options along with the ability to make bold or italic.
+- Add the ability to project text or sketches onto curved surfaces. And be able to cut or extrude the text onto/into the curved surface. This may be tricky to implement, maybe it can be all in one boolean operation where the projected text is automatically filled with surfaces that can be thickened and then added or subtracted to/from the body. This does not just have to apply to text but to normal sketch entities as well. This could be a feature in its own. Implement how you think is most efficient and intuitive to use.

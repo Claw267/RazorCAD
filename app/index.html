@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RazorCAD</title>
+<link rel="stylesheet" href="css/style.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.js",
+    "three-mesh-bvh": "./vendor/three-mesh-bvh.module.js"
+  }
+}
+</script>
+</head>
+<body>
+<div id="app">
+  <header id="titlebar">
+    <div class="logo"><span class="logo-mark">R</span><span>RazorCAD</span></div>
+    <nav id="menubar"></nav>
+    <div id="doc-title">Part1</div>
+    <div class="titlebar-right"><button id="help-btn" title="Keyboard shortcuts">?</button></div>
+  </header>
+
+  <div id="commandmanager">
+    <div id="cm-buttons"></div>
+    <div id="cm-tabs"></div>
+  </div>
+
+  <main id="workspace">
+    <aside id="leftpanel">
+      <div id="lp-tabs">
+        <button data-tab="tree" class="active" title="Feature tree"></button>
+        <button data-tab="pm" title="Property panel"></button>
+        <button data-tab="config" title="Configurations"></button>
+      </div>
+      <div id="tree" class="lp-view"></div>
+      <div id="pm" class="lp-view" hidden></div>
+      <div id="configs" class="lp-view" hidden></div>
+    </aside>
+    <div id="splitter"></div>
+    <section id="viewport">
+      <canvas id="c"></canvas>
+      <div id="labels"></div>
+      <div id="hud"></div>
+      <div id="confirm-corner" hidden></div>
+      <div id="vp-banner" hidden></div>
+      <div id="claude-panel" hidden>
+        <div class="cl-h"><span class="cl-title"></span><span class="cl-model"></span><button class="cl-set" title="Claude settings (API key, model)"></button><button class="cl-x" title="Close">✕</button></div>
+        <div class="cl-log"></div>
+        <div class="cl-in">
+          <textarea rows="3" spellcheck="true" placeholder="Describe a part or a change, e.g. “an 80 × 50 × 6 mm plate with four 5 mm holes 8 mm in from the corners”. Ctrl+Enter sends."></textarea>
+          <button class="cl-send primary">Send</button>
+        </div>
+      </div>
+    </section>
+    <section id="drawing" hidden>
+      <svg id="dw-svg" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div id="dw-sheets"></div>
+    </section>
+  </main>
+
+  <footer id="statusbar">
+    <span id="progress" hidden><span class="pg-label"></span><span class="pg-bar"><span class="pg-fill"></span></span><button class="pg-stop" hidden title="Stop this operation (the feature that takes too long is suppressed)">Stop</button></span>
+    <span id="status-msg">Ready</span>
+    <span class="spacer"></span>
+    <span id="status-rebuild"></span>
+    <span id="status-mode">Editing Part</span>
+    <span id="status-units">MMGS</span>
+  </footer>
+</div>
+
+<div id="dropdown" hidden></div>
+<div id="ctxmenu" hidden></div>
+<div id="modal-root"></div>
+<div id="toast" hidden></div>
+<input type="file" id="file-input" accept=".rcad,.rasm,.rdrw" hidden>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

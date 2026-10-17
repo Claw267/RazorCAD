@@ -1,0 +1,55 @@
+Implement the following changes/modifications
+
+
+Feature Tree Editing:
+
+- Create a line at the bottom of the feature tree to allow users drag it up anywhere in the feature tree to add features that will update parts/features downstream of the feature tree.
+- Allow users to drag feature tree items op and down the feature tree where references permit.
+- When clicking on a feature show linking arrows to show referenced feaures.
+
+Features:
+
+- Allow users to do a thin extrude were the can set the thickness to reduce featuretree clutter. The default will be a solid extrude where they can select the thin extrude feature in the window to the left.
+- When a sketch is not a closed sketch but a continuous line default to thin extrude.
+- The thin extrude option must have options to change the thickening direction including symmetrical thickening.
+- Add a delete body feature. When a body is deleted using this feature it still exists in the model tree so when a user deletes the delete body feature the body will return.
+- Add boolean feature that allows users to subtract one body from another. Allow the user to choose the cutting body and target body to cut. Add a check box to consume the cutting body or to keep it. By default it will consume it.
+- When doing operations such as a revolve allow the user to select the revolve reference in the model window.
+- In the chamfer tool add option in the left side menu when the feature is active to allow the user to decide how the chamfer is defined. It can be defined by an angle and distance or by two distances. And make the angle flipable as well as the distance.
+- When a cut cuts through multiple bodies allow the user to select the scope of the cut. But default it will cut through all bodies within the scope unless the user chooses to select the scope.
+
+
+Sketching:
+
+- Allow users change sketch orientation of the default orientation is not to their preference.
+- When selecting a feature without a sketch selected allow the user to select a plane/surface/face to sketch on. When the sketch is complete continue with the original feature selected. If there are conflicting errors such as open sketches prompt the user to let them know that there are open boundaries and to edit the continue editing the sketch. Or they can ignore it and the feature operation will abort with the sketch remaining so they can edit is at any time.
+- Add a symbol next to a part when a sketch is not fully defined. Center/Constructions lines do not need to be fully defined for the sketch to be considered fully defined, the construction line only needs to be located positionally but the ends of the lines do not need to be constrained.
+- Add a mirroring feature in sketch mode that will mirror selected entities about a selected construction line.
+- Add a radius and chamfering feature in sketches.
+- Do not exit sketch mode when hitting enter. Only hitting ESC or clicking on the check-box in the top right corner will close the sketch. ESC should only close sketch mode when a sketch feature is not active. If is ESC is pressed with the sketch feature active just deactivate the feature.
+- Allow sketches to be hidden/shown in the model window. By default when a sketch is absorbed by a feature make the sketch hidden.
+- When skething on a surface and plane allow the user to project lines where that sketch plane/surface intersects with the body/feature.
+
+UI:
+
+- When creating a new part while another part is active create a new tabbed window that they can switch between parts.
+- When closing the software add an option to the warning of any unsaved parts to save any unsaved parts before closing.
+- When opening step files or STL's give the user the option to open the file in a new part window or if they want to insert it into the existing part.
+- When inserting a step file into an existing part add an option to locate the part with mates otherwise drop it in place. Create separate move body feature under the step file so the user can edit the mates if needed.
+- When a step files has multiple bodies all the bodies are shown in solid bodies feature, group the step files bodies together with its own drop-down to expand and show the bodies to reduce clutter in the solid bodies feature.
+- Allow users to group solid bodies together under a folder which will remain under the solid bodies feature. To enable better organisation.
+- Add a measuring tool under the evaluate feature that allows user to measure sketch lines, bodies or from one reference to another. Provide the straight line distance along with X-Y-Z distances.
+- Add an option to hide surfaces and bodies by right clicking on the body/surface in the model window and select hide. Create a hidden bodies window that can be accessed when right clicking on the model window with and menu item show hidden bodies that will show only the hidden bodies/surfaces and then they can click on the to return them the the shown state.
+- Create an isolate feature that when a user right clicks on the body there should be an option to isolate that part and the rest gets hidden. They can edit the part in the isolated state. This is to make modifying parts with many bodies easier when this start getting cluttered.
+- Expand on the show planes feature. Rather make it a filterable drop down so the user can choose what elements to hide such as sketches, axis, planes, points, surfaces and a select/deselect all function for finer control.
+- Add a save, save as, rebuild icons in the top bar to the right where the "file", "Edit", "View" etc is located. For easier access.
+
+Surfaces:
+
+- When multiple knitted surfaces create a closed volume allow the user to covert it to a solid.
+- Add a delete surface feature.
+- Add a move copy surfaces feature.
+
+References:
+
+- When adding a reference axis, allow the user to select a cylindrical body/surface to place and axis at its centre similar to when selecting an edge.
