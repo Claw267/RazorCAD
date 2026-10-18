@@ -85,6 +85,18 @@ function unpackMesh(m) {
 }
 const MESH_CACHE = 'assembly part mesh 1\n'; // (changes when packMesh does)
 
+// A part's mesh with the appearances set in the part (a body's colour, made transparent) over those it was
+// imported with (the mesh bodies' color / transparency), as the assembly shows them.
+function withPartLooks(mesh, doc) {
+  const own = doc.bodies || {};
+  if (!mesh.bodies?.some((b) => own[b.id]?.color || own[b.id]?.transparent !== undefined)) return mesh;
+  return { ...mesh, bodies: mesh.bodies.map((b) => {
+    const o = own[b.id];
+    if (!o) return b;
+    return { ...b, ...(o.color ? { color: o.color } : {}), ...(o.transparent !== undefined ? { transparency: o.transparent ? 0.7 : 0 } : {}) };
+  }) };
+}
+
 // a pose: { p: [x, y, z], q: THREE.Quaternion }
 const poseOf = (c) => ({ p: c.pos.slice(), q: new THREE.Quaternion(...c.rot) });
 const applyQ = (q, v) => new THREE.Vector3(...v).applyQuaternion(q).toArray();
@@ -313,7 +325,7 @@ export class AssemblyEditor {
   itemAt(e) { return this.compAt(e)?.comp.id || null; }
   itemCenter(id) { const c = this.comp(id); return c ? this.compCenter(c) : [0, 0, 0]; }
   itemSize(id) { const c = this.comp(id), b = c && this.geo(c)?.box; return b ? Math.max(...b.max.map((x, i) => x - b.min[i])) * 1.2 : 50; }
-  faceNormalAt(e) { const ch = this.compAt(e); const fi = ch && this.display.faceInfo(ch.bi, ch.hit.face); return fi?.planar ? fi.normal.toArray() : null; }
+  faceNormalAt(e) { const ch = this.compAt(e); const fi = ch && this.display.faceInfo(ch.leaf, ch.hit.face); return fi?.planar ? fi.normal.toArray() : null; }
   redisplay() { this.updateGeometry(); }
   commit(msg) { this.change(msg); }
   pmRoot() { return $('#pm'); }
@@ -364,12 +376,75 @@ export class AssemblyEditor {
     const comps = this.doc.components.filter((c) => !this.eff(c).suppressed), on = new Set(comps.map((c) => c.id));
     return { components: comps, mates: this.doc.mates.map((m) => this.effMate(m)).filter((m) => on.has(m.a.comp) && on.has(m.b.comp)) };
   }
+  // ---------------------------------------------------------------- sub-assemblies
+  // A component can use an assembly instead of a part: a sub-assembly, kept whole (its own parts, components,
+  // placements and configurations, saved inside this one or in its own .rasm file). It moves as one; its parts
+  // are built and drawn through it.
+  isSub(p) { return isAssembly(p?.doc); }
+  // every part shown, through the sub-assemblies, in tree order:
+  //   [{ ci (top component index), comp (the top component), chain (the component ids below it), p (part record),
+  //      cfg (its configuration), gk (geometry key), M (THREE.Matrix4: where it sits in the top component), hidden, names }]
+  leaves() {
+    const out = [];
+    const effIn = (doc, cfgId, c) => {
+      const o = (cfgId ? (doc.configs || []).find((x) => x.id === cfgId) : null)?.comps?.[c.id] || {};
+      return { config: 'config' in o ? o.config : (c.config ?? null), hidden: 'hidden' in o ? o.hidden : !!c.hidden, suppressed: 'suppressed' in o ? o.suppressed : !!c.suppressed };
+    };
+    const q = new THREE.Quaternion(), v = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1);
+    const walk = (doc, M, ci, top, chain, prefix, hidden, names, depth) => {
+      if (depth > 16) return; // (an assembly inside itself)
+      for (const c of doc.components) {
+        const e = effIn(doc, doc.activeConfig, c);
+        if (e.suppressed) continue;
+        const p = (doc.parts || []).find((x) => x.id === c.part);
+        if (!p) continue;
+        const Mc = M.clone().multiply(new THREE.Matrix4().compose(v.set(...c.pos), q.set(...c.rot).normalize(), one));
+        if (this.isSub(p)) walk(this.subView(p.doc, e.config), Mc, ci, top, [...chain, c.id], `${prefix}${p.id}>`, hidden || e.hidden, [...names, c.name], depth + 1);
+        else out.push({ ci, comp: top, chain: [...chain, c.id], p, cfg: e.config, gk: `${prefix}${p.id}|${e.config || ''}`, M: Mc, hidden: hidden || e.hidden, names: [...names, c.name] });
+      }
+    };
+    this.doc.components.forEach((c, ci) => {
+      const e = this.eff(c), p = this.part(c.part);
+      if (e.suppressed || !p) return;
+      if (this.isSub(p)) walk(this.subView(p.doc, e.config), new THREE.Matrix4(), ci, c, [], `${p.id}>`, e.hidden, [], 1);
+      else out.push({ ci, comp: c, chain: [], p, cfg: e.config, gk: this.geoKey(c.part, e.config), M: new THREE.Matrix4(), hidden: e.hidden, names: [] });
+    });
+    return out;
+  }
+  // whether an assembly uses a file anywhere inside it (to keep an assembly out of itself)
+  usesFile(doc, path, depth = 0) {
+    if (!path || depth > 16) return false;
+    return (doc.parts || []).some((p) => sameFile(p.path, path) || (isAssembly(p.doc) && this.usesFile(p.doc, path, depth + 1)));
+  }
+  // a sub-assembly as one of its configurations shows it
+  subView(doc, cfgId) { return { ...doc, activeConfig: cfgId && (doc.configs || []).some((x) => x.id === cfgId) ? cfgId : null }; }
+  // the box round a sub-assembly component's parts, in its own frame ({ min, max } or null)
+  subBox(c) {
+    const box = new THREE.Box3(), b = new THREE.Box3();
+    const ls = this._leaves?.some((l) => l.comp === c) ? this._leaves : this.leaves();
+    for (const l of ls) {
+      if (l.comp !== c) continue;
+      const g = this.parts.get(l.gk)?.box;
+      if (g) box.union(b.set(new THREE.Vector3(...g.min), new THREE.Vector3(...g.max)).applyMatrix4(l.M));
+    }
+    return box.isEmpty() ? null : { min: box.min.toArray(), max: box.max.toArray() };
+  }
+  // the leaf a mate reference is on (by its component and the components below it)
+  leafOf(r) {
+    const chain = r.sub || [];
+    return (this._leaves || this.leaves()).findIndex((l) => l.comp.id === r.comp && l.chain.length === chain.length && l.chain.every((x, i) => x === chain[i]));
+  }
+
   // a part's configurations: [[id | null, name]…]
   partConfigs(p) { return [[null, 'Default'], ...((p?.doc?.configs) || []).map((c) => [c.id, c.name])]; }
   configName(p, id) { return id ? (p?.doc?.configs || []).find((c) => c.id === id)?.name || '?' : 'Default'; }
   // the built geometry of a component (its part in its configuration)
   geoKey(partId, cfgId) { return partId + '|' + (cfgId || ''); }
-  geo(c) { return this.parts.get(this.geoKey(c.part, this.eff(c).config)) || null; }
+  // a component's geometry: { mesh, color, box } (a sub-assembly: only the box round its parts)
+  geo(c) {
+    if (this.isSub(this.part(c.part))) { const box = this.subBox(c); return box ? { mesh: null, box, sub: true } : null; }
+    return this.parts.get(this.geoKey(c.part, this.eff(c).config)) || null;
+  }
 
   setActiveConfig(id) {
     if (this.pm) this.cancelMate(true);
@@ -521,13 +596,14 @@ export class AssemblyEditor {
   redo() { const s = this.redoStack.pop(); if (!s) return; this.undoStack.push(this.snapshot()); this.restore(s); }
 
   // ---------------------------------------------------------------- parts and their geometry
-  // bring the part copies up to date from the open part tabs, else from their files
+  // bring the part (and sub-assembly) copies up to date from the open tabs, else from their files
   async refreshParts() {
     let changed = false;
+    const docOf = (t) => (t.kind === 'drawing' ? (t.drawing instanceof AssemblyEditor && t.drawing !== this ? t.drawing.doc : null) : t.doc);
     for (const p of this.doc.parts) {
       let doc = null;
-      const tab = this.live.get(p.id) || this.app.tabs.find((t) => t.kind !== 'drawing' && t.doc && p.path && sameFile(t.filePath, p.path));
-      if (tab && this.app.tabs.includes(tab)) doc = this.app.tabs.indexOf(tab) === this.app.tabIndex ? this.app.doc : tab.doc;
+      const tab = this.live.get(p.id) || this.app.tabs.find((t) => docOf(t) && p.path && sameFile(t.filePath, p.path));
+      if (tab && this.app.tabs.includes(tab)) doc = tab.kind === 'drawing' ? docOf(tab) : this.app.tabs.indexOf(tab) === this.app.tabIndex ? this.app.doc : tab.doc;
       else if (p.path && platform.desktop) { try { const text = await platform.readText(p.path); if (text) doc = stripThumbnail(JSON.parse(text)); } catch { /* keep the copy */ } }
       if (doc && JSON.stringify(doc) !== JSON.stringify(p.doc)) { p.doc = JSON.parse(JSON.stringify(doc)); p.name = (p.path && isDefaultName(doc.name) ? fileStem(p.path) : doc.name) || p.name; changed = true; }
     }
@@ -540,12 +616,11 @@ export class AssemblyEditor {
   // them at once; the kernel builds the others one by one, and they are stored for next time.
   async loadParts() {
     let any = false;
+    // (every part shown, through the sub-assemblies)
     const want = new Map();
-    for (const c of this.doc.components) { const e = this.eff(c); if (!e.suppressed) want.set(this.geoKey(c.part, e.config), [c.part, e.config]); }
+    for (const l of this.leaves()) if (!want.has(l.gk)) want.set(l.gk, [l.p, l.cfg]);
     const jobs = [];
-    for (const [gk, [pid, cfgId]] of want) {
-      const p = this.part(pid);
-      if (!p) continue;
+    for (const [gk, [p, cfgId]] of want) {
       // (the same part copy as last time: built already, without writing out and hashing it again)
       if (this.parts.get(gk)?.from === p.doc) continue;
       const doc = { ...p.doc, activeConfig: cfgId && (p.doc.configs || []).some((x) => x.id === cfgId) ? cfgId : null };
@@ -553,9 +628,9 @@ export class AssemblyEditor {
       if (this.parts.get(gk)?.key === key) { this.parts.get(gk).from = p.doc; continue; }
       jobs.push({ gk, p, cfgId, json, key });
     }
-    // (p.color: the colour a STEP assembly gave the part, until it has a material)
+    // (colour: the part's material's, for bodies without one of their own; p.color: an older STEP import's part colour)
     const done = (j, mesh, error = null) => {
-      this.parts.set(j.gk, error ? { key: j.key, from: j.p.doc, mesh: null, error } : { key: j.key, from: j.p.doc, mesh, color: materialById(j.p.doc.material)?.color ?? j.p.color ?? DEFAULT_BODY_COLOR, box: mesh ? meshBox(mesh) : null });
+      this.parts.set(j.gk, error ? { key: j.key, from: j.p.doc, mesh: null, error } : { key: j.key, from: j.p.doc, mesh: mesh && withPartLooks(mesh, j.p.doc), color: materialById(j.p.doc.material)?.color ?? j.p.color ?? DEFAULT_BODY_COLOR, box: mesh ? meshBox(mesh) : null });
       any = true;
     };
     if (jobs.length && platform.desktop) {
@@ -571,13 +646,18 @@ export class AssemblyEditor {
       // (what was stored shows at once, while the kernel builds the rest)
       if (any && jobs.some((j) => !j.cached)) { this.resyncRefs(); this.solve(); this.updateGeometry(); this.renderAll(); }
     }
+    // (the same part in several places, e.g. in two sub-assemblies, is built once)
+    const built = new Map();
     for (const j of jobs) {
       if (j.cached) continue;
+      const same = built.get(j.key);
+      if (same) { done(j, same); continue; }
       this.app.status(`Building ${j.p.name}${j.cfgId ? ` (${this.configName(j.p, j.cfgId)})` : ''}…`);
       try {
         const r = await this.app.kernel.request('partMesh', { doc: j.json });
         const mesh = r.body && r.body.vertices ? r.body : null;
         done(j, mesh);
+        if (mesh) built.set(j.key, mesh);
         // stored for next time, unless it had errors (its rebuild may come out differently)
         if (mesh && !r.errors && j.cacheKey) packResult({ body: packMesh(mesh) }).then((b64) => platform.writeModelCache(j.cacheKey, b64)).catch(() => {});
       } catch (err) {
@@ -592,12 +672,21 @@ export class AssemblyEditor {
   }
 
   resyncRefs() {
+    this._leaves = this.leaves();
     for (const m of this.doc.mates) for (const r of [m.a, m.b]) {
-      const c = this.comp(r.comp), mesh = c && this.geo(c)?.mesh;
+      const l = this._leaves[this.leafOf(r)], mesh = l && this.parts.get(l.gk)?.mesh;
       if (!mesh) continue;
       const fresh = r.face !== undefined ? refOfFace(mesh, r.face) : r.edge !== undefined ? refOfEdge(mesh, r.edge, r.endAt) : null;
-      if (fresh && fresh.kind === r.kind) Object.assign(r, { p: fresh.p, n: fresh.n, d: fresh.d, r: fresh.r });
+      if (fresh && fresh.kind === r.kind) { const t = this.toTop(l, fresh); Object.assign(r, { p: t.p, n: t.n, d: t.d, r: t.r }); }
     }
+  }
+  // a reference in a part's own coordinates → in its top component's (through the sub-assemblies it is in)
+  toTop(l, r) {
+    if (!l.chain.length) return r;
+    const out = { ...r }, M = l.M;
+    if (r.p) out.p = new THREE.Vector3(...r.p).applyMatrix4(M).toArray().map(r6);
+    for (const k of ['n', 'd']) if (r[k]) out[k] = new THREE.Vector3(...r[k]).transformDirection(M).toArray().map(r6);
+    return out;
   }
 
   // ---------------------------------------------------------------- the view: each part drawn at its components
@@ -613,49 +702,56 @@ export class AssemblyEditor {
     cancelAnimationFrame(this._geoFrame.raf); clearTimeout(this._geoFrame.tm); this._geoFrame = null;
     this.buildMesh();
   }
-  // (a component's placement, with its exploded-view offset, as a matrix: all a move changes on the graphics card)
+  // Each part shown (through the sub-assemblies) placed by its component's placement, with its exploded-view
+  // offset, as a matrix: all a move changes on the graphics card.
   buildMesh() {
     if (!this.isActive() || !this.display) return;
     const offs = this.offsets();
     const q = new THREE.Quaternion(), p = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1);
-    this.display.update(this.doc.components.map((c) => {
-      const e = this.eff(c), g = this.geo(c);
-      if (e.suppressed || !g?.mesh) return null;
+    const tops = this.doc.components.map((c) => {
       const o = offs.get(c.id);
       p.set(...(o ? c.pos.map((x, k) => x + o[k]) : c.pos));
-      return { mesh: g.mesh, color: g.color ?? DEFAULT_BODY_COLOR, hidden: !!e.hidden, matrix: new THREE.Matrix4().compose(p, q.set(...c.rot).normalize(), one) };
+      return new THREE.Matrix4().compose(p, q.set(...c.rot).normalize(), one);
+    });
+    this._leaves = this.leaves();
+    this.display.update(this._leaves.map((l) => {
+      const g = this.parts.get(l.gk);
+      if (!g?.mesh) return null;
+      return { mesh: g.mesh, color: g.color ?? DEFAULT_BODY_COLOR, hidden: !!l.hidden, matrix: tops[l.ci].clone().multiply(l.M) };
     }));
     this._exLines = drawExplodeLines(this.vp, this._exLines, this.showLines === false ? [] : [...offs].filter(([id, o]) => Math.hypot(...o) > 1e-9 && this.comp(id)).map(([id, o]) => { const a = this.compCenter(this.comp(id)); return [a, a.map((x, k) => x + o[k])]; }));
     this.highlight();
   }
 
   // ---------------------------------------------------------------- picking
-  // the component under the mouse: { comp, hit: { point, face (the part's face number) }, bi (its index) }
+  // the (top-level) component under the mouse: { comp, hit: { point, face (the part's face number) }, bi (its index),
+  // leaf (the part shown that was hit: an index in this._leaves) }. A part inside a sub-assembly picks the sub-assembly.
   compAt(e) {
     const hit = this.display?.pick(e);
-    if (!hit || hit.face < 0) return null;
-    const c = this.doc.components[hit.comp];
-    return c ? { comp: c, hit, bi: hit.comp } : null;
+    const l = hit && hit.face >= 0 && this._leaves?.[hit.comp];
+    return l ? { comp: l.comp, hit, bi: l.ci, leaf: hit.comp } : null;
   }
-  // a face, edge or vertex under the mouse, as a mate reference (in the part's coordinates)
+  // a face, edge or vertex under the mouse, as a mate reference (in its top component's coordinates; sub: the
+  // components below it when it is on a part inside a sub-assembly)
   entityAt(e) {
     const view = this.display;
-    if (!view) return null;
+    if (!view || !this._leaves) return null;
     const inv = (c) => { const ps = poseOf(c); const qi = ps.q.clone().invert(); return (w) => applyQ(qi, sub(w, ps.p)); };
+    const subOf = (l) => (l.chain.length ? { sub: l.chain } : {});
     const vx = view.pickVertex(e, 7);
-    const vc = vx && this.doc.components[vx.comp];
-    if (vc) return { comp: vc.id, kind: 'point', p: inv(vc)(vx.point.toArray()).map(r6), what: 'Vertex', world: vx.point.toArray() };
+    const vl = vx && this._leaves[vx.comp];
+    if (vl) return { comp: vl.comp.id, kind: 'point', p: inv(vl.comp)(vx.point.toArray()).map(r6), what: 'Vertex', world: vx.point.toArray() };
     const ed = view.pickEdge(e, 5);
     if (ed) {
-      const c = this.doc.components[ed.comp], m = c && this.geo(c)?.mesh;
-      if (m) { const r = refOfEdge(m, ed.edge); if (r) return { comp: c.id, ...r, edge: ed.edge, gi: `${ed.comp}:e${ed.edge}` }; }
+      const l = this._leaves[ed.comp], m = l && this.parts.get(l.gk)?.mesh;
+      if (m) { const r = refOfEdge(m, ed.edge); if (r) return { comp: l.comp.id, ...this.toTop(l, r), edge: ed.edge, ...subOf(l), gi: `${ed.comp}:e${ed.edge}` }; }
     }
     const ch = this.compAt(e);
     if (!ch) return null;
-    const m = this.geo(ch.comp)?.mesh;
+    const l = this._leaves[ch.leaf], m = this.parts.get(l.gk)?.mesh;
     const r = m && refOfFace(m, ch.hit.face);
     if (!r) { this.app.toast('That face is not flat, cylindrical, conical or spherical: pick another face, an edge or a vertex'); return null; }
-    return { comp: ch.comp.id, ...r, face: ch.hit.face, gi: `${ch.bi}:f${ch.hit.face}` };
+    return { comp: ch.comp.id, ...this.toTop(l, r), face: ch.hit.face, ...subOf(l), gi: `${ch.leaf}:f${ch.hit.face}` };
   }
   refLabel(r) { const c = this.comp(r.comp); return `${r.what} of ${c?.name || '?'}`; }
   // a ref placed by its component's pose now
@@ -788,20 +884,22 @@ export class AssemblyEditor {
     const vp = this.vp, view = this.display;
     if (!this.isActive() || !view) return;
     const bi = (id) => this.doc.components.findIndex((c) => c.id === id);
-    const sel = this.sel?.kind === 'comp' ? bi(this.sel.id) : -1;
-    const hov = this.hoverComp && this.hoverComp !== this.sel?.id ? bi(this.hoverComp) : -1;
+    // (a component's parts shown: one, or all of a sub-assembly's)
+    const leavesOf = (id) => (id ? (this._leaves || []).map((l, i) => (l.comp.id === id ? i : -1)).filter((i) => i >= 0) : []);
+    const sel = this.sel?.kind === 'comp' ? leavesOf(this.sel.id) : [];
+    const hov = this.hoverComp && this.hoverComp !== this.sel?.id ? leavesOf(this.hoverComp) : [];
     // the faces / edges / vertices of the mate being made (or of the selected mate)
     const refs = this.pm ? this.pm.picks : this.sel?.kind === 'mate' ? (([m]) => (m ? [m.a, m.b] : []))(this.doc.mates.filter((m) => m.id === this.sel.id)) : [];
     const faceInfos = [], edgesSel = [], pts = [];
     for (const r of [...refs, ...(this.hoverRef ? [this.hoverRef] : [])]) {
-      const ci = bi(r.comp);
-      if (ci < 0) continue;
-      if (r.face !== undefined) { const fi = view.faceInfo(ci, r.face); if (fi) faceInfos.push(fi); }
-      else if (r.edge !== undefined) edgesSel.push([ci, r.edge]);
+      if (bi(r.comp) < 0) continue;
+      const li = this.leafOf(r);
+      if (r.face !== undefined) { const fi = li >= 0 && view.faceInfo(li, r.face); if (fi) faceInfos.push(fi); }
+      else if (r.edge !== undefined) { if (li >= 0) edgesSel.push([li, r.edge]); }
       else pts.push(toWorld(poseOf(this.comp(r.comp)), r.p));
     }
     vp.setFaceSet?.(faceInfos, 'pm');
-    view.setHighlights({ selected: sel, hover: hov >= 0 && !refs.length ? hov : -1, edges: edgesSel });
+    view.setHighlights({ selected: sel, hover: refs.length ? [] : hov, edges: edgesSel });
     vp.setVertexMarkers?.(pts.length ? { selected: pts } : null);
   }
 
@@ -855,7 +953,10 @@ export class AssemblyEditor {
       if (!f?.content) return;
       try {
         const doc = JSON.parse(f.content);
-        if (!Array.isArray(doc.features)) throw new Error('Not a RazorCAD part file');
+        // (a part, or an assembly: it goes in whole, as a sub-assembly)
+        if (!Array.isArray(doc.features) && !isAssembly(doc)) throw new Error('Not a RazorCAD part or assembly file');
+        if (isAssembly(doc) && (sameFile(f.path, this.filePath) || this.usesFile(doc, this.filePath))) throw new Error('An assembly cannot go inside itself');
+        stripThumbnail(doc);
         const pid = this.addPart(doc, f.path || null, null);
         const cfgs = doc.configs || [];
         let cfg;
@@ -869,7 +970,7 @@ export class AssemblyEditor {
       } catch (err) { a.toast('Could not insert it: ' + err.message, true); }
     };
     const dlg = a.ui.modal('Insert Components', 'insertComponent', body, [
-      { label: 'Browse for a Part File…', action: () => { browse(); } },
+      { label: 'Browse for a Part or Assembly…', action: () => { browse(); } },
       { label: 'Insert', primary: true, action: () => { go(); } },
       { label: 'Cancel' },
     ]);
@@ -969,18 +1070,25 @@ export class AssemblyEditor {
     if (!c) return;
     this.app.ui.promptText('Rename Component', 'rename', 'Name', c.name).then((v) => { if (v && v.trim()) { this.begin(); c.name = v.trim(); this.change(); } });
   }
+  // open a component's part, or its sub-assembly, in a tab (its file when it has one, else this assembly's copy)
   async openPart(id) {
-    const c = this.comp(id), p = c && this.part(c.part), a = this.app;
+    const c = this.comp(id), p = c && this.part(c.part);
     if (!p) return;
-    const tab = this.live.get(p.id) || a.tabs.find((t) => t.kind !== 'drawing' && p.path && sameFile(t.filePath, p.path));
-    if (tab && a.tabs.includes(tab)) return a.activateTab(a.tabs.indexOf(tab));
-    if (p.path && platform.desktop) { try { const f = await platform.openPath(p.path); if (f) return a.openFromFile(f); } catch { /* use the copy */ } }
-    await a.openFromFile({ name: p.name + '.rcad', content: JSON.stringify(p.doc), path: null });
-    this.live.set(p.id, a.tabs[a.tabIndex]);
+    const tab = await this.openPartDoc(p);
+    if (tab) this.live.set(p.id, tab);
+  }
+  async openPartDoc(p) {
+    const a = this.app, sub = this.isSub(p);
+    const tab = this.live.get(p.id) || a.tabs.find((t) => p.path && sameFile(t.filePath, p.path) && (sub ? t.kind === 'drawing' : t.kind !== 'drawing'));
+    if (tab && a.tabs.includes(tab)) { await a.activateTab(a.tabs.indexOf(tab)); return null; }
+    if (p.path && platform.desktop) { try { const f = await platform.openPath(p.path); if (f) { await a.openFromFile(f); return null; } } catch { /* use the copy */ } }
+    await a.openFromFile({ name: p.name + (sub ? ASM_EXT : '.rcad'), content: JSON.stringify(p.doc), path: null });
+    return a.tabs[a.tabIndex];
   }
   compMenu(c) {
+    const sub = this.isSub(this.part(c.part));
     return [
-      { label: 'Open Part', icon: 'part', action: () => this.openPart(c.id) },
+      { label: sub ? 'Open Sub-assembly' : 'Open Part', icon: sub ? 'assembly' : 'part', action: () => this.openPart(c.id) },
       { label: 'Mate…', icon: 'mate', action: () => this.startMate() },
       'sep',
       c.fixed ? { label: 'Float', icon: 'float', action: () => this.setFixed(c.id, false) } : { label: 'Fix', icon: 'fix', action: () => this.setFixed(c.id, true) },
@@ -1121,16 +1229,29 @@ export class AssemblyEditor {
 
   // ---------------------------------------------------------------- bill of materials
   showBOM() {
-    // (one row per part and configuration used; suppressed components left out)
+    // (indented: one row per part / sub-assembly and configuration used, a sub-assembly's own under it with the
+    // quantity in one of it; suppressed components left out)
     const rows = [];
-    for (const p of this.doc.parts) {
-      const by = new Map();
-      for (const c of this.doc.components) { const e = this.eff(c); if (c.part !== p.id || e.suppressed) continue; by.set(e.config, (by.get(e.config) || 0) + 1); }
-      for (const [cfgId, n] of by) rows.push({ name: p.name + ((p.doc.configs || []).length ? ` (${this.configName(p, cfgId)})` : ''), qty: n, material: materialById(p.doc.material)?.name || '', file: p.path ? String(p.path).split(/[\\/]/).pop() : '(not saved)' });
-    }
-    const table = `<table class="bom"><tr><th>Item</th><th>Part</th><th>Qty</th><th>Material</th><th>File</th></tr>${rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.name)}</td><td>${r.qty}</td><td>${esc(r.material)}</td><td>${esc(r.file)}</td></tr>`).join('')}</table>`;
-    const csv = ['Item,Part,Qty,Material,File', ...rows.map((r, i) => [i + 1, r.name, r.qty, r.material, r.file].map((x) => `"${String(x).replace(/"/g, '""')}"`).join(','))].join('\r\n');
-    this.app.ui.modal('Bill of Materials', 'bom', `${table}<p class="pm-hint">${rows.reduce((t, r) => t + r.qty, 0)} components, ${rows.length} different parts.</p>`, [
+    const level = (doc, effOf, prefix, depth) => {
+      let k = 0;
+      for (const p of doc.parts || []) {
+        const by = new Map();
+        for (const c of doc.components) { const e = effOf(c); if (c.part !== p.id || e.suppressed) continue; by.set(e.config, (by.get(e.config) || 0) + 1); }
+        for (const [cfgId, n] of by) {
+          const item = prefix + ++k, sub = this.isSub(p);
+          rows.push({ item, depth, name: p.name + ((p.doc.configs || []).length ? ` (${this.configName(p, cfgId)})` : ''), qty: n, material: sub ? '' : materialById(p.doc.material)?.name || '', file: p.path ? String(p.path).split(/[\\/]/).pop() : '(not saved)', sub });
+          if (sub && depth < 16) {
+            const sd = this.subView(p.doc, cfgId), cf = sd.activeConfig ? (sd.configs || []).find((x) => x.id === sd.activeConfig) : null;
+            level(sd, (c) => { const o = cf?.comps?.[c.id] || {}; return { config: 'config' in o ? o.config : (c.config ?? null), suppressed: 'suppressed' in o ? o.suppressed : !!c.suppressed }; }, item + '.', depth + 1);
+          }
+        }
+      }
+    };
+    level(this.doc, (c) => this.eff(c), '', 0);
+    const table = `<table class="bom"><tr><th>Item</th><th>Part</th><th>Qty</th><th>Material</th><th>File</th></tr>${rows.map((r) => `<tr><td>${r.item}</td><td style="padding-left:${6 + r.depth * 14}px">${r.sub ? '<b>' : ''}${esc(r.name)}${r.sub ? '</b>' : ''}</td><td>${r.qty}</td><td>${esc(r.material)}</td><td>${esc(r.file)}</td></tr>`).join('')}</table>`;
+    const csv = ['Item,Part,Qty,Material,File', ...rows.map((r) => [r.item, r.name, r.qty, r.material, r.file].map((x) => `"${String(x).replace(/"/g, '""')}"`).join(','))].join('\r\n');
+    const top = rows.filter((r) => !r.depth);
+    this.app.ui.modal('Bill of Materials', 'bom', `${table}<p class="pm-hint">${top.reduce((t, r) => t + r.qty, 0)} components at the top level, ${top.length} different parts and sub-assemblies${rows.length > top.length ? ' (a sub-assembly\'s quantities are for one of it)' : ''}.</p>`, [
       { label: 'Copy as CSV', action: () => { navigator.clipboard?.writeText(csv); this.app.status('Bill of materials copied (CSV).'); return false; } },
       { label: 'Save CSV…', action: () => { platform.saveBinary(`${this.safeName()} BOM.csv`, new TextEncoder().encode(csv), 'csv'); } },
       { label: 'Close', primary: true },
@@ -1286,12 +1407,34 @@ export class AssemblyEditor {
     row({ ic: 'assembly', label: this.doc.name + (this.cfg() ? ` (${this.cfg().name})` : ''), cls: 'tree-part', title: free ? `${free} degree${free === 1 ? '' : 's'} of freedom left among the floating components` : 'Fully placed',
       sub: !this.solveOk && this.doc.mates.length ? 'mates conflict' : '',
       onDbl: () => this.app.ui.promptText('Rename Assembly', 'rename', 'Name', this.doc.name).then((v) => { if (v?.trim()) { this.begin(); this.doc.name = v.trim(); this.change(); } }) });
+    this._openSubs ||= new Set();
+    // a sub-assembly's own components, under it (shown as they are in it; picking one picks the sub-assembly)
+    const subRows = (doc, cfgId, top, key, depth) => {
+      if (depth > 17) return;
+      const cf = cfgId ? (doc.configs || []).find((x) => x.id === cfgId) : null;
+      for (const sc of doc.components) {
+        const o = cf?.comps?.[sc.id] || {}, sp = (doc.parts || []).find((x) => x.id === sc.part);
+        const hid = 'hidden' in o ? o.hidden : !!sc.hidden, sup = 'suppressed' in o ? o.suppressed : !!sc.suppressed;
+        const isSub = this.isSub(sp), k = `${key}/${sc.id}`, open = this._openSubs.has(k);
+        row({
+          ic: isSub ? 'assembly' : 'component', label: sc.name, depth, cls: (hid ? 'hidden-item' : '') + (sup ? ' suppressed' : ''),
+          title: `In ${doc.name || 'the sub-assembly'}: open it to change it`,
+          twisty: isSub ? (open ? '▼' : '▶') : '', onTwisty: isSub ? () => { if (open) this._openSubs.delete(k); else this._openSubs.add(k); this.renderTree(); } : null,
+          selected: false,
+          onClick: () => this.select({ kind: 'comp', id: top.id }),
+          onDbl: () => sp && this.openPartDoc(sp),
+        });
+        if (isSub && open) subRows(sp.doc, 'config' in o ? o.config : (sc.config ?? null), top, k, depth + 1);
+      }
+    };
     for (const c of this.doc.components) {
       const e = this.eff(c), p = this.part(c.part);
       const dof = this.dofs.get(c.id) || 0, mated = this.view().mates.some((m) => !m.suppressed && (m.a.comp === c.id || m.b.comp === c.id));
       const prefix = e.suppressed ? '' : c.fixed ? '(f) ' : dof > 0 || !mated ? '(-) ' : '';
+      const isSub = this.isSub(p), open = this._openSubs.has(c.id);
       row({
-        ic: 'component', label: prefix + c.name, depth: 1, cls: (e.hidden ? 'hidden-item' : '') + (e.suppressed ? ' suppressed' : ''),
+        ic: isSub ? 'assembly' : 'component', label: prefix + c.name, depth: 1, cls: (e.hidden ? 'hidden-item' : '') + (e.suppressed ? ' suppressed' : ''),
+        twisty: isSub ? (open ? '▼' : '▶') : '', onTwisty: isSub ? () => { if (open) this._openSubs.delete(c.id); else this._openSubs.add(c.id); this.renderTree(); } : null,
         sub: this.partConfigs(p).length > 1 ? `(${this.configName(p, e.config)})` : '',
         title: c.fixed ? 'Fixed in place' : dof > 0 || !mated ? `Under defined: it can still move (${mated ? dof : 6} degree${(mated ? dof : 6) === 1 ? '' : 's'} of freedom) — drag it, or add mates` : 'Fully defined by its mates',
         selected: this.sel?.kind === 'comp' && this.sel.id === c.id,
@@ -1300,6 +1443,7 @@ export class AssemblyEditor {
         menu: () => this.compMenu(c),
         vis: e.suppressed ? null : { on: !e.hidden, toggle: () => this.setHidden(c.id, !e.hidden) },
       });
+      if (isSub && open) subRows(p.doc, e.config, c, c.id, 2);
     }
     const open = !this._matesClosed;
     row({ ic: 'mate', label: `Mates (${this.doc.mates.length})`, depth: 1, cls: 'tree-folder', twisty: this.doc.mates.length ? (open ? '▼' : '▶') : '', onTwisty: () => { this._matesClosed = open; this.renderTree(); } });

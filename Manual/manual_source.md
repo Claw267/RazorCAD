@@ -128,7 +128,7 @@ The recent-files list is kept in `%APPDATA%\RazorCAD\recent.json`.
 There are two ways to bring in a STEP or STL file: {idx:STEP, import}{idx:STL, import}
 
 - **File ▸ Open…** opens it as a part of its own in a new tab, named after the file, without asking. A STEP file that holds an assembly asks first: {idx:STEP, assembly}
-  - **Open as an Assembly** makes a new assembly with a part for each part in the file and a component, fixed, where the file places each one. Each part keeps its own piece of the STEP file and is built on its own, and a part used several times is built once. Parts take the colour the file gives most of their solids, until you give them a material. Sub-assemblies are flattened: every component sits directly in the new assembly.
+  - **Open as an Assembly** makes a new assembly with the file's structure: a sub-assembly for each of its sub-assemblies, a part for each part, and a component, fixed, where the file places each one. Each part keeps its own piece of the STEP file and is built on its own, and a part used several times is built once. {idx:sub-assembly, from STEP}
   - The first build of each part is kept on disk (in `%LOCALAPPDATA%\RazorCAD\modelcache`, up to 1 GB, shared with parts). The next time the assembly opens, unchanged parts are shown straight from there instead of being rebuilt, so a big assembly reopens in seconds. {idx:assembly, opening quickly}
   - **Open as One Part** brings every solid into one part, as before.
 - **File ▸ Import STEP / STL…** ([[Ctrl+I]], also on the Features and Evaluate tabs) offers three choices: a **new part**, **insert in place** into the current part, or **insert and locate with mates**. Locating with mates adds a separate "Locate …" Move Body feature under the import.
@@ -136,11 +136,21 @@ There are two ways to bring in a STEP or STL file: {idx:STEP, import}{idx:STL, i
 How imports behave:
 
 - The file's contents are stored inside the part file, so the part does not depend on the original file.
+- A STEP file's appearances come with it: the colour of each solid and of single faces, and transparency. Your own Appearance and Make Transparent / Make Opaque settings on a body win over them. {idx:appearance, imported}
 - STEP imports as an exact solid. Every solid becomes its own body; a solid made of several separate shells is split into one body per shell; loose surfaces become surface bodies.
 - The bodies of a multi-body STEP file are grouped in their own folder under Solid Bodies.
 - Tick **Merge touching bodies into one body** in the import feature to fuse them instead.
 - An STL is converted to a solid made of its triangles. Coplanar triangles are merged. Meshes up to 200,000 triangles are accepted.
 - Imported bodies can be cut, extended, patterned and (for STEP) filleted like any other body.
+
+## Sub-assemblies
+
+An assembly can hold other assemblies as components. **Insert Components ▸ Browse for a Part or Assembly…** takes a .rasm file, and STEP assemblies keep their sub-assemblies when they open as an assembly. {idx:sub-assembly}
+
+- A sub-assembly is kept whole, with its own parts, placements and configurations, and moves as one. Clicking any of its parts picks it.
+- Mates can use the faces, edges and vertices of the parts inside it.
+- In the tree, ▶ opens a sub-assembly to show its components. Double-click one, or right-click the sub-assembly ▸ **Open Sub-assembly**, to change it in its own tab; the changes come back to the assembly.
+- The **Bill of Materials** is indented: a sub-assembly's parts are listed under it (1.1, 1.2…), with the quantities in one of it.
 
 ## Exporting
 

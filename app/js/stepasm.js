@@ -1,11 +1,19 @@
-// The assembly structure of a STEP file, read straight from its text: the parts, each written out as a STEP
-// file of its own, and where every occurrence of them sits. The kernel's STEP reader only gives one compound
-// with no names, so the product tree is read here and each part goes to the kernel on its own (smaller, and
-// a part used many times is read once).
+// The assembly structure of a STEP file, read straight from its text: the tree of assemblies and
+// sub-assemblies as it is, the parts (each written out as a STEP file of its own) and their appearances. The
+// kernel's STEP reader only gives one compound with no names or colours, so all that is read here and each
+// part goes to the kernel on its own (smaller, and a part used many times is read once).
 //
-// readStepAssembly(text) → null when the file holds a single part, else
-//   { name, parts: [{ key, name, step, color, solids }], occurrences: [{ part, name, path, pos, rot, mirrored }], warnings }
-//   pos in mm, rot a quaternion [x, y, z, w]; color 0xRRGGBB (the colour most of the part's solids have) or null.
+// readStepAssembly(text) → for a file holding a single part: { single: true, appearance, parts, warnings } (its
+// appearances, see below; null when there is nothing in it), else
+//   { name, root, assemblies, parts, occurrences, oneAppearance, warnings }
+//   oneAppearance: the appearances placed as the whole file is (for importing it all as one part)
+//   assemblies: [{ key, name, children: [{ kind: 'part' | 'asm', ref (a part or assembly key), name, pos, rot, mirrored }] }]
+//     each (sub-)assembly once, its children placed in it (pos in mm, rot a quaternion [x, y, z, w]); root: the top one's key
+//   parts: [{ key, name, step, solids, appearance }]
+//     appearance: null, { c, t } (one look for the whole part), or { solids: [{ b, c, t }], faces: [{ b, c, t }] }
+//     c: colour 0xRRGGBB or null, t: transparency (0 opaque … 1 clear), b: the box round the solid's or face's
+//     vertices [x0, y0, z0, x1, y1, z1] in mm (how the kernel finds it again), or null when it has none
+//   occurrences: every part occurrence placed in the top assembly, through the sub-assemblies (for counts and checks)
 //
 // The STEP entities used (ISO 10303-21, AP203 / AP214 / AP242):
 //   PRODUCT ← PRODUCT_DEFINITION_FORMATION ← PRODUCT_DEFINITION (PD)
@@ -228,7 +236,7 @@ export function readStepAssembly(text, onProgress = null) {
     if (list) list.push(id);
   }
   const nauos = byType.get('NEXT_ASSEMBLY_USAGE_OCCURRENCE');
-  if (!nauos.length) return null; // a single part: read it whole
+  const single = !nauos.length; // (a single part: only its appearances are read)
 
   // PD → product name; PDS by what it defines; SDR: PDS → representation
   const pdName = (pd) => {
@@ -253,7 +261,7 @@ export function readStepAssembly(text, onProgress = null) {
     isChild.add(child);
   }
   const roots = [...children.keys()].filter((pd) => !isChild.has(pd));
-  if (!roots.length) throw new Error('The assembly structure of the STEP file is circular');
+  if (!single && !roots.length) throw new Error('The assembly structure of the STEP file is circular');
 
   // units: the length unit of a representation's context, as a factor to mm
   const unitCache = new Map();
@@ -311,25 +319,34 @@ export function readStepAssembly(text, onProgress = null) {
     placeOf.set(nauo, childRep && childRep === rep2 && childRep !== rep1 ? rigidInverse(T) : T);
   }
 
-  // flatten: every leaf occurrence with its world placement
-  const occurrences = [];
-  const leafPds = new Map(); // PD → occurrence count
-  const walk = (pd, W, path, depth) => {
+  // the tree as it is: each (sub-)assembly once, its children placed in it
+  const assemblies = new Map(); // PD → { key, name, children: [{ pd, sub, M }] }
+  const leafPds = new Set();
+  const visit = (pd, depth, stack) => {
     if (depth > 64) throw new Error('The assembly structure of the STEP file is too deep');
-    const kids = children.get(pd) || [];
-    for (const nauo of kids) {
-      const r = rec(nauo), child = ref(r.args[4]);
-      const Wc = matMul(W, placeOf.get(nauo) || IDENT());
-      const nm = pdName(child);
-      if (children.has(child)) walk(child, Wc, [...path, nm], depth + 1);
-      else {
-        leafPds.set(child, (leafPds.get(child) || 0) + 1);
-        occurrences.push({ pd: child, nauo, W: Wc, path });
-      }
+    if (stack.has(pd)) throw new Error('The assembly structure of the STEP file is circular');
+    if (assemblies.has(pd)) return;
+    const a = { key: 'a' + pd, name: pdName(pd), children: [] };
+    assemblies.set(pd, a);
+    stack.add(pd);
+    for (const nauo of children.get(pd) || []) {
+      const child = ref(rec(nauo).args[4]);
+      const sub = children.has(child);
+      if (sub) visit(child, depth + 1, stack); else leafPds.add(child);
+      a.children.push({ pd: child, sub, M: placeOf.get(nauo) || IDENT() });
     }
+    stack.delete(pd);
   };
-  for (const root of roots) walk(root, IDENT(), roots.length > 1 ? [pdName(root)] : [], 0);
-  if (!occurrences.length) return null;
+  for (const root of roots) visit(root, 0, new Set());
+  // (a single part: every product with a shape is a part, in place)
+  if (single) for (const pd of byType.get('PRODUCT_DEFINITION')) if (repOfPd(pd)) leafPds.add(pd);
+  if (!leafPds.size) return null;
+  // (several top-level products: one assembly holding them all)
+  let rootKey = 'a' + roots[0];
+  if (roots.length > 1) {
+    rootKey = 'root';
+    assemblies.set(0, { key: rootKey, name: '', children: roots.map((pd) => ({ pd, sub: true, M: IDENT() })) });
+  }
 
   // the representations that carry each part's geometry: its SHAPE_REPRESENTATION and those tied to it by
   // relationships without a transformation (the B-rep representation)
@@ -338,41 +355,102 @@ export function readStepAssembly(text, onProgress = null) {
     const r = rec(id), a = ref(r.args[2]), b = ref(r.args[3]);
     for (const [x, y] of [[a, b], [b, a]]) { if (!srrLinks.has(x)) srrLinks.set(x, []); srrLinks.get(x).push([id, y]); }
   }
-  // colours: the styled items by the item they style
+
+  // ---- appearances: the styled items by the item they style (a solid, a shell or a face)
   const styleOf = new Map();
   for (const t of ['STYLED_ITEM', 'OVER_RIDING_STYLED_ITEM']) for (const id of byType.get(t)) { const item = ref(rec(id).args[2]); if (item && !styleOf.has(item)) styleOf.set(item, id); }
-  const colourCache = new Map();
-  const colourOf = (styled) => {
-    if (colourCache.has(styled)) return colourCache.get(styled);
-    // follow the style's references to its first colour
-    let found = null;
-    const seen = new Set(), queue = [styled];
-    while (queue.length && found === null && seen.size < 200) {
-      const id = queue.shift();
+  const NAMED = { red: 0xff0000, green: 0x00ff00, blue: 0x0000ff, yellow: 0xffff00, magenta: 0xff00ff, cyan: 0x00ffff, black: 0x000000, white: 0xffffff };
+  const lookCache = new Map();
+  // a style's surface colour (0xRRGGBB or null) and transparency (0 opaque … 1 clear): { c, t }
+  const lookOf = (styled) => {
+    if (lookCache.has(styled)) return lookCache.get(styled);
+    let surfColour = null, anyColour = null, t = 0;
+    const seen = new Set(), queue = [[styled, false]];
+    while (queue.length && seen.size < 400) {
+      const [id, surf] = queue.shift();
       if (seen.has(id)) continue;
       seen.add(id);
-      const r = rec(id);
-      const t = typeOf(r);
-      if (t === 'COLOUR_RGB') { const [, cr, cg, cb] = r.args; found = (Math.round(cr * 255) << 16) | (Math.round(cg * 255) << 8) | Math.round(cb * 255); break; }
-      if (t === 'DRAUGHTING_PRE_DEFINED_COLOUR') {
-        found = { red: 0xff0000, green: 0x00ff00, blue: 0x0000ff, yellow: 0xffff00, magenta: 0xff00ff, cyan: 0x00ffff, black: 0x000000, white: 0xffffff }[String(r.args[0]).toLowerCase()] ?? null;
-        if (found !== null) break;
-      }
-      if (id === styled) { for (const s of r.args[1] || []) if (ref(s)) queue.push(ref(s)); continue; }
-      refsIn(text, starts[id], ends[id], []).forEach((x) => { if (x !== styled) queue.push(x); });
+      const r = rec(id), ty = typeOf(r);
+      let c = null;
+      if (ty === 'COLOUR_RGB') { const [, cr, cg, cb] = r.args; c = (Math.round(cr * 255) << 16) | (Math.round(cg * 255) << 8) | Math.round(cb * 255); }
+      else if (ty === 'DRAUGHTING_PRE_DEFINED_COLOUR') c = NAMED[String(r.args[0]).toLowerCase()] ?? null;
+      else if (ty === 'SURFACE_STYLE_TRANSPARENT') t = Math.max(0, Math.min(1, +r.args[0] || 0));
+      if (c !== null) { if (surf && surfColour === null) surfColour = c; if (anyColour === null) anyColour = c; continue; }
+      // (a curve style's colour is the edges': the faces' colour is the one under a surface style)
+      const under = surf || ty === 'SURFACE_STYLE_USAGE' || ty === 'SURFACE_SIDE_STYLE';
+      const next = id === styled ? (r.args[1] || []).map(ref).filter(Boolean) : refsIn(text, starts[id], ends[id], []);
+      for (const x of next) if (x !== styled && !seen.has(x)) queue.push([x, under]);
     }
-    colourCache.set(styled, found);
-    return found;
+    const look = { c: surfColour ?? anyColour, t };
+    lookCache.set(styled, look);
+    return look;
   };
+  // the points of an item's vertices (in mm, xyz…): what its box is measured from, placed or not
+  const vertexPts = (item, mm) => {
+    const pts = [];
+    const seen = new Set([item]), stack = [item], buf = [];
+    while (stack.length) {
+      const id = stack.pop();
+      head.lastIndex = starts[id];
+      const m = head.exec(text);
+      const ty = m && m[1].toUpperCase();
+      if (ty === 'VERTEX_POINT') {
+        const p = rec(ref(rec(id).args[1]))?.args?.[1];
+        if (p) pts.push(p[0] * mm, p[1] * mm, p[2] * mm);
+        continue;
+      }
+      // (only topology leads to vertices: not the surfaces and curves)
+      if (ty && !/^(MANIFOLD_SOLID_BREP|BREP_WITH_VOIDS|CLOSED_SHELL|OPEN_SHELL|ORIENTED_CLOSED_SHELL|ADVANCED_FACE|FACE_SURFACE|FACE_OUTER_BOUND|FACE_BOUND|EDGE_LOOP|ORIENTED_EDGE|EDGE_CURVE|SHELL_BASED_SURFACE_MODEL|FACETED_BREP|POLY_LOOP|VERTEX_LOOP)$/.test(ty)) continue;
+      buf.length = 0;
+      refsIn(text, starts[id], ends[id], buf);
+      for (const x of buf) if (!seen.has(x) && starts[x]) { seen.add(x); stack.push(x); }
+    }
+    return pts;
+  };
+  // the box round points [x0, y0, z0, x1, y1, z1] (placed by a 4×4 W when given), or null when there are none
+  const boxOf = (pts, W = null) => {
+    if (!pts.length) return null;
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (let i = 0; i < pts.length; i += 3) {
+      let x = pts[i], y = pts[i + 1], z = pts[i + 2];
+      if (W) [x, y, z] = [W[0] * x + W[1] * y + W[2] * z + W[3], W[4] * x + W[5] * y + W[6] * z + W[7], W[8] * x + W[9] * y + W[10] * z + W[11]];
+      const q = [x, y, z];
+      for (let k = 0; k < 3; k++) { if (q[k] < lo[k]) lo[k] = q[k]; if (q[k] > hi[k]) hi[k] = q[k]; }
+    }
+    return [...lo, ...hi].map((v) => Math.round(v * 1e6) / 1e6);
+  };
+  // appearances of styled items [{ face, look, pts }] (placed by W): one look, or each solid's and face's
+  const appearanceOf = (items) => {
+    if (!items.length) return null;
+    const same = (a, b) => a.c === b.c && a.t === b.t;
+    if (!items.some((s) => s.face) && items.every((s) => same(s.look, items[0].look))) return { ...items[0].look };
+    const out = { solids: [], faces: [] };
+    for (const s of items) (s.face ? out.faces : out.solids).push({ b: boxOf(s.pts, s.W), ...s.look });
+    return out;
+  };
+  const SOLIDISH = /^(MANIFOLD_SOLID_BREP|BREP_WITH_VOIDS|FACETED_BREP|SHELL_BASED_SURFACE_MODEL|CLOSED_SHELL|OPEN_SHELL)$/;
+  const FACEISH = /^(ADVANCED_FACE|FACE_SURFACE)$/;
 
-  // each part as a STEP file of its own: the records its product and geometry need
+  // (one look in the whole file, on solids only: then no boxes are needed anywhere)
+  let fileUniform = true, first = null;
+  for (const [item, st] of styleOf) {
+    head.lastIndex = starts[item];
+    const m = head.exec(text), ty = m && m[1].toUpperCase();
+    if (!ty || (!SOLIDISH.test(ty) && !FACEISH.test(ty))) continue;
+    const lk = lookOf(st);
+    if (FACEISH.test(ty) || (first && (lk.c !== first.c || lk.t !== first.t))) { fileUniform = false; break; }
+    first ||= lk;
+  }
+  const styledOf = new Map(); // part PD → its styled items [{ id, face, look, pts }]
+
+  // each part as a STEP file of its own (the records its product and geometry need), with its appearances
   const headerEnd = text.indexOf('DATA;');
   const header = text.slice(0, headerEnd);
   const parts = [];
   const keyOfPd = new Map();
   const names = new Map();
   let done = 0;
-  for (const [pd] of leafPds) {
+  for (const pd of leafPds) {
     report(`Separating part ${++done} of ${leafPds.size}…`);
     const pds = pdsOf.get(pd), sdr = repOfPds.get(pds);
     if (!sdr) { warnings.push(`${pdName(pd)}: no shape (left out)`); continue; }
@@ -396,24 +474,32 @@ export function readStepAssembly(text, onProgress = null) {
       refsIn(text, starts[id], ends[id], buf);
       for (const x of buf) if (!keep.has(x)) queue.push(x);
     }
-    // the colour most of its solids have
-    const votes = new Map();
+    // its solids and the appearance of each styled solid or face
     let solids = 0;
+    const styled = [];
     for (const id of keep) {
       head.lastIndex = starts[id];
       const m = head.exec(text);
-      if (!m || !/^(MANIFOLD_SOLID_BREP|BREP_WITH_VOIDS|FACETED_BREP|SHELL_BASED_SURFACE_MODEL)$/i.test(m[1])) continue;
-      solids++;
+      const ty = m && m[1].toUpperCase();
+      if (!ty) continue;
+      if (/^(MANIFOLD_SOLID_BREP|BREP_WITH_VOIDS|FACETED_BREP|SHELL_BASED_SURFACE_MODEL)$/.test(ty)) solids++;
       const st = styleOf.get(id);
-      const c = st ? colourOf(st) : null;
-      if (c !== null) votes.set(c, (votes.get(c) || 0) + 1);
+      if (st && (SOLIDISH.test(ty) || FACEISH.test(ty))) styled.push({ id, face: FACEISH.test(ty), look: lookOf(st) });
     }
-    let color = null, best = 0;
-    for (const [c, n] of votes) if (n > best) { best = n; color = c; }
-    const ids = [...keep].sort((a, b) => a - b);
-    const out = [header, 'DATA;\n'];
-    for (const id of ids) out.push('#', id, '=', text.slice(starts[id], ends[id]), ';\n');
-    out.push('ENDSEC;\nEND-ISO-10303-21;\n');
+    // (the geometry's unit: of the representation holding the B-rep, else the part's own)
+    const mm = mmPerUnit([...seenRep].find((r) => r !== sdr[1]) || sdr[1]);
+    // (the points only when they are needed: the looks differ, or for placing in one part)
+    const uniform = !styled.some((s) => s.face) && styled.every((s) => s.look.c === styled[0]?.look.c && s.look.t === styled[0]?.look.t);
+    for (const s of styled) s.pts = uniform && (single || fileUniform) ? [] : vertexPts(s.id, mm);
+    styledOf.set(pd, styled);
+    const appearance = uniform ? (styled.length ? { ...styled[0].look } : null) : appearanceOf(styled);
+    // (a single part's file is used as it is)
+    const out = [];
+    if (!single) {
+      out.push(header, 'DATA;\n');
+      for (const id of [...keep].sort((a, b) => a - b)) out.push('#', id, '=', text.slice(starts[id], ends[id]), ';\n');
+      out.push('ENDSEC;\nEND-ISO-10303-21;\n');
+    }
     // a unique name per part (two products can share one)
     let nm = pdName(pd);
     const k = names.get(nm) || 0;
@@ -421,23 +507,51 @@ export function readStepAssembly(text, onProgress = null) {
     if (k) nm = `${nm} (${k + 1})`;
     const key = 'p' + pd;
     keyOfPd.set(pd, key);
-    parts.push({ key, name: nm, step: out.join(''), color, solids });
+    parts.push({ key, name: nm, step: out.join(''), solids, appearance });
+  }
+  // a single part: its appearances, for the import of the whole file
+  if (single) {
+    const all = [...leafPds].flatMap((pd) => styledOf.get(pd) || []);
+    return { single: true, appearance: fileUniform ? (first ? { ...first } : null) : appearanceOf(all), parts, warnings };
   }
 
-  // the occurrences, numbered per part
-  const count = new Map();
-  const occ = [];
+  // the assemblies, children numbered per thing they use: { key, name, children: [{ kind, ref, name, pos, rot }] }
   let mirrored = 0;
-  for (const o of occurrences) {
-    const key = keyOfPd.get(o.pd);
-    if (!key) continue;
-    const n = (count.get(key) || 0) + 1;
-    count.set(key, n);
-    const flip = det3(o.W) < 0;
-    if (flip) mirrored++;
-    const pname = parts.find((p) => p.key === key).name;
-    occ.push({ part: key, name: `${pname}<${n}>`, path: o.path, pos: [o.W[3], o.W[7], o.W[11]], rot: quatOf(o.W), mirrored: flip });
+  const asmList = [];
+  for (const a of assemblies.values()) {
+    const count = new Map();
+    const kids = [];
+    for (const ch of a.children) {
+      const refKey = ch.sub ? assemblies.get(ch.pd)?.key : keyOfPd.get(ch.pd);
+      if (!refKey) continue;
+      const n = (count.get(refKey) || 0) + 1;
+      count.set(refKey, n);
+      const flip = det3(ch.M) < 0;
+      if (flip) mirrored++;
+      const nm = ch.sub ? assemblies.get(ch.pd).name : parts.find((p) => p.key === refKey).name;
+      kids.push({ kind: ch.sub ? 'asm' : 'part', ref: refKey, name: `${nm}<${n}>`, pos: [ch.M[3], ch.M[7], ch.M[11]], rot: quatOf(ch.M), mirrored: flip });
+    }
+    asmList.push({ key: a.key, name: a.name, children: kids });
   }
   if (mirrored) warnings.push(`${mirrored} occurrence${mirrored > 1 ? 's are' : ' is'} mirrored, which an assembly component cannot be: placed unmirrored`);
-  return { name: roots.length === 1 ? pdName(roots[0]) : '', parts, occurrences: occ, warnings };
+
+  // every part occurrence in the whole tree, placed in the top assembly (for counts and checks), and the
+  // appearances placed the same way (oneAppearance: for opening the whole file as one part, or inserting it)
+  const occurrences = [], placed = [];
+  const flat = (pd, W, path, depth) => {
+    const a = assemblies.get(pd);
+    if (!a || depth > 64) return;
+    for (const ch of a.children) {
+      const Wc = matMul(W, ch.M);
+      if (ch.sub) { flat(ch.pd, Wc, [...path, assemblies.get(ch.pd)?.name || ''], depth + 1); continue; }
+      const key = keyOfPd.get(ch.pd);
+      if (!key) continue;
+      occurrences.push({ part: key, name: parts.find((p) => p.key === key).name, path, pos: [Wc[3], Wc[7], Wc[11]], rot: quatOf(Wc) });
+      if (!fileUniform) for (const s of styledOf.get(ch.pd) || []) placed.push({ ...s, W: Wc });
+    }
+  };
+  flat(roots.length > 1 ? 0 : roots[0], IDENT(), [], 0);
+  const oneAppearance = fileUniform ? (first ? { ...first } : null) : appearanceOf(placed);
+  const top = asmList.find((a) => a.key === rootKey);
+  return { name: top.name, root: rootKey, assemblies: asmList, parts, occurrences, oneAppearance, warnings };
 }

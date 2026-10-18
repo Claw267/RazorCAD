@@ -6,6 +6,22 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-19 — Sub-assemblies, and STEP appearances kept
+- **Sub-assemblies**: a component can use an assembly instead of a part, kept whole with its own parts, components, placements and configurations.
+  - Insert Components ▸ Browse takes a .rasm file as well as a part. An assembly can't go inside itself.
+  - A sub-assembly moves, hides, suppresses and explodes as one. Clicking any of its parts picks it, and selecting it highlights all its parts.
+  - Mates can use faces, edges and vertices of the parts inside it, and follow them when they change.
+  - The tree shows each sub-assembly's components under it (▶ to open), as deep as they go. Double-clicking one opens it in its own tab, and Open Sub-assembly does the same for the component. Changes made there come back to this assembly.
+  - The Bill of Materials is indented: a sub-assembly's parts are listed under it (1.1, 1.2…), with quantities for one of it.
+  - The same part in several places, inside sub-assemblies or not, is built once and drawn once.
+- **STEP assemblies keep their structure**: Open as an Assembly makes a sub-assembly for each sub-assembly in the file, used wherever the file uses it, instead of flattening everything into one level.
+- **STEP appearances are kept**: the colour of each solid and of single faces, and transparency.
+  - Imported bodies and faces show them in parts and assemblies, whether the file opens as an assembly or as one part, is inserted into a part, or is a single-part file.
+  - A body's own appearance or transparency setting still wins. An imported transparent body can be made opaque.
+  - The appearances stay with the bodies through later features.
+  - Each solid and face is found again by the box round its vertices, with solids that have none (spheres) in file order.
+  - Part appearances set in RazorCAD (a body's colour, made transparent) now show in assemblies too.
+
 ## 2026-10-18 21:32 — Assemblies drawn part by part: moving a component is instant
 - **An assembly draws each part once and places it at every component that uses it**: the part's mesh goes to the graphics card once, and each component is just a placement. Before, every component was copied into one big mesh.
   - Moving (dragging), hiding, suppressing or exploding a component only changes placements. On a 2,400-solid, 3.2-million-triangle layout, each drag step takes 0.2 ms instead of about 2.2 s, and showing the assembly takes 0.7 s instead of 2.2 s.

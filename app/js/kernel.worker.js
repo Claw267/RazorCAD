@@ -505,7 +505,7 @@ function surfOf(face) {
 
 function meshPart(s, tol, diagQ, onWork) {
   const c = meshCache.get(s.shape);
-  if (c && c.tol === tol && c.diagQ === diagQ && c.kind === s.kind) return c;
+  if (c && c.tol === tol && c.diagQ === diagQ && c.kind === s.kind && c.look === (s.look || null)) return c;
   onWork?.();
   const m = (faceCount(s.shape) > 2500 && triangleFacesMesh(s.shape)) || s.shape.mesh({ tolerance: tol, angularTolerance: 0.2 });
   const dense = m.faceGroups.length > 2500;
@@ -540,7 +540,19 @@ function meshPart(s, tol, diagQ, onWork) {
     for (const f of faces) { try { byHash.set(f.hashCode, f); } catch { /* no hash */ } }
     surfs = m.faceGroups.map((g, gi) => { const f = byHash.get(g.faceId) || faces[gi]; return f ? surfOf(f) : { t: 'OTHER' }; });
   }
-  const out = { tol, diagQ, kind: s.kind, m, gs, dense, facePts, edges, surfs };
+  // the looks an import gave single faces, each face found by its vertex box
+  let faceLooks = null;
+  if (s.look?.faces?.length) {
+    const faces = s.shape.faces, byHash = new Map();
+    for (const f of faces) { try { byHash.set(f.hashCode, f); } catch { /* no hash */ } }
+    faceLooks = m.faceGroups.map((g, gi) => {
+      const f = byHash.get(g.faceId) || faces[gi];
+      const b = f && vertexBox(f.wrapped);
+      const e = b && s.look.faces.find((x) => boxNear(b, x.b, lookTol(x.b)));
+      return e ? { c: e.c ?? null, t: e.t || 0 } : null;
+    });
+  }
+  const out = { tol, diagQ, kind: s.kind, look: s.look || null, m, gs, dense, facePts, edges, surfs, faceLooks };
   meshCache.set(s.shape, out);
   return out;
 }
@@ -1315,6 +1327,50 @@ function splitImported(shape) {
   return { solids, surfaces };
 }
 
+// The box round a shape's vertices: [x0, y0, z0, x1, y1, z1], or null when it has none (as stepasm.js
+// measures a STEP solid or face, so the two can be matched).
+function vertexBox(shape) {
+  const oc = R.getOC(), T = oc.TopAbs_ShapeEnum;
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  const ex = new oc.TopExp_Explorer(shape, T.TopAbs_VERTEX, T.TopAbs_SHAPE);
+  try {
+    for (; ex.More(); ex.Next()) {
+      const p = oc.BRep_Tool.Pnt(oc.TopoDS.Vertex(ex.Current()));
+      const q = [p.X(), p.Y(), p.Z()];
+      p.delete();
+      for (let k = 0; k < 3; k++) { if (q[k] < lo[k]) lo[k] = q[k]; if (q[k] > hi[k]) hi[k] = q[k]; }
+    }
+  } finally { ex.delete(); }
+  return isFinite(lo[0]) ? [...lo, ...hi] : null;
+}
+const boxNear = (a, b, tol) => !!a && !!b && a.every((v, k) => Math.abs(v - b[k]) <= tol);
+const boxWithin = (a, b, tol) => !!a && !!b && [0, 1, 2].every((k) => a[k] >= b[k] - tol && a[k + 3] <= b[k + 3] + tol);
+const lookTol = (box) => Math.max(1e-4, (box ? Math.hypot(box[3] - box[0], box[4] - box[1], box[5] - box[2]) : 0) * 1e-6);
+
+// The look of each imported body (f.appearance from stepasm.js): { c, t, faces } or null, by shape.
+// Solids are found by their vertex box (those without vertices, e.g. spheres, in file order); face looks go
+// with the bodies they lie in, and meshPart finds each face by its own vertex box.
+function importedLooks(app, shapes) {
+  if (!app.solids) return shapes.map(() => (app.c != null || app.t ? { c: app.c ?? null, t: app.t || 0 } : null));
+  const boxes = shapes.map((s) => vertexBox(s.wrapped));
+  const out = shapes.map(() => null);
+  const used = new Set();
+  app.solids.forEach((e, ei) => {
+    if (!e.b) return;
+    const tol = lookTol(e.b);
+    const i = boxes.findIndex((b, k) => !out[k] && boxNear(b, e.b, tol));
+    if (i >= 0) { out[i] = { c: e.c ?? null, t: e.t || 0 }; used.add(ei); }
+  });
+  const restE = app.solids.filter((e, ei) => !used.has(ei)), restS = out.map((o, i) => (o ? -1 : i)).filter((i) => i >= 0);
+  if (restE.length && restE.length === restS.length) restS.forEach((i, k) => { out[i] = { c: restE[k].c ?? null, t: restE[k].t || 0 }; });
+  for (const e of app.faces || []) {
+    if (!e.b) continue;
+    const tol = lookTol(e.b);
+    boxes.forEach((b, i) => { if (boxWithin(e.b, b, tol)) { out[i] ||= { c: null, t: 0 }; (out[i].faces ||= []).push(e); } });
+  }
+  return out;
+}
+
 async function importShape(f) {
   const key = `${f.format}:${f.data.length}:${f.data.slice(0, 64)}:${f.data.slice(-64)}:${f.maxTris ?? ''}`;
   const hit = importCache.get(f.id);
@@ -1382,7 +1438,9 @@ async function rebuild(doc, previewId = null, opts = {}) {
     let sheet = prev[0]?.sheet || null;
     if (sheet && last === cur?.id && !SHEET_TYPES.has(cur.type) && !sheet.stale) sheet = { ...sheet, stale: cur.name };
     const member = prev[0]?.member || null;
-    return { id, shape, box: bbox(shape), last, feats: [...feats], sheet, ...(member ? { member } : {}) };
+    // (the appearance an imported body came with: { c, t, faces } — kept through later features)
+    const look = prev[0]?.look || null;
+    return { id, shape, box: bbox(shape), last, feats: [...feats], sheet, ...(member ? { member } : {}), ...(look ? { look } : {}) };
   };
   let dense = false; // body contains a triangulated (STL) import with thousands of faces
   const needEdges = (what) => { if (dense) throw new Error(`${what} is not available on bodies made from dense STL meshes`); };
@@ -2302,8 +2360,17 @@ async function rebuild(doc, previewId = null, opts = {}) {
             progress(null, 'Separating the imported bodies…');
             const parts = splitImported(shape);
             if (!parts.solids.length && !parts.surfaces.length) throw new Error('The file contains no solids or surfaces');
+            const n0 = solids.length;
             for (const s of parts.solids) apply('add', s, mergeBodies);
+            const s0 = surfaces.length;
             for (const s of parts.surfaces) { surfaces.push(bodyRec(newId(f.id), s, f.id)); applied.push({ op: 'add', tool: s }); }
+            // the appearances the file gave its solids and faces (f.appearance, from stepasm.js)
+            if (f.appearance) {
+              const recs = [...(mergeBodies ? [] : solids.slice(n0)), ...surfaces.slice(s0)];
+              const looks = importedLooks(f.appearance, recs.map((r) => r.shape));
+              recs.forEach((r, i) => { if (looks[i]) r.look = looks[i]; });
+              if (mergeBodies && f.appearance.c != null) for (const r of solids.slice(n0)) r.look = { c: f.appearance.c, t: f.appearance.t || 0 };
+            }
           } else if (shape.solids.length) apply('add', shape, mergeBodies);
           else {
             // a mesh that is not closed: a surface body (Repair Mesh / Convert to Solid can close it)
@@ -4769,7 +4836,8 @@ async function rebuild(doc, previewId = null, opts = {}) {
     let nv = 0, nt = 0, nf = 0, ne = 0;
     parts.forEach((s, i) => {
       const m = meshes[i];
-      bodies.push({ id: s.id, kind: s.kind, last: s.last, feats: s.feats, sheet: s.sheet ? SM.sheetInfo(s.sheet) : null, member: s.member || null, faceStart: nf, faceCount: m.m.faceGroups.length, triStart: nt, triCount: m.m.triangles.length, edgeStart: ne, edgeCount: m.edges.length });
+      // (color / transparency: the look an import gave the body)
+      bodies.push({ id: s.id, kind: s.kind, last: s.last, feats: s.feats, sheet: s.sheet ? SM.sheetInfo(s.sheet) : null, member: s.member || null, ...(s.look ? { color: s.look.c, transparency: s.look.t } : {}), faceStart: nf, faceCount: m.m.faceGroups.length, triStart: nt, triCount: m.m.triangles.length, edgeStart: ne, edgeCount: m.edges.length });
       for (const pts of m.facePts) lastFacePts.push(pts);
       nv += m.m.vertices.length; nt += m.m.triangles.length; nf += m.m.faceGroups.length; ne += m.edges.length;
     });
@@ -4786,7 +4854,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
         const base = ov / 3;
         for (let q = 0; q < m.triangles.length; q++) triangles[ot + q] = m.triangles[q] + base;
         // face groups in index units (replicad may count triangles or indices)
-        m.faceGroups.forEach((g, gi) => faceGroups.push({ start: ot + g.start * gs, count: g.count * gs, faceId: g.faceId, ...(meshes[i].surfs?.[gi] ? { surf: meshes[i].surfs[gi] } : {}) }));
+        m.faceGroups.forEach((g, gi) => faceGroups.push({ start: ot + g.start * gs, count: g.count * gs, faceId: g.faceId, ...(meshes[i].surfs?.[gi] ? { surf: meshes[i].surfs[gi] } : {}), ...(meshes[i].faceLooks?.[gi] ? { look: meshes[i].faceLooks[gi] } : {}) }));
         for (const e of meshes[i].edges) edges.push(e);
         ov += m.vertices.length; ot += m.triangles.length;
       });

@@ -1,7 +1,8 @@
 // The assembly's 3D display. Each part's mesh goes to the graphics card once and is drawn at every component
 // that uses it (instanced: one placement matrix per component), so moving, hiding or exploding a component only
 // changes a matrix. Picking goes through the instance to the component, and to the part's own face and edge
-// numbers (what mates refer to). Nothing is merged into one big mesh.
+// numbers (what mates refer to). Nothing is merged into one big mesh. Bodies and faces show the colours and
+// transparency they have (from an import or their part), and the parts inside sub-assemblies are items too.
 import * as THREE from 'three';
 
 // Edge lines drawn once per instance: three.js instances only meshes, so the lines use their own small shader.
@@ -14,19 +15,47 @@ void main() { gl_FragColor = vec4(color, 1.0);
 #include <colorspace_fragment>
 }`;
 
-// A part's mesh on the graphics card, with what picking needs.
-function partGPU(mesh) {
+// A part's mesh on the graphics card, with what picking needs. Its appearances go with it: a colour per vertex
+// (each face's own colour, else its body's, else `color`, the part's), and the triangles of transparent bodies
+// and faces in groups of their own (one per opacity, after the opaque ones: group 0).
+function partGPU(mesh, color) {
+  const tris = mesh.triangles;
+  const total = mesh.faceGroups.reduce((s, g) => s + g.count, 0);
+  const gs = total === tris.length ? 1 : 3;
+  // each face's body, colour and opacity
+  const faceBody = new Int32Array(mesh.faceGroups.length).fill(-1);
+  (mesh.bodies || []).forEach((b, bi) => faceBody.fill(bi, b.faceStart, b.faceStart + b.faceCount));
+  const col = new Float32Array(mesh.vertices.length), c = new THREE.Color();
+  const runs = new Map(); // opacity → [[start, end) index ranges]
+  mesh.faceGroups.forEach((g, gi) => {
+    const b = mesh.bodies?.[faceBody[gi]];
+    c.set(g.look?.c ?? b?.color ?? color ?? 0xc3cad4);
+    const t = g.look?.t || b?.transparency || 0;
+    const op = t > 0 ? Math.round(Math.max(0.1, 1 - t) * 100) / 100 : 1;
+    if (!runs.has(op)) runs.set(op, []);
+    runs.get(op).push([g.start * gs, (g.start + g.count) * gs]);
+    for (let k = g.start * gs; k < (g.start + g.count) * gs; k++) { const v = tris[k] * 3; col[v] = c.r; col[v + 1] = c.g; col[v + 2] = c.b; }
+  });
+  // the index: opaque triangles first, then each opacity's (as geometry groups, for the materials)
+  const ops = [...runs.keys()].sort((a, b) => b - a);
+  const index = new Uint32Array(tris.length), groups = [];
+  let at = 0;
+  for (const op of ops) {
+    const from = at;
+    for (const [a, z] of runs.get(op)) { index.set(tris.subarray(a, z), at); at += z - a; }
+    groups.push({ op, start: from, count: at - from });
+  }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(mesh.vertices, 3));
   geo.setAttribute('normal', new THREE.BufferAttribute(mesh.normals, 3));
-  geo.setIndex(new THREE.BufferAttribute(mesh.triangles.slice(), 1)); // (the BVH reorders its index)
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setIndex(new THREE.BufferAttribute(index, 1)); // (its own copy: the BVH reorders it)
+  const glass = groups.length > 1 || groups[0]?.op !== 1;
+  if (glass) groups.forEach((g, i) => geo.addGroup(g.start, g.count, i));
   geo.computeBoundingBox();
   geo.computeBoundingSphere();
   geo.computeBoundsTree();
   // each vertex's B-rep face (vertices are not shared between faces)
-  const tris = mesh.triangles;
-  const total = mesh.faceGroups.reduce((s, g) => s + g.count, 0);
-  const gs = total === tris.length ? 1 : 3;
   const vertexFace = new Int32Array(mesh.vertices.length / 3).fill(-1);
   mesh.faceGroups.forEach((g, gi) => { for (let k = g.start * gs; k < (g.start + g.count) * gs; k++) vertexFace[tris[k]] = gi; });
   // the edges: their points in one array, and as line segments
@@ -41,7 +70,7 @@ function partGPU(mesh) {
   });
   eo[mesh.edges.length] = o;
   const edgePos = new THREE.BufferAttribute(seg, 3);
-  return { mesh, geo, gs, vertexFace, ep, eo, edgePos, box: geo.boundingBox.clone(), users: 0 };
+  return { mesh, geo, gs, vertexFace, ep, eo, edgePos, box: geo.boundingBox.clone(), opacities: glass ? groups.map((g) => g.op) : null };
 }
 
 export class AssemblyView {
@@ -53,8 +82,8 @@ export class AssemblyView {
     vp.highlightGroup.add(this.hlGroup);
     this.gpu = new Map();     // part mesh → partGPU
     this.batches = new Map(); // part mesh → { faces: InstancedMesh, lines: LineSegments, comps: [component index], cap }
-    this.items = [];          // per component index: { mesh, matrix, hidden } (as last given)
-    this.mats = new Map();    // colour → face material
+    this.items = [];          // per item (a part shown, through the sub-assemblies): { mesh, color, matrix, hidden } (as last given)
+    this.mats = new Map();    // opacity → face material (colours come from the geometry)
     this.edgeMat = new THREE.ShaderMaterial({ vertexShader: EDGE_VERT, fragmentShader: EDGE_FRAG, uniforms: { color: { value: new THREE.Color(0x14181f) } } });
     this.style = vp.displayStyle;
   }
@@ -70,25 +99,35 @@ export class AssemblyView {
     this.batches.clear(); this.gpu.clear(); this.mats.clear(); this.items = [];
   }
 
-  faceMat(color) {
-    let m = this.mats.get(color);
+  // the face material for an opacity (1: opaque; transparent ones are drawn after, and hide nothing behind them)
+  faceMat(op = 1) {
+    let m = this.mats.get(op);
     if (!m) {
       const b = this.vp.bodyMat;
-      m = new THREE.MeshPhongMaterial({ color, specular: b.specular, shininess: b.shininess, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1, side: THREE.DoubleSide });
-      m.userData.color = color;
-      this.mats.set(color, m);
+      m = new THREE.MeshPhongMaterial({ color: 0xffffff, vertexColors: true, specular: b.specular, shininess: b.shininess, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1, side: THREE.DoubleSide,
+        ...(op < 1 ? { transparent: true, opacity: op } : {}) });
+      m.userData.op = op;
+      this.mats.set(op, m);
       this.styleMat(m);
     }
     return m;
   }
+  facesMaterial(g) { return g.opacities ? g.opacities.map((op) => this.faceMat(op)) : this.faceMat(1); }
 
   dropBatch(b) {
     this.group.remove(b.faces, b.lines);
     b.faces.dispose();
     b.lines.geometry.dispose();
   }
+  dropGPU(mesh) {
+    const b = this.batches.get(mesh);
+    if (b) { this.dropBatch(b); this.batches.delete(mesh); }
+    const g = this.gpu.get(mesh);
+    if (g) { g.geo.disposeBoundsTree?.(); g.geo.dispose(); this.gpu.delete(mesh); }
+  }
 
-  // items: one per component, in component order: { mesh, color, matrix: THREE.Matrix4, hidden } (mesh null: nothing)
+  // items: one per part shown: { mesh, color (the part's, for bodies without their own), matrix: THREE.Matrix4, hidden }
+  // (null: nothing). Picking returns item indices (as `comp`).
   update(items) {
     this.items = items;
     const by = new Map();
@@ -98,21 +137,21 @@ export class AssemblyView {
       if (!l) by.set(it.mesh, (l = { color: it.color, comps: [] }));
       l.comps.push(i);
     });
+    // (a part whose colour changed is coloured again)
+    for (const [mesh, l] of by) { const g = this.gpu.get(mesh); if (g && g.color !== l.color) { this.dropGPU(mesh); } }
     // parts no longer shown
     for (const [mesh, b] of this.batches) if (!by.has(mesh)) { this.dropBatch(b); this.batches.delete(mesh); }
-    for (const [mesh, g] of this.gpu) {
-      if (by.has(mesh) || items.some((it) => it?.mesh === mesh)) continue;
-      g.geo.disposeBoundsTree?.(); g.geo.dispose(); this.gpu.delete(mesh);
-    }
+    const used = new Set(items.map((it) => it?.mesh).filter(Boolean));
+    for (const mesh of [...this.gpu.keys()]) if (!by.has(mesh) && !used.has(mesh)) this.dropGPU(mesh);
     for (const [mesh, l] of by) {
       let g = this.gpu.get(mesh);
-      if (!g) { g = partGPU(mesh); this.gpu.set(mesh, g); }
+      if (!g) { g = partGPU(mesh, l.color); g.color = l.color; this.gpu.set(mesh, g); }
       let b = this.batches.get(mesh);
       const n = l.comps.length;
       if (!b || b.cap < n) {
         if (b) this.dropBatch(b);
         const cap = Math.max(n, b ? b.cap * 2 : 1);
-        const faces = new THREE.InstancedMesh(g.geo, this.faceMat(l.color), cap);
+        const faces = new THREE.InstancedMesh(g.geo, this.facesMaterial(g), cap);
         faces.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         faces.frustumCulled = false;
         const lg = new THREE.InstancedBufferGeometry();
@@ -127,7 +166,6 @@ export class AssemblyView {
         this.batches.set(mesh, b);
         this.group.add(faces, lines);
       }
-      if (b.faces.material.userData.color !== l.color) b.faces.material = this.faceMat(l.color);
       b.comps = l.comps;
       const im = b.lines.geometry.getAttribute('iMatrix');
       l.comps.forEach((ci, k) => { const m = items[ci].matrix; b.faces.setMatrixAt(k, m); m.toArray(im.array, 16 * k); });
@@ -142,10 +180,10 @@ export class AssemblyView {
   // ---- display styles (the viewport's: shaded with edges, shaded, hidden lines removed, wireframe)
   styleMat(m) {
     const s = this.style;
-    m.color.set(s === 'hlr' ? 0xffffff : m.userData.color);
+    m.vertexColors = s !== 'hlr';
     m.emissive.set(s === 'hlr' ? 0xffffff : 0x000000);
     m.colorWrite = s !== 'wireframe';
-    m.depthWrite = s !== 'wireframe';
+    m.depthWrite = s !== 'wireframe' && m.userData.op >= 1;
     m.needsUpdate = true;
   }
   applyDisplayStyle(s) {
@@ -302,9 +340,11 @@ export class AssemblyView {
     for (const o of [...this.hlGroup.children]) { this.hlGroup.remove(o); if (o.isLineSegments) o.geometry.dispose(); o.material.dispose(); }
   }
 
-  // whole components (sharing their part's geometry: nothing copied) and edges: { selected, hover } component
-  // indices, edges: [[component index, edge number]]
-  setHighlights({ selected = -1, hover = -1, edges = [] } = {}) {
+  // whole parts shown (sharing their geometry: nothing copied) and edges: { selected, hover } item indices (one
+  // each, or lists: all the parts of a sub-assembly), edges: [[item index, edge number]]
+  setHighlights({ selected = [], hover = [], edges = [] } = {}) {
+    const list = (x) => (Array.isArray(x) ? x : x >= 0 ? [x] : []);
+    selected = list(selected); hover = list(hover).filter((i) => !selected.includes(i));
     this.clearHighlights();
     const comp = (ci, color, opacity, order) => {
       const it = this.items[ci], g = it?.mesh && !it.hidden && this.gpu.get(it.mesh);
@@ -316,8 +356,8 @@ export class AssemblyView {
       m.renderOrder = order;
       this.hlGroup.add(m);
     };
-    if (selected >= 0) comp(selected, 0x2b7de9, 0.45, 3);
-    if (hover >= 0 && hover !== selected) comp(hover, 0xf59e0b, 0.35, 3);
+    for (const i of selected) comp(i, 0x2b7de9, 0.45, 3);
+    for (const i of hover) comp(i, 0xf59e0b, 0.35, 3);
     const pts = [];
     for (const [ci, ei] of edges) {
       const it = this.items[ci], g = it?.mesh && this.gpu.get(it.mesh);

@@ -589,8 +589,9 @@ class App {
     (this.result.bodies || []).forEach((b, i) => { const o = offs.get(b.id); if (o) byIndex.set(i, o); });
     this.viewport.setBody(byIndex.size ? offsetMesh(this.result.body, byIndex) : this.result.body, colors, hidden, glass);
     this._exLines = drawExplodeLines(this.viewport, this._exLines, this.explodeShowLines === false ? [] : [...offs].filter(([, o]) => Math.hypot(...o) > 1e-9).map(([id, o]) => { const c = this.bodyCenter(id); return c ? [c, c.map((x, i) => x + o[i])] : null; }).filter(Boolean));
-    // face appearances: each stored face found again by its point
+    // face appearances: those an import gave, then the part's own (each stored face found again by its point)
     const pairs = [];
+    (this.result.body?.faceGroups || []).forEach((g, gi) => { if (g.look?.c != null) pairs.push([gi, g.look.c]); });
     for (const a of this.doc.appearance?.faces || []) { const fi = this.viewport.faceIndexNear(a.p); if (fi >= 0) pairs.push([fi, a.color]); }
     this.viewport.setFaceColors(pairs);
   }
@@ -652,9 +653,9 @@ class App {
     this.commit(); this.pushBody(true); this.ui.renderTree();
   }
 
-  // A body's colour: its appearance, else its material's (surfaces: the surface colour).
+  // A body's colour: its appearance, else the one it was imported with, else its material's (surfaces: the surface colour).
   bodyColors() {
-    return (this.result?.bodies || []).map((b) => this.doc.bodies?.[b.id]?.color || (b.kind === 'surface' ? M.SURFACE_COLOR : b.material?.color ?? M.DEFAULT_BODY_COLOR));
+    return (this.result?.bodies || []).map((b) => this.doc.bodies?.[b.id]?.color || (b.color ?? (b.kind === 'surface' ? M.SURFACE_COLOR : b.material?.color ?? M.DEFAULT_BODY_COLOR)));
   }
 
   // ---- appearances: a colour on a face or a whole body (null colour: back to the default)
@@ -759,7 +760,11 @@ class App {
   }
 
   // ------------------------------------------------------------ transparency
-  isBodyTransparent(id) { return !!this.doc.bodies?.[id]?.transparent; }
+  // (set in the part, else as imported: a body can be made opaque even if it came in transparent)
+  isBodyTransparent(id) {
+    const own = this.doc.bodies?.[id]?.transparent;
+    return own !== undefined ? !!own : (this.bodyById(id)?.transparency || 0) > 0;
+  }
 
   transparentBodyIndices() {
     const out = new Set();
@@ -778,7 +783,9 @@ class App {
   setBodiesTransparent(ids, on) {
     for (const id of ids) {
       const st = M.ensureBodySettings(this.doc, id);
-      if (on) st.transparent = true; else delete st.transparent;
+      if (on) st.transparent = true;
+      else if ((this.bodyById(id)?.transparency || 0) > 0) st.transparent = false; // (imported transparent)
+      else delete st.transparent;
     }
     this.commit();
     this.refreshBodyVisibility();
@@ -1441,16 +1448,20 @@ class App {
   async handleImport(file, { asPart = false } = {}) {
     if (!file) return;
     const stem = file.name.replace(/\.[^.]+$/, '');
-    // a STEP assembly opened (not inserted into a part): as an assembly, one part per part of the file
-    if (asPart && file.format === 'step') {
+    // a STEP file: its structure and appearances (colours, transparency) read first. An assembly opened (not
+    // inserted into a part) can open as an assembly, with its sub-assemblies; otherwise the appearances go with
+    // the import, placed as the file places its parts.
+    let appearance = null;
+    if (file.format === 'step') {
       let asm = null;
       try { asm = await this.withProgress(`Reading ${file.name}…`, () => this.readStepAssembly(file.data)); }
-      catch (err) { breadcrumb(`STEP assembly structure not read: ${err.message}`); }
-      if (asm && asm.occurrences.length > 1) {
+      catch (err) { breadcrumb(`STEP structure not read: ${err.message}`); }
+      appearance = asm ? (asm.single ? asm.appearance : asm.oneAppearance) : null;
+      if (asPart && asm && !asm.single && asm.occurrences.length > 1) {
         const per = new Map(asm.parts.map((p) => [p.key, p.solids]));
         const solids = asm.occurrences.reduce((n, o) => n + (per.get(o.part) || 0), 0);
         const choice = await this.ui.choose('Open a STEP Assembly', 'assembly',
-          `<p><b>${file.name.replace(/[<>&]/g, '')}</b> is an assembly of ${asm.parts.length} parts (${asm.occurrences.length} components).</p><p class="pm-hint">As an assembly, each part is built on its own and a part used more than once is built once. As one part, all ${solids.toLocaleString()} solids go into a single part.</p>`,
+          `<p><b>${file.name.replace(/[<>&]/g, '')}</b> is an assembly of ${asm.parts.length} parts${asm.assemblies.length > 1 ? ` and ${asm.assemblies.length - 1} sub-assembl${asm.assemblies.length === 2 ? 'y' : 'ies'}` : ''} (${asm.occurrences.length} part occurrences).</p><p class="pm-hint">As an assembly, it keeps its structure, sub-assemblies and appearances; each part is built on its own and a part used more than once is built once. As one part, all ${solids.toLocaleString()} solids go into a single part.</p>`,
           [['asm', 'Open as an Assembly', true], ['part', 'Open as One Part']]);
         if (!choice) return;
         if (choice === 'asm') { this.openStepAssembly(file, asm); return; }
@@ -1470,10 +1481,10 @@ class App {
       doc.name = stem;
       await this.setDoc(doc, { fit: false });
     } else if (!this.doc.features.length && /^Part\d+$/.test(this.doc.name)) this.doc.name = stem;
-    await this.insertImport(file, choice === 'mates');
+    await this.insertImport(file, choice === 'mates', appearance);
   }
 
-  // The assembly structure of a STEP file (stepasm.js, in a worker of its own); null for a single part.
+  // The structure and appearances of a STEP file (stepasm.js, in a worker of its own).
   readStepAssembly(text) {
     return new Promise((resolve, reject) => {
       const w = new Worker(new URL('./stepasm.worker.js', import.meta.url), { type: 'module' });
@@ -1488,37 +1499,55 @@ class App {
     });
   }
 
-  // A STEP assembly as a new assembly: a part (holding its own piece of the STEP file) per part of it, and a
-  // component, fixed, where the file places each occurrence.
+  // A STEP assembly as a new assembly with the file's structure: each sub-assembly kept as one (inside this
+  // assembly), each part of the file a part holding its own piece of the STEP file and the appearances the
+  // file gives its solids and faces, and a component, fixed, where the file places each child.
   openStepAssembly(file, asm) {
-    const doc = newAssembly(file.name.replace(/\.[^.]+$/, ''));
-    const ids = new Map();
-    for (const p of asm.parts) {
+    const r6 = (x) => Math.round(x * 1e6) / 1e6, r9 = (x) => Math.round(x * 1e9) / 1e9;
+    const partDocs = new Map(asm.parts.map((p) => {
       const pd = M.newDoc();
       pd.name = p.name;
-      M.insertFeature(pd, M.createFeature(pd, 'import', { format: 'step', fileName: p.name + '.step', data: p.step, name: p.name }));
-      const id = 'pt' + doc.nextId++;
-      ids.set(p.key, id);
-      doc.parts.push({ id, name: p.name, path: null, doc: pd, ...(p.color != null ? { color: p.color } : {}) });
-    }
-    const r6 = (x) => Math.round(x * 1e6) / 1e6;
-    for (const o of asm.occurrences) {
-      doc.components.push({ id: 'c' + doc.nextId++, part: ids.get(o.part), name: o.name, config: null, pos: o.pos.map(r6), rot: o.rot.map((x) => Math.round(x * 1e9) / 1e9), fixed: true, hidden: false });
-    }
-    breadcrumb(`STEP assembly: ${file.name} (${asm.parts.length} parts, ${asm.occurrences.length} components)`);
+      M.insertFeature(pd, M.createFeature(pd, 'import', { format: 'step', fileName: p.name + '.step', data: p.step, name: p.name, ...(p.appearance ? { appearance: p.appearance } : {}) }));
+      return [p.key, pd];
+    }));
+    const byKey = new Map(asm.assemblies.map((a) => [a.key, a]));
+    const built = new Map(); // (a sub-assembly used in several places is one document)
+    const build = (key, name, depth = 0) => {
+      if (built.has(key)) return built.get(key);
+      const a = byKey.get(key);
+      const doc = newAssembly(name || a.name || 'Assembly');
+      const ids = new Map();
+      for (const ch of a.children) {
+        let id = ids.get(ch.ref);
+        if (!id) {
+          const d = ch.kind === 'asm' ? (depth < 32 ? build(ch.ref, null, depth + 1) : null) : partDocs.get(ch.ref);
+          if (!d) continue;
+          id = 'pt' + doc.nextId++;
+          ids.set(ch.ref, id);
+          doc.parts.push({ id, name: d.name, path: null, doc: d });
+        }
+        doc.components.push({ id: 'c' + doc.nextId++, part: id, name: ch.name, config: null, pos: ch.pos.map(r6), rot: ch.rot.map(r9), fixed: true, hidden: false });
+      }
+      built.set(key, doc);
+      return doc;
+    };
+    const doc = build(asm.root, file.name.replace(/\.[^.]+$/, ''));
+    breadcrumb(`STEP assembly: ${file.name} (${asm.parts.length} parts, ${asm.assemblies.length - 1} sub-assemblies, ${asm.occurrences.length} part occurrences)`);
     const ed = this.openAssemblyTab(doc, null);
     ed.dirty = true;
     this.updateTitle();
     if (asm.warnings.length) this.toast(asm.warnings.join(' · '), true);
-    this.status(`${file.name}: ${asm.parts.length} parts, ${asm.occurrences.length} components, fixed where the file places them.`);
+    const subs = asm.assemblies.length - 1;
+    this.status(`${file.name}: ${asm.parts.length} parts${subs ? `, ${subs} sub-assembl${subs === 1 ? 'y' : 'ies'}` : ''}, each fixed where the file places it.`);
     return ed;
   }
 
-  async insertImport(file, locate = false) {
+  // (appearance: the colours and transparency of the file's solids and faces, from stepasm.js)
+  async insertImport(file, locate = false, appearance = null) {
     if (this.mode === 'sketch') this.exitSketch(true);
     if (this.mode === 'sketch3d') this.exitSketch3D(true);
     if (this.pm) this.cancelPM();
-    const f = M.createFeature(this.doc, 'import', { format: file.format, fileName: file.name, data: file.data, name: file.name.replace(/\.[^.]+$/, '') });
+    const f = M.createFeature(this.doc, 'import', { format: file.format, fileName: file.name, data: file.data, name: file.name.replace(/\.[^.]+$/, ''), ...(appearance ? { appearance } : {}) });
     M.insertFeature(this.doc, f);
     this.commit();
     this.status(`Importing ${file.name}…`);
