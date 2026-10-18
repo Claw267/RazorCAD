@@ -24,8 +24,9 @@ files, assemblies .rasm and drawings .rdrw.
 
 REPORTING PROBLEMS
 If RazorCAD runs into an error or crashes, it saves a crash report. Open Help ▸ Open Crash Reports
-Folder and send the newest folder (zip it) with a short note of what you were doing. Each report
-contains the error, the recent actions and the part that was open.
+Folder, zip the newest folder and attach it to a new issue at https://github.com/Labs9119/RazorCAD/issues
+with a short note of what you were doing. Each report contains the error, the recent actions and the part
+that was open, so leave out reports of parts you can't share. Feature requests are welcome there too.
 
 UNINSTALLING
 Windows Settings ▸ Apps ▸ Installed apps ▸ RazorCAD ▸ Uninstall. Your part files are never removed.

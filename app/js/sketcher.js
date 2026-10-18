@@ -9,7 +9,7 @@ import { parseDXF, dxfShapes, addShapes } from './dxfimport.js';
 import { platform } from './platform.js';
 
 const COL = {
-  under: 0x1d4ed8, defined: 0x111827, selected: 0x0ea5e9, hover: 0xf59e0b,
+  under: 0x1d4ed8, defined: 0x111827, selected: 0x0ea5e9, hover: 0xf59e0b, linked: 0x9333ea,
   preview: 0xf97316, dim: 0x5b6f9c, error: 0xdc2626, trim: 0xef4444, origin: 0xdc2626,
 };
 const r4 = (x) => Math.round(x * 1e4) / 1e4;
@@ -200,6 +200,9 @@ export class Sketcher {
   }
 
   setTool(t) {
+    // Convert Entities with model edges (or another sketch's entities) selected: those become sketch
+    // geometry at once (the tool itself waits for clicks when nothing is selected)
+    if (t === 'convert' && this.convertSelection()) return;
     this.blendFirst = null;
     this.endDraw();
     if (t !== 'select') this.endGearPick();
@@ -885,9 +888,11 @@ export class Sketcher {
       const ext = this.externalHit(ev, { vertices: false });
       if (!ext) return;
       if (ext.kind === 'extSection') {
-        // the whole connected outline where the plane cuts the model, linked to it
-        const ids = ext.chain.flatMap((i) => S.addProjected(this.f, [this.sectionPrims[i]], { kind: 'section', idx: i, of: this.sectionPrims.length }));
-        this.joinEnds(ids);
+        // the whole connected outline where the plane cuts the model, linked to it (not what is already there)
+        const chain = ext.chain.filter((i) => !this.hasCurveLike(this.sectionPrims[i]));
+        if (!chain.length) { this.app.status('That outline is already in the sketch.'); return; }
+        const ids = chain.flatMap((i) => S.addProjected(this.f, [this.sectionPrims[i]], { kind: 'section', idx: i, of: this.sectionPrims.length }));
+        this.joinEnds(ids, true);
         this.extHover = null;
         this.changed();
         this.app.status(`Converted ${ids.length} intersection curve${ids.length === 1 ? '' : 's'} into the sketch (linked to the model).`);
@@ -895,7 +900,8 @@ export class Sketcher {
       }
       const prims = this.externalPrims(ext);
       if (!prims.length) return;
-      S.addProjected(this.f, prims, this.externalSrc(ext));
+      if (prims.every((g) => this.hasCurveLike(g))) { this.app.status('That is already in the sketch (converted entities are purple).'); return; }
+      this.joinEnds(S.addProjected(this.f, prims, this.externalSrc(ext)), true);
       this.extHover = null;
       this.changed();
       this.app.status(`Converted ${prims.length} entit${prims.length === 1 ? 'y' : 'ies'} into the sketch (linked to the source).`);
@@ -1804,12 +1810,65 @@ export class Sketcher {
   }
 
   // Merge coincident end points of the given curves so they form chains.
-  joinEnds(curveIds) {
+  // The selected outside references (made when model edges / vertices or other sketches' entities are
+  // clicked with Select: dotted construction kept only while something uses them) turned into real
+  // converted geometry — still linked to the source, no longer construction or removed when unused.
+  // Returns how many were converted (0: nothing selected was such a reference).
+  convertSelection() {
+    const ids = [];
+    for (const id of this.sel) {
+      const k = this.f.constraints.find((x) => x.type === 'projected' && x.refs[0] === id);
+      if (!k) continue;
+      const c = S.getCurve(this.f, id);
+      if (!k.ref && !(c && c.construction)) continue; // (already converted geometry)
+      delete k.ref;
+      if (c) c.construction = false;
+      else { const p = S.getPoint(this.f, id); if (p) p.keep = true; }
+      ids.push(id);
+    }
+    if (!ids.length) return 0;
+    this.joinEnds(ids.filter((id) => S.getCurve(this.f, id)), true);
+    this.sel.clear();
+    this.changed();
+    this.redraw();
+    this.app.ui.refreshCommandStates();
+    this.app.status(`Converted ${ids.length} selected entit${ids.length === 1 ? 'y' : 'ies'} into the sketch (purple: linked to the source).`);
+    return ids.length;
+  }
+
+  // The sketch already has a curve where this projected primitive would go (converting it again would
+  // only stack a copy on top).
+  hasCurveLike(g) {
     const tol = Math.max(1e-6, this.wpp() * 1e-3);
-    const pids = [...new Set(curveIds.flatMap((id) => { const c = S.getCurve(this.f, id); return c && c.type !== 'circle' ? [c.p1, c.p2] : []; }))];
+    const P = (id) => S.getPoint(this.f, id) || (id === 'O' ? S.ORIGIN : null);
+    const at = (id, q) => { const p = P(id); return p && Math.hypot(p.x - q[0], p.y - q[1]) < tol; };
+    return this.f.curves.some((c) => {
+      if (g.type === 'line' && c.type === 'line') return (at(c.p1, g.a) && at(c.p2, g.b)) || (at(c.p1, g.b) && at(c.p2, g.a));
+      if ((g.type === 'circle' || g.type === 'arc') && c.type === g.type && at(c.c, g.c) && Math.abs(S.radiusOf(this.f, c) - g.r) < tol) {
+        return g.type === 'circle' || (at(c.p1, g.a) && at(c.p2, g.b)) || (at(c.p1, g.b) && at(c.p2, g.a));
+      }
+      return false;
+    });
+  }
+
+  joinEnds(curveIds, all = false) {
+    const tol = Math.max(1e-6, this.wpp() * 1e-3);
+    const ends = (ids) => [...new Set(ids.flatMap((id) => { const c = S.getCurve(this.f, id); return c && c.type !== 'circle' ? [c.p1, c.p2] : []; }))];
+    const pids = ends(curveIds);
+    const near = (a, b) => a && b && Math.hypot(a.x - b.x, a.y - b.y) < tol;
+    const gone = new Set();
     for (let i = 0; i < pids.length; i++) for (let j = i + 1; j < pids.length; j++) {
-      const a = S.getPoint(this.f, pids[i]), b = S.getPoint(this.f, pids[j]);
-      if (a && b && Math.hypot(a.x - b.x, a.y - b.y) < tol) S.mergePoints(this.f, pids[j], pids[i]);
+      if (gone.has(pids[i]) || gone.has(pids[j])) continue;
+      if (near(S.getPoint(this.f, pids[i]), S.getPoint(this.f, pids[j]))) { S.mergePoints(this.f, pids[j], pids[i]); gone.add(pids[j]); }
+    }
+    if (!all) return;
+    // the ends of the sketch's other entities they land on (not the origin: linked points move with the model)
+    const mine = new Set(curveIds);
+    const others = ends(this.f.curves.filter((c) => !mine.has(c.id)).map((c) => c.id)).filter((o) => o !== 'O');
+    for (const pid of pids) {
+      if (gone.has(pid)) continue;
+      const a = S.getPoint(this.f, pid), to = others.find((o) => o !== pid && near(a, S.getPoint(this.f, o)));
+      if (to) { S.mergePoints(this.f, pid, to); gone.add(pid); }
     }
   }
 
@@ -2264,6 +2323,8 @@ export class Sketcher {
     if (this.sel.has(c.id)) return COL.selected;
     if (this.hover === c.id || this.relHover?.has(c.id)) return COL.hover;
     if (!this.solveOk) return COL.error;
+    // projected (linked) geometry: purple, so it shows on the model edges it was taken from
+    if (this._linked?.has(c.id)) return COL.linked;
     return this.analysis?.curveDefined.get(c.id) ? COL.defined : COL.under;
   }
 
@@ -2286,6 +2347,7 @@ export class Sketcher {
         cum += L;
       }
     };
+    this._linked = new Set(sk.constraints.filter((k) => k.type === 'projected').map((k) => k.refs[0]));
     for (const c of sk.curves) addSegs(this.curveColor(c), c.construction, S.curvePoints(sk, c));
     // gears: outline, pitch circle (construction) and bore
     for (const tr of sk.gearTrains || []) {

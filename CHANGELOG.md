@@ -6,6 +6,21 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-18 16:10 — First public release (GitHub)
+- Source published at https://github.com/Labs9119/RazorCAD; the installer and manual are attached to the 0.10.0-beta release.
+- Installer read-me: crash reports and feature requests go to GitHub Issues.
+
+## 2026-10-18 15:44 — Convert Entities works on selected edges
+- **Select model edges first, then click Convert Entities (or press E)**: the selected edges, vertices or other sketches' entities become real sketch geometry at once (solid, purple, linked to the source, ends joined), and the Select tool stays active.
+  - Before, the tool ignored the selection. Clicking an edge with Select only makes a temporary reference for relations and dimensions: dotted construction geometry that is not part of the profile. So selected-then-converted edges stayed dotted and unusable.
+- With nothing selected, Convert Entities works as before: click the edges to convert.
+
+## 2026-10-18 15:02 — Projected (converted) sketch geometry: visible, and usable as profiles
+- **Projected / converted geometry is purple.** Lines, arcs and circles linked to model edges or other sketches (Convert Entities, intersection curves, linked offsets) are now drawn in purple. Before, they were near-black like the model edges they usually lie on, so they could not be seen.
+- **Converted entities join up.** Convert Entities now joins the ends of the new lines with each other and with sketch geometry already at those points. Converting the edges of a face gives a closed outline that can be extruded or cut; before, each line kept its own ends and the sketch had "no closed profile".
+- Converting something already in the sketch no longer stacks a copy on top: the status bar says it is already there.
+- The linked outline still follows the model: widening the source part moves the converted corners, and the features made from them update.
+
 ## 2026-10-18 10:44 — Faster opening and tab switching; tabs show file names
 - **Opening a part shows it at once:**
   - After a part that takes a while to build (over 0.8 s) is built, its finished model is stored, about 2 MB under `%LOCALAPPDATA%\RazorCAD\modelcache`.

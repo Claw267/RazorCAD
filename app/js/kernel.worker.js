@@ -5141,16 +5141,31 @@ function edge2(e, diag) {
   return { t: 'p', pts: pts.map(p2) };
 }
 
-// A wire's points in view coordinates (a closed loop).
+// A wire's points in view coordinates (a closed loop). The wire's edges do not always come in order
+// round the loop: each next edge is the unused one with an end nearest the loop's end so far (and the
+// first edge is turned round when the rest join at its start), else the loop crosses itself.
 function loopPts2(wire, to2, diag) {
-  const out = [];
-  for (const e of wire.edges) {
-    let pts = sampleEdge(e, diag);
-    if (out.length) {
-      const last = out[out.length - 1], d0 = len(sub(pts[0], last)), d1 = len(sub(pts[pts.length - 1], last));
-      if (d1 < d0) pts = pts.reverse();
-    }
-    for (const p of (out.length ? pts.slice(1) : pts)) out.push(p);
+  const segs = wire.edges.map((e) => sampleEdge(e, diag)).filter((s) => s.length);
+  if (!segs.length) return [];
+  const gap = (s, p) => Math.min(len(sub(s[0], p)), len(sub(s[s.length - 1], p)));
+  const out = segs[0].slice();
+  if (segs.length > 1) {
+    const near = (p) => Math.min(...segs.slice(1).map((s) => gap(s, p)));
+    if (near(out[0]) < near(out[out.length - 1])) out.reverse();
+  }
+  const used = new Set([0]);
+  while (used.size < segs.length) {
+    const last = out[out.length - 1];
+    let best = -1, bd = Infinity, rev = false;
+    segs.forEach((s, i) => {
+      if (used.has(i)) return;
+      const d0 = len(sub(s[0], last)), d1 = len(sub(s[s.length - 1], last));
+      if (d0 < bd) { bd = d0; best = i; rev = false; }
+      if (d1 < bd) { bd = d1; best = i; rev = true; }
+    });
+    used.add(best);
+    const pts = rev ? segs[best].slice().reverse() : segs[best];
+    for (const p of pts.slice(1)) out.push(p);
   }
   return out.map(to2);
 }
