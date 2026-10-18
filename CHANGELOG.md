@@ -6,6 +6,32 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-18 21:32 — Assemblies drawn part by part: moving a component is instant
+- **An assembly draws each part once and places it at every component that uses it**: the part's mesh goes to the graphics card once, and each component is just a placement. Before, every component was copied into one big mesh.
+  - Moving (dragging), hiding, suppressing or exploding a component only changes placements. On a 2,400-solid, 3.2-million-triangle layout, each drag step takes 0.2 ms instead of about 2.2 s, and showing the assembly takes 0.7 s instead of 2.2 s.
+  - Without the copy, the 3D view uses about 1.3 GB less memory on that layout. Reopening it from the model cache takes 4 s instead of 6 s.
+  - Edge lines are drawn per placement on the graphics card too.
+  - Picking a component, face, edge or vertex goes through its placement to the part's own face and edge numbers. Face picks were checked against the old merged view and are identical.
+  - Edge and vertex picking (for mates) only looks at the components near the cursor.
+- Display styles (shaded, shaded with edges, hidden lines removed, wireframe), selection and hover highlights, Zoom to Fit and file previews work as before.
+
+## 2026-10-18 21:25 — Assemblies reopen in seconds
+- **Each part an assembly builds is kept in the model cache** (the one parts already use, in `%LOCALAPPDATA%\RazorCAD\modelcache`). It is keyed by a hash of the part as built, including the configuration used.
+  - Opening the assembly again reads every stored part at once and shows them straight away. The kernel only builds parts that changed or were never built, then stores them for next time.
+  - A part whose rebuild had errors is not stored.
+  - Edge points are stored as 32-bit floats (the precision of the vertices), not as text, which halves the cache size.
+  - On a 130 MB, 2,400-solid layout imported as an assembly: **reopening takes 6 s instead of 110 s**, from 40 MB of cache. The first open is unchanged.
+
+## 2026-10-18 21:10 — STEP assemblies open as assemblies
+- **Opening a STEP file that holds an assembly** asks whether to open it **as an assembly** or **as one part**.
+  - As an assembly, each part of the file becomes a part of the assembly. A component is placed, fixed, where the file places each occurrence, with the part and product names from the file.
+  - Each part holds only its own piece of the STEP file. It is read and built on its own, which takes less kernel memory than one huge part, and a part used several times is read once.
+  - Parts take the colour the file gives most of their solids, until they get a material. Sub-assemblies are flattened into the one assembly.
+  - The assembly structure is read straight from the file text, in a background worker (a few seconds for a 130 MB file).
+  - On a 130 MB, 2,400-solid layout: 110 s to open instead of 131 s, and 930 MB of kernel memory instead of 1,445 MB, with the same placement to the millimetre.
+- **Assembly undo no longer copies the parts**: each undo step keeps a reference to the part copies (a few KB) instead of copying them (which could be over 100 MB for imported parts).
+- An assembly opened from a file is zoomed to fit once its parts are built.
+
 ## 2026-10-18 16:40 — Licensed under the GPL-3.0
 - RazorCAD is free software under the GNU General Public License v3.0 or later (`LICENSE`).
 - `THIRD-PARTY-NOTICES.md` lists the bundled libraries and their licenses (Open CASCADE under the LGPL-2.1; replicad, three.js and others under MIT) and the changes made to them.

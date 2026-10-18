@@ -127,7 +127,10 @@ The recent-files list is kept in `%APPDATA%\RazorCAD\recent.json`.
 
 There are two ways to bring in a STEP or STL file: {idx:STEP, import}{idx:STL, import}
 
-- **File ▸ Open…** opens it as a part of its own in a new tab, named after the file, without asking.
+- **File ▸ Open…** opens it as a part of its own in a new tab, named after the file, without asking. A STEP file that holds an assembly asks first: {idx:STEP, assembly}
+  - **Open as an Assembly** makes a new assembly with a part for each part in the file and a component, fixed, where the file places each one. Each part keeps its own piece of the STEP file and is built on its own, and a part used several times is built once. Parts take the colour the file gives most of their solids, until you give them a material. Sub-assemblies are flattened: every component sits directly in the new assembly.
+  - The first build of each part is kept on disk (in `%LOCALAPPDATA%\RazorCAD\modelcache`, up to 1 GB, shared with parts). The next time the assembly opens, unchanged parts are shown straight from there instead of being rebuilt, so a big assembly reopens in seconds. {idx:assembly, opening quickly}
+  - **Open as One Part** brings every solid into one part, as before.
 - **File ▸ Import STEP / STL…** ([[Ctrl+I]], also on the Features and Evaluate tabs) offers three choices: a **new part**, **insert in place** into the current part, or **insert and locate with mates**. Locating with mates adds a separate "Locate …" Move Body feature under the import.
 
 How imports behave:

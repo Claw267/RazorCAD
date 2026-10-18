@@ -539,10 +539,9 @@ export class Viewport {
     r.render(this.scene, this.camera); // (no triad; drawn from at once, before the buffer is cleared)
     // the part of the view the model is in (its box as seen), with a margin, about square
     let x0 = 0, y0 = 0, x1 = this.width, y1 = this.height;
-    const geo = this.bodyGeo;
-    if (geo && this.body?.visible !== false) {
-      geo.computeBoundingBox();
-      const b = geo.boundingBox, v = new THREE.Vector3();
+    const b = this.body?.visible !== false || this.asmView ? this.contentBox() : null;
+    if (b) {
+      const v = new THREE.Vector3();
       let a0 = Infinity, b0 = Infinity, a1 = -Infinity, b1 = -Infinity;
       for (let i = 0; i < 8; i++) {
         v.set(i & 1 ? b.max.x : b.min.x, i & 2 ? b.max.y : b.min.y, i & 4 ? b.max.z : b.min.z).project(this.camera);
@@ -593,6 +592,7 @@ export class Viewport {
     if (this.edges) this.edges.visible = s !== 'shaded';
     this.edgeMat.depthTest = s !== 'wireframe';
     this.edgeMat.color.set(s === 'wireframe' ? 0x22314a : 0x14181f);
+    this.asmView?.applyDisplayStyle(s);
   }
 
   setSection(sec) {
@@ -787,11 +787,19 @@ export class Viewport {
     }
   }
 
+  // The box of the model shown (a part's body, or an assembly's components), or null.
+  contentBox() {
+    if (this.asmView) { const b = this.asmView.box(); return b.isEmpty() ? null : b; }
+    if (!this.bodyGeo) return null;
+    this.bodyGeo.computeBoundingBox();
+    return this.bodyGeo.boundingBox;
+  }
+
   planeSize() {
-    if (this.bodyGeo) {
-      this.bodyGeo.computeBoundingBox();
+    const b = this.contentBox();
+    if (b) {
       const s = new THREE.Vector3();
-      this.bodyGeo.boundingBox.getSize(s);
+      b.getSize(s);
       return Math.max(80, Math.max(s.x, s.y, s.z) * 1.3);
     }
     return 120;
@@ -1133,8 +1141,8 @@ export class Viewport {
   // ------------------------------------------------------------ views
   // Rotation center: the middle of the model (or of the sketches).
   rotationPivot() {
-    const box = new THREE.Box3();
-    if (this.bodyGeo) { this.bodyGeo.computeBoundingBox(); box.union(this.bodyGeo.boundingBox); }
+    const box = new THREE.Box3(), content = this.contentBox();
+    if (content) box.union(content);
     else this.sketchGroup.children.forEach((l) => { l.geometry.computeBoundingBox(); box.union(l.geometry.boundingBox); });
     return box.isEmpty() ? this.controls.target.clone() : box.getCenter(new THREE.Vector3());
   }
@@ -1216,8 +1224,8 @@ export class Viewport {
   }
 
   zoomToFit(extraBox = null, animate = true) {
-    const box = new THREE.Box3();
-    if (this.bodyGeo) { this.bodyGeo.computeBoundingBox(); box.union(this.bodyGeo.boundingBox); }
+    const box = new THREE.Box3(), content = this.contentBox();
+    if (content) box.union(content);
     this.sketchGroup.children.forEach((l) => { l.geometry.computeBoundingBox(); box.union(l.geometry.boundingBox); });
     if (extraBox) box.union(extraBox);
     if (box.isEmpty()) box.set(new THREE.Vector3(-50, -50, -50), new THREE.Vector3(50, 50, 50));

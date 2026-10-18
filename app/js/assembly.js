@@ -1,6 +1,6 @@
 // Assemblies: parts placed together and held by mates. An assembly opens in a tab of its own (like a drawing,
-// through the same tab plumbing) but uses the 3D view: its components are shown as one mesh, each part's mesh
-// moved to where the component sits.
+// through the same tab plumbing) but uses the 3D view: each part's mesh is drawn where each of its components
+// sits (asmview.js).
 //
 // Assembly file (.rasm):
 //   { kind: 'assembly', version, name, nextId,
@@ -22,6 +22,8 @@ import { materialById, DEFAULT_BODY_COLOR, docJSON, stripThumbnail, fileStem, is
 import { gauss } from './sketch3dmodel.js';
 import { fmt } from './expr.js';
 import { ExplodeTool, explodeOffsets, drawExplodeLines, animateExplode } from './explode.js';
+import { hashText, packResult, unpackResult } from './modelcache.js';
+import { AssemblyView } from './asmview.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -64,6 +66,24 @@ const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a
 const len = (a) => Math.hypot(a[0], a[1], a[2]);
 const unit = (a) => { const l = len(a) || 1; return mul(a, 1 / l); };
 const r6 = (x) => Math.round(x * 1e6) / 1e6;
+
+// A part's mesh for the model cache: the edge points in one Float32Array (the vertices' precision). As JSON
+// numbers they would be most of the file, and slow to read back.
+function packMesh(m) {
+  let n = 0;
+  for (const e of m.edges) n += e.pts.length;
+  const edgePts = new Float32Array(n), edgeOff = new Uint32Array(m.edges.length + 1);
+  let o = 0;
+  m.edges.forEach((e, i) => { edgeOff[i] = o; edgePts.set(e.pts, o); o += e.pts.length; });
+  edgeOff[m.edges.length] = o;
+  return { ...m, edges: m.edges.map(({ pts, ...e }) => e), edgePts, edgeOff };
+}
+function unpackMesh(m) {
+  const { edgePts, edgeOff, ...out } = m;
+  out.edges = m.edges.map((e, i) => ({ ...e, pts: Array.from(edgePts.subarray(edgeOff[i], edgeOff[i + 1])) }));
+  return out;
+}
+const MESH_CACHE = 'assembly part mesh 1\n'; // (changes when packMesh does)
 
 // a pose: { p: [x, y, z], q: THREE.Quaternion }
 const poseOf = (c) => ({ p: c.pos.slice(), q: new THREE.Quaternion(...c.rot) });
@@ -293,7 +313,7 @@ export class AssemblyEditor {
   itemAt(e) { return this.compAt(e)?.comp.id || null; }
   itemCenter(id) { const c = this.comp(id); return c ? this.compCenter(c) : [0, 0, 0]; }
   itemSize(id) { const c = this.comp(id), b = c && this.geo(c)?.box; return b ? Math.max(...b.max.map((x, i) => x - b.min[i])) * 1.2 : 50; }
-  faceNormalAt(e) { const ch = this.compAt(e); const fi = ch && this.vp.faceInfo(ch.hit.face); return fi?.planar ? fi.normal.toArray() : null; }
+  faceNormalAt(e) { const ch = this.compAt(e); const fi = ch && this.display.faceInfo(ch.bi, ch.hit.face); return fi?.planar ? fi.normal.toArray() : null; }
   redisplay() { this.updateGeometry(); }
   commit(msg) { this.change(msg); }
   pmRoot() { return $('#pm'); }
@@ -443,11 +463,15 @@ export class AssemblyEditor {
     // (nothing of the part shown before)
     vp.setPlanes?.([]); vp.setRefGeometry?.([], [], []); vp.setSketches?.([]); vp.setPreview?.(null); vp.setSection?.(null);
     vp.setDimTag?.(null); vp.setMeasure?.(null); vp.setVertexMarkers?.(null); vp.setEdgeHighlights?.(null);
+    vp.setBody(null, null);
+    // the components are drawn by an AssemblyView (each part once, placed per component)
+    this.display = vp.asmView = new AssemblyView(vp);
     a.ui.showLeft('tree');
     // (left-drag moves components; the middle button turns the view, the right one pans)
     vp.setLeftRotate(false);
     this.renderAll();
-    this.refreshParts().then(() => this.loadParts()).then(() => { if (!this._fitted) { this._fitted = true; vp.zoomToFit(); } });
+    // (the mesh is built first: loadParts only asks for it on the next frame)
+    this.refreshParts().then(() => this.loadParts()).then(() => { if (!this._fitted && this.isActive()) { this._fitted = true; if (this._geoFrame) this.flushGeometry(); vp.zoomToFit(); } });
     this.updateGeometry();
   }
   detach() {
@@ -457,6 +481,9 @@ export class AssemblyEditor {
     this.vp.clearFaceHighlights();
     this.vp.setVertexMarkers?.(null);
     this.vp.setEdgeHighlights?.(null);
+    if (this._geoFrame) { cancelAnimationFrame(this._geoFrame.raf); clearTimeout(this._geoFrame.tm); this._geoFrame = null; }
+    this._exLines = drawExplodeLines(this.vp, this._exLines, []);
+    if (this.display) { this.display.dispose(); if (this.vp.asmView === this.display) this.vp.asmView = null; this.display = null; }
     $('#status-mode').textContent = 'Editing Part';
   }
   render() { this.updateGeometry(); } // (asked by the drawing pane's resize observer: nothing of its own to draw)
@@ -469,7 +496,14 @@ export class AssemblyEditor {
   }
 
   // ---------------------------------------------------------------- undo / changes
-  snapshot() { return JSON.stringify({ components: this.doc.components, mates: this.doc.mates, parts: this.doc.parts, name: this.doc.name, nextId: this.doc.nextId, configs: this.doc.configs, activeConfig: this.doc.activeConfig || null, explodes: this.doc.explodes, exploded: this.doc.exploded || null }); }
+  // (a part copy goes in by reference: it can hold megabytes of imported geometry, and copies are replaced, never changed)
+  snapshot() { return JSON.stringify({ components: this.doc.components, mates: this.doc.mates, parts: this.doc.parts.map((p) => ({ ...p, doc: this.docRef(p.doc) })), name: this.doc.name, nextId: this.doc.nextId, configs: this.doc.configs, activeConfig: this.doc.activeConfig || null, explodes: this.doc.explodes, exploded: this.doc.exploded || null }); }
+  docRef(doc) {
+    this._docKeys ||= new WeakMap(); this._docs ||= new Map();
+    let k = this._docKeys.get(doc);
+    if (!k) { k = 'doc' + (this._docs.size + 1); this._docKeys.set(doc, k); this._docs.set(k, doc); }
+    return k;
+  }
   begin() { this._before = this.snapshot(); }
   change(msg = null) {
     if (this._before && this._before !== this.snapshot()) { this.undoStack.push(this._before); if (this.undoStack.length > 100) this.undoStack.shift(); this.redoStack = []; }
@@ -479,7 +513,10 @@ export class AssemblyEditor {
     this.renderAll();
     if (msg) this.app.status(msg);
   }
-  restore(json) { Object.assign(this.doc, JSON.parse(json)); this.dirty = true; this.loadParts(); this.updateGeometry(); this.renderAll(); }
+  restore(json) {
+    const s = JSON.parse(json);
+    s.parts = s.parts.map((p) => ({ ...p, doc: this._docs.get(p.doc) }));
+    Object.assign(this.doc, s); this.dirty = true; this.loadParts(); this.updateGeometry(); this.renderAll(); }
   undo() { const s = this.undoStack.pop(); if (!s) return; this.redoStack.push(this.snapshot()); this.restore(s); }
   redo() { const s = this.redoStack.pop(); if (!s) return; this.undoStack.push(this.snapshot()); this.restore(s); }
 
@@ -498,27 +535,55 @@ export class AssemblyEditor {
     return changed;
   }
 
-  // each part's mesh from the kernel, in each configuration the components use (again only when it changed)
+  // each part's mesh, in each configuration the components use (again only when it changed). A mesh built
+  // before comes from the model cache on disk (modelcache.js, keyed by a hash of the part as built), all of
+  // them at once; the kernel builds the others one by one, and they are stored for next time.
   async loadParts() {
     let any = false;
     const want = new Map();
     for (const c of this.doc.components) { const e = this.eff(c); if (!e.suppressed) want.set(this.geoKey(c.part, e.config), [c.part, e.config]); }
+    const jobs = [];
     for (const [gk, [pid, cfgId]] of want) {
       const p = this.part(pid);
       if (!p) continue;
+      // (the same part copy as last time: built already, without writing out and hashing it again)
+      if (this.parts.get(gk)?.from === p.doc) continue;
       const doc = { ...p.doc, activeConfig: cfgId && (p.doc.configs || []).some((x) => x.id === cfgId) ? cfgId : null };
       const json = JSON.stringify(doc), key = json.length + ':' + hash(json);
-      if (this.parts.get(gk)?.key === key) continue;
-      this.app.status(`Building ${p.name}${cfgId ? ` (${this.configName(p, cfgId)})` : ''}…`);
-      try {
-        const r = await this.app.kernel.request('partMesh', { doc: json });
-        const mesh = r.body && r.body.vertices ? r.body : null;
-        this.parts.set(gk, { key, mesh, color: materialById(p.doc.material)?.color ?? DEFAULT_BODY_COLOR, box: mesh ? meshBox(mesh) : null });
-      } catch (err) {
-        this.parts.set(gk, { key, mesh: null, error: err.message });
-        this.app.toast(`${p.name} could not be built: ${err.message}`, true);
-      }
+      if (this.parts.get(gk)?.key === key) { this.parts.get(gk).from = p.doc; continue; }
+      jobs.push({ gk, p, cfgId, json, key });
+    }
+    // (p.color: the colour a STEP assembly gave the part, until it has a material)
+    const done = (j, mesh, error = null) => {
+      this.parts.set(j.gk, error ? { key: j.key, from: j.p.doc, mesh: null, error } : { key: j.key, from: j.p.doc, mesh, color: materialById(j.p.doc.material)?.color ?? j.p.color ?? DEFAULT_BODY_COLOR, box: mesh ? meshBox(mesh) : null });
       any = true;
+    };
+    if (jobs.length && platform.desktop) {
+      this.app.status(`Reading ${jobs.length === 1 ? jobs[0].p.name : `${jobs.length} parts`}…`);
+      await Promise.all(jobs.map(async (j) => {
+        try {
+          j.cacheKey = await hashText(MESH_CACHE + j.json);
+          const b64 = j.cacheKey && await platform.readModelCache(j.cacheKey);
+          const r = b64 ? await unpackResult(b64) : null;
+          if (r?.body?.vertices && r.body.edgePts) { done(j, unpackMesh(r.body)); j.cached = true; }
+        } catch { /* build it */ }
+      }));
+      // (what was stored shows at once, while the kernel builds the rest)
+      if (any && jobs.some((j) => !j.cached)) { this.resyncRefs(); this.solve(); this.updateGeometry(); this.renderAll(); }
+    }
+    for (const j of jobs) {
+      if (j.cached) continue;
+      this.app.status(`Building ${j.p.name}${j.cfgId ? ` (${this.configName(j.p, j.cfgId)})` : ''}…`);
+      try {
+        const r = await this.app.kernel.request('partMesh', { doc: j.json });
+        const mesh = r.body && r.body.vertices ? r.body : null;
+        done(j, mesh);
+        // stored for next time, unless it had errors (its rebuild may come out differently)
+        if (mesh && !r.errors && j.cacheKey) packResult({ body: packMesh(mesh) }).then((b64) => platform.writeModelCache(j.cacheKey, b64)).catch(() => {});
+      } catch (err) {
+        done(j, null, err.message);
+        this.app.toast(`${j.p.name} could not be built: ${err.message}`, true);
+      }
     }
     this.app.hideProgress?.(); // (the part builds report progress like a rebuild)
     // mates on faces / edges follow the part (the same face or edge, by its number) in the configuration used
@@ -535,91 +600,62 @@ export class AssemblyEditor {
     }
   }
 
-  // ---------------------------------------------------------------- the view: all components as one mesh
+  // ---------------------------------------------------------------- the view: each part drawn at its components
   updateGeometry() {
     if (!this.isActive()) return;
     if (this._geoFrame) return;
     // (next frame; a timer too, as frames pause while the window is in the background)
-    const run = () => { if (!this._geoFrame) return; cancelAnimationFrame(this._geoFrame.raf); clearTimeout(this._geoFrame.tm); this._geoFrame = null; this.buildMesh(); };
+    const run = () => this.flushGeometry();
     this._geoFrame = { raf: requestAnimationFrame(run), tm: setTimeout(run, 40) };
   }
+  flushGeometry() {
+    if (!this._geoFrame) return;
+    cancelAnimationFrame(this._geoFrame.raf); clearTimeout(this._geoFrame.tm); this._geoFrame = null;
+    this.buildMesh();
+  }
+  // (a component's placement, with its exploded-view offset, as a matrix: all a move changes on the graphics card)
   buildMesh() {
-    if (!this.isActive()) return;
-    const comps = this.doc.components;
-    let nv = 0, nt = 0;
-    const meshes = comps.map((c) => (this.eff(c).suppressed ? null : this.geo(c)?.mesh || null));
-    for (const m of meshes) if (m) { nv += m.vertices.length; nt += m.triangles.length; }
-    const vertices = new Float32Array(nv), normals = new Float32Array(nv), triangles = new Uint32Array(nt);
-    const faceGroups = [], edges = [], bodies = [];
-    let ov = 0, ot = 0;
-    const v = new THREE.Vector3();
+    if (!this.isActive() || !this.display) return;
     const offs = this.offsets();
-    comps.forEach((c, i) => {
-      const m = meshes[i];
-      const b = { id: c.id, kind: 'solid', faceStart: faceGroups.length, faceCount: 0, triStart: ot, triCount: 0, edgeStart: edges.length, edgeCount: 0 };
-      if (m) {
-        const o = offs.get(c.id);
-        const q = new THREE.Quaternion(...c.rot), P = o ? c.pos.map((x, k) => x + o[k]) : c.pos;
-        for (let k = 0; k < m.vertices.length; k += 3) {
-          v.set(m.vertices[k], m.vertices[k + 1], m.vertices[k + 2]).applyQuaternion(q);
-          vertices[ov + k] = v.x + P[0]; vertices[ov + k + 1] = v.y + P[1]; vertices[ov + k + 2] = v.z + P[2];
-          v.set(m.normals[k], m.normals[k + 1], m.normals[k + 2]).applyQuaternion(q);
-          normals[ov + k] = v.x; normals[ov + k + 1] = v.y; normals[ov + k + 2] = v.z;
-        }
-        const base = ov / 3;
-        for (let k = 0; k < m.triangles.length; k++) triangles[ot + k] = m.triangles[k] + base;
-        m.faceGroups.forEach((g, gi) => faceGroups.push({ start: ot + g.start, count: g.count, comp: i, local: gi }));
-        m.edges.forEach((e, ei) => {
-          const pts = new Array(e.pts.length);
-          for (let k = 0; k < e.pts.length; k += 3) {
-            v.set(e.pts[k], e.pts[k + 1], e.pts[k + 2]).applyQuaternion(q);
-            pts[k] = v.x + P[0]; pts[k + 1] = v.y + P[1]; pts[k + 2] = v.z + P[2];
-          }
-          const mid = toWorld({ p: P, q }, e.mid);
-          edges.push({ pts, mid, type: e.type, comp: i, local: ei });
-        });
-        b.faceCount = m.faceGroups.length; b.triCount = m.triangles.length; b.edgeCount = m.edges.length;
-        ov += m.vertices.length; ot += m.triangles.length;
-      }
-      bodies.push(b);
-    });
-    this.mesh = { key: 'asm:' + Math.random().toString(36).slice(2), vertices, normals, triangles, faceGroups, edges, dense: false, bodies };
-    const colors = comps.map((c) => this.geo(c)?.color ?? DEFAULT_BODY_COLOR);
-    const hidden = comps.map((c, i) => (this.eff(c).hidden ? i : -1)).filter((i) => i >= 0);
-    this.vp.setBody(nt ? this.mesh : null, colors, hidden, null);
+    const q = new THREE.Quaternion(), p = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1);
+    this.display.update(this.doc.components.map((c) => {
+      const e = this.eff(c), g = this.geo(c);
+      if (e.suppressed || !g?.mesh) return null;
+      const o = offs.get(c.id);
+      p.set(...(o ? c.pos.map((x, k) => x + o[k]) : c.pos));
+      return { mesh: g.mesh, color: g.color ?? DEFAULT_BODY_COLOR, hidden: !!e.hidden, matrix: new THREE.Matrix4().compose(p, q.set(...c.rot).normalize(), one) };
+    }));
     this._exLines = drawExplodeLines(this.vp, this._exLines, this.showLines === false ? [] : [...offs].filter(([id, o]) => Math.hypot(...o) > 1e-9 && this.comp(id)).map(([id, o]) => { const a = this.compCenter(this.comp(id)); return [a, a.map((x, k) => x + o[k])]; }));
     this.highlight();
   }
 
   // ---------------------------------------------------------------- picking
+  // the component under the mouse: { comp, hit: { point, face (the part's face number) }, bi (its index) }
   compAt(e) {
-    const hit = this.vp.pickBody(e);
+    const hit = this.display?.pick(e);
     if (!hit || hit.face < 0) return null;
-    const bi = this.vp.faceBody[hit.face];
-    const c = this.doc.components[bi];
-    return c ? { comp: c, hit, bi } : null;
+    const c = this.doc.components[hit.comp];
+    return c ? { comp: c, hit, bi: hit.comp } : null;
   }
   // a face, edge or vertex under the mouse, as a mate reference (in the part's coordinates)
   entityAt(e) {
-    const vp = this.vp, inv = (c) => { const ps = poseOf(c); const qi = ps.q.clone().invert(); return (w) => applyQ(qi, sub(w, ps.p)); };
-    const vx = vp.pickVertex(e, 7);
-    if (vx) {
-      const ch = this.compAt(e);
-      const c = ch?.comp;
-      if (c) return { comp: c.id, kind: 'point', p: inv(c)(vx.point.toArray()).map(r6), what: 'Vertex', world: vx.point.toArray() };
-    }
-    const ed = vp.pickEdge(e, 5);
+    const view = this.display;
+    if (!view) return null;
+    const inv = (c) => { const ps = poseOf(c); const qi = ps.q.clone().invert(); return (w) => applyQ(qi, sub(w, ps.p)); };
+    const vx = view.pickVertex(e, 7);
+    const vc = vx && this.doc.components[vx.comp];
+    if (vc) return { comp: vc.id, kind: 'point', p: inv(vc)(vx.point.toArray()).map(r6), what: 'Vertex', world: vx.point.toArray() };
+    const ed = view.pickEdge(e, 5);
     if (ed) {
-      const E = this.mesh?.edges[ed.index], c = E && this.doc.components[E.comp];
-      const m = c && this.geo(c)?.mesh;
-      if (m) { const r = refOfEdge(m, E.local); if (r) return { comp: c.id, ...r, edge: E.local, gi: ed.index }; }
+      const c = this.doc.components[ed.comp], m = c && this.geo(c)?.mesh;
+      if (m) { const r = refOfEdge(m, ed.edge); if (r) return { comp: c.id, ...r, edge: ed.edge, gi: `${ed.comp}:e${ed.edge}` }; }
     }
     const ch = this.compAt(e);
     if (!ch) return null;
-    const fg = this.mesh.faceGroups[ch.hit.face], m = this.geo(ch.comp)?.mesh;
-    const r = m && refOfFace(m, fg.local);
+    const m = this.geo(ch.comp)?.mesh;
+    const r = m && refOfFace(m, ch.hit.face);
     if (!r) { this.app.toast('That face is not flat, cylindrical, conical or spherical: pick another face, an edge or a vertex'); return null; }
-    return { comp: ch.comp.id, ...r, face: fg.local, gi: ch.hit.face };
+    return { comp: ch.comp.id, ...r, face: ch.hit.face, gi: `${ch.bi}:f${ch.hit.face}` };
   }
   refLabel(r) { const c = this.comp(r.comp); return `${r.what} of ${c?.name || '?'}`; }
   // a ref placed by its component's pose now
@@ -749,25 +785,23 @@ export class AssemblyEditor {
 
   // ---------------------------------------------------------------- highlights
   highlight() {
-    const vp = this.vp;
-    if (!this.isActive() || !this.mesh) return;
+    const vp = this.vp, view = this.display;
+    if (!this.isActive() || !view) return;
     const bi = (id) => this.doc.components.findIndex((c) => c.id === id);
     const sel = this.sel?.kind === 'comp' ? bi(this.sel.id) : -1;
-    vp.setFaceHighlight('selected', sel >= 0 ? vp.bodyInfo(sel) : null);
     const hov = this.hoverComp && this.hoverComp !== this.sel?.id ? bi(this.hoverComp) : -1;
     // the faces / edges / vertices of the mate being made (or of the selected mate)
     const refs = this.pm ? this.pm.picks : this.sel?.kind === 'mate' ? (([m]) => (m ? [m.a, m.b] : []))(this.doc.mates.filter((m) => m.id === this.sel.id)) : [];
     const faceInfos = [], edgesSel = [], pts = [];
     for (const r of [...refs, ...(this.hoverRef ? [this.hoverRef] : [])]) {
-      const ci = bi(r.comp), b = this.mesh.bodies[ci];
-      if (!b) continue;
-      if (r.face !== undefined) { const fi = vp.faceInfo(b.faceStart + r.face); if (fi) faceInfos.push(fi); }
-      else if (r.edge !== undefined) edgesSel.push(b.edgeStart + r.edge);
+      const ci = bi(r.comp);
+      if (ci < 0) continue;
+      if (r.face !== undefined) { const fi = view.faceInfo(ci, r.face); if (fi) faceInfos.push(fi); }
+      else if (r.edge !== undefined) edgesSel.push([ci, r.edge]);
       else pts.push(toWorld(poseOf(this.comp(r.comp)), r.p));
     }
     vp.setFaceSet?.(faceInfos, 'pm');
-    vp.setFaceHighlight('hover', hov >= 0 && !refs.length ? vp.bodyInfo(hov) : null);
-    vp.setEdgeHighlights?.(edgesSel.length ? { selected: edgesSel } : null);
+    view.setHighlights({ selected: sel, hover: hov >= 0 && !refs.length ? hov : -1, edges: edgesSel });
     vp.setVertexMarkers?.(pts.length ? { selected: pts } : null);
   }
 

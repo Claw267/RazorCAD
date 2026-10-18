@@ -1441,6 +1441,21 @@ class App {
   async handleImport(file, { asPart = false } = {}) {
     if (!file) return;
     const stem = file.name.replace(/\.[^.]+$/, '');
+    // a STEP assembly opened (not inserted into a part): as an assembly, one part per part of the file
+    if (asPart && file.format === 'step') {
+      let asm = null;
+      try { asm = await this.withProgress(`Reading ${file.name}…`, () => this.readStepAssembly(file.data)); }
+      catch (err) { breadcrumb(`STEP assembly structure not read: ${err.message}`); }
+      if (asm && asm.occurrences.length > 1) {
+        const per = new Map(asm.parts.map((p) => [p.key, p.solids]));
+        const solids = asm.occurrences.reduce((n, o) => n + (per.get(o.part) || 0), 0);
+        const choice = await this.ui.choose('Open a STEP Assembly', 'assembly',
+          `<p><b>${file.name.replace(/[<>&]/g, '')}</b> is an assembly of ${asm.parts.length} parts (${asm.occurrences.length} components).</p><p class="pm-hint">As an assembly, each part is built on its own and a part used more than once is built once. As one part, all ${solids.toLocaleString()} solids go into a single part.</p>`,
+          [['asm', 'Open as an Assembly', true], ['part', 'Open as One Part']]);
+        if (!choice) return;
+        if (choice === 'asm') { this.openStepAssembly(file, asm); return; }
+      }
+    }
     let choice = asPart ? 'new' : 'insert';
     if (!asPart && this.doc.features.length) {
       choice = await this.ui.choose('Open a 3D File', 'import',
@@ -1456,6 +1471,47 @@ class App {
       await this.setDoc(doc, { fit: false });
     } else if (!this.doc.features.length && /^Part\d+$/.test(this.doc.name)) this.doc.name = stem;
     await this.insertImport(file, choice === 'mates');
+  }
+
+  // The assembly structure of a STEP file (stepasm.js, in a worker of its own); null for a single part.
+  readStepAssembly(text) {
+    return new Promise((resolve, reject) => {
+      const w = new Worker(new URL('./stepasm.worker.js', import.meta.url), { type: 'module' });
+      w.onmessage = (e) => {
+        const m = e.data;
+        if (m.progress) { this.showProgress(null, m.progress); return; }
+        w.terminate();
+        if (m.error) reject(new Error(m.error)); else resolve(m.result);
+      };
+      w.onerror = (e) => { w.terminate(); reject(new Error(e.message || 'The STEP file could not be read')); };
+      w.postMessage({ text });
+    });
+  }
+
+  // A STEP assembly as a new assembly: a part (holding its own piece of the STEP file) per part of it, and a
+  // component, fixed, where the file places each occurrence.
+  openStepAssembly(file, asm) {
+    const doc = newAssembly(file.name.replace(/\.[^.]+$/, ''));
+    const ids = new Map();
+    for (const p of asm.parts) {
+      const pd = M.newDoc();
+      pd.name = p.name;
+      M.insertFeature(pd, M.createFeature(pd, 'import', { format: 'step', fileName: p.name + '.step', data: p.step, name: p.name }));
+      const id = 'pt' + doc.nextId++;
+      ids.set(p.key, id);
+      doc.parts.push({ id, name: p.name, path: null, doc: pd, ...(p.color != null ? { color: p.color } : {}) });
+    }
+    const r6 = (x) => Math.round(x * 1e6) / 1e6;
+    for (const o of asm.occurrences) {
+      doc.components.push({ id: 'c' + doc.nextId++, part: ids.get(o.part), name: o.name, config: null, pos: o.pos.map(r6), rot: o.rot.map((x) => Math.round(x * 1e9) / 1e9), fixed: true, hidden: false });
+    }
+    breadcrumb(`STEP assembly: ${file.name} (${asm.parts.length} parts, ${asm.occurrences.length} components)`);
+    const ed = this.openAssemblyTab(doc, null);
+    ed.dirty = true;
+    this.updateTitle();
+    if (asm.warnings.length) this.toast(asm.warnings.join(' · '), true);
+    this.status(`${file.name}: ${asm.parts.length} parts, ${asm.occurrences.length} components, fixed where the file places them.`);
+    return ed;
   }
 
   async insertImport(file, locate = false) {
