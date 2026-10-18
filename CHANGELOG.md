@@ -6,6 +6,10 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-19 07:10 — Version 0.11.0-beta
+- `version.txt` 0.10.0-beta → **0.11.0-beta**, for the release with everything below since 0.10.0-beta (STEP assemblies with their sub-assemblies and appearances, the assembly model cache and instanced display, sub-assemblies, drawing templates and sheet formats, PC fonts, the new logo, assembly picking, selection filters, planes, separate part files, no zoom-out limit).
+- The installer is `RazorCAD-Setup-0.11.0-beta.exe`; the user manual is rebuilt for it.
+
 ## 2026-10-19 07:07 — Assembly picking, selection filters, planes, and saving parts as separate files
 - **Picking in the 3D view is fixed**: the part under the cursor is the one picked, on any size of model. The pick ray used to start at the camera's position, which can be metres inside a big assembly, so it passed through the nearest parts and picked one behind them, and some parts couldn't be picked at all. On a 2,400-solid layout, picks now match what is drawn on top everywhere (they were right only 86–97% of the time).
 - **Assemblies use the selection filters, as part files do.** With no filter, a click picks the vertex, edge, face or plane under the cursor; with the Bodies filter, whole components. Ctrl adds or takes away. The one under the cursor shows in orange. Dragging still moves the component.
