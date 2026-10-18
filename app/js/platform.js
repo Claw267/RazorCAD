@@ -83,6 +83,16 @@ export const platform = {
     return null;
   },
 
+  // Drawing templates (desktop: Documents\RazorCAD\Templates). { folder, templates: [{ path, name, description, sheets, thumb }] }
+  async listTemplates(extra = []) { return desktop ? api().list_templates(extra) : { folder: null, templates: [] }; },
+  async readTemplate(path) { return desktop && path ? api().read_template(path) : null; },
+  async pickTemplate() {
+    if (desktop) return api().pick_template();
+    const f = await this.openText().catch(() => null);
+    return f && !f.format ? { path: null, content: f.content } : null;
+  },
+  async openTemplatesFolder() { return desktop ? api().open_templates_folder() : false; },
+
   // The model as last built (modelcache.js), by key: base64 text or null. Desktop only.
   async readModelCache(key) { return desktop && key ? api().read_model_cache(key) : null; },
   async writeModelCache(key, b64) { return desktop && key ? api().write_model_cache(key, b64) : null; },

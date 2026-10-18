@@ -8,6 +8,7 @@
 //   { t: 'hatch', loops, angle, gap, w }        { t: 'clip', circle: { c, r }, prims }
 // Primitives may carry `ref: { kind: 'view' | 'ann', id }` (selection).
 import { paperSize, frameRect, formatPrims, titleBlockRect, LW, hatchStyle } from './drawingformats.js';
+import { fontMetrics } from './fonts.js';
 
 export const DRAWING_EXT = '.rdrw';
 const DASH_HIDDEN = [2.4, 1.2];
@@ -206,6 +207,46 @@ export function moveView(dwg, v, dx, dy, top = true) {
   // detail views keep their place
 }
 
+// After a sheet's projection changes (first <-> third angle), lay the views out as the new projection
+// would: a view above or below its parent goes to the other side (mirrored about the parent's centre),
+// so a top view stays a top view (below the front in first angle, above it in third); a view beside its
+// parent stays where it is and shows the side the new projection puts there (both put the side view on
+// the right). Views aligned with a moved view (sections, its own projected views) move with it; detail
+// views keep their place. before: Map(view id -> viewRect) from before the change.
+export function flipProjectedViews(dwg, sheetId, before) {
+  const FLIP = { up: 'down', down: 'up' };
+  const centre = (r) => [(r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2];
+  const shift = new Map(); // view id -> [dx, dy] it was moved by
+  const todo = dwg.views.filter((v) => v.sheet === sheetId && v.parent && alignAxis(v));
+  for (let pass = 0; todo.length && pass < 30; pass++) {
+    for (let i = todo.length - 1; i >= 0; i--) {
+      const v = todo[i], p = findView(dwg, v.parent);
+      // parents first (a parent still to be done: wait for it)
+      if (p && todo.includes(p)) continue;
+      todo.splice(i, 1);
+      const ps = (p && shift.get(p.id)) || [0, 0];
+      let d = [...ps];
+      if (v.type === 'projected' && FLIP[v.side] && p && p.sheet === sheetId && before.get(v.id) && before.get(p.id)) {
+        const cv = centre(before.get(v.id)), cp = centre(before.get(p.id));
+        d = [ps[0], ps[1] + (cp[1] - (cv[1] - cp[1])) - cv[1]];
+        v.side = FLIP[v.side];
+      }
+      v.x += d[0]; v.y += d[1];
+      shift.set(v.id, d);
+    }
+  }
+  // the views as a whole stay centred where they were (a view moved over the front can't run off the sheet)
+  let a0 = Infinity, a1 = -Infinity, b0 = Infinity, b1 = -Infinity;
+  for (const v of dwg.views.filter((x) => x.sheet === sheetId)) {
+    const r = before.get(v.id);
+    if (!r) continue;
+    const dy = shift.get(v.id)?.[1] || 0;
+    a0 = Math.min(a0, r.y0); a1 = Math.max(a1, r.y1); b0 = Math.min(b0, r.y0 + dy); b1 = Math.max(b1, r.y1 + dy);
+  }
+  const dy = isFinite(a0) ? (a0 + a1) / 2 - (b0 + b1) / 2 : 0;
+  if (Math.abs(dy) > 1e-6) for (const v of dwg.views.filter((x) => x.sheet === sheetId)) v.y += dy;
+}
+
 // Next free letter for section / detail views.
 export function nextLetter(dwg) {
   const used = new Set(dwg.views.map((v) => v.section?.letter || v.detail?.letter || v.aux?.letter).filter(Boolean));
@@ -234,12 +275,17 @@ const HELV = [278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 3
 const HELV_B = [278, 333, 474, 556, 556, 889, 722, 238, 333, 333, 389, 584, 278, 333, 278, 278, 556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 333, 333, 584, 584, 584, 611, 975, 722, 722, 722, 722, 667, 611, 778, 722, 278, 556, 722, 611, 833, 722, 778, 667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 333, 278, 333, 584, 556, 333, 556, 611, 556, 611, 556, 333, 611, 611, 278, 278, 556, 278, 889, 611, 611, 611, 611, 389, 556, 333, 611, 556, 778, 556, 556, 500, 389, 280, 389, 584];
 const EXTRA_W = { '°': 400, '±': 584, 'Ø': 778, '×': 584, '²': 333, '³': 333, 'µ': 556, '·': 278, '–': 556, '—': 1000 };
 export const CAP = 0.718;
-export function textWidth(s, h, bold = false) {
+// font: a family from fonts.js (text prims' p.font); measured as Helvetica until it is loaded
+export function textWidth(s, h, bold = false, font = null) {
+  const m = fontMetrics(font, bold);
+  if (m) { let w = 0; for (const ch of String(s)) w += m.width(ch); return (w / 1000) * (h / m.cap); }
   const tbl = bold ? HELV_B : HELV;
   let w = 0;
   for (const ch of String(s)) { const c = ch.charCodeAt(0); w += c >= 32 && c <= 126 ? tbl[c - 32] : EXTRA_W[ch] || 556; }
   return (w / 1000) * (h / CAP);
 }
+// The share of the font size a capital letter takes (text is sized by its cap height).
+export const capOf = (font, bold = false) => fontMetrics(font, bold)?.cap || CAP;
 
 // ------------------------------------------------------------ drawing a sheet
 // ctx: { geos: Map(viewId -> geometry), selected: Set of ids, hover: id, models: Map(id -> name) }
@@ -248,7 +294,7 @@ export function sheetPrims(dwg, sheet, ctx) {
   const idx = dwg.sheets.indexOf(sheet);
   P.push(...formatPrims(sheet, {
     props: dwg.props, scaleText: scaleText(sheetScale(dwg, sheet.id)), sheetNo: idx + 1, sheetCount: dwg.sheets.length,
-    projection: sheet.projection, sizeName: sheet.size,
+    projection: sheet.projection, sizeName: sheet.size, format: dwg.format,
   }));
   const views = dwg.views.filter((v) => v.sheet === sheet.id);
   for (const v of views) P.push(...viewPrims(dwg, v, ctx));

@@ -21,6 +21,7 @@ import { DrawingEditor } from './drawingeditor.js';
 import { AssemblyEditor, isAssembly, newAssembly } from './assembly.js';
 import { ExplodeTool, explodeOffsets, offsetMesh, drawExplodeLines, animateExplode, newExplodeId } from './explode.js';
 import { hashText, packResult, unpackResult } from './modelcache.js';
+import { isTemplate, drawingFromTemplate } from './drawtemplates.js';
 import { bodySignature, groupBodies, sameBody } from './bodygroups.js';
 import * as D from './drawing.js';
 
@@ -1373,10 +1374,13 @@ class App {
       partTab = this.tabs[this.tabIndex];
       partDoc = this.doc;
     }
-    const doc = D.newDrawing();
     const names = new Set(this.tabs.filter((t) => t.kind === 'drawing').map((t) => t.drawing.name));
-    if (partDoc) doc.name = partDoc.name;
-    else for (let n = 1; names.has(doc.name); n++) doc.name = 'Drawing' + n;
+    let name = partDoc ? (partTab?.filePath ? M.fileStem(partTab.filePath) : partDoc.name) : 'Drawing1';
+    if (!partDoc) for (let n = 1; names.has(name); n++) name = 'Drawing' + n;
+    // set up the drawing: its template, name, title block and sheet
+    const setup = await this.ui.newDrawingSetup({ name, title: partDoc ? name : '' });
+    if (!setup) { if (fromPart && partTab) this.status('Drawing not made.'); return; }
+    const doc = drawingFromTemplate(setup.template, { name: setup.name, props: setup.props, sheet: setup.sheet });
     const ed = this.openDrawingTab(doc, null);
     if (partDoc) {
       const mid = ed.addModel({ name: partDoc.name, path: partTab.filePath || null, doc: partDoc, tab: partTab });
@@ -3501,6 +3505,16 @@ class App {
         this.openAssemblyTab(doc, file.path || null);
         this.status(`Opened ${file.name}`);
         breadcrumb(`Opened assembly: ${file.path || file.name}`);
+        return true;
+      }
+      if (isTemplate(doc)) {
+        const dwg = drawingFromTemplate(doc, { name: doc.name });
+        dwg.isTemplate = true;
+        dwg.templateDescription = doc.description || '';
+        dwg.props = { ...dwg.props, date: '' };
+        this.openDrawingTab(dwg, file.path || null);
+        this.status(`Editing the drawing template ${file.name}: change its sheets, title block and notes, then Save.`);
+        breadcrumb(`Opened drawing template: ${file.path || file.name}`);
         return true;
       }
       if (D.isDrawing(doc)) {

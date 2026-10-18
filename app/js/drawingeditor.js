@@ -3,7 +3,8 @@
 // annotated (smart dimensions, notes, center marks, centerlines) and exported to PDF.
 // The geometry of each view comes from the kernel (hidden-line projection, see kernel.worker.js).
 import * as D from './drawing.js';
-import { SHEET_SIZES, TITLE_FIELDS, frameRect, titleBlockRect } from './drawingformats.js';
+import { SHEET_SIZES, titleFields, frameRect, titleBlockRect, formatFonts } from './drawingformats.js';
+import { hasDrawingFont, loadDrawingFont, fontMetrics } from './fonts.js';
 import { buildPDF } from './pdf.js';
 import { icon } from './icons.js';
 import { platform } from './platform.js';
@@ -11,6 +12,7 @@ import { materialById } from './model.js';
 import { buildDXF } from './dxf.js';
 import { cutListRows } from './weldments.js';
 import { bodyMaterialId, docJSON, stripThumbnail, fileStem, isDefaultName } from './model.js';
+import { TEMPLATE_EXT, templateFromDrawing, applyTemplate } from './drawtemplates.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -58,7 +60,10 @@ export class DrawingEditor {
   }
 
   get sheet() { return D.sheetOf(this.doc, this.sheetId); }
-  get name() { return this.filePath ? fileStem(this.filePath) : this.doc.name; }
+  get name() { return this.filePath ? fileStem(this.filePath).replace(/\.rdrt$/i, '') : this.doc.name; }
+  // (a template opened to be changed is edited like a drawing and saved back as the template)
+  get kindLabel() { return this.doc.isTemplate ? 'Drawing Template' : 'Drawing'; }
+  get tabIcon() { return this.doc.isTemplate ? 'titleBlock' : 'drawing'; }
 
   // ------------------------------------------------------------ showing / hiding
   attach() {
@@ -348,7 +353,18 @@ export class DrawingEditor {
     this._raf = requestAnimationFrame(() => { this._raf = null; this.draw(); });
   }
 
+  // The fonts the sheet format's text is set in, read from the PC once; the sheet is drawn again when
+  // they arrive (until then its text shows in Helvetica).
+  loadFonts() {
+    const missing = formatFonts(this.doc.format).filter(([f, b]) => !hasDrawingFont(f, b));
+    if (!missing.length) return Promise.resolve();
+    this._fontLoad ??= Promise.all(missing.map(([f, b]) => loadDrawingFont(f, b, (file) => platform.fontData(file))))
+      .then(() => { this._fontLoad = null; if (this.app.drawing === this) this.render(); });
+    return this._fontLoad;
+  }
+
   draw() {
+    this.loadFonts();
     const svg = $('#dw-svg');
     if (!this.cam) this.fit();
     const [pw, ph] = this.paneSize();
@@ -677,7 +693,7 @@ export class DrawingEditor {
 
   // Choose the sheet scale so the part's standard views fit the sheet.
   autoScale(box, room = 2.3) {
-    const f = frameRect(this.sheet), tb = titleBlockRect(this.sheet);
+    const f = frameRect(this.sheet, this.doc.format), tb = titleBlockRect(this.sheet, this.doc.format);
     const w = box.max[0] - box.min[0], h = box.max[1] - box.min[1];
     const d = Math.max(w, h);
     const availW = (f.x1 - f.x0) * 0.8, availH = (f.y1 - f.y0 - (tb.y1 - tb.y0)) * 0.85;
@@ -1250,7 +1266,7 @@ export class DrawingEditor {
     const v = [...this.selected].map((id) => D.findView(this.doc, id)).find(Boolean);
     const mid = v?.model || this.doc.models[0]?.id;
     if (!mid) { this.app.toast('Add a view of the part first', true); return; }
-    const f = frameRect(this.sheet);
+    const f = frameRect(this.sheet, this.doc.format);
     this.doc.anns.push({ id: D.newId(this.doc, 'a'), type: 'cutlist', sheet: this.sheetId, model: mid, pos: [f.x0 + 8, f.y0 + 12] });
     this.changed();
     this.updateCutLists();
@@ -1268,7 +1284,7 @@ export class DrawingEditor {
     this.doc.revisions = out.split('\n').map((l) => l.split('|').map((x) => x.trim())).filter((c) => c.some(Boolean)).map(([rev, desc, date, by]) => ({ rev: rev || '', desc: desc || '', date: date || '', by: by || '' }));
     if (this.doc.revisions.length) this.doc.props.revision = this.doc.revisions[this.doc.revisions.length - 1].rev;
     if (!this.doc.anns.some((a) => a.type === 'revtable' && a.sheet === this.sheetId) && this.doc.revisions.length) {
-      const f = frameRect(this.sheet);
+      const f = frameRect(this.sheet, this.doc.format);
       this.doc.anns.push({ id: D.newId(this.doc, 'a'), type: 'revtable', sheet: this.sheetId, pos: [f.x1 - 128, f.y0] });
     }
     this.changed();
@@ -1401,7 +1417,7 @@ export class DrawingEditor {
     this.doc.views.pop();
     if (!g) { this.app.toast('The part could not be drawn', true); return; }
     const W = (b) => (b ? b.max[0] - b.min[0] : 0), H = (b) => (b ? b.max[1] - b.min[1] : 0);
-    const f = frameRect(sheet), tb = titleBlockRect(sheet);
+    const f = frameRect(sheet, this.doc.format), tb = titleBlockRect(sheet, this.doc.format);
     const gap = 22;
     const availW = f.x1 - f.x0 - 3 * gap, availH = f.y1 - f.y0 - (tb.y1 - tb.y0) - 3 * gap;
     if (!this.doc.views.some((v) => v.sheet === sheet.id)) {
@@ -1578,7 +1594,9 @@ export class DrawingEditor {
         label: 'OK', primary: true, action: () => {
           const a = +q('.s-s1').value, b = +q('.s-s2').value;
           if (!(a > 0 && b > 0)) { this.app.toast('Enter a scale like 1 : 2', true); return false; }
+          const before = new Map(this.doc.views.map((v) => [v.id, D.viewRect(this.doc, v, this.geos)])), oldProj = s.projection;
           s.name = q('.s-name').value.trim() || s.name; s.size = q('.s-size').value; s.orientation = q('.s-or').value; s.scale = [a, b]; s.projection = q('.s-proj').value;
+          if (s.projection !== oldProj) D.flipProjectedViews(this.doc, s.id, before);
           this.changed(); this.renderSheetTabs(); this.fit();
         },
       },
@@ -1589,7 +1607,7 @@ export class DrawingEditor {
   propsDialog() {
     const p = this.doc.props;
     const box = el('div', { class: 'dw-form' });
-    box.innerHTML = `<div class="kv">${TITLE_FIELDS.map(([k, l]) => `<div class="k">${esc(l)}</div><div><input type="text" data-k="${k}"></div>`).join('')}
+    box.innerHTML = `<div class="kv">${titleFields(this.doc.format).map(([k, l]) => `<div class="k">${esc(l)}</div><div><input type="text" data-k="${k}"></div>`).join('')}
       <div class="k">Drawing name</div><div><input type="text" data-k="__name"></div>
       <div class="k">Text height</div><div><input type="number" data-k="__textH" min="1" max="10" step="0.5"></div>
       <div class="k">Decimals</div><div><input type="number" data-k="__dec" min="0" max="6" step="1"></div></div>
@@ -1619,6 +1637,7 @@ export class DrawingEditor {
   safeName() { return this.doc.name.replace(/[^\w\- ]+/g, '_') || 'Drawing'; }
   async save(saveAs = false) {
     if (this.tool) this.cancelTool();
+    if (this.doc.isTemplate) return this.saveTemplate(saveAs);
     try {
       let thumb = null;
       try { thumb = await this.thumbnail(); } catch { /* saved without a preview */ }
@@ -1643,6 +1662,7 @@ export class DrawingEditor {
   async thumbnail(max = 400) {
     const sheet = this.sheet;
     if (!sheet) return null;
+    await this.loadFonts();
     const [W, H] = D.paperSize(sheet);
     const k = max / Math.max(W, H);
     const w = Math.max(1, Math.round(W * k)), h = Math.max(1, Math.round(H * k));
@@ -1660,10 +1680,62 @@ export class DrawingEditor {
     return cv.toDataURL('image/png');
   }
 
+  // File ▸ Save as Template…: this drawing's set-up (sheets, settings, title block entries that are not
+  // about one part, free notes) as a template file, listed in the New Drawing dialog from then on.
+  async saveAsTemplate() {
+    if (this.tool) this.cancelTool();
+    const name = await this.app.ui.promptText('Save as Template', 'titleBlock', 'Template name (shown in the New Drawing dialog)', this.doc.isTemplate ? this.doc.name : `${this.name} template`);
+    if (!name?.trim()) return false;
+    const tpl = templateFromDrawing(this.doc, name.trim());
+    let thumb = null;
+    try { thumb = await this.thumbnail(); } catch { /* saved without a preview */ }
+    try {
+      const path = await platform.saveText(`${name.trim().replace(/[^\w\- ]+/g, '_')}${TEMPLATE_EXT}`, docJSON(tpl, thumb, 1), null, null, 'template');
+      if (!path) return false;
+      this.app.status(`Template saved: ${String(path).split(/[\\/]/).pop()} — choose it in File ▸ New Drawing.`);
+      return true;
+    } catch (err) { this.app.toast('Could not save the template: ' + err.message, true); return false; }
+  }
+
+  // File ▸ Change Template…: switch this drawing to another template (its sheet format, sheet set-up,
+  // settings and notes); views, dimensions and title block entries stay. Undoable.
+  async changeTemplate() {
+    if (this.tool) this.cancelTool(false);
+    const setup = await this.app.ui.newDrawingSetup({ change: { key: this.doc.template?.key || null } });
+    if (!setup) return false;
+    // (projected views change sides when the projection changes)
+    const before = new Map(this.doc.views.map((v) => [v.id, D.viewRect(this.doc, v, this.geos)]));
+    const proj = new Map(this.doc.sheets.map((s) => [s.id, s.projection]));
+    applyTemplate(this.doc, setup.template, setup.sheet);
+    for (const s of this.doc.sheets) if (s.projection !== proj.get(s.id)) D.flipProjectedViews(this.doc, s.id, before);
+    this.changed();
+    this.renderSheetTabs();
+    this.fit();
+    this.app.status(`Template changed to ${setup.template.name}. Edit ▸ Undo goes back.`);
+    return true;
+  }
+
+  // A template being edited: saved back to its file as a template.
+  async saveTemplate(saveAs = false) {
+    const tpl = templateFromDrawing(this.doc, this.doc.name, this.doc.templateDescription);
+    let thumb = null;
+    try { thumb = await this.thumbnail(); } catch { /* saved without a preview */ }
+    try {
+      const path = await platform.saveText(`${this.safeName()}${TEMPLATE_EXT}`, docJSON(tpl, thumb, 1), saveAs ? null : this.filePath, this.filePath, 'template');
+      if (!path) return false;
+      if (platform.desktop) this.filePath = path;
+      this.dirty = false;
+      this.app.updateTitle();
+      this.app.status('Template saved ' + String(path).split(/[\\/]/).pop());
+      return true;
+    } catch (err) { this.app.toast('Save failed: ' + err.message, true); return false; }
+  }
+
   async exportPDF() {
     if (this.tool) this.cancelTool();
-    // every view needs its lines first
+    // every view needs its lines first, and the text its fonts
     await this.updateGeometry();
+    await this.loadFonts();
     const missing = this.doc.views.filter((v) => v.type !== 'detail' && !this.geos.get(v.id));
     if (missing.length) { this.app.toast('Some views could not be drawn; the PDF leaves them out', true); }
     const pages = this.doc.sheets.map((s) => ({ size: D.paperSize(s), prims: D.sheetPrims(this.doc, s, { geos: this.geos, selected: new Set(), hover: null, errors: new Map(), cutLists: this.cutLists }) }));
@@ -1693,7 +1765,7 @@ export class DrawingEditor {
       root.appendChild(n);
       return n;
     };
-    node('drawing', this.doc.name, { cls: 'root', oncontext: (e) => this.app.ui.showContext(e.clientX, e.clientY, [{ label: 'Drawing Properties (Title Block)…', icon: 'titleBlock', action: () => this.propsDialog() }]) });
+    node('drawing', this.doc.name, { cls: 'root', oncontext: (e) => this.app.ui.showContext(e.clientX, e.clientY, [{ label: 'Drawing Properties (Title Block)…', icon: 'titleBlock', action: () => this.propsDialog() }, { label: 'Change Template…', icon: 'titleBlock', action: () => this.changeTemplate() }]) });
     for (const m of this.doc.models) node('part', m.name + (m.path ? '' : ' (copy kept in the drawing)'), { depth: 1, cls: 'dim' });
     for (const s of this.doc.sheets) {
       node('sheet', s.name + (s.id === this.sheetId ? '' : ''), { depth: 1, selected: s.id === this.sheetId, onclick: () => { this.sheetId = s.id; this.renderAll(); this.fit(); }, oncontext: (e) => this.app.ui.showContext(e.clientX, e.clientY, [{ label: 'Sheet Properties…', icon: 'sheetProps', action: () => { this.sheetId = s.id; this.renderAll(); this.sheetPropsDialog(); } }, { label: 'Delete Sheet', icon: 'trash', disabled: this.doc.sheets.length < 2, action: () => this.deleteSheet(s.id) }]) });
@@ -1939,6 +2011,7 @@ export class DrawingEditor {
       sheet: [
         { icon: 'sheetProps', label: 'Sheet Properties', action: () => this.sheetPropsDialog() },
         { icon: 'titleBlock', label: 'Title Block', action: () => this.propsDialog() },
+        { icon: 'titleBlock', label: 'Change Template', action: () => this.changeTemplate() },
         { icon: 'addSheet', label: 'Add Sheet', action: () => this.addSheet() },
         'sep',
         { icon: 'pdf', label: 'Export PDF', action: () => this.exportPDF() },
@@ -1978,6 +2051,8 @@ export class DrawingEditor {
         'sep',
         { label: 'Save', icon: 'save', key: 'Ctrl+S', action: () => a.saveFile() },
         { label: 'Save As…', icon: 'save', key: 'Ctrl+Shift+S', action: () => a.saveFile(true) },
+        { label: 'Save as Template…', icon: 'titleBlock', action: () => this.saveAsTemplate() },
+        { label: 'Change Template…', icon: 'titleBlock', action: () => this.changeTemplate() },
         'sep',
         { label: 'Export ▸ PDF…', icon: 'pdf', action: () => this.exportPDF() },
         { label: 'Export ▸ DXF (this sheet)…', icon: 'dxf', action: () => this.exportDXF() },
@@ -2067,7 +2142,7 @@ function primDist(p, P) {
   if (p.t === 'poly') { let d = Infinity; for (let i = 0; i < p.pts.length - 1; i++) d = Math.min(d, D.distToSeg(P, p.pts[i], p.pts[i + 1])); if (p.fill && p.closed) d = Math.min(d, insidePoly(P, p.pts) ? 0 : d); return d; }
   if (p.t === 'circle') return Math.abs(len2(sub2(P, p.c)) - p.r);
   if (p.t === 'text') {
-    const w = D.textWidth(p.text, p.h, p.bold);
+    const w = D.textWidth(p.text, p.h, p.bold, p.font);
     const rad = ((p.rot || 0) * Math.PI) / 180;
     // the text's box in its own frame (x along the baseline, y up)
     const d = sub2(P, p.p);
@@ -2107,13 +2182,16 @@ function svgOf(prims, k, ids) {
       const fill = p.fill ? (p.fill === true ? col : p.fill) : 'none';
       out += `<circle cx="${fmtn(p.c[0])}" cy="${fmtn(p.c[1])}" r="${fmtn(p.r)}" fill="${fill}" stroke="${col}" stroke-width="${sw}"${dash}/>`;
     } else if (p.t === 'text') {
-      const size = p.h / D.CAP;
-      let w = D.textWidth(p.text, p.h, p.bold);
+      const size = p.h / D.capOf(p.font, p.bold);
+      let w = D.textWidth(p.text, p.h, p.bold, p.font);
+      const family = p.font && fontMetrics(p.font, p.bold) ? `'${p.font}', Helvetica, Arial, sans-serif` : 'Helvetica, Arial, sans-serif';
       let fitAttr = '';
       if (p.fit && w > p.fit) { fitAttr = ` textLength="${fmtn(p.fit)}" lengthAdjust="spacingAndGlyphs"`; w = p.fit; }
       const dx = p.anchor === 'middle' ? -w / 2 : p.anchor === 'end' ? -w : 0;
       const dy = p.base === 'middle' ? p.h / 2 : p.base === 'top' ? p.h : 0;
-      out += `<text transform="translate(${fmtn(p.p[0])} ${fmtn(p.p[1])}) rotate(${fmtn(-(p.rot || 0))})" x="${fmtn(dx)}" y="${fmtn(dy)}" font-family="Helvetica, Arial, sans-serif" font-size="${fmtn(size)}"${p.bold ? ' font-weight="bold"' : ''} fill="${col}"${fitAttr} style="white-space:pre">${esc(p.text)}</text>`;
+      out += `<text transform="translate(${fmtn(p.p[0])} ${fmtn(p.p[1])}) rotate(${fmtn(-(p.rot || 0))})" x="${fmtn(dx)}" y="${fmtn(dy)}" font-family="${family}" font-size="${fmtn(size)}"${p.bold ? ' font-weight="bold"' : ''} fill="${col}"${fitAttr} style="white-space:pre">${esc(p.text)}</text>`;
+    } else if (p.t === 'image') {
+      out += `<image href="${esc(p.src)}" x="${fmtn(p.x)}" y="${fmtn(p.y)}" width="${fmtn(p.w)}" height="${fmtn(p.h)}" preserveAspectRatio="none"/>`;
     } else if (p.t === 'hatch') {
       const id = `dwh${ids.n++}`;
       const d = p.loops.map((l) => 'M' + l.map((q) => `${fmtn(q[0])},${fmtn(q[1])}`).join('L') + 'Z').join(' ');

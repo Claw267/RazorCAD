@@ -9,6 +9,8 @@ import { S3_TOOLS, S3_KEYS } from './sketch3d.js';
 import { RELATION_INFO, analyzeSketch } from './solver.js';
 import * as SM from './sketchmodel.js';
 import { axisCandidates, PATTERN_SKIP, fileStem } from './model.js';
+import { BUILTIN_TEMPLATES, DEFAULT_TEMPLATE_ID, templateSummary, isTemplate } from './drawtemplates.js';
+import { SHEET_SIZES as DW_SIZES } from './drawingformats.js';
 import { inferPlaneType, planeRefs, PLANE_TYPES } from './refgeom.js';
 import * as G from './geometry.js';
 import { platform } from './platform.js';
@@ -3934,7 +3936,7 @@ export class UI {
     };
     big('newdoc', 'New Part', 'Start an empty part', () => a.newDocument(), 'primary');
     big('assembly', 'New Assembly', 'Parts put together and held by mates', () => a.newAssembly());
-    big('drawing', 'New Drawing', 'A 2D drawing of a part (A3, ISO title block)', () => a.newDrawing());
+    big('drawing', 'New Drawing', 'A 2D drawing of a part, from a template', () => a.newDrawing());
     big('open', 'Open…', 'Open a part or drawing file', () => a.openFile());
     big('part', 'Sample Part', 'A mounting plate to explore', () => a.openSample());
     if (info.legacy) {
@@ -4625,8 +4627,168 @@ export class UI {
     this.modal('Open Files With RazorCAD', 'open', body(), buttons);
   }
 
+  // ------------------------------------------------------------ New Drawing: set it up from a template
+  // The standard templates and the user's own (Documents\RazorCAD\Templates, or browsed for), the drawing's
+  // name, title block entries and first sheet (filled from the template, can be changed), and whether the
+  // template becomes the default (chosen first next time). Resolves { template, name, props, sheet } or null.
+  // change: { key, sheet } switches an existing drawing's template instead (its current template is
+  // chosen first; only the sheet size, orientation and projection are asked): resolves { template, sheet }.
+  async newDrawingSetup({ name = 'Drawing1', title = '', change = null } = {}) {
+    const a = this.app;
+    const prefs = (await platform.getPrefs().catch(() => ({}))) || {};
+    const extra = Array.isArray(prefs.templatePaths) ? prefs.templatePaths : [];
+    let mine = [], folder = null;
+    try { const r = await platform.listTemplates(extra); mine = r?.templates || []; folder = r?.folder || null; } catch { /* none */ }
+    // a user template's full content is read when it is chosen
+    const loaded = new Map();
+    const load = async (t) => {
+      if (t.builtin) return t;
+      if (loaded.has(t.path)) return loaded.get(t.path);
+      const f = await platform.readTemplate(t.path);
+      let doc = null;
+      try { doc = f ? JSON.parse(f.content) : null; } catch { doc = null; }
+      if (!isTemplate(doc)) throw new Error('That file is not a drawing template');
+      doc.path = t.path;
+      loaded.set(t.path, doc);
+      return doc;
+    };
+    const keyOf = (t) => (t.builtin ? t.id : t.path);
+    // a drawing's own template that isn't listed (browsed for elsewhere): listed while it is still there
+    if (change?.key && !String(change.key).startsWith('builtin:') && !mine.some((t) => t.path === change.key)) {
+      try {
+        const f = await platform.readTemplate(change.key);
+        const doc = f ? JSON.parse(f.content) : null;
+        if (isTemplate(doc)) mine.push({ path: change.key, name: doc.name, description: doc.description, sheets: doc.sheets, thumb: doc.thumbnail });
+      } catch { /* gone */ }
+    }
+    let current = null, chosenKey = change?.key || prefs.defaultDrawingTemplate || DEFAULT_TEMPLATE_ID;
+    if (![...BUILTIN_TEMPLATES, ...mine].some((t) => keyOf(t) === chosenKey)) chosenKey = prefs.defaultDrawingTemplate || DEFAULT_TEMPLATE_ID;
+    if (![...BUILTIN_TEMPLATES, ...mine].some((t) => keyOf(t) === chosenKey)) chosenKey = DEFAULT_TEMPLATE_ID;
+
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (v) => { if (!done) { done = true; resolve(v); } };
+      const wrap = el('div', { class: 'nd' });
+      const list = el('div', { class: 'nd-list' });
+      const form = el('div', { class: 'nd-form' });
+      wrap.append(list, form);
+      form.innerHTML = `<div class="nd-tname"></div><div class="pm-hint nd-tdesc"></div>
+        <div class="kv">
+          <div class="k">Drawing name</div><div><input type="text" class="nd-name"></div>
+          <div class="k">Title</div><div><input type="text" class="nd-title"></div>
+          <div class="k">Drawing No.</div><div><input type="text" class="nd-number"></div>
+          <div class="k">Drawn by</div><div><input type="text" class="nd-drawn"></div>
+          <div class="k">Company</div><div><input type="text" class="nd-company"></div>
+          <div class="k">Sheet size</div><div><select class="nd-size">${Object.keys(DW_SIZES).map((k) => `<option value="${k}">${k} (${DW_SIZES[k][0]} × ${DW_SIZES[k][1]} mm)</option>`).join('')}</select></div>
+          <div class="k">Orientation</div><div><select class="nd-or"><option value="landscape">Landscape</option><option value="portrait">Portrait</option></select></div>
+          <div class="k">Scale</div><div class="s-scale-row"><input type="number" class="nd-s1" min="0.001" step="any"> : <input type="number" class="nd-s2" min="0.001" step="any"></div>
+          <div class="k">Projection</div><div><select class="nd-proj"><option value="first">First angle (ISO / Europe)</option><option value="third">Third angle (ANSI / USA)</option></select></div>
+        </div>
+        <label class="nd-def"><input type="checkbox" class="nd-default"> Use this template as my default</label>
+        ${change ? '<div class="pm-hint">The drawing keeps its views, dimensions and title block entries. The template brings its sheet format, sheet size and projection (on every sheet), drawing settings and notes.</div>' : ''}`;
+      const q = (c) => form.querySelector(c);
+      // switching templates: only the sheet is asked
+      if (change) {
+        for (const c of ['.nd-name', '.nd-title', '.nd-number', '.nd-drawn', '.nd-company', '.nd-s1']) {
+          const v = q(c).closest('div'), k = v.previousElementSibling;
+          v.style.display = 'none'; if (k?.classList.contains('k')) k.style.display = 'none';
+        }
+        q('.nd-def').style.display = 'none';
+      }
+      q('.nd-name').value = name;
+      q('.nd-title').value = title;
+      const fill = (t) => {
+        const s = t.sheets?.[0] || {};
+        q('.nd-tname').textContent = t.name;
+        q('.nd-tdesc').textContent = t.builtin ? templateSummary(t) : [t.description, templateSummary(t)].filter(Boolean).join(' — ');
+        q('.nd-size').value = DW_SIZES[s.size] ? s.size : 'A3';
+        q('.nd-or').value = s.orientation === 'portrait' ? 'portrait' : 'landscape';
+        q('.nd-s1').value = s.scale?.[0] ?? 1;
+        q('.nd-s2').value = s.scale?.[1] ?? 1;
+        q('.nd-proj').value = s.projection === 'third' ? 'third' : 'first';
+        // the template's standing entries (what was typed stays when the template has none)
+        if (t.props?.drawnBy || !q('.nd-drawn').dataset.typed) q('.nd-drawn').value = t.props?.drawnBy || '';
+        if (t.props?.company || !q('.nd-company').dataset.typed) q('.nd-company').value = t.props?.company || '';
+        q('.nd-default').checked = keyOf(t) === (prefs.defaultDrawingTemplate || DEFAULT_TEMPLATE_ID);
+      };
+      for (const c of ['.nd-drawn', '.nd-company']) q(c).addEventListener('input', () => { q(c).dataset.typed = '1'; });
+      const choose = async (t) => {
+        try { current = await load(t); } catch (err) { a.toast(err.message, true); return; }
+        chosenKey = keyOf(t);
+        fill(current);
+        list.querySelectorAll('.nd-item').forEach((n) => n.classList.toggle('active', n.dataset.key === chosenKey));
+      };
+      const item = (t) => {
+        const isDefault = keyOf(t) === (prefs.defaultDrawingTemplate || DEFAULT_TEMPLATE_ID);
+        const n = el('div', { class: 'nd-item', 'data-key': keyOf(t), title: t.path || t.description || '' },
+          `${t.thumb ? `<img class="nd-thumb" src="${esc(t.thumb)}" alt="">` : `<span class="nd-thumb nd-noth">${icon(t.builtin ? 'sheetProps' : 'titleBlock')}</span>`}<span class="nd-t"><b>${esc(t.name)}${isDefault ? ' <span class="nd-badge">default</span>' : ''}</b><small>${esc(templateSummary(t))}</small></span>`);
+        n.onclick = () => choose(t);
+        n.ondblclick = () => { choose(t).then(() => create()); };
+        return n;
+      };
+      const render = () => {
+        list.innerHTML = '';
+        list.appendChild(el('div', { class: 'bp-sec' }, 'My templates'));
+        if (mine.length) for (const t of mine) list.appendChild(item(t));
+        else list.appendChild(el('div', { class: 'pm-hint nd-empty' }, 'None yet. Set a drawing up the way you like it (sheet, title block, notes), then File ▸ Save as Template… adds it here.'));
+        const row = el('div', { class: 'nd-row' });
+        const browse = el('button', { class: 'pm-btn' }, 'Browse…');
+        browse.onclick = async () => {
+          const f = await platform.pickTemplate().catch(() => null);
+          if (!f) return;
+          let doc = null;
+          try { doc = JSON.parse(f.content); } catch { doc = null; }
+          if (!isTemplate(doc)) { a.toast('That file is not a drawing template (.rdrt)', true); return; }
+          const t = { path: f.path || `browsed:${Date.now()}`, name: doc.name, description: doc.description, sheets: doc.sheets, thumb: doc.thumbnail };
+          if (!mine.some((m) => m.path === t.path)) mine.push(t);
+          loaded.set(t.path, { ...doc, path: t.path });
+          if (f.path && !extra.includes(f.path)) { extra.push(f.path); platform.setPrefs({ ...prefs, templatePaths: extra }).catch(() => {}); prefs.templatePaths = extra; }
+          render();
+          choose(t);
+        };
+        row.appendChild(browse);
+        if (folder) { const of = el('button', { class: 'pm-btn', title: folder }, 'Open Templates Folder'); of.onclick = () => platform.openTemplatesFolder(); row.appendChild(of); }
+        list.appendChild(row);
+        list.appendChild(el('div', { class: 'bp-sec' }, 'Standard templates'));
+        for (const t of BUILTIN_TEMPLATES) list.appendChild(item(t));
+        list.querySelectorAll('.nd-item').forEach((n) => n.classList.toggle('active', n.dataset.key === chosenKey));
+      };
+      const create = () => {
+        if (!current) return false;
+        if (change) {
+          finish({ template: current, sheet: { size: q('.nd-size').value, orientation: q('.nd-or').value, projection: q('.nd-proj').value } });
+          dlg.close();
+          return true;
+        }
+        const s1 = +q('.nd-s1').value, s2 = +q('.nd-s2').value;
+        if (!(s1 > 0 && s2 > 0)) { a.toast('Enter a scale like 1 : 2', true); return false; }
+        const props = {};
+        if (q('.nd-title').value.trim()) props.title = q('.nd-title').value.trim();
+        if (q('.nd-number').value.trim()) props.number = q('.nd-number').value.trim();
+        props.drawnBy = q('.nd-drawn').value.trim();
+        props.company = q('.nd-company').value.trim();
+        if (q('.nd-default').checked && prefs.defaultDrawingTemplate !== chosenKey) platform.setPrefs({ ...prefs, defaultDrawingTemplate: chosenKey }).catch(() => {});
+        else if (!q('.nd-default').checked && prefs.defaultDrawingTemplate === chosenKey) { const p2 = { ...prefs }; delete p2.defaultDrawingTemplate; platform.setPrefs(p2).catch(() => {}); }
+        finish({ template: current, name: q('.nd-name').value.trim() || name, props, sheet: { size: q('.nd-size').value, orientation: q('.nd-or').value, scale: [s1, s2], projection: q('.nd-proj').value } });
+        dlg.close();
+        return true;
+      };
+      const dlg = this.modal(change ? 'Change Template' : 'New Drawing', change ? 'titleBlock' : 'drawing', wrap, [
+        { label: 'Cancel', action: () => finish(null) },
+        { label: change ? 'Apply Template' : 'Create Drawing', primary: true, action: () => { create(); return false; } },
+      ]);
+      dlg.body.parentElement.classList.add('modal-wide');
+      const obs = new MutationObserver(() => { if (!document.contains(dlg.body)) { obs.disconnect(); finish(null); } });
+      obs.observe(document.getElementById('modal-root'), { childList: true });
+      render();
+      const first = [...BUILTIN_TEMPLATES, ...mine].find((t) => keyOf(t) === chosenKey) || BUILTIN_TEMPLATES[2];
+      choose(first);
+    });
+  }
+
   showAbout() {
     this.modal('About RazorCAD', 'part', `
+      <img class="about-mark" src="razorcad.svg" alt="">
       <p style="margin-top:0"><b>RazorCAD</b> — a parametric 3D part, assembly and drawing modeler.</p>
       <p>History-based features, sketches with relations and equations, sheet metal, assemblies and 2D drawings, with STEP, STL and DXF import and export.</p>
       <p>RazorCAD is free software under the GNU General Public License v3.0 or later and comes with no warranty. Source code, the license and bug reports: github.com/Labs9119/RazorCAD</p>

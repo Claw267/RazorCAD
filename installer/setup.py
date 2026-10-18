@@ -39,7 +39,8 @@ CREATE_NO_WINDOW = 0x08000000
 # RazorCAD's file types (the same as razorcad.py's FILE_TYPES)
 FILE_TYPES = (('.rcad', 'RazorCAD.Part', 'RazorCAD Part'),
               ('.rasm', 'RazorCAD.Assembly', 'RazorCAD Assembly'),
-              ('.rdrw', 'RazorCAD.Drawing', 'RazorCAD Drawing'))
+              ('.rdrw', 'RazorCAD.Drawing', 'RazorCAD Drawing'),
+              ('.rdrt', 'RazorCAD.DrawingTemplate', 'RazorCAD Drawing Template'))
 # Explorer previews of those files (shell/RazorCADThumbs.cs, the same as razorcad.py's)
 THUMB_CLSID = '{4F6B9D2E-7C1A-4E58-9B3D-2A61C0E5F7A1}'
 THUMB_SHELLEX = '{e357fccd-a995-4576-b01f-234630154e96}'

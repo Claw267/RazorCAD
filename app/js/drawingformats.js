@@ -21,8 +21,21 @@ export function paperSize(sheet) {
   return land ? [Math.max(a, b), Math.min(a, b)] : [Math.min(a, b), Math.max(a, b)];
 }
 
+// A drawing's own sheet format (a company border and title block, brought in by its template):
+// { name, size, orientation, font, frame: {x0,y0,x1,y1}, titleBlock: {x0,y0,x1,y1}, fields: [[key, label]…],
+//   prims: [display primitives in sheet mm; text may show {title}, {number}… (the drawing's properties)
+//   and {scale}, {size}, {sheet}, {sheets}; { t: 'projection', c } is the projection symbol] }.
+// font: the family (fonts.js) its text is set in, unless a text names its own.
+// It is used on the sheets of its size and orientation; other sheets get the standard format.
+export function sheetFormat(sheet, fmt) {
+  if (!fmt || !Array.isArray(fmt.prims) || fmt.size !== sheet.size) return null;
+  return (fmt.orientation === 'portrait') === (sheet.orientation === 'portrait') ? fmt : null;
+}
+
 // The frame (ISO 5457): 20 mm filing margin on the left, 10 mm on the other sides.
-export function frameRect(sheet) {
+export function frameRect(sheet, fmt) {
+  const cf = sheetFormat(sheet, fmt);
+  if (cf?.frame) return { ...cf.frame };
   const [W, H] = paperSize(sheet);
   return { x0: 20, y0: 10, x1: W - 10, y1: H - 10 };
 }
@@ -37,13 +50,45 @@ export const TITLE_FIELDS = [
 const TB_W = 180, TB_H = 44;
 
 // The title block's rectangle (bottom right, inside the frame).
-export function titleBlockRect(sheet) {
+export function titleBlockRect(sheet, fmt) {
+  const cf = sheetFormat(sheet, fmt);
+  if (cf?.titleBlock) return { ...cf.titleBlock };
   const f = frameRect(sheet);
   return { x0: f.x1 - TB_W, y0: f.y1 - TB_H, x1: f.x1, y1: f.y1 };
 }
 
-// Display list of the sheet format. info: { props, scaleText, sheetNo, sheetCount, projection, sizeName }
+// The fonts a drawing's text needs: [[family, bold]…] (from its sheet format).
+export function formatFonts(fmt) {
+  const out = new Map();
+  for (const q of fmt?.prims || []) if (q.t === 'text' && (q.font || fmt.font)) out.set(`${q.font || fmt.font}|${q.bold ? 1 : 0}`, [q.font || fmt.font, !!q.bold]);
+  return [...out.values()];
+}
+
+// The title block fields shown in the Drawing Properties dialog: the format's own, else the standard ones.
+export function titleFields(fmt) {
+  return Array.isArray(fmt?.fields) && fmt.fields.length ? fmt.fields : TITLE_FIELDS;
+}
+
+// A drawing's own format drawn on a sheet: its primitives with the fields filled in.
+function customFormatPrims(sheet, fmt, info) {
+  const [W, H] = paperSize(sheet);
+  const vals = { ...(info.props || {}), scale: info.scaleText, size: info.sizeName, sheet: info.sheetNo, sheets: info.sheetCount };
+  const P = [{ t: 'poly', pts: [[0, 0], [W, 0], [W, H], [0, H]], closed: true, w: 0.1, color: '#9aa3ad', paper: true }];
+  for (const q of fmt.prims) {
+    if (q.t === 'text') {
+      const s = String(q.text ?? '').replace(/\{(\w+)\}/g, (_, k) => vals[k] ?? '');
+      const font = q.font || fmt.font;
+      if (s.trim()) P.push({ ...q, text: s, ...(font ? { font } : {}) });
+    } else if (q.t === 'projection') P.push(...projectionSymbol(q.c, info.projection));
+    else P.push({ ...q });
+  }
+  return P;
+}
+
+// Display list of the sheet format. info: { props, scaleText, sheetNo, sheetCount, projection, sizeName, format }
 export function formatPrims(sheet, info) {
+  const cf = sheetFormat(sheet, info.format);
+  if (cf) return customFormatPrims(sheet, cf, info);
   const P = [];
   const line = (a, b, w = LW.thin) => P.push({ t: 'line', a, b, w });
   const text = (p, s, h, o = {}) => { if (s !== undefined && s !== null && String(s) !== '') P.push({ t: 'text', p, text: String(s), h, ...o }); };

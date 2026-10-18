@@ -34,7 +34,9 @@ APP_NAME = 'RazorCAD'
 # RazorCAD's own file extensions (JSON inside), so Windows can open them with RazorCAD.
 FILE_TYPES = (('.rcad', 'RazorCAD.Part', 'RazorCAD Part'),
               ('.rasm', 'RazorCAD.Assembly', 'RazorCAD Assembly'),
-              ('.rdrw', 'RazorCAD.Drawing', 'RazorCAD Drawing'))
+              ('.rdrw', 'RazorCAD.Drawing', 'RazorCAD Drawing'),
+              ('.rdrt', 'RazorCAD.DrawingTemplate', 'RazorCAD Drawing Template'))
+TEMPLATE_TYPES = ('RazorCAD Drawing Template (*.rdrt)', 'All files (*.*)')
 OWN_EXTS = tuple(t[0] for t in FILE_TYPES)
 PART_TYPES = ('RazorCAD Part (*.rcad)', 'All files (*.*)')
 DRAWING_TYPES = ('RazorCAD Drawing (*.rdrw)', 'All files (*.*)')
@@ -48,9 +50,35 @@ OBJ_TYPES = ('OBJ Mesh (*.obj)', 'All files (*.*)')
 THREEMF_TYPES = ('3MF Model (*.3mf)', 'All files (*.*)')
 DXF_OPEN_TYPES = ('DXF Drawing (*.dxf)', 'All files (*.*)')
 # (pywebview only accepts letters, digits and spaces in a filter's description: no commas or dashes)
-OPEN_TYPES = ('All supported files (*.rcad;*.rasm;*.rdrw;*.step;*.stp;*.stl;*.obj;*.3mf)',
+OPEN_TYPES = ('All supported files (*.rcad;*.rasm;*.rdrw;*.rdrt;*.step;*.stp;*.stl;*.obj;*.3mf)',
               'RazorCAD Part (*.rcad)', 'RazorCAD Assembly (*.rasm)',
-              'RazorCAD Drawing (*.rdrw)', 'STEP STL OBJ or 3MF (*.step;*.stp;*.stl;*.obj;*.3mf)', 'All files (*.*)')
+              'RazorCAD Drawing (*.rdrw)', 'RazorCAD Drawing Template (*.rdrt)', 'STEP STL OBJ or 3MF (*.step;*.stp;*.stl;*.obj;*.3mf)', 'All files (*.*)')
+
+
+def documents_dir():
+    """The user's Documents folder (Windows' own setting: it may be in OneDrive)."""
+    if os.name == 'nt':
+        try:
+            import ctypes.wintypes as wt
+            buf = ctypes.c_wchar_p()
+            fid = (ctypes.c_byte * 16)(*bytes.fromhex('d0 9a d3 fd 8f 23 af 46 ad b4 6c 85 48 03 69 c7'.replace(' ', '')))  # FOLDERID_Documents
+            if ctypes.windll.shell32.SHGetKnownFolderPath(ctypes.byref(fid), 0, None, ctypes.byref(buf)) == 0:
+                path = buf.value
+                ctypes.windll.ole32.CoTaskMemFree(buf)
+                if path and os.path.isdir(path):
+                    return path
+        except Exception:
+            pass
+    return os.path.join(os.path.expanduser('~'), 'Documents')
+
+
+def templates_dir():
+    """Documents\\RazorCAD\\Templates: where drawing templates are kept (and listed from)."""
+    path = os.path.join(documents_dir(), APP_NAME, 'Templates')
+    if os.environ.get('RAZORCAD_DATA_DIR'):
+        path = os.path.join(data_dir(), 'Templates')  # (tests: inside their own data folder)
+    os.makedirs(path, exist_ok=True)
+    return path
 
 
 def resource_dir():
@@ -347,6 +375,9 @@ def ensure_file_types():
     if not reg or not os.path.isfile(reg):
         register_file_types(sys.executable)  # (also the previews)
         return 'registered'
+    if os.path.normcase(os.path.abspath(reg)) == os.path.normcase(os.path.abspath(sys.executable)) and not all(ext_registered(e, p) for e, p, _ in FILE_TYPES):
+        register_file_types(sys.executable)  # (a file type added since: drawing templates)
+        return 'registered'
     if not thumbnails_registered():
         register_thumbnails()
         try:
@@ -366,6 +397,15 @@ def thumbnails_registered():
         with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, 'CLSID\\' + THUMB_CLSID + '\\InprocServer32') as k:
             code = winreg.QueryValueEx(k, 'CodeBase')[0]
         return os.path.isfile(code[len('file:///'):].replace('/', '\\'))
+    except Exception:
+        return False
+
+
+def ext_registered(ext, progid):
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, ext) as k:
+            return winreg.QueryValueEx(k, '')[0] == progid
     except Exception:
         return False
 
@@ -479,11 +519,14 @@ class Api:
     # --- files ------------------------------------------------------------
     def save_file(self, name, content, path='', old_path='', kind='part'):
         if not path:
-            types = DRAWING_TYPES if kind == 'drawing' else ASSEMBLY_TYPES if kind == 'assembly' else PART_TYPES
-            path = first(self._window.create_file_dialog(webview.FileDialog.SAVE, save_filename=name, file_types=types))
+            types = {'drawing': DRAWING_TYPES, 'assembly': ASSEMBLY_TYPES, 'template': TEMPLATE_TYPES}.get(kind, PART_TYPES)
+            extra = {'directory': templates_dir()} if kind == 'template' else {}
+            path = first(self._window.create_file_dialog(webview.FileDialog.SAVE, save_filename=name, file_types=types, **extra))
             if not path:
                 return None
         write_atomic(path, content)
+        if kind == 'template':
+            return path  # (templates are listed in the New Drawing dialog, not with the recent files)
         # the part is saved: its auto-save (and that of the file it was saved from) is no longer needed
         remove_quietly(autosave_path(path))
         if old_path and os.path.normcase(old_path) != os.path.normcase(path):
@@ -770,6 +813,49 @@ class Api:
                     remove_quietly(f)
         except OSError:
             pass
+        return True
+
+    # --- drawing templates (app/js/drawtemplates.js) ----------------------
+    def _template_info(self, path):
+        try:
+            with open(path, encoding='utf-8-sig') as f:
+                doc = json.load(f)
+            if doc.get('kind') != 'drawingTemplate' or not isinstance(doc.get('sheets'), list):
+                return None
+            return {'path': path, 'name': doc.get('name') or os.path.splitext(os.path.basename(path))[0],
+                    'description': doc.get('description') or '', 'sheets': doc['sheets'], 'thumb': doc.get('thumbnail'),
+                    'modified': os.path.getmtime(path) * 1000}
+        except Exception:
+            return None
+
+    def list_templates(self, extra=None):
+        """Templates in Documents\\RazorCAD\\Templates, and template files picked elsewhere before (extra)."""
+        folder = templates_dir()
+        out, seen = [], set()
+        paths = [os.path.join(folder, n) for n in sorted(os.listdir(folder)) if n.lower().endswith('.rdrt')]
+        for p in paths + [p for p in (extra or []) if isinstance(p, str)]:
+            key = os.path.normcase(os.path.abspath(p))
+            if key in seen or not os.path.isfile(p):
+                continue
+            seen.add(key)
+            info = self._template_info(p)
+            if info:
+                out.append(info)
+        return {'folder': folder, 'templates': out}
+
+    def read_template(self, path):
+        info = self._template_info(path) if path and os.path.isfile(path) else None
+        if not info:
+            return None
+        with open(path, encoding='utf-8-sig') as f:
+            return {'path': path, 'content': f.read()}
+
+    def pick_template(self):
+        path = first(self._window.create_file_dialog(webview.FileDialog.OPEN, file_types=TEMPLATE_TYPES, directory=templates_dir()))
+        return self.read_template(path) if path else None
+
+    def open_templates_folder(self):
+        os.startfile(templates_dir())
         return True
 
     # --- files opened from Windows ---------------------------------------

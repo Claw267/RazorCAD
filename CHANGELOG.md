@@ -6,7 +6,7 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
-## 2026-10-19 — Sub-assemblies, and STEP appearances kept
+## 2026-10-19 00:28 — Sub-assemblies, and STEP appearances kept
 - **Sub-assemblies**: a component can use an assembly instead of a part, kept whole with its own parts, components, placements and configurations.
   - Insert Components ▸ Browse takes a .rasm file as well as a part. An assembly can't go inside itself.
   - A sub-assembly moves, hides, suppresses and explodes as one. Clicking any of its parts picks it, and selecting it highlights all its parts.
@@ -21,6 +21,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
   - The appearances stay with the bodies through later features.
   - Each solid and face is found again by the box round its vertices, with solids that have none (spheres) in file order.
   - Part appearances set in RazorCAD (a body's colour, made transparent) now show in assemblies too.
+
+## 2026-10-18 21:34 — New RazorCAD logo
+- **The RazorCAD logo**: a sliced decahedron, its upper piece lifted clear to show a hatched section face, on the red tile.
+  - It replaces the "R" mark in the title bar and shows in the About box, as the page icon, and in the Windows icon (`assets\razorcad.ico`).
+  - `tools\make_icon.py` draws every size from one set of geometry: `assets\razorcad.svg` (copied to `app\razorcad.svg`), the multi-size `.ico` (no hatching below 48 px) and `assets\razorcad-512.png`.
 
 ## 2026-10-18 21:32 — Assemblies drawn part by part: moving a component is instant
 - **An assembly draws each part once and places it at every component that uses it**: the part's mesh goes to the graphics card once, and each component is just a placement. Before, every component was copied into one big mesh.
@@ -47,6 +52,33 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
   - On a 130 MB, 2,400-solid layout: 110 s to open instead of 131 s, and 930 MB of kernel memory instead of 1,445 MB, with the same placement to the millimetre.
 - **Assembly undo no longer copies the parts**: each undo step keeps a reference to the part copies (a few KB) instead of copying them (which could be over 100 MB for imported parts).
 - An assembly opened from a file is zoomed to fit once its parts are built.
+
+## 2026-10-18 20:08 — Company sheet formats, drawing fonts and Change Template
+- **A drawing template can carry its own sheet format**: a company border, title block and logo in place of the standard ISO one.
+  - It is used on sheets of its size and orientation; a sheet changed to another size gets the standard format.
+  - Its text shows the drawing's properties (title, drawing number, material…) and the scale, sheet size and sheet number.
+  - Drawing Properties lists the title block's own fields (e.g. Ref No., Type, Status).
+  - Views placed by Make Drawing from Part keep clear of its title block.
+- **Pictures in drawings**: a sheet format's logo shows on screen, in file previews and in PDF exports (JPEG); DXF exports leave it out.
+- **A sheet format can set its text in a font from the PC** (e.g. Century Gothic), read from the Windows Fonts folder like sketch text fonts (nothing is bundled). Text is measured in that font, and PDF exports embed it, so they look the same on any PC. If the PC doesn't have the font, the text falls back to Helvetica.
+- **Century Gothic** is added to the fonts for sketch text.
+- **Change Template…** (File menu, Sheet tab, and right-clicking the drawing in the tree) switches an existing drawing to another template.
+  - The template brings its sheet format, sheet size, orientation and projection (on every sheet), drawing settings and notes. The old template's notes are replaced.
+  - Company, tolerance and finish come from the new template. Other title block entries the drawing already has are kept.
+  - Views, dimensions and annotations stay. Edit ▸ Undo goes back.
+- **Changing the projection** (Change Template or Sheet Properties) lays the views out for the new projection. A view above or below its parent moves to the other side, so a top view stays a top view. A view beside its parent stays put and shows the side the new projection puts there. The views stay centred where they were.
+
+## 2026-10-18 16:34 — Drawing templates and a New Drawing set-up dialog
+- **Drawing templates (.rdrt), a file type of their own:**
+  - A template keeps a drawing's set-up: its sheets (size, orientation, scale, projection), the drawing settings (text height, decimals…), the title block's standing entries (company, drawn / checked / approved by, finish, tolerances, revision) and notes placed on the sheet.
+  - Part-specific entries (title, drawing number, material, mass, date), views and parts are not kept.
+  - **File ▸ Save as Template…** in a drawing saves one, by default to `Documents\RazorCAD\Templates`.
+  - Opening a .rdrt file edits the template in its own "Drawing Template" tab; Save writes it back.
+  - Templates get an Explorer preview like other RazorCAD files, and .rdrt opens with RazorCAD.
+- **New Drawing opens a set-up dialog** (also used by Make Drawing from Part):
+  - Choose a template: your templates (from the Templates folder, or Browse… for one anywhere; browsed templates are remembered), or the standard ones: A4 portrait / landscape, A3, A2, A1, A0 landscape, and A3 / A4 in third angle projection.
+  - Set the drawing name, title, drawing number, drawn by and company, and the first sheet's size, orientation, scale and projection. These are filled from the template and can be changed.
+  - **"Use this template as my default"**: the default is marked and chosen first next time. Double-click a template to create the drawing at once.
 
 ## 2026-10-18 16:40 — Licensed under the GPL-3.0
 - RazorCAD is free software under the GNU General Public License v3.0 or later (`LICENSE`).
