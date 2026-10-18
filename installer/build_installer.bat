@@ -30,6 +30,8 @@ if not defined VER (
   exit /b 1
 )
 echo Version %VER%
+rem the license, as LICENSE.txt so Windows opens it with a text editor
+copy /y "%ROOT%\LICENSE" "%ROOT%\build\installer\LICENSE.txt" >nul
 python -m PyInstaller --noconfirm --clean --onefile --windowed ^
   --name "RazorCAD-Setup-%VER%" --icon "%ROOT%\assets\razorcad.ico" ^
   --version-file "%ROOT%\build\installer\version_info.txt" ^
@@ -37,6 +39,8 @@ python -m PyInstaller --noconfirm --clean --onefile --windowed ^
   --add-data "%ROOT%\assets\razorcad.ico;payload" ^
   --add-data "%ROOT%\README.md;payload" ^
   --add-data "%ROOT%\version.txt;payload" ^
+  --add-data "%ROOT%\build\installer\LICENSE.txt;payload" ^
+  --add-data "%ROOT%\THIRD-PARTY-NOTICES.md;payload" ^
   --add-data "%ROOT%\build\installer\RazorCADThumbs.dll;payload" ^
   --distpath "%OUT%" --workpath "%ROOT%\build\installer" --specpath "%ROOT%\build\installer" ^
   "%ROOT%\installer\setup.py"

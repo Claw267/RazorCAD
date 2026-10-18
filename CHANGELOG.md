@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-18 16:40 — Licensed under the GPL-3.0
+- RazorCAD is free software under the GNU General Public License v3.0 or later (`LICENSE`).
+- `THIRD-PARTY-NOTICES.md` lists the bundled libraries and their licenses (Open CASCADE under the LGPL-2.1; replicad, three.js and others under MIT) and the changes made to them.
+- Help ▸ About RazorCAD shows the license and where the source is. The installer installs `LICENSE.txt` and `THIRD-PARTY-NOTICES.md` next to RazorCAD.exe and mentions the license on its first page.
+
 ## 2026-10-18 16:10 — First public release (GitHub)
 - Source published at https://github.com/Labs9119/RazorCAD; the installer and manual are attached to the 0.10.0-beta release.
 - Installer read-me: crash reports and feature requests go to GitHub Issues.

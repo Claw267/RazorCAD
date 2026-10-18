@@ -300,3 +300,12 @@ tools/make_icon.py       generates assets/razorcad.ico
 - **Cuts act on every body they reach** (there is no feature scope yet), and a fillet can't blend across two
   separate bodies that only touch.
   Booleans on them work but are slower.
+
+## License
+RazorCAD is free software: you can redistribute it and/or modify it under the terms of the
+[GNU General Public License v3.0](LICENSE) or (at your option) any later version. It comes with
+no warranty. The parts, assemblies and drawings you make with RazorCAD are yours; the license
+does not cover them.
+
+RazorCAD includes third-party libraries under their own licenses (Open CASCADE under the LGPL-2.1,
+replicad, three.js and others under MIT); see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

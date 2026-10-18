@@ -4627,8 +4627,9 @@ export class UI {
 
   showAbout() {
     this.modal('About RazorCAD', 'part', `
-      <p style="margin-top:0"><b>RazorCAD</b> — a lightweight, browser-based parametric part modeler.</p>
-      <p>History-based features (sketch, extrude, revolve, cut, patterns, mirror, reference planes), global equations, live previews, undo/redo, mass properties and STL export.</p>
-      <p class="pm-hint">Geometry kernel: OpenCascade (via replicad) · Display: three.js.</p>`, [{ label: 'Close', primary: true }]);
+      <p style="margin-top:0"><b>RazorCAD</b> — a parametric 3D part, assembly and drawing modeler.</p>
+      <p>History-based features, sketches with relations and equations, sheet metal, assemblies and 2D drawings, with STEP, STL and DXF import and export.</p>
+      <p>RazorCAD is free software under the GNU General Public License v3.0 or later and comes with no warranty. Source code, the license and bug reports: github.com/Labs9119/RazorCAD</p>
+      <p class="pm-hint">Geometry kernel: OpenCascade (via replicad, LGPL-2.1) · Display: three.js (MIT). See THIRD-PARTY-NOTICES.md.</p>`, [{ label: 'Close', primary: true }]);
   }
 }

@@ -13,6 +13,9 @@ What it installs:
   * .NET Framework 4.7.2 or later, if missing (used by the window layer; Windows 10 1803+ has it)
   * Start-menu / desktop shortcuts and an entry in Windows' Installed apps (with an uninstaller)
   * .rcad / .rasm / .rdrw files (parts, assemblies, drawings) opening with RazorCAD (optional)
+
+Copyright (C) 2026 Labs9119 and the RazorCAD contributors.
+Licensed under the GNU General Public License v3.0 or later: see LICENSE.
 """
 import ctypes
 import os
@@ -267,7 +270,9 @@ def install(opts, log, progress):
     except OSError:
         raise RuntimeError('RazorCAD is running from the install folder. Close RazorCAD and run setup again.')
     files = [('RazorCAD.exe', target), ('razorcad.ico', os.path.join(folder, 'razorcad.ico')),
-             ('README.md', os.path.join(folder, 'README.md')), ('version.txt', os.path.join(folder, 'version.txt'))]
+             ('README.md', os.path.join(folder, 'README.md')), ('version.txt', os.path.join(folder, 'version.txt')),
+             ('LICENSE.txt', os.path.join(folder, 'LICENSE.txt')),
+             ('THIRD-PARTY-NOTICES.md', os.path.join(folder, 'THIRD-PARTY-NOTICES.md'))]
     thumbs = os.path.join(folder, 'RazorCADThumbs.dll')
     if os.path.isfile(payload('RazorCADThumbs.dll')):
         try:
@@ -333,7 +338,7 @@ def uninstall(remove_user_data, log=print):
             os.remove(target)
     except OSError:
         raise RuntimeError('RazorCAD is running. Close it and try again.')
-    for name in ('razorcad.ico', 'README.md', 'version.txt', f'{APP}.exe.old', 'RazorCADThumbs.dll', 'RazorCADThumbs.dll.old'):
+    for name in ('razorcad.ico', 'README.md', 'version.txt', 'LICENSE.txt', 'THIRD-PARTY-NOTICES.md', f'{APP}.exe.old', 'RazorCADThumbs.dll', 'RazorCADThumbs.dll.old'):
         try:
             os.remove(os.path.join(folder, name))
         except OSError:
@@ -424,7 +429,8 @@ def run_wizard(start_opts=None):
         ttk.Label(body, style='Body.TLabel', text=(
             f'This installs {APP} {version()}, a parametric 3D part modeler, on this computer, together with the '
             'Microsoft components it needs if they are missing (the Edge WebView2 Runtime and the .NET Framework).'
-            f'{upgrade}\n\nClick Next to continue.')).pack(anchor='w', pady=(12, 0))
+            f'{upgrade}\n\n{APP} is free software under the GNU General Public License v3.0 and comes with no '
+            'warranty (LICENSE.txt in the install folder).\n\nClick Next to continue.')).pack(anchor='w', pady=(12, 0))
         back_btn.state(['disabled'])
         next_btn.configure(text='Next >', command=page_location)
         next_btn.state(['!disabled'])

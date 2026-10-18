@@ -31,4 +31,9 @@ that was open, so leave out reports of parts you can't share. Feature requests a
 UNINSTALLING
 Windows Settings ▸ Apps ▸ Installed apps ▸ RazorCAD ▸ Uninstall. Your part files are never removed.
 
+LICENSE
+RazorCAD is free software under the GNU General Public License v3.0 or later, with no warranty.
+LICENSE.txt and THIRD-PARTY-NOTICES.md are installed next to RazorCAD.exe. Source code:
+https://github.com/Labs9119/RazorCAD
+
 Silent install (for IT): RazorCAD-Setup-{VERSION}.exe /S [/D=C:\Folder\RazorCAD] [/ALLUSERS] [/NODESKTOP] [/NOSTARTMENU]

@@ -4,6 +4,9 @@ Opens the RazorCAD interface in its own native window (Microsoft Edge WebView2)
 and provides native services to it: Open/Save dialogs, exports, the recent-files
 list (in %APPDATA%\\RazorCAD), auto-save files kept next to each saved part, and crash
 reports (%APPDATA%\\RazorCAD\\crashes, see crashreport.py). Build RazorCAD.exe with build.bat.
+
+Copyright (C) 2026 Labs9119 and the RazorCAD contributors.
+Licensed under the GNU General Public License v3.0 or later: see LICENSE.
 """
 import base64
 import ctypes
