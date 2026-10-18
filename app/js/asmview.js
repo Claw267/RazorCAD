@@ -130,6 +130,7 @@ export class AssemblyView {
   // (null: nothing). Picking returns item indices (as `comp`).
   update(items) {
     this.items = items;
+    this.vp.contentChanged?.();
     const by = new Map();
     items.forEach((it, i) => {
       if (!it?.mesh || it.hidden) return;
@@ -212,7 +213,7 @@ export class AssemblyView {
   pick(ev) {
     const vp = this.vp, objs = [...this.batches.values()].map((b) => b.faces);
     if (!objs.length) return null;
-    vp.raycaster.setFromCamera(vp.ndc(ev), vp.camera);
+    vp.aimRay(ev);
     const hits = vp.raycaster.intersectObjects(objs, false);
     for (const h of hits) {
       const entry = [...this.batches].find(([, b]) => b.faces === h.object);
@@ -342,7 +343,7 @@ export class AssemblyView {
 
   // whole parts shown (sharing their geometry: nothing copied) and edges: { selected, hover } item indices (one
   // each, or lists: all the parts of a sub-assembly), edges: [[item index, edge number]]
-  setHighlights({ selected = [], hover = [], edges = [] } = {}) {
+  setHighlights({ selected = [], hover = [], edges = [], hoverEdges = [] } = {}) {
     const list = (x) => (Array.isArray(x) ? x : x >= 0 ? [x] : []);
     selected = list(selected); hover = list(hover).filter((i) => !selected.includes(i));
     this.clearHighlights();
@@ -358,17 +359,19 @@ export class AssemblyView {
     };
     for (const i of selected) comp(i, 0x2b7de9, 0.45, 3);
     for (const i of hover) comp(i, 0xf59e0b, 0.35, 3);
-    const pts = [];
-    for (const [ci, ei] of edges) {
-      const it = this.items[ci], g = it?.mesh && this.gpu.get(it.mesh);
-      if (!g || ei >= g.eo.length - 1) continue;
-      const { ep, eo } = g;
-      for (let k = eo[ei]; k + 5 < eo[ei + 1]; k += 3) {
-        pts.push(new THREE.Vector3(ep[k], ep[k + 1], ep[k + 2]).applyMatrix4(it.matrix), new THREE.Vector3(ep[k + 3], ep[k + 4], ep[k + 5]).applyMatrix4(it.matrix));
+    // (edges selected in blue, the one under the cursor in orange)
+    for (const [list, color] of [[edges, 0x0ea5e9], [hoverEdges, 0xf59e0b]]) {
+      const pts = [];
+      for (const [ci, ei] of list) {
+        const it = this.items[ci], g = it?.mesh && this.gpu.get(it.mesh);
+        if (!g || ei >= g.eo.length - 1) continue;
+        const { ep, eo } = g;
+        for (let k = eo[ei]; k + 5 < eo[ei + 1]; k += 3) {
+          pts.push(new THREE.Vector3(ep[k], ep[k + 1], ep[k + 2]).applyMatrix4(it.matrix), new THREE.Vector3(ep[k + 3], ep[k + 4], ep[k + 5]).applyMatrix4(it.matrix));
+        }
       }
-    }
-    if (pts.length) {
-      const l = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x0ea5e9, depthTest: false }));
+      if (!pts.length) continue;
+      const l = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color, depthTest: false }));
       l.renderOrder = 8;
       this.hlGroup.add(l);
     }

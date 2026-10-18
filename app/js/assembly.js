@@ -24,6 +24,7 @@ import { fmt } from './expr.js';
 import { ExplodeTool, explodeOffsets, drawExplodeLines, animateExplode } from './explode.js';
 import { hashText, packResult, unpackResult } from './modelcache.js';
 import { AssemblyView } from './asmview.js';
+import * as G from './geometry.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -185,15 +186,24 @@ export function mateChoices(A, B) {
   }
 }
 
+// The assembly's own planes and origin, as mate references (ref.comp ORIGIN: fixed where the assembly's origin is)
+export const ORIGIN = '#origin';
+export const originRef = (key) => (key === 'origin'
+  ? { comp: ORIGIN, kind: 'point', p: [0, 0, 0], what: 'Origin', plane: 'origin' }
+  : { comp: ORIGIN, kind: 'plane', p: [0, 0, 0], n: G.STD_PLANES[key].n.slice(), what: G.STD_PLANES[key].name, plane: key });
+const ORIGIN_POSE = { p: [0, 0, 0], q: new THREE.Quaternion() };
+
 // Solve the mates: components not fixed (and not pinned) move as little as they must. Returns { ok, residual }.
 export function solveAssembly(doc, { pinned = new Set(), only = null } = {}) {
   const comps = doc.components, byId = new Map(comps.map((c) => [c.id, c]));
-  const mates = (only || doc.mates).filter((m) => !m.suppressed && byId.has(m.a?.comp) && byId.has(m.b?.comp));
+  const has = (id) => id === ORIGIN || byId.has(id);
+  const mates = (only || doc.mates).filter((m) => !m.suppressed && has(m.a?.comp) && has(m.b?.comp));
   const free = comps.filter((c) => !c.fixed && !pinned.has(c.id) && mates.some((m) => m.a.comp === c.id || m.b.comp === c.id));
   const col = new Map(free.map((c, i) => [c.id, 6 * i]));
   const N = 6 * free.length;
   if (!mates.length) return { ok: true, residual: 0, dofs: new Map() };
   const base = new Map(comps.map((c) => [c.id, poseOf(c)]));
+  base.set(ORIGIN, ORIGIN_POSE);
   let X = new Float64Array(N);
   const poseAt = (id, Xv) => {
     const b = base.get(id), i = col.get(id);
@@ -373,7 +383,7 @@ export class AssemblyEditor {
   }
   // the assembly as the configuration shows it (suppressed components and their mates left out)
   view() {
-    const comps = this.doc.components.filter((c) => !this.eff(c).suppressed), on = new Set(comps.map((c) => c.id));
+    const comps = this.doc.components.filter((c) => !this.eff(c).suppressed), on = new Set([ORIGIN, ...comps.map((c) => c.id)]);
     return { components: comps, mates: this.doc.mates.map((m) => this.effMate(m)).filter((m) => on.has(m.a.comp) && on.has(m.b.comp)) };
   }
   // ---------------------------------------------------------------- sub-assemblies
@@ -559,6 +569,7 @@ export class AssemblyEditor {
     if (this._geoFrame) { cancelAnimationFrame(this._geoFrame.raf); clearTimeout(this._geoFrame.tm); this._geoFrame = null; }
     this._exLines = drawExplodeLines(this.vp, this._exLines, []);
     if (this.display) { this.display.dispose(); if (this.vp.asmView === this.display) this.vp.asmView = null; this.display = null; }
+    this.vp.setPlanes([]); this._planeSig = null;
     $('#status-mode').textContent = 'Editing Part';
   }
   render() { this.updateGeometry(); } // (asked by the drawing pane's resize observer: nothing of its own to draw)
@@ -731,34 +742,66 @@ export class AssemblyEditor {
     const l = hit && hit.face >= 0 && this._leaves?.[hit.comp];
     return l ? { comp: l.comp, hit, bi: l.ci, leaf: hit.comp } : null;
   }
-  // a face, edge or vertex under the mouse, as a mate reference (in its top component's coordinates; sub: the
-  // components below it when it is on a part inside a sub-assembly)
-  entityAt(e) {
+  // What is under the mouse, as the selection filter allows (as in part files: vertices, edges, faces and the
+  // assembly's planes, whichever is under the cursor in that order; with the body filter, whole components).
+  // A face, edge or vertex comes as a mate reference in its top component's coordinates (sub: the components
+  // below it when it is on a part inside a sub-assembly); a component as { kind: 'comp', comp }.
+  // forMate: only what a mate can use (faces that are flat, round…; no whole components).
+  entityAt(e, forMate = false) {
     const view = this.display;
     if (!view || !this._leaves) return null;
+    const allows = (k) => this.app.allows(k);
     const inv = (c) => { const ps = poseOf(c); const qi = ps.q.clone().invert(); return (w) => applyQ(qi, sub(w, ps.p)); };
     const subOf = (l) => (l.chain.length ? { sub: l.chain } : {});
-    const vx = view.pickVertex(e, 7);
-    const vl = vx && this._leaves[vx.comp];
-    if (vl) return { comp: vl.comp.id, kind: 'point', p: inv(vl.comp)(vx.point.toArray()).map(r6), what: 'Vertex', world: vx.point.toArray() };
-    const ed = view.pickEdge(e, 5);
-    if (ed) {
-      const l = this._leaves[ed.comp], m = l && this.parts.get(l.gk)?.mesh;
-      if (m) { const r = refOfEdge(m, ed.edge); if (r) return { comp: l.comp.id, ...this.toTop(l, r), edge: ed.edge, ...subOf(l), gi: `${ed.comp}:e${ed.edge}` }; }
+    if (allows('vertex')) {
+      const vx = view.pickVertex(e, 7);
+      const vl = vx && this._leaves[vx.comp];
+      if (vl) return { comp: vl.comp.id, kind: 'point', p: inv(vl.comp)(vx.point.toArray()).map(r6), what: 'Vertex', world: vx.point.toArray(), gi: `${vx.comp}:v${vx.point.toArray().map((x) => Math.round(x * 1e4)).join(',')}` };
+    }
+    if (allows('edge')) {
+      const ed = view.pickEdge(e, 5);
+      const l = ed && this._leaves[ed.comp], m = l && this.parts.get(l.gk)?.mesh;
+      if (m) {
+        const r = refOfEdge(m, ed.edge), gi = `${ed.comp}:e${ed.edge}`;
+        if (r) return { comp: l.comp.id, ...this.toTop(l, r), edge: ed.edge, ...subOf(l), gi };
+        if (!forMate) return { comp: l.comp.id, kind: 'edge', what: 'Edge', edge: ed.edge, ...subOf(l), gi };
+      }
     }
     const ch = this.compAt(e);
-    if (!ch) return null;
-    const l = this._leaves[ch.leaf], m = this.parts.get(l.gk)?.mesh;
-    const r = m && refOfFace(m, ch.hit.face);
-    if (!r) { this.app.toast('That face is not flat, cylindrical, conical or spherical: pick another face, an edge or a vertex'); return null; }
-    return { comp: ch.comp.id, ...this.toTop(l, r), face: ch.hit.face, ...subOf(l), gi: `${ch.leaf}:f${ch.hit.face}` };
+    if (ch && allows('face')) {
+      const l = this._leaves[ch.leaf], m = this.parts.get(l.gk)?.mesh;
+      const r = m && refOfFace(m, ch.hit.face), gi = `${ch.leaf}:f${ch.hit.face}`;
+      if (r) return { comp: ch.comp.id, ...this.toTop(l, r), face: ch.hit.face, ...subOf(l), gi };
+      if (forMate) { this.app.toast('That face is not flat, cylindrical, conical or spherical: pick another face, an edge or a vertex'); return null; }
+      return { comp: ch.comp.id, kind: 'face', what: 'Face', face: ch.hit.face, ...subOf(l), gi };
+    }
+    if (ch && !forMate && allows('body')) return { kind: 'comp', comp: ch.comp.id };
+    if (allows('plane') && !ch) { const ph = this.vp.pickPlane(e); if (ph && G.STD_PLANES[ph.id]) return { ...originRef(ph.id), gi: 'plane:' + ph.id }; }
+    return null;
   }
-  refLabel(r) { const c = this.comp(r.comp); return `${r.what} of ${c?.name || '?'}`; }
+  // a selected reference the same as another
+  sameRef(a, b) { return a.comp === b.comp && (a.gi && a.gi === b.gi || (a.comp === ORIGIN && a.plane === b.plane)); }
+  // the references selected in the view (faces, edges, vertices, planes: as in part files, Ctrl adds or takes away)
+  pickRef(r, add = false) {
+    const cur = this.sel?.kind === 'refs' ? this.sel.refs : [];
+    const has = cur.some((x) => this.sameRef(x, r));
+    const refs = add ? (has ? cur.filter((x) => !this.sameRef(x, r)) : [...cur, r]) : [r];
+    this.select(refs.length ? { kind: 'refs', refs } : null);
+    if (refs.length) this.app.status(refs.length === 1 ? `${this.refLabel(r)} selected — right-click for more, or M to mate it.` : `${refs.length} selected — M mates the first two.`);
+  }
+  // the component a selection is on (a component, or the first face / edge / vertex's)
+  selComp() {
+    if (this.sel?.kind === 'comp') return this.comp(this.sel.id);
+    if (this.sel?.kind === 'refs') { const r = this.sel.refs.find((x) => x.comp !== ORIGIN); return r ? this.comp(r.comp) : null; }
+    return null;
+  }
+  refLabel(r) { if (r.comp === ORIGIN) return r.what; const c = this.comp(r.comp); return `${r.what} of ${c?.name || '?'}`; }
+  // a component's pose now (the assembly's origin: where it is)
+  poseOfId(id) { if (id === ORIGIN) return ORIGIN_POSE; const c = this.comp(id); return c ? poseOf(c) : null; }
   // a ref placed by its component's pose now
   worldRef(r) {
-    const c = this.comp(r.comp);
-    if (!c) return null;
-    const ps = poseOf(c);
+    const ps = this.poseOfId(r.comp);
+    if (!ps) return null;
     return { kind: r.kind, p: toWorld(ps, r.p), n: r.n && dirWorld(ps, r.n), d: r.d && dirWorld(ps, r.d), r: r.r };
   }
 
@@ -838,24 +881,35 @@ export class AssemblyEditor {
   }
   onClick(e) {
     if (this.pm) {
-      const r = this.entityAt(e);
+      const r = this.entityAt(e, true);
       if (!r) return;
       this.pmPick(r);
       return;
     }
-    const ch = this.compAt(e);
-    this.select(ch ? { kind: 'comp', id: ch.comp.id } : null);
+    // (as the selection filter allows: a face, edge, vertex or plane, or with the body filter a component)
+    const r = this.entityAt(e), add = e.ctrlKey || e.metaKey;
+    if (!r) { if (!add) this.select(null); return; }
+    if (r.kind === 'comp') this.select({ kind: 'comp', id: r.comp });
+    else this.pickRef(r, add);
   }
   onDouble(e) { const ch = this.compAt(e); if (ch) this.openPart(ch.comp.id); }
   onHover(e) {
     if (this.drag) return;
-    if (this.pm) { this.hoverRef = this.entityAt(e); this.hoverComp = null; }
-    else { const ch = this.compAt(e); this.hoverComp = ch?.comp.id || null; this.hoverRef = null; }
+    const r = this.entityAt(e, !!this.pm);
+    this.hoverComp = r?.kind === 'comp' ? r.comp : null;
+    this.hoverRef = r && r.kind !== 'comp' ? r : null;
     this.highlight();
   }
   onContext(e) {
-    const ch = this.compAt(e);
-    if (ch) { this.select({ kind: 'comp', id: ch.comp.id }); this.app.ui.showContext(e.clientX, e.clientY, this.compMenu(ch.comp)); return; }
+    const r = this.entityAt(e);
+    const c = r && r.comp !== ORIGIN ? this.comp(r.comp) : null;
+    if (r && r.kind !== 'comp' && !(this.sel?.kind === 'refs' && this.sel.refs.some((x) => this.sameRef(x, r)))) this.pickRef(r);
+    if (r?.kind === 'comp') this.select({ kind: 'comp', id: r.comp });
+    if (r) {
+      const mate = { label: 'Mate…', icon: 'mate', key: 'M', action: () => this.startMate() };
+      this.app.ui.showContext(e.clientX, e.clientY, r.kind === 'comp' || !c ? (c ? this.compMenu(c) : [mate]) : [mate, 'sep', ...this.compMenu(c)]);
+      return;
+    }
     this.app.ui.showContext(e.clientX, e.clientY, [
       { label: 'Insert Components…', icon: 'insertComponent', action: () => this.insertComponents() },
       { label: 'Mate', icon: 'mate', action: () => this.startMate() },
@@ -877,6 +931,33 @@ export class AssemblyEditor {
     this.renderPM();
     this.renderCommandManager();
     if (s?.kind === 'comp') { const c = this.comp(s.id); this.app.status(`${c.name} selected — drag it to move it (Alt+drag turns it), right-click for more.`); }
+    this.updatePlanes();
+  }
+
+  // a standard plane shown: as set for it in this assembly (its eye in the tree), else as View ▸ Show Planes says
+  planeShown(key) { const v = this.doc.planeVis?.[key]; return v !== undefined ? !!v : !!this.app.showPlanes; }
+  setPlaneShown(key, on) {
+    this.doc.planeVis ||= {};
+    this.doc.planeVis[key] = on;
+    this.dirty = true;
+    this.app.updateTitle();
+    this.updatePlanes();
+    this.renderTree();
+  }
+  // the assembly's own planes (Front, Top, Right) in the view: when planes are shown (View ▸ Show Planes), while
+  // a mate is being made, or when one is selected or under the cursor
+  updatePlanes() {
+    if (!this.isActive()) return;
+    const refs = this.pm ? this.pm.picks : this.sel?.kind === 'refs' ? this.sel.refs : this.sel?.kind === 'mate' ? (([m]) => (m ? [m.a, m.b] : []))(this.doc.mates.filter((m) => m.id === this.sel.id)) : [];
+    const on = new Set(refs.filter((r) => r.comp === ORIGIN && r.kind === 'plane').map((r) => r.plane));
+    const hover = this.hoverRef?.comp === ORIGIN ? this.hoverRef.plane : this.hoverPlane || null;
+    const list = [];
+    for (const key of Object.keys(G.STD_PLANES)) {
+      if (!(this.planeShown(key) || this.pm || on.has(key) || hover === key)) continue;
+      list.push({ id: key, name: G.STD_PLANES[key].name, frame: G.stdFrame(key), state: on.has(key) ? 'selected' : hover === key ? 'hover' : 'normal' });
+    }
+    const sig = JSON.stringify(list.map((p) => p.id + p.state));
+    if (sig !== this._planeSig || this.vp.planeGroup.children.length !== list.length) { this._planeSig = sig; this.vp.setPlanes(list); }
   }
 
   // ---------------------------------------------------------------- highlights
@@ -888,19 +969,25 @@ export class AssemblyEditor {
     const leavesOf = (id) => (id ? (this._leaves || []).map((l, i) => (l.comp.id === id ? i : -1)).filter((i) => i >= 0) : []);
     const sel = this.sel?.kind === 'comp' ? leavesOf(this.sel.id) : [];
     const hov = this.hoverComp && this.hoverComp !== this.sel?.id ? leavesOf(this.hoverComp) : [];
-    // the faces / edges / vertices of the mate being made (or of the selected mate)
-    const refs = this.pm ? this.pm.picks : this.sel?.kind === 'mate' ? (([m]) => (m ? [m.a, m.b] : []))(this.doc.mates.filter((m) => m.id === this.sel.id)) : [];
+    // the faces / edges / vertices selected, of the mate being made, or of the selected mate (blue), and the one
+    // under the cursor (orange)
+    const refs = this.pm ? this.pm.picks : this.sel?.kind === 'refs' ? this.sel.refs : this.sel?.kind === 'mate' ? (([m]) => (m ? [m.a, m.b] : []))(this.doc.mates.filter((m) => m.id === this.sel.id)) : [];
     const faceInfos = [], edgesSel = [], pts = [];
-    for (const r of [...refs, ...(this.hoverRef ? [this.hoverRef] : [])]) {
+    let hoverFace = null, hoverEdges = [], hoverPt = null;
+    const hr = this.hoverRef && !refs.some((x) => this.sameRef(x, this.hoverRef)) ? this.hoverRef : null;
+    for (const r of [...refs, ...(hr ? [hr] : [])]) {
+      if (r.comp === ORIGIN) continue; // (planes are drawn by updatePlanes)
       if (bi(r.comp) < 0) continue;
-      const li = this.leafOf(r);
-      if (r.face !== undefined) { const fi = li >= 0 && view.faceInfo(li, r.face); if (fi) faceInfos.push(fi); }
-      else if (r.edge !== undefined) { if (li >= 0) edgesSel.push([li, r.edge]); }
-      else pts.push(toWorld(poseOf(this.comp(r.comp)), r.p));
+      const li = this.leafOf(r), isHover = r === hr;
+      if (r.face !== undefined) { const fi = li >= 0 && view.faceInfo(li, r.face); if (fi) { if (isHover) hoverFace = fi; else faceInfos.push(fi); } }
+      else if (r.edge !== undefined) { if (li >= 0) (isHover ? hoverEdges : edgesSel).push([li, r.edge]); }
+      else { const w = toWorld(poseOf(this.comp(r.comp)), r.p); if (isHover) hoverPt = w; else pts.push(w); }
     }
     vp.setFaceSet?.(faceInfos, 'pm');
-    view.setHighlights({ selected: sel, hover: refs.length ? [] : hov, edges: edgesSel });
-    vp.setVertexMarkers?.(pts.length ? { selected: pts } : null);
+    vp.setFaceHighlight('hover', hoverFace);
+    view.setHighlights({ selected: sel, hover: refs.length ? [] : hov, edges: edgesSel, hoverEdges });
+    vp.setVertexMarkers?.(pts.length || hoverPt ? { selected: pts, hover: hoverPt } : null);
+    this.updatePlanes();
   }
 
   // ---------------------------------------------------------------- components
@@ -1104,7 +1191,7 @@ export class AssemblyEditor {
 
   // ---------------------------------------------------------------- mates
   startMate(edit = null) {
-    if (this.doc.components.length < 2) { this.app.toast('Insert at least two components first'); return; }
+    if (!this.doc.components.length) { this.app.toast('Insert a component first'); return; }
     this.collapseExplode();
     this.cancelMate(true);
     this.begin();
@@ -1113,7 +1200,10 @@ export class AssemblyEditor {
       const m = this.doc.mates.find((x) => x.id === edit);
       this.pm = { picks: [m.a, m.b], type: m.type, value: this.effMate(m).value, align: m.align, side: m.side, edit: m.id };
     } else this.pm = { picks: [], type: null, value: null, align: null, side: 1 };
+    // (faces, edges, vertices or planes selected first are the mate's: the first two a mate can use)
+    const pre = !edit && this.sel?.kind === 'refs' ? this.sel.refs.filter((r) => ['plane', 'axis', 'point'].includes(r.kind)) : [];
     this.sel = null;
+    for (const r of pre.slice(0, 2)) if (!this.pm.picks.length || this.pm.picks[0].comp !== r.comp) this.pmPick(r);
     this.app.status('Mate: click two faces, edges or vertices on different components.');
     this.renderAll();
     this.highlight();
@@ -1163,7 +1253,7 @@ export class AssemblyEditor {
     if (!pm || pm.picks.length < 2 || !pm.type) return null;
     const m = { id: pm.edit || '__new', name: '', type: pm.type, a: pm.picks[0], b: pm.picks[1], align: pm.align, side: pm.side, value: pm.value };
     if (pm.type === 'lock') {
-      const ca = this.comp(m.a.comp), cb = this.comp(m.b.comp), pa = poseOf(ca), pb = poseOf(cb), inv = pa.q.clone().invert();
+      const pa = this.poseOfId(m.a.comp), pb = this.poseOfId(m.b.comp), inv = pa.q.clone().invert();
       const relQ = inv.clone().multiply(pb.q);
       m.rel = { p: applyQ(inv, sub(pb.p, pa.p)), q: [relQ.x, relQ.y, relQ.z, relQ.w] };
     }
@@ -1175,7 +1265,16 @@ export class AssemblyEditor {
     if (!m) return;
     Object.assign(this.doc.components, JSON.parse(this.pmBefore).map((x, i) => Object.assign(this.doc.components[i], x)));
     const v = this.view(), others = v.mates.filter((x) => x.id !== m.id);
-    const r = solveAssembly(v, { only: [...others, m] });
+    let r = solveAssembly(v, { only: [...others, m] });
+    // (the alignment chosen from how they face now can be out of reach, e.g. faces at right angles: then the
+    // other one, unless Flip was used)
+    if (!r.ok && !this.pm.flipped && this.pm.align && ['coincident', 'parallel'].includes(m.type)) {
+      Object.assign(this.doc.components, JSON.parse(this.pmBefore).map((x, i) => Object.assign(this.doc.components[i], x)));
+      const m2 = { ...m, align: -m.align };
+      const r2 = solveAssembly(v, { only: [...others, m2] });
+      if (r2.ok) { this.pm.align = m2.align; r = r2; }
+      else Object.assign(this.doc.components, JSON.parse(this.pmBefore).map((x, i) => Object.assign(this.doc.components[i], x)));
+    }
     this.pm.error = r.ok ? null : 'This mate conflicts with the others (over-defined) or can\'t be reached: try Flip, another type or other entities.';
     if (r.ok) this.dofs = r.dofs || this.dofs;
     else Object.assign(this.doc.components, JSON.parse(this.pmBefore).map((x, i) => Object.assign(this.doc.components[i], x)));
@@ -1263,23 +1362,112 @@ export class AssemblyEditor {
   async save(saveAs = false) {
     if (this.pm) this.cancelMate();
     try {
+      // parts and sub-assemblies that are only inside this assembly (e.g. from a STEP file): kept in it, or each
+      // saved as a file of its own beside it (asked on the first save and on Save As, until kept inside)
+      let separate = false;
+      const inside = platform.desktop ? this.insideCount() : 0;
+      if (inside && (saveAs || !this.filePath || !this.doc.keepInside)) {
+        const choice = await this.app.ui.choose('Save the Assembly', 'save',
+          `<p><b>${esc(this.doc.name)}</b> has ${inside} part${inside === 1 ? '' : 's'} and sub-assembl${inside === 1 ? 'y' : 'ies'} that are only inside it.</p><p class="pm-hint">As separate files, each part is saved as a .rcad file and each sub-assembly as a .rasm file beside the assembly, so each can be opened and changed on its own; the assembly uses those files. As one file, they all stay inside the assembly file.</p>`,
+          [['separate', 'Save Parts as Separate Files', true], ['one', 'Save as One File']]);
+        if (!choice) return false;
+        separate = choice === 'separate';
+        if (separate) delete this.doc.keepInside; else this.doc.keepInside = true;
+      }
       let thumb = null;
       try { thumb = this.vp.snapshot(); } catch { /* saved without a preview */ }
       const path = await platform.saveText(`${this.safeName()}${ASM_EXT}`, docJSON(this.doc, thumb, 1), saveAs ? null : this.filePath, this.filePath, 'assembly');
       if (!path) return false;
       if (platform.desktop) this.filePath = path;
-      if (platform.desktop && isDefaultName(this.doc.name) && fileStem(path) !== this.doc.name) {
-        this.doc.name = fileStem(path);
-        await platform.saveText(`${this.safeName()}${ASM_EXT}`, docJSON(this.doc, thumb, 1), path, path, 'assembly');
+      let rename = platform.desktop && isDefaultName(this.doc.name) && fileStem(path) !== this.doc.name;
+      if (rename) this.doc.name = fileStem(path);
+      let written = 0;
+      if (separate) {
+        written = await this.saveInsideSeparately(path);
+        if (written === null) { this.app.status(`Saved ${String(path).split(/[\\/]/).pop()} (as one file: the separate files were not written)`); written = 0; }
+        else rename = true; // (again, now using the files)
       }
+      if (rename) await platform.saveText(`${this.safeName()}${ASM_EXT}`, docJSON(this.doc, thumb, 1), path, path, 'assembly');
       this.dirty = false;
       this.app.updateTitle();
-      this.app.status('Saved ' + String(path).split(/[\\/]/).pop());
+      this.renderTree();
+      this.app.status('Saved ' + String(path).split(/[\\/]/).pop() + (written ? ` and ${written} part and sub-assembly file${written === 1 ? '' : 's'} beside it` : ''));
       return true;
     } catch (err) {
       this.app.toast('Save failed: ' + err.message, true);
       return false;
     }
+  }
+
+  // how many parts and sub-assemblies (all through the tree, each once) have no file of their own
+  insideCount() {
+    const seen = new Set();
+    const walk = (doc, depth) => {
+      if (depth > 16) return;
+      for (const p of doc.parts || []) {
+        if (p.path || seen.has(p.doc)) continue;
+        seen.add(p.doc);
+        if (this.isSub(p)) walk(p.doc, depth + 1);
+      }
+    };
+    walk(this.doc, 0);
+    return seen.size;
+  }
+
+  // Each part and sub-assembly that is only inside this assembly saved as a file of its own beside it (the
+  // assembly at mainPath, just saved): parts as .rcad, sub-assemblies as .rasm, those inside a sub-assembly
+  // before it, so every assembly file uses the files of what is in it. Returns how many files were written, or
+  // null when that was cancelled.
+  async saveInsideSeparately(mainPath) {
+    const plan = [], planned = new Map(), used = new Set();
+    const safe = (s) => (String(s || 'Part').replace(/[\\/:*?"<>|\x00-\x1f]+/g, '_').replace(/^[\s.]+|[\s.]+$/g, '').slice(0, 120) || 'Part');
+    const fileName = (p, ext) => {
+      let base = safe(p.name || p.doc.name), name = base + ext, k = 2;
+      if (/^(con|prn|aux|nul|com\d|lpt\d)$/i.test(base)) { base += '_'; name = base + ext; }
+      while (used.has(name.toLowerCase()) || sameFile(name, String(mainPath).split(/[\\/]/).pop())) name = `${base} (${k++})${ext}`;
+      used.add(name.toLowerCase());
+      return name;
+    };
+    const walk = (doc, depth) => {
+      if (depth > 16) return;
+      for (const p of doc.parts || []) {
+        if (p.path || planned.has(p.doc)) continue;
+        const sub = this.isSub(p);
+        if (sub) walk(p.doc, depth + 1); // (what is inside it first)
+        const entry = { doc: p.doc, sub, name: fileName(p, sub ? ASM_EXT : '.rcad') };
+        planned.set(p.doc, entry);
+        plan.push(entry);
+      }
+    };
+    walk(this.doc, 0);
+    if (!plan.length) return 0;
+    const there = await platform.besideExists(mainPath, plan.map((x) => x.name));
+    if (there.length) {
+      const ok = await this.app.ui.choose('Replace Files', 'save',
+        `<p>${there.length === 1 ? `<b>${esc(there[0])}</b> is` : `${there.length} of the files (${there.slice(0, 4).map(esc).join(', ')}${there.length > 4 ? '…' : ''}) are`} already in the assembly's folder.</p><p class="pm-hint">Replace ${there.length === 1 ? 'it' : 'them'} with the parts and sub-assemblies of this assembly?</p>`,
+        [['replace', 'Replace', true], ['cancel', 'Cancel']]);
+      if (ok !== 'replace') return null;
+    }
+    // every part record (anywhere in the tree) that uses a document now uses its file
+    const setPath = (doc, path, depth = 0) => {
+      const visit = (d, k) => {
+        if (k > 16) return;
+        for (const p of d.parts || []) {
+          if (p.doc === doc) p.path = path;
+          else if (this.isSub(p) && !p.path) visit(p.doc, k + 1);
+        }
+      };
+      visit(this.doc, depth);
+    };
+    let n = 0;
+    for (const x of plan) {
+      this.app.status(`Saving ${x.name} (${n + 1} of ${plan.length})…`);
+      const path = await platform.saveBeside(mainPath, x.name, docJSON(x.doc, null, x.sub ? 1 : 0));
+      if (!path) throw new Error(`${x.name} could not be saved`);
+      setPath(x.doc, path);
+      n++;
+    }
+    return n;
   }
 
   // ---------------------------------------------------------------- keys
@@ -1308,7 +1496,7 @@ export class AssemblyEditor {
 
   // ---------------------------------------------------------------- UI: ribbon, menus, tree, Property panel
   commandDefs() {
-    const selC = this.sel?.kind === 'comp' ? this.comp(this.sel.id) : null;
+    const selC = this.selComp();
     return {
       assembly: [
         { icon: 'insertComponent', label: 'Insert Components', action: () => this.insertComponents() },
@@ -1385,7 +1573,7 @@ export class AssemblyEditor {
     if (!this.isActive()) return;
     const root = $('#tree');
     root.innerHTML = '';
-    const row = ({ ic, label, depth = 0, cls = '', sub = '', title = '', selected = false, onClick, onDbl, menu, vis, twisty = '', onTwisty }) => {
+    const row = ({ ic, label, depth = 0, cls = '', sub = '', title = '', selected = false, onClick, onDbl, menu, vis, twisty = '', onTwisty, onHover }) => {
       const n = el('div', { class: 'tn' + (cls ? ' ' + cls : '') + (selected ? ' selected' : ''), title });
       n.style.paddingLeft = 6 + depth * 16 + 'px';
       n.innerHTML = `<span class="tw">${twisty}</span><span class="ti">${icon(ic)}</span><span class="tl">${esc(label)}</span>${sub ? `<span class="tsub">${esc(sub)}</span>` : ''}<span class="tvis"></span>`;
@@ -1397,6 +1585,7 @@ export class AssemblyEditor {
         v.onclick = (e) => { e.stopPropagation(); vis.toggle(); };
       }
       if (onTwisty) n.querySelector('.tw').onclick = (e) => { e.stopPropagation(); onTwisty(); };
+      if (onHover) { n.onmouseenter = () => onHover(true); n.onmouseleave = () => onHover(false); }
       if (onClick) n.onclick = onClick;
       if (onDbl) n.ondblclick = onDbl;
       n.oncontextmenu = (e) => { e.preventDefault(); onClick?.(); if (menu) this.app.ui.showContext(e.clientX, e.clientY, menu()); };
@@ -1407,6 +1596,23 @@ export class AssemblyEditor {
     row({ ic: 'assembly', label: this.doc.name + (this.cfg() ? ` (${this.cfg().name})` : ''), cls: 'tree-part', title: free ? `${free} degree${free === 1 ? '' : 's'} of freedom left among the floating components` : 'Fully placed',
       sub: !this.solveOk && this.doc.mates.length ? 'mates conflict' : '',
       onDbl: () => this.app.ui.promptText('Rename Assembly', 'rename', 'Name', this.doc.name).then((v) => { if (v?.trim()) { this.begin(); this.doc.name = v.trim(); this.change(); } }) });
+    // the assembly's own planes and origin (as in a part: select them, mate to them, show or hide them)
+    const selRef = (key) => this.sel?.kind === 'refs' && this.sel.refs.some((r) => r.comp === ORIGIN && r.plane === key);
+    for (const key of [...Object.keys(G.STD_PLANES), 'origin']) {
+      const plane = key !== 'origin', shown = plane && this.planeShown(key);
+      row({
+        ic: plane ? 'plane' : 'origin', label: plane ? G.STD_PLANES[key].name : 'Origin', depth: 1, cls: plane && !shown ? 'hidden-item' : '',
+        selected: selRef(key),
+        onClick: () => this.pickRef({ ...originRef(key), gi: 'plane:' + key }),
+        onHover: plane ? (on) => { this.hoverPlane = on ? key : null; this.updatePlanes(); } : null,
+        vis: plane ? { on: shown, toggle: () => this.setPlaneShown(key, !shown) } : null,
+        menu: () => [
+          { label: 'Mate…', icon: 'mate', key: 'M', action: () => this.startMate() },
+          ...(plane ? [{ label: 'Normal To', icon: 'normalTo', action: () => this.vp.normalTo(G.stdFrame(key)) },
+            shown ? { label: 'Hide', icon: 'hide', action: () => this.setPlaneShown(key, false) } : { label: 'Show', icon: 'show', action: () => this.setPlaneShown(key, true) }] : []),
+        ],
+      });
+    }
     this._openSubs ||= new Set();
     // a sub-assembly's own components, under it (shown as they are in it; picking one picks the sub-assembly)
     const subRows = (doc, cfgId, top, key, depth) => {
@@ -1453,7 +1659,7 @@ export class AssemblyEditor {
       const val = info.value ? ` ${fmt(Number(m.value))}${info.value === '°' ? '°' : ' mm'}` : '';
       row({
         ic: info.icon, label: `${m.name}${val}`, depth: 2, cls: m.suppressed ? 'suppressed' : '',
-        sub: `(${this.comp(m.a.comp)?.name || '?'}, ${this.comp(m.b.comp)?.name || '?'})`,
+        sub: `(${[m.a, m.b].map((r) => (r.comp === ORIGIN ? r.what : this.comp(r.comp)?.name || '?')).join(', ')})`,
         selected: this.sel?.kind === 'mate' && this.sel.id === m.id,
         onClick: () => this.select({ kind: 'mate', id: m.id }),
         onDbl: () => this.startMate(m.id),
@@ -1530,7 +1736,7 @@ export class AssemblyEditor {
       const flippable = ['coincident', 'parallel', 'distance', 'tangent'].includes(pm.type) && (pm.type === 'distance' || pm.type === 'tangent' || (A.n || A.d) && (B.n || B.d));
       if (flippable) {
         const fb = el('button', { class: 'pm-btn' }, pm.type === 'distance' || pm.type === 'tangent' ? 'Flip Side' : pm.align > 0 ? 'Aligned — click for Anti-Aligned' : 'Anti-Aligned — click for Aligned');
-        fb.onclick = () => { if (pm.type === 'distance' || pm.type === 'tangent') pm.side = -(pm.side || 1); else pm.align = -(pm.align || -1); this.previewMate(); };
+        fb.onclick = () => { if (pm.type === 'distance' || pm.type === 'tangent') pm.side = -(pm.side || 1); else pm.align = -(pm.align || -1); pm.flipped = true; this.previewMate(); };
         g2.appendChild(fb);
       }
       g2.appendChild(el('div', { class: 'pm-hint' }, 'The mate is shown applied. ✔ keeps it and starts the next one; Esc closes.'));

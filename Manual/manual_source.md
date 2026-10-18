@@ -152,6 +152,15 @@ An assembly can hold other assemblies as components. **Insert Components ▸ Bro
 - In the tree, ▶ opens a sub-assembly to show its components. Double-click one, or right-click the sub-assembly ▸ **Open Sub-assembly**, to change it in its own tab; the changes come back to the assembly.
 - The **Bill of Materials** is indented: a sub-assembly's parts are listed under it (1.1, 1.2…), with the quantities in one of it.
 
+Every assembly has the standard **Front, Top and Right Planes** and the **Origin** at the top of its tree. They show in the view as a part's do (the eye in the tree, View ▸ Show Planes), and mates can use them; they stay where they are. {idx:assembly, planes}
+
+Selecting in an assembly works as in a part and follows the **selection filter**: with no filter a click picks the vertex, edge, face or plane under the cursor; with the Bodies filter it picks whole components. [[Ctrl]]+click adds or takes away. Right-click a face, edge or vertex for **Mate…** and the component's commands; whatever is selected goes into the mate. Dragging a component moves it, whatever is selected. {idx:assembly, selecting}
+
+**Saving parts as separate files.** When an assembly holds parts or sub-assemblies that are only inside it (as a STEP assembly does when it opens), Save asks how to save them: {idx:assembly, saving parts as files}
+
+- **Save Parts as Separate Files** saves each part as a .rcad file and each sub-assembly as a .rasm file in the assembly's folder, named after them. The assembly (and each sub-assembly) then uses those files, so each part can be opened and changed on its own and the change shows in the assembly. A part used in several places is one file. If files of those names are already there, you are asked before they are replaced.
+- **Save as One File** keeps everything inside the assembly file. You are not asked again, except on Save As.
+
 ## Exporting
 
 | Command | Result |

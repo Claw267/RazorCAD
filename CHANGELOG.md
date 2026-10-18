@@ -6,6 +6,20 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-19 07:07 — Assembly picking, selection filters, planes, and saving parts as separate files
+- **Picking in the 3D view is fixed**: the part under the cursor is the one picked, on any size of model. The pick ray used to start at the camera's position, which can be metres inside a big assembly, so it passed through the nearest parts and picked one behind them, and some parts couldn't be picked at all. On a 2,400-solid layout, picks now match what is drawn on top everywhere (they were right only 86–97% of the time).
+- **Assemblies use the selection filters, as part files do.** With no filter, a click picks the vertex, edge, face or plane under the cursor; with the Bodies filter, whole components. Ctrl adds or takes away. The one under the cursor shows in orange. Dragging still moves the component.
+  - Right-click a face, edge or vertex for Mate… and the component's commands. What is selected goes into Mate (M).
+- **Every assembly has the standard planes and the origin** (Front, Top, Right Plane, Origin) at the top of its tree, imported or new. They show in the view like a part's (eye in the tree, View ▸ Show Planes), and mates can use them: they stay put, like the origin.
+- **Mates find the other alignment** when the one chosen from how the faces sit can't be reached (e.g. faces at right angles), unless Flip was used.
+- **Saving an assembly whose parts and sub-assemblies are only inside it** (e.g. from a STEP file) asks whether to keep them in one file, or save each as a file of its own beside the assembly (.rcad for parts, .rasm for sub-assemblies, those inside a sub-assembly saved before it). The assembly then uses those files, so each can be opened and changed on its own.
+  - The same part used in several places is one file. Existing files are only replaced after asking.
+  - The question is asked again on Save As, until the assembly is saved as one file.
+
+## 2026-10-19 00:40 — No limit on zooming out
+- **The view zooms out as far as you like.** It used to stop at about 10 m tall, so a big layout couldn't be zoomed out past Zoom to Fit, and the mouse wheel jumped back in.
+- **The 3D view's depth follows the model's size and where the view has been panned to**, instead of a fixed ±20 m (still the least), so very large models are never cut off when turned.
+
 ## 2026-10-19 00:28 — Sub-assemblies, and STEP appearances kept
 - **Sub-assemblies**: a component can use an assembly instead of a part, kept whole with its own parts, components, placements and configurations.
   - Insert Components ▸ Browse takes a .rasm file as well as a part. An assembly can't go inside itself.

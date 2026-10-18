@@ -525,6 +525,7 @@ class Api:
             if not path:
                 return None
         write_atomic(path, content)
+        self._saved_here = getattr(self, '_saved_here', set()) | {os.path.normcase(os.path.abspath(path))}
         if kind == 'template':
             return path  # (templates are listed in the New Drawing dialog, not with the recent files)
         # the part is saved: its auto-save (and that of the file it was saved from) is no longer needed
@@ -532,6 +533,34 @@ class Api:
         if old_path and os.path.normcase(old_path) != os.path.normcase(path):
             remove_quietly(autosave_path(old_path))
         self._add_recent(path)
+        return path
+
+    # --- an assembly's parts and sub-assemblies, each saved as a file of its own beside it ----------------
+    # Only beside an assembly file saved in this session, and only plain .rcad / .rasm file names (no paths);
+    # they are not added to the recent files.
+    def _beside(self, main_path, name):
+        main = os.path.normcase(os.path.abspath(str(main_path or '')))
+        if main not in getattr(self, '_saved_here', set()) or not main.endswith('.rasm'):
+            return None
+        name = str(name or '')
+        if not re.fullmatch(r'[^\\/:*?"<>|\x00-\x1f]+\.(rcad|rasm)', name, re.I) or name != name.strip() or name.startswith('.'):
+            return None  # (a plain file name only: no folders in it)
+        return os.path.join(os.path.dirname(os.path.abspath(str(main_path))), name)
+
+    def beside_exists(self, main_path, names):
+        out = []
+        for n in names or []:
+            p = self._beside(main_path, n)
+            if p and os.path.exists(p):
+                out.append(os.path.basename(p))
+        return out
+
+    def save_beside(self, main_path, name, content):
+        path = self._beside(main_path, name)
+        if not path:
+            return None
+        write_atomic(path, content)
+        remove_quietly(autosave_path(path))
         return path
 
     def save_binary(self, name, b64, kind='stl'):

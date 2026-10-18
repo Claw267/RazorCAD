@@ -160,6 +160,7 @@ export class Viewport {
     if (this.body) { this.bodyGroup.remove(this.body); this.body.geometry.disposeBoundsTree?.(); this.body.geometry.dispose(); }
     if (this.edges) { this.bodyGroup.remove(this.edges); this.edges.geometry.dispose(); }
     this.body = this.edges = null;
+    this.contentChanged();
     this.bodyColor = Array.isArray(colors) ? colors[0] : colors;
     this.bodyColors = colors;
     this.mesh = mesh;
@@ -856,6 +857,7 @@ export class Viewport {
     if (this.container.clientWidth !== this.width || this.container.clientHeight !== this.height) this.resize();
     this._frameAnim();
     this._scaleOrigin();
+    this._fitDepth();
     // construction geometry is dotted at a constant size on screen
     if (this.dottedMats?.length) { const w = this.worldPerPixel(); for (const m of this.dottedMats) { m.dashSize = 2 * w; m.gapSize = 3 * w; } }
 
@@ -876,6 +878,20 @@ export class Viewport {
     r.setViewport(4, 4, s, s);
     r.render(this.triadScene, this.triadCam);
     r.setScissorTest(false);
+  }
+
+  // The camera's depth range keeps all of the model, however big it is and wherever the view has been panned to
+  // (the view is orthographic, so depth only clips: at least ±20 m, as it always was). The model's size is
+  // measured again only when it changes (contentChanged).
+  contentChanged() { this._depthBox = undefined; }
+  _fitDepth() {
+    if (this._depthBox === undefined) {
+      const b = this.contentBox();
+      this._depthBox = b ? b.getBoundingSphere(new THREE.Sphere()) : null;
+    }
+    const s = this._depthBox, cam = this.camera;
+    const far = s ? Math.max(20000, cam.position.distanceTo(s.center) + s.radius * 1.05 + 100) : 20000;
+    if (Math.abs(far - cam.far) > far * 0.02) { cam.near = -far; cam.far = far; cam.updateProjectionMatrix(); }
   }
 
   _scaleOrigin() {
@@ -981,8 +997,18 @@ export class Viewport {
     return { x: ev.clientX - r.left, y: ev.clientY - r.top };
   }
 
-  rayPlane(ev, frame) {
+  // The raycaster aimed through the cursor, starting at the camera's near side. (The view is orthographic and
+  // draws what is in front of the camera's position too: a ray starting there would pass through what is
+  // nearest — easily metres of a big assembly — and pick what is behind it.)
+  aimRay(ev) {
+    this.camera.updateMatrixWorld(); // (as the view is now, even before the next frame is drawn)
     this.raycaster.setFromCamera(this.ndc(ev), this.camera);
+    this.raycaster.ray.origin.addScaledVector(this.raycaster.ray.direction, this.camera.near);
+    return this.raycaster;
+  }
+
+  rayPlane(ev, frame) {
+    this.aimRay(ev);
     const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(frame.n, frame.o);
     const hit = new THREE.Vector3();
     if (!this.raycaster.ray.intersectPlane(plane, hit)) {
@@ -994,7 +1020,7 @@ export class Viewport {
 
   pickBody(ev) {
     if (!this.body) return null;
-    this.raycaster.setFromCamera(this.ndc(ev), this.camera);
+    this.aimRay(ev);
     const hits = this.raycaster.intersectObject(this.body, false).filter((h) => !this.section || this._sectionKeeps(h.point));
     if (!hits.length) return null;
     // the BVH reorders the index buffer, so identify the B-rep face through the vertex
@@ -1017,7 +1043,7 @@ export class Viewport {
       geo.computeBoundsTree();
       this._hiddenPick = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
     }
-    this.raycaster.setFromCamera(this.ndc(ev), this.camera);
+    this.aimRay(ev);
     const out = [];
     for (const h of this.raycaster.intersectObject(this._hiddenPick, false)) {
       const bi = this.faceBody[this.vertexFace[h.face.a]];
@@ -1029,7 +1055,7 @@ export class Viewport {
   // Everything under the cursor, front to back: [{ face, body, point }] (for Shift+right-click cycling).
   hitsAt(ev) {
     if (!this.body) return [];
-    this.raycaster.setFromCamera(this.ndc(ev), this.camera);
+    this.aimRay(ev);
     return this.raycaster.intersectObject(this.body, false)
       .filter((h) => !this.section || this._sectionKeeps(h.point))
       .map((h) => { const face = this.vertexFace[h.face.a]; return { face, body: this.faceBody?.[face] ?? -1, point: h.point }; });
@@ -1043,7 +1069,7 @@ export class Viewport {
     const meshes = [];
     this.planeGroup.children.forEach((g) => { g.updateMatrixWorld(true); meshes.push(g.children[0]); });
     if (!meshes.length) return null;
-    this.raycaster.setFromCamera(this.ndc(ev), this.camera);
+    this.aimRay(ev);
     const hits = this.raycaster.intersectObjects(meshes, false);
     return hits.length ? { id: hits[0].object.userData.planeId, distance: hits[0].distance } : null;
   }

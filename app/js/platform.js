@@ -77,6 +77,11 @@ export const platform = {
     return name;
   },
 
+  // An assembly's part or sub-assembly saved as a file of its own, beside the assembly just saved (desktop only):
+  // its path, or null. besideExists: which of these file names are there already.
+  async saveBeside(mainPath, name, text) { return desktop && mainPath ? api().save_beside(mainPath, name, text) : null; },
+  async besideExists(mainPath, names) { return desktop && mainPath ? (await api().beside_exists(mainPath, names)) || [] : []; },
+
   // The text of a part file by path (a drawing reading its parts), or null.
   async readText(path) {
     if (desktop) return api().read_text(path);

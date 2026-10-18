@@ -21,7 +21,7 @@ export class CadControls {
     this.dom = dom;
     this.target = new THREE.Vector3();
     this.leftRotate = true;
-    this.minZoom = 0.02;
+    this.minZoom = 1e-9; // (no real limit out: a site layout tens of metres across still fits)
     this.maxZoom = 400;
     this.getPivot = getPivot || (() => this.target);
     this.onChange = onChange || (() => {});

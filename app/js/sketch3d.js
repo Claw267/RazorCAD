@@ -275,7 +275,7 @@ export class Sketcher3D {
       if (d < bd) { bd = d; best = { k, a }; }
     }
     if (!best) return null;
-    this.vp.raycaster.setFromCamera(this.vp.ndc(ev), this.vp.camera);
+    this.vp.aimRay(ev);
     const ray = this.vp.raycaster.ray, ro = ray.origin.toArray(), rd = ray.direction.toArray();
     const a = best.a, w0 = sub(from, ro), b = dot(a, rd), denom = 1 - b * b;
     if (denom < 1e-9) return null;
@@ -300,7 +300,7 @@ export class Sketcher3D {
       if (d < bd) { bd = d; best = { p: mid.map(r6), seg: sg.id, mid: true, why: 'midpoint' }; }
     }
     if (best) return best;
-    this.vp.raycaster.setFromCamera(this.vp.ndc(ev), this.vp.camera);
+    this.vp.aimRay(ev);
     const ray = this.vp.raycaster.ray, ro = ray.origin.toArray(), rd = ray.direction.toArray();
     bd = 7;
     for (const sg of this.f.segs) {

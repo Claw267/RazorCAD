@@ -1085,6 +1085,15 @@ class App {
   }
 
   setVisibility(key, on) {
+    // (an assembly shown: its own planes)
+    const asm = this.mode === 'drawing' && this.drawing?.updatePlanes ? this.drawing : null;
+    if (asm && (key === 'stdPlanes' || key === 'all')) {
+      this.showPlanes = on;
+      if (asm.doc.planeVis) { delete asm.doc.planeVis; asm.dirty = true; this.updateTitle(); }
+      try { localStorage.setItem('razorcad.vis', JSON.stringify({ vis: this.vis, showPlanes: this.showPlanes })); } catch { /* not kept */ }
+      asm.updatePlanes(); asm.renderTree(); this.ui.renderHUD();
+      return;
+    }
     if (key === 'stdPlanes') { this.showPlanes = on; if (this.doc.planeVis) { delete this.doc.planeVis; this.commit(); } }
     else if (key === 'all') { for (const k of Object.keys(this.vis)) this.vis[k] = on; this.showPlanes = on; }
     else this.vis[key] = on;
