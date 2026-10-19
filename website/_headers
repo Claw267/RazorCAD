@@ -1,0 +1,14 @@
+# Keep the pages.dev copy out of search results; razorcad.com is the real address.
+https://razorcad.pages.dev/*
+  X-Robots-Tag: noindex
+https://:project.razorcad.pages.dev/*
+  X-Robots-Tag: noindex
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+
+/img/*
+  Cache-Control: public, max-age=604800
+/favicon.*
+  Cache-Control: public, max-age=604800

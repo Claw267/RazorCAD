@@ -3,18 +3,83 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>RazorCAD: free parametric 3D CAD for Windows</title>
-<meta name="description" content="RazorCAD is a free, open-source parametric 3D CAD program for Windows: constraint-driven sketches, a feature history, assemblies, STEP files and 2D drawings, on the OpenCascade kernel.">
+<title>RazorCAD: free, open-source parametric 3D CAD for Windows</title>
+<meta name="description" content="Free, open-source parametric 3D CAD for Windows. Constraint-driven sketches, a feature tree, assemblies, STEP import and 2D drawings. Runs offline.">
+<meta name="robots" content="index, follow, max-image-preview:large">
 <link rel="canonical" href="https://razorcad.com/">
 <meta name="theme-color" content="#a81616">
+<meta name="author" content="Labs9119">
 <meta property="og:type" content="website">
+<meta property="og:site_name" content="RazorCAD">
+<meta property="og:locale" content="en_US">
 <meta property="og:url" content="https://razorcad.com/">
-<meta property="og:title" content="RazorCAD: free parametric 3D CAD for Windows">
+<meta property="og:title" content="RazorCAD: free, open-source parametric 3D CAD for Windows">
 <meta property="og:description" content="Sketch with constraints, build parts feature by feature, assemble them and make drawings. Free and open source under the GPL.">
 <meta property="og:image" content="https://razorcad.com/img/social.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A RazorCAD part with a copper body, a stainless steel body with a threaded hole and a reference axis.">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="img/razorcad-512.png">
+<meta name="twitter:title" content="RazorCAD: free, open-source parametric 3D CAD for Windows">
+<meta name="twitter:description" content="Sketch with constraints, build parts feature by feature, assemble them and make drawings. Free and open source under the GPL.">
+<meta name="twitter:image" content="https://razorcad.com/img/social.png">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/img/razorcad-512.png">
+<link rel="preload" as="image" href="/img/part1.webp" imagesrcset="/img/part1-1200.webp 1200w, /img/part1.webp 2400w" imagesizes="(min-width: 1400px) 1100px, 84vw" media="(min-width: 900px)">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://razorcad.com/#software",
+      "name": "RazorCAD",
+      "description": "Free, open-source parametric 3D CAD program for Windows with constraint-driven sketches, a feature history, assemblies, STEP, STL and DXF files and 2D drawings, built on the OpenCascade kernel.",
+      "applicationCategory": "DesignApplication",
+      "applicationSubCategory": "Computer-aided design (CAD)",
+      "operatingSystem": "Windows 10, Windows 11",
+      "softwareVersion": "0.11.0-beta",
+      "url": "https://razorcad.com/",
+      "downloadUrl": "https://github.com/Labs9119/RazorCAD/releases",
+      "installUrl": "https://github.com/Labs9119/RazorCAD/releases",
+      "softwareHelp": "https://github.com/Labs9119/RazorCAD/releases/download/v0.11.0-beta/RazorCAD-User-Manual-0.11.0-beta.pdf",
+      "releaseNotes": "https://github.com/Labs9119/RazorCAD/blob/main/CHANGELOG.md",
+      "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+      "isAccessibleForFree": true,
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "image": "https://razorcad.com/img/razorcad-512.png",
+      "screenshot": [
+        "https://razorcad.com/img/part1.webp",
+        "https://razorcad.com/img/sketch-crop.webp",
+        "https://razorcad.com/img/drawing-crop.webp"
+      ],
+      "featureList": [
+        "Constraint-driven 2D sketches with relations, dimensions and equations",
+        "Feature-based solid modeling: extrude, revolve, sweep, loft, fillet, chamfer, shell, patterns",
+        "Multi-body parts, surfaces, sheet metal and weldments",
+        "Assemblies with mates, sub-assemblies, exploded views and bills of materials",
+        "2D drawings with section and detail views, exported to PDF and DXF",
+        "STEP, STL and DXF import and export"
+      ],
+      "sameAs": ["https://github.com/Labs9119/RazorCAD"]
+    },
+    {
+      "@type": "SoftwareSourceCode",
+      "name": "RazorCAD source code",
+      "codeRepository": "https://github.com/Labs9119/RazorCAD",
+      "programmingLanguage": ["JavaScript", "Python"],
+      "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+      "targetProduct": { "@id": "https://razorcad.com/#software" }
+    },
+    {
+      "@type": "WebSite",
+      "name": "RazorCAD",
+      "url": "https://razorcad.com/"
+    }
+  ]
+}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
@@ -26,11 +91,12 @@
 
 <header class="top">
   <a class="brand" href="/" aria-label="RazorCAD home">
-    <img src="favicon.svg" alt="" width="34" height="34">
+    <img src="/favicon.svg" alt="" width="34" height="34">
     <span>RazorCAD</span>
   </a>
   <nav aria-label="Main">
     <a href="#features">Features</a>
+    <a href="#faq">FAQ</a>
     <a href="#download">Download</a>
     <a href="https://github.com/Labs9119/RazorCAD/releases/download/v0.11.0-beta/RazorCAD-User-Manual-0.11.0-beta.pdf" data-asset="manual">Manual</a>
     <a class="nav-gh" href="https://github.com/Labs9119/RazorCAD">
@@ -69,7 +135,7 @@
         <picture>
         <source media="(max-width: 899px)" srcset="img/part1-model.webp" width="1200" height="756">
         <img src="img/part1.webp" srcset="img/part1-1200.webp 1200w, img/part1.webp 2400w"
-             sizes="(min-width: 1400px) 1100px, 84vw" width="2400" height="1410"
+             sizes="(min-width: 1400px) 1100px, 84vw" width="2400" height="1410" fetchpriority="high"
              alt="RazorCAD with a part of six bodies open: a copper cylinder, a stainless steel square boss with a threaded hole, a second body with a square pocket, a reference plane and an axis. The feature tree lists every step on the left.">
         </picture>
         <svg class="balloons" viewBox="0 0 2400 1175" aria-hidden="true">
@@ -191,6 +257,40 @@
           Built-in CAM and FEA are on the list for later.</p>
       </blockquote>
       <p class="note-ask">Found a bug or missing a feature? <a href="https://github.com/Labs9119/RazorCAD/issues">Open an issue on GitHub</a>.</p>
+    </section>
+
+    <section id="faq" class="faq" aria-labelledby="faq-title">
+      <h2 id="faq-title">Common questions</h2>
+      <div class="faq-list">
+        <div class="qa">
+          <h3>Is RazorCAD really free?</h3>
+          <p>Yes. There’s no subscription, licence key or account, and you can use it for commercial work.
+            RazorCAD is open source under the GPL-3.0, and the parts, assemblies and drawings you make with it are yours.</p>
+        </div>
+        <div class="qa">
+          <h3>Does it need an internet connection?</h3>
+          <p>No. RazorCAD runs entirely on your PC and works offline. The setup program only goes online to fetch
+            the Microsoft WebView2 runtime or .NET Framework if Windows is missing them.</p>
+        </div>
+        <div class="qa">
+          <h3>Does it run on Mac or Linux?</h3>
+          <p>Not at the moment. RazorCAD is a Windows program and runs on Windows 10 and 11.</p>
+        </div>
+        <div class="qa">
+          <h3>Can I open files from other CAD programs?</h3>
+          <p>Yes, through STEP, STL and DXF. STEP assemblies open with their structure and colours, STL meshes become
+            solid bodies, and DXF files import into a sketch. RazorCAD also saves STEP, STL, DXF and PDF.</p>
+        </div>
+        <div class="qa">
+          <h3>What does it use for geometry?</h3>
+          <p>The OpenCascade B-rep kernel, the same engine behind FreeCAD, so STEP files come in and go out as exact solids rather than meshes.</p>
+        </div>
+        <div class="qa">
+          <h3>Is it ready for production work?</h3>
+          <p>It’s a beta, so expect some bugs. Check exported DXF files before you cut anything,
+            and report problems on <a href="https://github.com/Labs9119/RazorCAD/issues">GitHub</a>.</p>
+        </div>
+      </div>
     </section>
 
     <section id="download" class="download" aria-labelledby="dl-title">
