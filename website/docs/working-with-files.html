@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Working with Files | RazorCAD user manual</title>
+<meta name="description" content="Parts are saved as .rcad files, assemblies as .rasm and drawings as .rdrw files (see the Drawings chapter).">
+<link rel="canonical" href="https://razorcad.com/docs/working-with-files">
+<meta name="theme-color" content="#a81616">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="RazorCAD">
+<meta property="og:url" content="https://razorcad.com/docs/working-with-files">
+<meta property="og:title" content="Working with Files | RazorCAD user manual">
+<meta property="og:description" content="Parts are saved as .rcad files, assemblies as .rasm and drawings as .rdrw files (see the Drawings chapter).">
+<meta property="og:image" content="https://razorcad.com/img/social.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/img/razorcad-512.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "User manual", "item": "https://razorcad.com/docs/"}, {"@type": "ListItem", "position": 2, "name": "Working with Files", "item": "https://razorcad.com/docs/working-with-files"}]}</script>
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <a class="brand" href="/" aria-label="RazorCAD home">
+    <img src="/favicon.svg" alt="" width="34" height="34">
+    <span>RazorCAD</span>
+  </a>
+  <nav aria-label="Main">
+    <a href="/#features">Features</a>
+    <a href="/docs/">Manual</a>
+    <a href="/#download">Download</a>
+    <a class="nav-gh" href="https://github.com/Labs9119/RazorCAD"><svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg> GitHub</a>
+  </nav>
+</header>
+
+<div class="frame">
+  <div class="zones zones-top" aria-hidden="true"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span></div>
+  <div class="zones zones-bottom" aria-hidden="true"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span></div>
+  <div class="zones zones-left" aria-hidden="true"><span>A</span><span>B</span><span>C</span><span>D</span><span>E</span><span>F</span></div>
+  <div class="zones zones-right" aria-hidden="true"><span>A</span><span>B</span><span>C</span><span>D</span><span>E</span><span>F</span></div>
+  <div class="sheet">
+  <div class="docs">
+    <details class="docs-nav">
+      <summary>Chapters</summary>
+      <nav aria-label="Manual chapters"><ol><li><a href="/docs/introduction">Introduction</a></li><li><a href="/docs/installing-and-starting-razorcad">Installing and Starting RazorCAD</a></li><li><a href="/docs/working-with-files" aria-current="page">Working with Files</a><ul><li><a href="#part-files">Part files</a></li><li><a href="#tabs-and-closing">Tabs and closing</a></li><li><a href="#auto-save-and-recovery">Auto-save and recovery</a></li><li><a href="#importing-step-and-stl">Importing STEP and STL</a></li><li><a href="#sub-assemblies">Sub-assemblies</a></li><li><a href="#exporting">Exporting</a></li></ul></li><li><a href="/docs/navigating-the-3d-view">Navigating the 3D View</a></li><li><a href="/docs/selecting">Selecting</a></li><li><a href="/docs/sketching">Sketching</a></li><li><a href="/docs/gears">Gears</a></li><li><a href="/docs/solid-features">Solid Features</a></li><li><a href="/docs/bodies-and-multi-body-parts">Bodies and Multi-Body Parts</a></li><li><a href="/docs/surfaces">Surfaces</a></li><li><a href="/docs/reference-geometry">Reference Geometry</a></li><li><a href="/docs/the-feature-tree-and-history">The Feature Tree and History</a></li><li><a href="/docs/sheet-metal">Sheet Metal</a></li><li><a href="/docs/drawings">Drawings</a></li><li><a href="/docs/evaluate-and-tools">Evaluate and Tools</a></li><li><a href="/docs/modelling-with-claude">Modelling with Claude</a></li><li><a href="/docs/troubleshooting">Troubleshooting</a></li><li><a href="/docs/for-developers">For Developers</a></li><li><a href="/docs/keyboard-and-mouse-reference">Appendix A: Keyboard and Mouse Reference</a></li><li><a href="/docs/materials">Appendix B: Materials</a></li></ol></nav>
+    </details>
+    <script>if (matchMedia("(min-width: 1000px)").matches) document.querySelector(".docs-nav").open = true;</script>
+    <main id="main" class="docs-main">
+      <p class="crumbs"><a href="/docs/">User manual</a> / Working with Files</p>
+      <article class="prose">
+        <h1>Working with Files</h1>
+<h2 id="part-files">Part files</h2>
+<p>Parts are saved as <strong>.rcad</strong> files, assemblies as <strong>.rasm</strong> and drawings as <strong>.rdrw</strong> files (see the Drawings chapter).</p>
+<div class="table-wrap"><table><thead><tr><th>Command</th><th>Shortcut</th><th>Notes</th></tr></thead><tbody><tr><td><strong>File ▸ New Part</strong></td><td><kbd>Ctrl+N</kbd></td><td>Opens in a new tab</td></tr><tr><td><strong>File ▸ Open…</strong></td><td><kbd>Ctrl+O</kbd></td><td>Opens parts, drawings, STEP and STL files</td></tr><tr><td><strong>File ▸ Open Sample Part</strong></td><td></td><td>The built-in sample, in a new tab</td></tr><tr><td><strong>File ▸ Save</strong></td><td><kbd>Ctrl+S</kbd></td><td>Uses the normal Windows save dialog the first time</td></tr><tr><td><strong>File ▸ Save As…</strong></td><td><kbd>Ctrl+Shift+S</kbd></td><td>Saves a copy under a new name</td></tr></tbody></table></div>
+<h2 id="tabs-and-closing">Tabs and closing</h2>
+<p>Several parts and drawings can be open at once, each in its own tab. New, Open and Sample all open a new tab. Closing a tab with unsaved changes asks whether to save it, and closing RazorCAD asks to save every unsaved part.</p>
+<h2 id="auto-save-and-recovery">Auto-save and recovery</h2>
+<p>Auto-save starts once a part has been saved for the first time. While the part has unsaved changes it is written next to the part file, at most every 20 seconds, as <code>Name.autosave.rcad</code>. The title bar shows the time of the last auto-save. Saving the part removes the auto-save file.</p>
+<p>If RazorCAD closes with unsaved changes, opening the part again offers to <strong>recover</strong> the auto-saved version. It is also marked in the recent list.</p>
+<aside class="callout callout-warning"><strong>Warning:</strong> A part that was never saved is not auto-saved. RazorCAD warns before closing it. Save new parts early.</aside>
+<p>The recent-files list is kept in <code>%APPDATA%\RazorCAD\recent.json</code>.</p>
+<h2 id="importing-step-and-stl">Importing STEP and STL</h2>
+<p>There are two ways to bring in a STEP or STL file:</p>
+<ul><li><strong>File ▸ Open…</strong> opens it as a part of its own in a new tab, named after the file, without asking. A STEP file that holds an assembly asks first:<ul><li><strong>Open as an Assembly</strong> makes a new assembly with the file's structure: a sub-assembly for each of its sub-assemblies, a part for each part, and a component, fixed, where the file places each one. Each part keeps its own piece of the STEP file and is built on its own, and a part used several times is built once.</li><li>The first build of each part is kept on disk (in <code>%LOCALAPPDATA%\RazorCAD\modelcache</code>, up to 1 GB, shared with parts). The next time the assembly opens, unchanged parts are shown straight from there instead of being rebuilt, so a big assembly reopens in seconds.</li><li><strong>Open as One Part</strong> brings every solid into one part, as before.</li></ul></li><li><strong>File ▸ Import STEP / STL…</strong> (<kbd>Ctrl+I</kbd>, also on the Features and Evaluate tabs) offers three choices: a <strong>new part</strong>, <strong>insert in place</strong> into the current part, or <strong>insert and locate with mates</strong>. Locating with mates adds a separate "Locate …" Move Body feature under the import.</li></ul>
+<p>How imports behave:</p>
+<ul><li>The file's contents are stored inside the part file, so the part does not depend on the original file.</li><li>A STEP file's appearances come with it: the colour of each solid and of single faces, and transparency. Your own Appearance and Make Transparent / Make Opaque settings on a body win over them.</li><li>STEP imports as an exact solid. Every solid becomes its own body; a solid made of several separate shells is split into one body per shell; loose surfaces become surface bodies.</li><li>The bodies of a multi-body STEP file are grouped in their own folder under Solid Bodies.</li><li>Tick <strong>Merge touching bodies into one body</strong> in the import feature to fuse them instead.</li><li>An STL is converted to a solid made of its triangles. Coplanar triangles are merged. Meshes up to 200,000 triangles are accepted.</li><li>Imported bodies can be cut, extended, patterned and (for STEP) filleted like any other body.</li></ul>
+<h2 id="sub-assemblies">Sub-assemblies</h2>
+<p>An assembly can hold other assemblies as components. <strong>Insert Components ▸ Browse for a Part or Assembly…</strong> takes a .rasm file, and STEP assemblies keep their sub-assemblies when they open as an assembly.</p>
+<ul><li>A sub-assembly is kept whole, with its own parts, placements and configurations, and moves as one. Clicking any of its parts picks it.</li><li>Mates can use the faces, edges and vertices of the parts inside it.</li><li>In the tree, ▶ opens a sub-assembly to show its components. Double-click one, or right-click the sub-assembly ▸ <strong>Open Sub-assembly</strong>, to change it in its own tab; the changes come back to the assembly.</li><li>The <strong>Bill of Materials</strong> is indented: a sub-assembly's parts are listed under it (1.1, 1.2…), with the quantities in one of it.</li></ul>
+<p>Every assembly has the standard <strong>Front, Top and Right Planes</strong> and the <strong>Origin</strong> at the top of its tree. They show in the view as a part's do (the eye in the tree, View ▸ Show Planes), and mates can use them; they stay where they are.</p>
+<p>Selecting in an assembly works as in a part and follows the <strong>selection filter</strong>: with no filter a click picks the vertex, edge, face or plane under the cursor; with the Bodies filter it picks whole components. <kbd>Ctrl</kbd>+click adds or takes away. Right-click a face, edge or vertex for <strong>Mate…</strong> and the component's commands; whatever is selected goes into the mate. Dragging a component moves it, whatever is selected.</p>
+<p><strong>Saving parts as separate files.</strong> When an assembly holds parts or sub-assemblies that are only inside it (as a STEP assembly does when it opens), Save asks how to save them:</p>
+<ul><li><strong>Save Parts as Separate Files</strong> saves each part as a .rcad file and each sub-assembly as a .rasm file in the assembly's folder, named after them. The assembly (and each sub-assembly) then uses those files, so each part can be opened and changed on its own and the change shows in the assembly. A part used in several places is one file. If files of those names are already there, you are asked before they are replaced.</li><li><strong>Save as One File</strong> keeps everything inside the assembly file. You are not asked again, except on Save As.</li></ul>
+<h2 id="exporting">Exporting</h2>
+<div class="table-wrap"><table><thead><tr><th>Command</th><th>Result</th></tr></thead><tbody><tr><td><strong>File ▸ Export ▸ STEP…</strong></td><td>An exact B-rep. Each body is written as its own named, coloured solid.</td></tr><tr><td><strong>File ▸ Export ▸ STL…</strong></td><td>A binary mesh</td></tr><tr><td>Right-click a body ▸ <strong>Export Body as STEP…</strong></td><td>One body only</td></tr><tr><td><strong>File ▸ Export ▸ Face as DXF…</strong></td><td>The outline of a flat face (see below)</td></tr><tr><td>Sheet metal ▸ <strong>Export DXF</strong></td><td>Flat patterns (see the Sheet Metal chapter)</td></tr><tr><td>Drawing ▸ <strong>Export PDF</strong></td><td>Drawing sheets (see the Drawings chapter)</td></tr></tbody></table></div>
+<h3 id="export-face-as-dxf">Export Face as DXF</h3>
+<p>Click a flat face, then right-click ▸ <strong>Export Face as DXF…</strong> (or <strong>File ▸ Export ▸ Face as DXF…</strong>). The face's outline (layer <code>OUTLINE</code>) and holes (layer <code>HOLES</code>) are written as a 2D drawing in millimetres, seen from outside the part. Use it for laser or waterjet cutting, or to take a profile into a 2D CAD program.</p>
+<p>Lines, arcs and circles are exact; other curves become fine polylines. The file is DXF R12, which practically every program can read.</p>
+      </article>
+      <nav class="pager" aria-label="Chapters"><a class="pager-prev" href="/docs/installing-and-starting-razorcad"><span>Previous</span>Installing and Starting RazorCAD</a><a class="pager-next" href="/docs/navigating-the-3d-view"><span>Next</span>Navigating the 3D View</a></nav>
+    </main>
+  </div>
+  <footer class="titleblock" aria-label="About this page">
+    <div class="tb-cell tb-logo"><img src="/favicon.svg" alt="" width="44" height="44"></div>
+    <div class="tb-cell tb-title"><span class="tb-label">Title</span><span class="tb-value tb-big">RazorCAD user manual</span></div>
+    <div class="tb-cell"><span class="tb-label">Rev</span><span class="tb-value">0.12.0-beta</span></div>
+    <div class="tb-cell"><span class="tb-label">Licence</span><span class="tb-value"><a href="https://github.com/Labs9119/RazorCAD/blob/main/LICENSE">GPL-3.0</a></span></div>
+    <div class="tb-cell"><span class="tb-label">Source</span><span class="tb-value"><a href="https://github.com/Labs9119/RazorCAD">Labs9119/RazorCAD</a></span></div>
+    <div class="tb-cell"><span class="tb-label">Kernel</span><span class="tb-value">OpenCascade</span></div>
+    <div class="tb-cell"><span class="tb-label">Support</span><span class="tb-value"><a href="https://github.com/Labs9119/RazorCAD/issues">Issues</a></span></div>
+    <div class="tb-cell"><span class="tb-label">Sheet</span><span class="tb-value">4 of 21</span></div>
+  </footer>
+  </div>
+</div>
+</body>
+</html>

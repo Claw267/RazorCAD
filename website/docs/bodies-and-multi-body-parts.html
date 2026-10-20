@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bodies and Multi-Body Parts | RazorCAD user manual</title>
+<meta name="description" content="A part can contain several solid bodies. A boss that doesn&#x27;t touch the existing material makes a new body; untick Merge result to keep a touching…">
+<link rel="canonical" href="https://razorcad.com/docs/bodies-and-multi-body-parts">
+<meta name="theme-color" content="#a81616">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="RazorCAD">
+<meta property="og:url" content="https://razorcad.com/docs/bodies-and-multi-body-parts">
+<meta property="og:title" content="Bodies and Multi-Body Parts | RazorCAD user manual">
+<meta property="og:description" content="A part can contain several solid bodies. A boss that doesn&#x27;t touch the existing material makes a new body; untick Merge result to keep a touching…">
+<meta property="og:image" content="https://razorcad.com/img/social.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/img/razorcad-512.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "User manual", "item": "https://razorcad.com/docs/"}, {"@type": "ListItem", "position": 2, "name": "Bodies and Multi-Body Parts", "item": "https://razorcad.com/docs/bodies-and-multi-body-parts"}]}</script>
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <a class="brand" href="/" aria-label="RazorCAD home">
+    <img src="/favicon.svg" alt="" width="34" height="34">
+    <span>RazorCAD</span>
+  </a>
+  <nav aria-label="Main">
+    <a href="/#features">Features</a>
+    <a href="/docs/">Manual</a>
+    <a href="/#download">Download</a>
+    <a class="nav-gh" href="https://github.com/Labs9119/RazorCAD"><svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg> GitHub</a>
+  </nav>
+</header>
+
+<div class="frame">
+  <div class="zones zones-top" aria-hidden="true"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span></div>
+  <div class="zones zones-bottom" aria-hidden="true"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span></div>
+  <div class="zones zones-left" aria-hidden="true"><span>A</span><span>B</span><span>C</span><span>D</span><span>E</span><span>F</span></div>
+  <div class="zones zones-right" aria-hidden="true"><span>A</span><span>B</span><span>C</span><span>D</span><span>E</span><span>F</span></div>
+  <div class="sheet">
+  <div class="docs">
+    <details class="docs-nav">
+      <summary>Chapters</summary>
+      <nav aria-label="Manual chapters"><ol><li><a href="/docs/introduction">Introduction</a></li><li><a href="/docs/installing-and-starting-razorcad">Installing and Starting RazorCAD</a></li><li><a href="/docs/working-with-files">Working with Files</a></li><li><a href="/docs/navigating-the-3d-view">Navigating the 3D View</a></li><li><a href="/docs/selecting">Selecting</a></li><li><a href="/docs/sketching">Sketching</a></li><li><a href="/docs/gears">Gears</a></li><li><a href="/docs/solid-features">Solid Features</a></li><li><a href="/docs/bodies-and-multi-body-parts" aria-current="page">Bodies and Multi-Body Parts</a><ul><li><a href="#solid-bodies">Solid bodies</a></li><li><a href="#body-properties">Body Properties</a></li><li><a href="#materials">Materials</a></li><li><a href="#combine-and-subtract-bodies">Combine and Subtract Bodies</a></li><li><a href="#split">Split</a></li><li><a href="#move-copy-bodies">Move/Copy Bodies</a></li><li><a href="#delete-body">Delete Body</a></li></ul></li><li><a href="/docs/surfaces">Surfaces</a></li><li><a href="/docs/reference-geometry">Reference Geometry</a></li><li><a href="/docs/the-feature-tree-and-history">The Feature Tree and History</a></li><li><a href="/docs/sheet-metal">Sheet Metal</a></li><li><a href="/docs/drawings">Drawings</a></li><li><a href="/docs/evaluate-and-tools">Evaluate and Tools</a></li><li><a href="/docs/modelling-with-claude">Modelling with Claude</a></li><li><a href="/docs/troubleshooting">Troubleshooting</a></li><li><a href="/docs/for-developers">For Developers</a></li><li><a href="/docs/keyboard-and-mouse-reference">Appendix A: Keyboard and Mouse Reference</a></li><li><a href="/docs/materials">Appendix B: Materials</a></li></ol></nav>
+    </details>
+    <script>if (matchMedia("(min-width: 1000px)").matches) document.querySelector(".docs-nav").open = true;</script>
+    <main id="main" class="docs-main">
+      <p class="crumbs"><a href="/docs/">User manual</a> / Bodies and Multi-Body Parts</p>
+      <article class="prose">
+        <h1>Bodies and Multi-Body Parts</h1>
+<h2 id="solid-bodies">Solid bodies</h2>
+<p>A part can contain several solid bodies. A boss that doesn't touch the existing material makes a new body; untick <strong>Merge result</strong> to keep a touching boss separate. A cut that slices a body in two leaves two bodies.</p>
+<p>The <strong>Solid Bodies (n)</strong> folder at the top of the tree lists the bodies:</p>
+<ul><li>Click a body to select and highlight it.</li><li>Double-click (or right-click ▸ <strong>Rename</strong>) to name it. Unnamed bodies are named after the last feature that changed them.</li><li>Bodies are identified by the feature that created them, so names and materials stay attached when you change dimensions.</li><li><strong>Folders</strong>: right-click ▸ <strong>Add to New Folder</strong> or <strong>Move to folder</strong> to organise bodies.</li><li><strong>Identical bodies</strong> are listed once with their count (×N). Open the item to see each body. Right-click for Isolate, Hide or Show all of them. Identical means the same volume, surface area, principal moments of inertia, handedness and material (and for sheet metal, the same thickness and flat pattern).</li></ul>
+<h2 id="body-properties">Body Properties</h2>
+<p>Right-click a body (tree or view) ▸ <strong>Body Properties…</strong>. It holds the body's name, <strong>material</strong>, description and any number of <strong>custom properties</strong> (name/value pairs such as part number or finish). It also shows the body's mass, volume, area and centre of mass. For sheet metal bodies it adds the sheet data (Sheet Metal chapter).</p>
+<h2 id="materials">Materials</h2>
+<p>The <strong>Material</strong> item in the tree sets the part material (<strong>Tools ▸ Edit Material…</strong>). A body set to <strong>Use part material</strong> follows it. A body given its own material keeps it when the part material changes and is drawn in that material's colour. Mass Properties adds up every body with its own density. The material list is in Appendix B.</p>
+<h2 id="combine-and-subtract-bodies">Combine and Subtract Bodies</h2>
+<p><strong>Combine</strong> joins bodies with <strong>Add</strong>, <strong>Subtract</strong> or <strong>Common</strong>; the first body clicked is the main body. <strong>Subtract Bodies</strong> picks a cutting body and target body; <strong>Consume cutting body</strong> (on by default) removes the cutting body afterwards.</p>
+<h2 id="split">Split</h2>
+<p>Cuts bodies into separate bodies with a plane, a flat face or a surface body. With a plane or face you can keep all the pieces or just the piece on one side.</p>
+<h2 id="move-copy-bodies">Move/Copy Bodies</h2>
+<p>Moves or copies solid and surface bodies.</p>
+<ul><li><strong>By coordinates</strong>: ΔX/ΔY/ΔZ plus a rotation about X/Y/Z or a reference axis, through the axis or the bodies' centre. Copies repeat the step.</li><li><strong>With mates</strong>: Coincident, Distance, Parallel, Perpendicular, Angle and Concentric between an entity of the moving bodies (face, edge, vertex) and fixed geometry (another body, a plane, axis or point). <strong>Flip alignment</strong> turns a mate around.</li></ul>
+<h2 id="delete-body">Delete Body</h2>
+<p>Removes a body from the model from that point in the history. Deleting the Delete Body feature brings the body back.</p>
+      </article>
+      <nav class="pager" aria-label="Chapters"><a class="pager-prev" href="/docs/solid-features"><span>Previous</span>Solid Features</a><a class="pager-next" href="/docs/surfaces"><span>Next</span>Surfaces</a></nav>
+    </main>
+  </div>
+  <footer class="titleblock" aria-label="About this page">
+    <div class="tb-cell tb-logo"><img src="/favicon.svg" alt="" width="44" height="44"></div>
+    <div class="tb-cell tb-title"><span class="tb-label">Title</span><span class="tb-value tb-big">RazorCAD user manual</span></div>
+    <div class="tb-cell"><span class="tb-label">Rev</span><span class="tb-value">0.12.0-beta</span></div>
+    <div class="tb-cell"><span class="tb-label">Licence</span><span class="tb-value"><a href="https://github.com/Labs9119/RazorCAD/blob/main/LICENSE">GPL-3.0</a></span></div>
+    <div class="tb-cell"><span class="tb-label">Source</span><span class="tb-value"><a href="https://github.com/Labs9119/RazorCAD">Labs9119/RazorCAD</a></span></div>
+    <div class="tb-cell"><span class="tb-label">Kernel</span><span class="tb-value">OpenCascade</span></div>
+    <div class="tb-cell"><span class="tb-label">Support</span><span class="tb-value"><a href="https://github.com/Labs9119/RazorCAD/issues">Issues</a></span></div>
+    <div class="tb-cell"><span class="tb-label">Sheet</span><span class="tb-value">10 of 21</span></div>
+  </footer>
+  </div>
+</div>
+</body>
+</html>

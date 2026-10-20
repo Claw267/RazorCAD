@@ -4,6 +4,8 @@ A parametric part modeler for Windows with a classic feature-tree interface. It 
 constraint-driven sketches, equations and live previews. Its solid modeling runs on the
 **OpenCascade** B-rep kernel, the engine behind FreeCAD, via replicad.
 
+**Website: [razorcad.com](https://razorcad.com)** · [Download](https://github.com/Labs9119/RazorCAD/releases) · [User manual online](https://razorcad.com/docs/)
+
 ------------------------------
 Hey everyone! A quick heads-up about me and this project: I’m a Mechanical Engineer, not a professional coder. This software was built using incredible open-source libraries and a whole lot of help from Claude. It's still an early work-in-progress, so expect some bugs and hiccups along the way—I'm working hard to test features and fix problems as I find them.
 

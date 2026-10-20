@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sheet Metal | RazorCAD user manual</title>
+<meta name="description" content="The Sheet Metal tab holds Base Flange, Edge Flange, Corner Relief, Closed Corner, Unbend, Bend, Flatten, Convert to Sheet Metal, Export DXF, Export…">
+<link rel="canonical" href="https://razorcad.com/docs/sheet-metal">
+<meta name="theme-color" content="#a81616">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="RazorCAD">
+<meta property="og:url" content="https://razorcad.com/docs/sheet-metal">
+<meta property="og:title" content="Sheet Metal | RazorCAD user manual">
+<meta property="og:description" content="The Sheet Metal tab holds Base Flange, Edge Flange, Corner Relief, Closed Corner, Unbend, Bend, Flatten, Convert to Sheet Metal, Export DXF, Export…">
+<meta property="og:image" content="https://razorcad.com/img/social.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/img/razorcad-512.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "User manual", "item": "https://razorcad.com/docs/"}, {"@type": "ListItem", "position": 2, "name": "Sheet Metal", "item": "https://razorcad.com/docs/sheet-metal"}]}</script>
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <a class="brand" href="/" aria-label="RazorCAD home">
+    <img src="/favicon.svg" alt="" width="34" height="34">
+    <span>RazorCAD</span>
+  </a>
+  <nav aria-label="Main">
+    <a href="/#features">Features</a>
+    <a href="/docs/">Manual</a>
+    <a href="/#download">Download</a>
+    <a class="nav-gh" href="https://github.com/Labs9119/RazorCAD"><svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg> GitHub</a>
+  </nav>
+</header>
+
+<div class="frame">
+  <div class="zones zones-top" aria-hidden="true"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span></div>
+  <div class="zones zones-bottom" aria-hidden="true"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span></div>
+  <div class="zones zones-left" aria-hidden="true"><span>A</span><span>B</span><span>C</span><span>D</span><span>E</span><span>F</span></div>
+  <div class="zones zones-right" aria-hidden="true"><span>A</span><span>B</span><span>C</span><span>D</span><span>E</span><span>F</span></div>
+  <div class="sheet">
+  <div class="docs">
+    <details class="docs-nav">
+      <summary>Chapters</summary>
+      <nav aria-label="Manual chapters"><ol><li><a href="/docs/introduction">Introduction</a></li><li><a href="/docs/installing-and-starting-razorcad">Installing and Starting RazorCAD</a></li><li><a href="/docs/working-with-files">Working with Files</a></li><li><a href="/docs/navigating-the-3d-view">Navigating the 3D View</a></li><li><a href="/docs/selecting">Selecting</a></li><li><a href="/docs/sketching">Sketching</a></li><li><a href="/docs/gears">Gears</a></li><li><a href="/docs/solid-features">Solid Features</a></li><li><a href="/docs/bodies-and-multi-body-parts">Bodies and Multi-Body Parts</a></li><li><a href="/docs/surfaces">Surfaces</a></li><li><a href="/docs/reference-geometry">Reference Geometry</a></li><li><a href="/docs/the-feature-tree-and-history">The Feature Tree and History</a></li><li><a href="/docs/sheet-metal" aria-current="page">Sheet Metal</a><ul><li><a href="#base-flange">Base Flange</a></li><li><a href="#edge-flange">Edge Flange</a></li><li><a href="#corner-relief">Corner Relief</a></li><li><a href="#closed-corner">Closed Corner</a></li><li><a href="#unbend-and-bend">Unbend and Bend</a></li><li><a href="#cuts-and-other-features-on-sheet-metal">Cuts and other features on sheet metal</a></li><li><a href="#flatten">Flatten</a></li><li><a href="#convert-to-sheet-metal">Convert to Sheet Metal</a></li><li><a href="#sheet-metal-body-properties">Sheet metal Body Properties</a></li><li><a href="#exporting-flat-patterns-as-dxf">Exporting flat patterns as DXF</a></li><li><a href="#dxf-settings">DXF Settings</a></li></ul></li><li><a href="/docs/drawings">Drawings</a></li><li><a href="/docs/evaluate-and-tools">Evaluate and Tools</a></li><li><a href="/docs/modelling-with-claude">Modelling with Claude</a></li><li><a href="/docs/troubleshooting">Troubleshooting</a></li><li><a href="/docs/for-developers">For Developers</a></li><li><a href="/docs/keyboard-and-mouse-reference">Appendix A: Keyboard and Mouse Reference</a></li><li><a href="/docs/materials">Appendix B: Materials</a></li></ol></nav>
+    </details>
+    <script>if (matchMedia("(min-width: 1000px)").matches) document.querySelector(".docs-nav").open = true;</script>
+    <main id="main" class="docs-main">
+      <p class="crumbs"><a href="/docs/">User manual</a> / Sheet Metal</p>
+      <article class="prose">
+        <h1>Sheet Metal</h1>
+<p>The <strong>Sheet Metal</strong> tab holds Base Flange, Edge Flange, Corner Relief, Closed Corner, Unbend, Bend, Flatten, Convert to Sheet Metal, Export DXF, Export All DXF and DXF Settings. Sheet metal bodies are listed in the <strong>Sheet Metal Bodies</strong> folder below Solid Bodies, with sheet metal icons.</p>
+<h2 id="base-flange">Base Flange</h2>
+<p>A closed sketch (holes allowed) becomes a sheet of the given <strong>thickness</strong>. The <strong>bend radius</strong> and <strong>K-factor</strong> set here become the part's defaults.</p>
+<h2 id="edge-flange">Edge Flange</h2>
+<p>Click straight edges on the top or bottom face.</p>
+<div class="table-wrap"><table><thead><tr><th>Setting</th><th>Options</th></tr></thead><tbody><tr><td>Length</td><td>Measured to the outer virtual sharp, inner virtual sharp or tangent</td></tr><tr><td>Angle</td><td>Flange angle</td></tr><tr><td>Position</td><td>Material inside, material outside, bend outside, plus an offset; flip</td></tr><tr><td>Bend radius</td><td>Its own radius, or the default</td></tr><tr><td>Auto relief</td><td>Rectangular, obround or tear relief where a bend ends next to material</td></tr><tr><td>Corners</td><td>Flanges picked together that meet at a corner are closed with a gap (default 0.1 mm), or left open. Corner type Overlap, Underlap or Butt; <strong>Swap</strong> reverses which covers; Bend region V cutout or Closed.</td></tr></tbody></table></div>
+<h2 id="corner-relief">Corner Relief</h2>
+<p>Adds a rectangular, circular or tear relief at every corner where two bends meet.</p>
+<h2 id="closed-corner">Closed Corner</h2>
+<p>Closes the corners between 90° flanges: one flange covers the other's end, with a gap.</p>
+<ul><li><strong>Corner type</strong>: Overlap, Underlap or Butt (mitred, gap across the mitre, bends included).</li><li><strong>Which corners</strong>: click a face of a flange next to a corner and the matching flange is found automatically; the clicked flange is the one that overlaps or tucks under. With no corners picked, every corner of the body is closed.</li><li><strong>Swap</strong> reverses which flange covers.</li><li><strong>Bend region</strong>: <strong>V cutout</strong> (default) runs each bend into the corner as it would form from the flat, leaving a small teardrop-shaped opening with a relief at the corner point. <strong>Closed</strong> keeps the bends meeting on the diagonal.</li><li>The flat pattern matches the folded part at closed corners, including each bend's run-on, the relief and the corner round.</li></ul>
+<h2 id="unbend-and-bend">Unbend and Bend</h2>
+<p><strong>Unbend</strong> keeps the picked face in place and flattens the rest. Features after it (such as cuts across bends) are made in the flat. <strong>Bend</strong> folds it back to where it was. Both appear in the tree.</p>
+<h2 id="cuts-and-other-features-on-sheet-metal">Cuts and other features on sheet metal</h2>
+<p>Cuts on sheet metal (extruded cut and so on) become holes in the flat pattern, so the flat pattern always matches. Other features that change a sheet metal body are allowed, but the flat pattern can't follow them; this is shown in Body Properties and the DXF preview.</p>
+<h2 id="flatten">Flatten</h2>
+<p>Click <strong>Flatten</strong> on the tab, or right-click the body ▸ <strong>View Flat Pattern</strong>. The flat pattern is shown on its own; <kbd>Esc</kbd> or Flatten again restores the view as it was.</p>
+<h2 id="convert-to-sheet-metal">Convert to Sheet Metal</h2>
+<p>Turns an ordinary body into sheet metal. Pick a flat face of a thin-walled body (for example a STEP export of a sheet metal part, or a shelled box), or of a knitted surface of flat faces (enter the thickness).</p>
+<ul><li>RazorCAD follows that side of the sheet across every smooth edge, through flat faces and cylindrical bend faces, so the whole body is found. Each bend keeps its own radius and angle.</li><li>Bends that run straight into each other with no flat between (rolled shapes such as a fan scroll) are joined automatically. Cut-outs in bends are kept and holes stay true circles in the DXF.</li><li>Sharp-cornered bodies (shelled boxes) get bends of the chosen radius at every edge between two flat faces.</li><li>The panel shows what was found in the body, for example "thickness 3 mm · bend radii R300, R227, R13 (inside, 3 bends)" or "4 sharp edges".</li><li><strong>Use the body's thickness</strong> and <strong>Use the body's bend radii</strong> are on by default. Untick either to set your own value (pre-filled with the detected one).</li><li>After converting, the sheet's volume is compared with the body's. The feature note warns when they differ by more than 0.5 % (for example a nut or motor part that isn't sheet metal).</li></ul>
+<h2 id="sheet-metal-body-properties">Sheet metal Body Properties</h2>
+<p>Body Properties for a sheet metal body shows thickness, bend radius and K-factor, number of bends, overall flat size, flat area, mass and <strong>quantity</strong>, plus:</p>
+<ul><li><strong>Cut length</strong>: the total length of the flat outline plus every hole and cut-out, and the number of <strong>pierces</strong> (closed contours), for laser-cutting estimates. Also shown in the DXF part information and under flat pattern drawing views.</li><li><strong>Flat pattern seen from</strong>: top face or bottom face. The bottom face mirrors the pattern and swaps UP / DOWN bend lines and notes. Flatten, DXF export and drawing views all follow it.</li></ul>
+<h2 id="exporting-flat-patterns-as-dxf">Exporting flat patterns as DXF</h2>
+<ul><li>Right-click a sheet metal body (tree or view) ▸ <strong>Export Flat Pattern as DXF</strong>, or <strong>Export DXF</strong> on the tab.</li><li><strong>Export All DXF</strong>: choose a target folder; one file per body, named after the body. Identical bodies give one file with the quantity multiplied by the count.</li><li>Each file is shown in a <strong>preview window</strong> with its layer colours and line types, which can be changed there. Buttons: <strong>Export</strong>, <strong>Skip This One</strong> and <strong>Abort Export</strong>.</li><li>Options: bend lines, bend notes, bend region (hidden) lines, etch lines and part information.</li></ul>
+<h2 id="dxf-settings">DXF Settings</h2>
+<p><strong>DXF Settings</strong> on the Sheet Metal tab sets the defaults for every export: layer mapping (colours and line types) and options. Defaults: <strong>up bends red</strong>, <strong>down bends blue</strong>, <strong>etch lines yellow dashed</strong>. <strong>Reset to Defaults</strong> restores them.</p>
+      </article>
+      <nav class="pager" aria-label="Chapters"><a class="pager-prev" href="/docs/the-feature-tree-and-history"><span>Previous</span>The Feature Tree and History</a><a class="pager-next" href="/docs/drawings"><span>Next</span>Drawings</a></nav>
+    </main>
+  </div>
+  <footer class="titleblock" aria-label="About this page">
+    <div class="tb-cell tb-logo"><img src="/favicon.svg" alt="" width="44" height="44"></div>
+    <div class="tb-cell tb-title"><span class="tb-label">Title</span><span class="tb-value tb-big">RazorCAD user manual</span></div>
+    <div class="tb-cell"><span class="tb-label">Rev</span><span class="tb-value">0.12.0-beta</span></div>
+    <div class="tb-cell"><span class="tb-label">Licence</span><span class="tb-value"><a href="https://github.com/Labs9119/RazorCAD/blob/main/LICENSE">GPL-3.0</a></span></div>
+    <div class="tb-cell"><span class="tb-label">Source</span><span class="tb-value"><a href="https://github.com/Labs9119/RazorCAD">Labs9119/RazorCAD</a></span></div>
+    <div class="tb-cell"><span class="tb-label">Kernel</span><span class="tb-value">OpenCascade</span></div>
+    <div class="tb-cell"><span class="tb-label">Support</span><span class="tb-value"><a href="https://github.com/Labs9119/RazorCAD/issues">Issues</a></span></div>
+    <div class="tb-cell"><span class="tb-label">Sheet</span><span class="tb-value">14 of 21</span></div>
+  </footer>
+  </div>
+</div>
+</body>
+</html>

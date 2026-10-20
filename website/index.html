@@ -39,11 +39,11 @@
       "applicationCategory": "DesignApplication",
       "applicationSubCategory": "Computer-aided design (CAD)",
       "operatingSystem": "Windows 10, Windows 11",
-      "softwareVersion": "0.11.0-beta",
+      "softwareVersion": "0.12.0-beta",
       "url": "https://razorcad.com/",
       "downloadUrl": "https://github.com/Labs9119/RazorCAD/releases",
       "installUrl": "https://github.com/Labs9119/RazorCAD/releases",
-      "softwareHelp": "https://github.com/Labs9119/RazorCAD/releases/download/v0.11.0-beta/RazorCAD-User-Manual-0.11.0-beta.pdf",
+      "softwareHelp": "https://github.com/Labs9119/RazorCAD/releases/download/v0.12.0-beta/RazorCAD-User-Manual-0.12.0-beta.pdf",
       "releaseNotes": "https://github.com/Labs9119/RazorCAD/blob/main/CHANGELOG.md",
       "license": "https://www.gnu.org/licenses/gpl-3.0.html",
       "isAccessibleForFree": true,
@@ -102,7 +102,7 @@
     <a href="#features">Features</a>
     <a href="#faq">FAQ</a>
     <a href="#download">Download</a>
-    <a href="https://github.com/Labs9119/RazorCAD/releases/download/v0.11.0-beta/RazorCAD-User-Manual-0.11.0-beta.pdf" data-asset="manual">Manual</a>
+    <a href="/docs/">Manual</a>
     <a class="nav-gh" href="https://github.com/Labs9119/RazorCAD">
       <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
       GitHub
@@ -125,13 +125,13 @@
       <p class="lede">Sketch with constraints, build parts feature by feature, put them together in assemblies and
         make drawings. RazorCAD runs offline on the OpenCascade kernel, and it’s yours to use, share and change.</p>
       <div class="actions">
-        <a class="btn btn-primary" href="https://github.com/Labs9119/RazorCAD/releases/download/v0.11.0-beta/RazorCAD-Setup-0.11.0-beta.exe" data-asset="setup">
+        <a class="btn btn-primary" href="https://github.com/Labs9119/RazorCAD/releases/download/v0.12.0-beta/RazorCAD-Setup-0.12.0-beta.exe" data-asset="setup">
           <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M9 2h2v9.6l3.3-3.3 1.4 1.4L10 15.4 4.3 9.7l1.4-1.4L9 11.6zM3 16h14v2H3z"/></svg>
           Download for Windows
         </a>
         <a class="btn btn-ghost" href="https://github.com/Labs9119/RazorCAD">View the source on GitHub</a>
       </div>
-      <p class="meta"><span data-version>Version 0.11.0-beta</span>, <span data-size>33 MB</span>. Windows 10 and 11. GPL-3.0.</p>
+      <p class="meta"><span data-version>Version 0.12.0-beta</span>, <span data-size>33 MB</span>. Windows 10 and 11. GPL-3.0.</p>
     </section>
 
     <figure class="callout" aria-labelledby="bom-caption">
@@ -160,7 +160,7 @@
           <caption id="bom-caption">What you’re looking at</caption>
           <thead><tr><th scope="col">Item</th><th scope="col">Description</th></tr></thead>
           <tbody>
-            <tr><td>1</td><td>The command ribbon, with tabs for features, sketches, surfaces, sheet metal, weldments and evaluation.</td></tr>
+            <tr><td>1</td><td>The command ribbon, with tabs for features, sketches, surfaces, sheet metal, steel frames and evaluation.</td></tr>
             <tr><td>2</td><td>Solid and surface bodies. Each body can have its own name, material and properties.</td></tr>
             <tr><td>3</td><td>The feature tree: the part’s history. Change any step and everything after it rebuilds.</td></tr>
             <tr><td>4</td><td>Reference planes, axes and points that follow the model when it changes.</td></tr>
@@ -184,6 +184,7 @@
             <li>Import DXF files straight into a sketch</li>
             <li>Hold the middle mouse button for a tool wheel</li>
           </ul>
+          <p class="more"><a href="/docs/sketching">Sketching in the user manual</a></p>
         </div>
         <figure class="view-fig">
           <img src="img/sketch-crop.webp" width="1600" height="805" loading="lazy"
@@ -205,6 +206,7 @@
             <li>Configurations and design tables driven by global variables</li>
             <li>Mass properties from each body’s material</li>
           </ul>
+          <p class="more"><a href="/docs/solid-features">Solid features in the user manual</a></p>
         </div>
         <figure class="view-fig">
           <img src="img/sample-crop.webp" width="1600" height="805" loading="lazy"
@@ -225,6 +227,7 @@
             <li>Corner reliefs, closed corners, tabs and slots, dimples, louvers and extruded holes</li>
             <li>Sheet Metal Check flags short flanges and holes too close to a bend</li>
           </ul>
+          <p class="more"><a href="/docs/sheet-metal">Sheet metal in the user manual</a></p>
         </div>
         <div class="fig-pair">
           <figure>
@@ -252,6 +255,7 @@
             <li>Split lines, projected and composite curves</li>
             <li>Zebra stripes, curvature and draft analysis, and Flatten Surface to unroll a face</li>
           </ul>
+          <p class="more"><a href="/docs/surfaces">Surfaces in the user manual</a></p>
         </div>
         <figure class="view-fig">
           <img src="img/surface.webp" width="1200" height="777" loading="lazy"
@@ -289,6 +293,7 @@
             <li>Airfoils on a chord line: 38 NACA 4- and 5-digit sections and Clark Y, or your own parameters.
               Dimension the chord and the airfoil scales with it</li>
           </ul>
+          <p class="more"><a href="/docs/gears">Gears in the user manual</a></p>
         </div>
         <div class="fig-pair">
           <figure>
@@ -315,6 +320,7 @@
             <li>Your own templates, title blocks, logos and fonts</li>
             <li>Export any flat face as a DXF for laser or waterjet cutting</li>
           </ul>
+          <p class="more"><a href="/docs/drawings">Drawings in the user manual</a></p>
         </div>
         <figure class="view-fig">
           <img src="img/drawing-crop.webp" width="1600" height="827" loading="lazy"
@@ -392,7 +398,7 @@
       <div>
         <h2 id="dl-title">Install RazorCAD</h2>
         <ol class="steps">
-          <li><a href="https://github.com/Labs9119/RazorCAD/releases/download/v0.11.0-beta/RazorCAD-Setup-0.11.0-beta.exe" data-asset="setup">Download the setup program</a> from the latest GitHub release.</li>
+          <li><a href="https://github.com/Labs9119/RazorCAD/releases/download/v0.12.0-beta/RazorCAD-Setup-0.12.0-beta.exe" data-asset="setup">Download the setup program</a> from the latest GitHub release.</li>
           <li>Run it. Install just for you, without administrator rights, or for everyone on the PC.
             Setup adds the Microsoft WebView2 runtime and .NET Framework 4.8 if Windows doesn’t have them yet.</li>
           <li>Open RazorCAD from the Start menu and try the sample part, or start a new one.</li>
@@ -403,7 +409,7 @@
         <h3>This is a beta</h3>
         <p>Expect some bugs. If you make DXF files for manufacturing, check them before you cut anything.</p>
         <ul class="links">
-          <li><a href="https://github.com/Labs9119/RazorCAD/releases/download/v0.11.0-beta/RazorCAD-User-Manual-0.11.0-beta.pdf" data-asset="manual">User manual (PDF)</a></li>
+          <li><a href="/docs/">User manual</a> (also as a <a href="https://github.com/Labs9119/RazorCAD/releases/download/v0.12.0-beta/RazorCAD-User-Manual-0.12.0-beta.pdf" data-asset="manual">PDF</a>)</li>
           <li><a href="https://github.com/Labs9119/RazorCAD/blob/main/CHANGELOG.md">What’s changed</a></li>
           <li><a href="https://github.com/Labs9119/RazorCAD/releases">All releases</a></li>
         </ul>
@@ -415,7 +421,7 @@
   <footer class="titleblock" aria-label="About this site">
     <div class="tb-cell tb-logo"><img src="favicon.svg" alt="" width="44" height="44"></div>
     <div class="tb-cell tb-title"><span class="tb-label">Title</span><span class="tb-value tb-big">RazorCAD</span></div>
-    <div class="tb-cell"><span class="tb-label">Rev</span><span class="tb-value" data-rev>0.11.0-beta</span></div>
+    <div class="tb-cell"><span class="tb-label">Rev</span><span class="tb-value" data-rev>0.12.0-beta</span></div>
     <div class="tb-cell"><span class="tb-label">Licence</span><span class="tb-value"><a href="https://github.com/Labs9119/RazorCAD/blob/main/LICENSE">GPL-3.0</a></span></div>
     <div class="tb-cell"><span class="tb-label">Source</span><span class="tb-value"><a href="https://github.com/Labs9119/RazorCAD">Labs9119/RazorCAD</a></span></div>
     <div class="tb-cell"><span class="tb-label">Kernel</span><span class="tb-value">OpenCascade</span></div>
