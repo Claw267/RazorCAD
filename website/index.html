@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RazorCAD: free, open-source parametric 3D CAD for Windows</title>
-<meta name="description" content="Free, open-source parametric 3D CAD for Windows. Constraint-driven sketches, a feature tree, assemblies, STEP import and 2D drawings. Runs offline.">
+<meta name="description" content="Free, open-source parametric 3D CAD for Windows: sketches, solids, sheet metal, surfaces, weldments, assemblies, STEP import and 2D drawings. Runs offline.">
 <meta name="robots" content="index, follow, max-image-preview:large">
 <link rel="canonical" href="https://razorcad.com/">
 <meta name="theme-color" content="#a81616">
@@ -57,7 +57,11 @@
       "featureList": [
         "Constraint-driven 2D sketches with relations, dimensions and equations",
         "Feature-based solid modeling: extrude, revolve, sweep, loft, fillet, chamfer, shell, patterns",
-        "Multi-body parts, surfaces, sheet metal and weldments",
+        "Multi-body parts and configurations",
+        "Sheet metal with flanges, hems, transitions, forming tools and DXF flat patterns",
+        "Surface modeling: lofted, swept, boundary and filled surfaces, trim, knit and thicken",
+        "3D sketches and weldment frames with structural members and cut lists",
+        "Involute gear train and NACA airfoil generators",
         "Assemblies with mates, sub-assemblies, exploded views and bills of materials",
         "2D drawings with section and detail views, exported to PDF and DXF",
         "STEP, STL and DXF import and export"
@@ -198,7 +202,7 @@
             <li>Fillet, chamfer, shell, draft, rib, Hole Wizard and threads</li>
             <li>Linear, circular, curve and sketch driven patterns, and mirror</li>
             <li>Several bodies per part, with Combine, Split and Move/Copy</li>
-            <li>Surfaces, sheet metal with flat patterns, and weldments with a cut list</li>
+            <li>Configurations and design tables driven by global variables</li>
             <li>Mass properties from each body’s material</li>
           </ul>
         </div>
@@ -207,6 +211,97 @@
                alt="The sample mounting plate in an isometric view: a rectangular plate with four holes, two slots and a round boss, with its feature tree.">
           <figcaption>The sample part, in 6061 aluminium</figcaption>
         </figure>
+      </article>
+
+      <article class="view view-pair">
+        <div class="view-text">
+          <h2>Sheet metal, with the flat pattern ready to cut</h2>
+          <p>Design folded parts the way they’re made. Every sheet metal body keeps its flat pattern up to date,
+            using your K-factor or a gauge table, and exports it to DXF with its bend lines and bend notes.</p>
+          <ul>
+            <li>Base, edge and miter flanges, hems, jogs and sketched bends</li>
+            <li>Transitions and reducers: square, rectangle or polygon to round, cones and lofted bends</li>
+            <li>Convert a solid, or a surface curved one way, into sheet metal</li>
+            <li>Corner reliefs, closed corners, tabs and slots, dimples, louvers and extruded holes</li>
+            <li>Sheet Metal Check flags short flanges and holes too close to a bend</li>
+          </ul>
+        </div>
+        <div class="fig-pair">
+          <figure>
+            <img src="img/transition.webp" width="1160" height="800" loading="lazy"
+                 alt="A square-to-round sheet metal transition, 500 mm square at the bottom and 300 mm round at the top, made of bent facets.">
+            <figcaption>Square to round transition</figcaption>
+          </figure>
+          <figure>
+            <img src="img/transition-flat.webp" width="1160" height="800" loading="lazy"
+                 alt="The flat pattern of one half of the transition, with 14 dashed bend lines fanning out from the corners.">
+            <figcaption>Its flat pattern, 14 bends</figcaption>
+          </figure>
+        </div>
+      </article>
+
+      <article class="view">
+        <div class="view-text">
+          <h2>Surfaces for the shapes solids can’t make</h2>
+          <p>Build zero-thickness surfaces through curves, trim and knit them together, then thicken them into a solid
+            or let them close up into one. The same tools tidy up imported parts.</p>
+          <ul>
+            <li>Extruded, revolved, lofted, swept, boundary, filled, ruled and planar surfaces</li>
+            <li>Offset, trim, extend, untrim, knit and thicken</li>
+            <li>Delete or replace faces to repair or simplify imported models</li>
+            <li>Split lines, projected and composite curves</li>
+            <li>Zebra stripes, curvature and draft analysis, and Flatten Surface to unroll a face</li>
+          </ul>
+        </div>
+        <figure class="view-fig">
+          <img src="img/surface.webp" width="1200" height="777" loading="lazy"
+               alt="A smooth, wavy lofted surface passing through three spline curves drawn in a 3D sketch.">
+          <figcaption>A lofted surface through three 3D splines</figcaption>
+        </figure>
+      </article>
+
+      <article class="view">
+        <div class="view-text">
+          <h2>3D sketches and welded frames</h2>
+          <p>Draw lines, arcs and splines straight in space. Lines snap along X, Y and Z, and 3D relations and dimensions
+            hold them in place, just as in a 2D sketch. Use them as sweep paths, pipe and duct routes, or the centre lines of a frame.</p>
+          <ul>
+            <li>Structural members along every line: SHS, RHS, pipe, angle, channel, I-beams and bar, in AS/NZS and EN/ISO sizes</li>
+            <li>Corners mitred or butted, T-joints trimmed, and pipes coped automatically</li>
+            <li>End caps, gussets and weld beads</li>
+            <li>A cut list with lengths, end angles and mass, exported to CSV</li>
+          </ul>
+        </div>
+        <figure class="view-fig">
+          <img src="img/frame.webp" width="1140" height="936" loading="lazy"
+               alt="A bench frame of 50 by 50 square hollow section with mitred top corners, four legs and two lower rails, built on a 3D sketch.">
+          <figcaption>A bench frame from one 3D sketch</figcaption>
+        </figure>
+      </article>
+
+      <article class="view view-pair">
+        <div class="view-text">
+          <h2>Gears and airfoils, drawn for you</h2>
+          <p>Some profiles are tedious to draw by hand, so RazorCAD generates them inside the sketch, where they stay editable.</p>
+          <ul>
+            <li>Involute gear trains on centre lines: set the module, pressure angle, teeth or ratio, backlash and bore,
+              and RazorCAD checks that every pair meshes</li>
+            <li>Airfoils on a chord line: 38 NACA 4- and 5-digit sections and Clark Y, or your own parameters.
+              Dimension the chord and the airfoil scales with it</li>
+          </ul>
+        </div>
+        <div class="fig-pair">
+          <figure>
+            <img src="img/gears.webp" width="1160" height="800" loading="lazy"
+                 alt="Three meshing spur gears with 24, 36 and 16 teeth, each with a bore, extruded from one sketch.">
+            <figcaption>A three-gear train, module 2</figcaption>
+          </figure>
+          <figure>
+            <img src="img/airfoil.webp" width="1160" height="800" loading="lazy"
+                 alt="A straight wing section extruded from a NACA 4412 airfoil profile.">
+            <figcaption>A NACA 4412 wing section</figcaption>
+          </figure>
+        </div>
       </article>
 
       <article class="view">
