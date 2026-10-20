@@ -6,6 +6,10 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 20:36 — Version 0.12.0-beta
+- `version.txt` 0.11.0-beta → **0.12.0-beta**, for the release with everything since 0.11.0-beta: drawings of assemblies (with fast hidden lines for big assemblies), the drawing tree fix, and some features and tools renamed.
+- Installer `RazorCAD-Setup-0.12.0-beta.exe` and the user manual rebuilt.
+
 ## 2026-10-20 20:21 — Some features and tools renamed
 - Some features, sketch tools, drawing tools and a ribbon tab have new, plainer names.
 - Features in parts saved earlier that still carry an old default name are renamed when the part is opened; names you typed yourself are kept.
