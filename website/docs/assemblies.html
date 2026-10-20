@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assemblies | RazorCAD user manual</title>
+<meta name="description" content="An assembly places parts and other assemblies as components and holds them together with mates. Assemblies are saved as .rasm files and open in a tab…">
+<link rel="canonical" href="https://razorcad.com/docs/assemblies">
+<meta name="theme-color" content="#a81616">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="RazorCAD">
+<meta property="og:url" content="https://razorcad.com/docs/assemblies">
+<meta property="og:title" content="Assemblies | RazorCAD user manual">
+<meta property="og:description" content="An assembly places parts and other assemblies as components and holds them together with mates. Assemblies are saved as .rasm files and open in a tab…">
+<meta property="og:image" content="https://razorcad.com/img/social.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/img/razorcad-512.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "User manual", "item": "https://razorcad.com/docs/"}, {"@type": "ListItem", "position": 2, "name": "Assemblies", "item": "https://razorcad.com/docs/assemblies"}]}</script>
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <a class="brand" href="/" aria-label="RazorCAD home">
+    <img src="/favicon.svg" alt="" width="34" height="34">
+    <span>RazorCAD</span>
+  </a>
+  <nav aria-label="Main">
+    <a href="/#features">Features</a>
+    <a href="/docs/">Manual</a>
+    <a href="/#download">Download</a>
+    <a class="nav-gh" href="https://github.com/Labs9119/RazorCAD"><svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg> GitHub</a>
+  </nav>
+</header>
+
+<div class="frame">
+  <div class="zones zones-top" aria-hidden="true"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span></div>
+  <div class="zones zones-bottom" aria-hidden="true"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span></div>
+  <div class="zones zones-left" aria-hidden="true"><span>A</span><span>B</span><span>C</span><span>D</span><span>E</span><span>F</span></div>
+  <div class="zones zones-right" aria-hidden="true"><span>A</span><span>B</span><span>C</span><span>D</span><span>E</span><span>F</span></div>
+  <div class="sheet">
+  <div class="docs">
+    <details class="docs-nav">
+      <summary>Chapters</summary>
+      <nav aria-label="Manual chapters"><ol><li><a href="/docs/introduction">Introduction</a></li><li><a href="/docs/installing-and-starting-razorcad">Installing and Starting RazorCAD</a></li><li><a href="/docs/working-with-files">Working with Files</a></li><li><a href="/docs/navigating-the-3d-view">Navigating the 3D View</a></li><li><a href="/docs/selecting">Selecting</a></li><li><a href="/docs/sketching">Sketching</a></li><li><a href="/docs/3d-sketches">3D Sketches</a></li><li><a href="/docs/gears">Gears</a></li><li><a href="/docs/airfoils">Airfoils</a></li><li><a href="/docs/solid-features">Solid Features</a></li><li><a href="/docs/bodies-and-multi-body-parts">Bodies and Multi-Body Parts</a></li><li><a href="/docs/surfaces">Surfaces</a></li><li><a href="/docs/reference-geometry">Reference Geometry</a></li><li><a href="/docs/the-feature-tree-and-history">The Feature Tree and History</a></li><li><a href="/docs/sheet-metal">Sheet Metal</a></li><li><a href="/docs/fast-structure">Fast Structure</a></li><li><a href="/docs/configurations">Configurations</a></li><li><a href="/docs/assemblies" aria-current="page">Assemblies</a><ul><li><a href="#starting-an-assembly">Starting an assembly</a></li><li><a href="#inserting-components">Inserting components</a></li><li><a href="#mates">Mates</a></li><li><a href="#moving-components">Moving components</a></li><li><a href="#the-assembly-tree">The assembly tree</a></li><li><a href="#sub-assemblies">Sub-assemblies</a></li><li><a href="#exploded-views">Exploded views</a></li><li><a href="#bill-of-materials">Bill of Materials</a></li><li><a href="#step-assemblies">STEP assemblies</a></li><li><a href="#saving-parts-as-separate-files">Saving parts as separate files</a></li><li><a href="#big-assemblies">Big assemblies</a></li></ul></li><li><a href="/docs/drawings">Drawings</a></li><li><a href="/docs/evaluate-and-tools">Evaluate and Tools</a></li><li><a href="/docs/modelling-with-claude">Modelling with Claude</a></li><li><a href="/docs/troubleshooting">Troubleshooting</a></li><li><a href="/docs/for-developers">For Developers</a></li><li><a href="/docs/keyboard-and-mouse-reference">Appendix A: Keyboard and Mouse Reference</a></li><li><a href="/docs/materials">Appendix B: Materials</a></li></ol></nav>
+    </details>
+    <script>if (matchMedia("(min-width: 1000px)").matches) document.querySelector(".docs-nav").open = true;</script>
+    <main id="main" class="docs-main">
+      <p class="crumbs"><a href="/docs/">User manual</a> / Assemblies</p>
+      <article class="prose">
+        <h1>Assemblies</h1>
+<p>An assembly places parts and other assemblies as <strong>components</strong> and holds them together with <strong>mates</strong>. Assemblies are saved as <strong>.rasm</strong> files and open in a tab of their own.</p>
+<h2 id="starting-an-assembly">Starting an assembly</h2>
+<p><strong>File ▸ New Assembly</strong>, or <strong>New Assembly</strong> in the start window. Every assembly has the standard <strong>Front, Top and Right Planes</strong> and the <strong>Origin</strong> at the top of its tree. They show in the view as a part's do (the eye in the tree, <strong>View ▸ Show Planes</strong>), and mates can use them; they stay where they are.</p>
+<p>The <strong>Assembly</strong> tab of the ribbon holds Insert Components, Mate, Fix, Float, Hide Component, Suppress, Open Part, Exploded View, Explode / Collapse, Bill of Materials and Zoom to Fit.</p>
+<h2 id="inserting-components">Inserting components</h2>
+<p><strong>Insert Components</strong> lists the parts and assemblies open in other tabs, or <strong>Browse for a Part or Assembly…</strong> takes a .rcad or .rasm file.</p>
+<ul><li>The first component is <strong>fixed</strong> at the origin; the others are placed beside what is there.</li><li>If the part has configurations, you choose which one to use. Right-click a component later to switch it to another configuration. The same part can be in the assembly several times in different configurations.</li><li>The assembly keeps a copy of each part, refreshed from its tab or file whenever you come back to the assembly, so edit a part and the assembly follows.</li><li>Several instances of one part share it: it is built once and drawn once.</li></ul>
+<h2 id="mates">Mates</h2>
+<p>Click <strong>Mate</strong> (<kbd>M</kbd>), then two faces, edges or vertices on different components (or a standard plane), choose the type and click ✔. The panel stays open for the next mate; <kbd>Esc</kbd> closes it.</p>
+<div class="table-wrap"><table><thead><tr><th>Mate</th><th>Holds</th></tr></thead><tbody><tr><td><strong>Coincident</strong></td><td>Faces, edges or points together</td></tr><tr><td><strong>Concentric</strong></td><td>Axes in line</td></tr><tr><td><strong>Parallel</strong> / <strong>Perpendicular</strong></td><td>Directions</td></tr><tr><td><strong>Tangent</strong></td><td>A face touching a round face</td></tr><tr><td><strong>Distance</strong> / <strong>Angle</strong></td><td>At a set value</td></tr><tr><td><strong>Lock</strong></td><td>One component fixed to another</td></tr></tbody></table></div>
+<ul><li>Flat faces count as planes; cylinders, cones and circular edges as axes; spheres and vertices as points.</li><li>Each mate is shown applied while you choose. <strong>Flip</strong> swaps Aligned / Anti-Aligned (or the side for Distance and Tangent). When the alignment chosen from how the faces sit can't be reached, the other one is used.</li><li>A mate that conflicts with the others is refused with a message.</li></ul>
+<h2 id="moving-components">Moving components</h2>
+<p>Left-drag a component to move it, <kbd>Alt</kbd>+drag to turn it. It moves only as its mates allow. The view turns, pans and zooms as in a part (see Navigating the 3D View).</p>
+<p>Selecting works as in a part and follows the <strong>selection filter</strong>: with no filter a click picks the vertex, edge, face or plane under the cursor; with the Bodies filter it picks whole components. <kbd>Ctrl</kbd>+click adds or takes away. Right-click a face, edge or vertex for <strong>Mate…</strong> and the component's commands; whatever is selected goes into the mate. Dragging a component moves it, whatever is selected.</p>
+<h2 id="the-assembly-tree">The assembly tree</h2>
+<ul><li>Each component shows <strong>(f)</strong> when fixed or <strong>(-)</strong> while still free to move, its configuration, and an eye to hide or show it.</li><li>The <strong>Mates</strong> folder lists the mates; right-click one for <strong>Edit</strong>, <strong>Flip</strong>, <strong>Suppress</strong> or <strong>Delete</strong>.</li><li>Right-click a component for <strong>Mate…</strong>, <strong>Open Part</strong> (or double-click it), <strong>Fix / Float</strong>, <strong>Hide / Show</strong>, <strong>Suppress / Unsuppress</strong>, <strong>Insert Another Instance</strong>, <strong>Rename</strong> and <strong>Delete</strong>.</li><li>Undo and redo work in the assembly.</li></ul>
+<h2 id="sub-assemblies">Sub-assemblies</h2>
+<p>An assembly can hold other assemblies as components. <strong>Insert Components ▸ Browse for a Part or Assembly…</strong> takes a .rasm file, and STEP assemblies keep their sub-assemblies when they open as an assembly. An assembly can't go inside itself.</p>
+<ul><li>A sub-assembly is kept whole, with its own parts, placements and configurations, and moves, hides, suppresses and explodes as one. Clicking any of its parts picks it.</li><li>Mates can use the faces, edges and vertices of the parts inside it.</li><li>In the tree, ▶ opens a sub-assembly to show its components. Double-click one, or right-click the sub-assembly ▸ <strong>Open Sub-assembly</strong>, to change it in its own tab; the changes come back to the assembly.</li></ul>
+<h2 id="exploded-views">Exploded views</h2>
+<p><strong>Exploded View</strong> on the ribbon (or <strong>Insert ▸ Exploded View…</strong>) spreads components apart for display; the model and its mates stay put.</p>
+<ol class="steps-list"><li>Click components to pick them (click again to drop one).</li><li>Pick a direction: ±X, ±Y, ±Z, or along a face's normal.</li><li>Drag the picked items along the direction, or type the distance, then click <strong>Add Step</strong>. <strong>Spread Out</strong> spaces the picked items out along the direction, one step each.</li><li>Click a step to change it, ✕ to delete it. <strong>Explode lines</strong> (dashed, from each item's place to where it is shown) can be switched off.</li></ol>
+<p>The tree's <strong>Exploded Views</strong> folder lists them. Double-click one to explode or collapse it (animated); right-click for Explode / Collapse, Animate, Edit, Rename and Delete. The <strong>Explode / Collapse</strong> button on the ribbon does the same for the last one. Dragging a component, adding a mate or editing collapses the view first. Exploded views are saved with the file.</p>
+<h2 id="bill-of-materials">Bill of Materials</h2>
+<p><strong>Bill of Materials</strong> lists the parts with their quantities and materials: one row per part and configuration used, with suppressed components left out. It is indented: a sub-assembly's parts are listed under it (1.1, 1.2…), with the quantities in one of it. <strong>Copy as CSV</strong> or <strong>Save CSV…</strong> takes it to a spreadsheet.</p>
+<h2 id="step-assemblies">STEP assemblies</h2>
+<p>Opening a STEP file that holds an assembly asks whether to open it <strong>as an assembly</strong> or <strong>as one part</strong> (see Importing in the Working with Files chapter). As an assembly, each part of the file becomes a part, each sub-assembly a sub-assembly, and each component is placed, fixed, where the file places it, with the names and colours from the file.</p>
+<h2 id="saving-parts-as-separate-files">Saving parts as separate files</h2>
+<p>When an assembly holds parts or sub-assemblies that are only inside it (as a STEP assembly does when it opens), Save asks how to save them:</p>
+<ul><li><strong>Save Parts as Separate Files</strong> saves each part as a .rcad file and each sub-assembly as a .rasm file in the assembly's folder, named after them. The assembly (and each sub-assembly) then uses those files, so each part can be opened and changed on its own and the change shows in the assembly. A part used in several places is one file. If files of those names are already there, you are asked before they are replaced.</li><li><strong>Save as One File</strong> keeps everything inside the assembly file. You are not asked again, except on Save As.</li></ul>
+<h2 id="big-assemblies">Big assemblies</h2>
+<p>Each part an assembly builds is kept in the model cache (<code>%LOCALAPPDATA%\RazorCAD\modelcache</code>). Opening the assembly again shows unchanged parts straight from there, and the kernel only builds parts that changed, so a large layout reopens in seconds. Each part is sent to the graphics card once and placed at every component that uses it, so moving, hiding or exploding components is instant.</p>
+      </article>
+      <nav class="pager" aria-label="Chapters"><a class="pager-prev" href="/docs/configurations"><span>Previous</span>Configurations</a><a class="pager-next" href="/docs/drawings"><span>Next</span>Drawings</a></nav>
+    </main>
+  </div>
+  <footer class="titleblock" aria-label="About this page">
+    <div class="tb-cell tb-logo"><img src="/favicon.svg" alt="" width="44" height="44"></div>
+    <div class="tb-cell tb-title"><span class="tb-label">Title</span><span class="tb-value tb-big">RazorCAD user manual</span></div>
+    <div class="tb-cell"><span class="tb-label">Rev</span><span class="tb-value">0.12.0-beta</span></div>
+    <div class="tb-cell"><span class="tb-label">Licence</span><span class="tb-value"><a href="https://github.com/Labs9119/RazorCAD/blob/main/LICENSE">GPL-3.0</a></span></div>
+    <div class="tb-cell"><span class="tb-label">Source</span><span class="tb-value"><a href="https://github.com/Labs9119/RazorCAD">Labs9119/RazorCAD</a></span></div>
+    <div class="tb-cell"><span class="tb-label">Kernel</span><span class="tb-value">OpenCascade</span></div>
+    <div class="tb-cell"><span class="tb-label">Support</span><span class="tb-value"><a href="https://github.com/Labs9119/RazorCAD/issues">Issues</a></span></div>
+    <div class="tb-cell"><span class="tb-label">Sheet</span><span class="tb-value">19 of 26</span></div>
+  </footer>
+  </div>
+</div>
+</body>
+</html>
