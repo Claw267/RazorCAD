@@ -149,6 +149,8 @@ export const platform = {
   // when automatic, never when turned off), and the settings { auto, skip }
   async updateSettings(changes = null) { return desktop ? api().update_settings(changes) : null; },
   async checkUpdate(force = false) { return desktop ? api().check_update(force) : null; },
+  // Update now (desktop, installed with the setup): { ok } once the setup is downloaded and started, else { error }
+  async startUpdate(setup) { return desktop ? api().start_update(setup.url, setup.size, setup.digest) : { error: 'The browser version updates by itself' }; },
   // a RazorCAD page (on GitHub) in the web browser
   async openUrl(url) {
     if (desktop) return api().open_url(url);

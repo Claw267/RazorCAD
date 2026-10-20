@@ -6,6 +6,14 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 23:15 — Update Now
+- **One click to update.** When a newer version is out, the notice (and Help ▸ Check for Updates) offers **Update Now**. RazorCAD then:
+  - downloads the new setup from its GitHub release and checks it against the release (size and SHA-256);
+  - installs it in the background into the same folder, asking for administrator rights only when it was installed for all users;
+  - closes, and starts again as the new version a few seconds later.
+- Unsaved work is saved first (**Save All and Update**), or the update waits.
+- If anything goes wrong (permission refused, the download fails), the version you had starts again. A copy of RazorCAD that wasn't installed with the setup keeps the **Download** button.
+
 ## 2026-10-20 23:11 — More geometry kernels at once
 - **Assemblies build their parts side by side.** Extra geometry kernels start when they are first needed: up to 4, a quarter of the PC's processor threads. Six slow parts took 1.1 s instead of 2.8 s, and each part shows as soon as it is built.
 - **Drawings use the extra kernels too:** views, fast assembly views (their parts built side by side), balloons and cut lists. Each model stays with the same kernel, so its build is reused. The interference check and assembly STEP export share one kernel, so they reuse the parts it built.

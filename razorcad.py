@@ -119,6 +119,68 @@ RELEASES_API = 'https://api.github.com/repos/Labs9119/RazorCAD/releases?per_page
 REPO_URL = 'https://github.com/Labs9119/RazorCAD'
 
 
+RELEASE_DOWNLOADS = REPO_URL + '/releases/download/'
+UNINSTALL_KEY = r'Software\Microsoft\Windows\CurrentVersion\Uninstall\RazorCAD'
+
+
+def install_info():
+    """Where this RazorCAD was installed by its setup: { installed, folder, allUsers } (installed False: a copy run
+    on its own, which updates by downloading the new setup by hand)."""
+    if not getattr(sys, 'frozen', False) or os.name != 'nt':
+        return {'installed': False}
+    import winreg
+    here = os.path.normcase(os.path.dirname(os.path.abspath(sys.executable)))
+    for root, all_users in ((winreg.HKEY_CURRENT_USER, False), (winreg.HKEY_LOCAL_MACHINE, True)):
+        try:
+            with winreg.OpenKey(root, UNINSTALL_KEY) as k:
+                loc = winreg.QueryValueEx(k, 'InstallLocation')[0]
+        except OSError:
+            continue
+        if loc and os.path.normcase(os.path.abspath(loc)) == here:
+            return {'installed': True, 'folder': loc, 'allUsers': all_users}
+    return {'installed': False}
+
+
+def download_verified(url, path, size=None, digest=None, timeout=60):
+    """Downloads url to path, checking its size and SHA-256 (digest 'sha256:<hex>', as GitHub gives it). The
+    file only appears at path once it checks out."""
+    import hashlib
+    part = path + '.part'
+    h = hashlib.sha256()
+    n = 0
+    req = urllib.request.Request(url, headers={'User-Agent': 'RazorCAD/' + (APP_VERSION or 'dev')})
+    with urllib.request.urlopen(req, timeout=timeout) as r, open(part, 'wb') as f:
+        while True:
+            chunk = r.read(1 << 20)
+            if not chunk:
+                break
+            f.write(chunk)
+            h.update(chunk)
+            n += len(chunk)
+    try:
+        if size and n != int(size):
+            raise RuntimeError('the download is incomplete (%d of %d bytes)' % (n, int(size)))
+        if digest and str(digest).lower().startswith('sha256:') and h.hexdigest() != str(digest)[7:].lower():
+            raise RuntimeError('the download does not match the release (SHA-256 differs)')
+    except Exception:
+        os.remove(part)
+        raise
+    os.replace(part, path)
+    return n
+
+
+def update_script(setup, folder, all_users, log):
+    """PowerShell that runs the setup silently into folder (asking for administrator rights for an installation
+    for all users), waits for it, then starts RazorCAD again (also when the setup failed or was refused)."""
+    q = lambda s: "'" + str(s).replace("'", "''") + "'"
+    args = ["'/S'", q('"/D=' + folder + '"')] + (["'/ALLUSERS'"] if all_users else [])
+    run = 'Start-Process -FilePath %s -ArgumentList %s -Wait -PassThru%s' % (q(setup), ','.join(args), ' -Verb RunAs' if all_users else '')
+    return ('$ErrorActionPreference = "Stop"; '
+            'try { $p = %s; Add-Content -Path %s -Value ("setup exit " + $p.ExitCode) } '
+            'catch { Add-Content -Path %s -Value ("setup not run: " + $_) }; '
+            'Start-Sleep -Milliseconds 400; Start-Process -FilePath %s') % (run, q(log), q(log), q(os.path.join(folder, APP_NAME + '.exe')))
+
+
 def version_key(v):
     """'0.12.0-beta' → comparable tuple; a pre-release (alpha < beta < rc) comes before its release."""
     m = re.match(r'v?(\d+)\.(\d+)(?:\.(\d+))?(?:-([A-Za-z]+)\.?(\d*))?', str(v or '').strip())
@@ -994,9 +1056,36 @@ class Api:
             return {'current': APP_VERSION, 'latest': '', 'newer': False}
         best = max(releases, key=lambda x: version_key(x['tag_name']))
         latest = best['tag_name'].lstrip('vV')
+        setup = next((a for a in best.get('assets') or [] if re.fullmatch(r'RazorCAD-Setup-[\w.\-]+\.exe', a.get('name') or '')), None)
         return {'current': APP_VERSION, 'latest': latest, 'newer': version_key(latest) > version_key(APP_VERSION),
                 'skipped': latest == s['skip'], 'url': best.get('html_url') or REPO_URL + '/releases',
-                'name': best.get('name') or latest, 'published': best.get('published_at') or ''}
+                'name': best.get('name') or latest, 'published': best.get('published_at') or '',
+                'setup': {'url': setup.get('browser_download_url'), 'size': setup.get('size'), 'digest': setup.get('digest')} if setup else None,
+                'installed': install_info().get('installed', False)}
+
+    def start_update(self, url, size=None, digest=None):
+        """Update now: downloads the new setup (checked against the release), then a helper runs it silently into this
+        installation, waits, and starts RazorCAD again; the app closes itself after this returns ok."""
+        url = str(url or '')
+        name = url.rsplit('/', 1)[-1]
+        if not url.startswith(RELEASE_DOWNLOADS) or not re.fullmatch(r'RazorCAD-Setup-[\w.\-]+\.exe', name):
+            return {'error': 'Not a RazorCAD setup from its GitHub releases'}
+        info = install_info()
+        if not info.get('installed'):
+            return {'error': 'This copy of RazorCAD was not installed with its setup: download the new setup instead.'}
+        import tempfile
+        folder = os.path.join(tempfile.gettempdir(), 'RazorCAD-update')
+        os.makedirs(folder, exist_ok=True)
+        path = os.path.join(folder, name)
+        try:
+            download_verified(url, path, size, digest)
+        except Exception as e:
+            return {'error': 'Download failed: %s' % getattr(e, 'reason', e)}
+        script = update_script(path, info['folder'], info['allUsers'], os.path.join(folder, 'update.log'))
+        flags = getattr(subprocess, 'DETACHED_PROCESS', 0) | getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0) | NO_WINDOW
+        subprocess.Popen(['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-Command', script],
+                         creationflags=flags, close_fds=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return {'ok': True, 'allUsers': info['allUsers']}
 
     def open_url(self, url):
         """Opens a RazorCAD page (its GitHub pages only) in the web browser."""

@@ -5224,7 +5224,8 @@ export class UI {
       document.querySelector('#update-banner')?.remove();
       const b = el('div', { id: 'update-banner' }, `${icon('rebuild')}<span>RazorCAD <b>${esc(r.latest)}</b> is out (you have ${esc(r.current)}).</span>`);
       const btn = (label, fn, primary = false) => { const x = el('button', { class: primary ? 'primary' : '' }, esc(label)); x.onclick = () => { fn(); b.remove(); }; b.appendChild(x); };
-      btn('Download', () => platform.openUrl(r.url), true);
+      if (r.setup && r.installed) btn('Update Now', () => this.updateNow(r), true);
+      else btn('Download', () => platform.openUrl(r.url), true);
       btn('Later', () => {});
       btn('Skip this version', () => platform.updateSettings({ skip: r.latest }));
       document.body.appendChild(b);
@@ -5240,9 +5241,26 @@ export class UI {
     auto.querySelector('input').onchange = (e) => platform.updateSettings({ auto: e.target.checked });
     body.appendChild(auto);
     this.modal('Check for Updates', 'rebuild', body, [
-      ...(r?.newer ? [{ label: 'Open the Download Page', primary: true, action: () => { platform.openUrl(r.url); } }] : []),
+      ...(r?.newer && r.setup && r.installed ? [{ label: 'Update Now', primary: true, action: () => { setTimeout(() => this.updateNow(r), 0); } }] : []),
+      ...(r?.newer ? [{ label: 'Open the Download Page', primary: !(r.setup && r.installed), action: () => { platform.openUrl(r.url); } }] : []),
       { label: 'Close', primary: !r?.newer },
     ]);
+  }
+
+  // Update Now: the new setup downloaded (checked against the release) and run silently into this installation;
+  // RazorCAD closes and starts again once it is installed. Unsaved work is saved first, or the update waits.
+  async updateNow(r) {
+    const a = this.app;
+    if (a.dirtyTabs().length) {
+      const c = await this.choose('Update RazorCAD', 'rebuild', '<p>Some parts, assemblies or drawings have unsaved changes. RazorCAD closes to update, so save them first.</p>', [['save', 'Save All and Update', true], ['cancel', 'Cancel']]);
+      if (c !== 'save') return;
+      const ok = await a.saveAll();
+      if (!ok || a.dirtyTabs().length) { a.toast('Not everything was saved: the update waits', true); return; }
+    }
+    const res = await a.withProgress(`Downloading RazorCAD ${r.latest}…`, () => platform.startUpdate(r.setup)).catch((e) => ({ error: e.message }));
+    if (!res?.ok) { a.toast(`${res?.error || 'The update could not start'}`, true); return; }
+    a.status(`Installing RazorCAD ${r.latest}… It starts again by itself in a few seconds${res.allUsers ? ' (Windows asks for permission first)' : ''}.`);
+    setTimeout(() => platform.closeApp(), 600);
   }
 
   async showAbout() {

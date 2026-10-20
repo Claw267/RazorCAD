@@ -1533,11 +1533,25 @@ class App {
     return true;
   }
 
+  // The open tabs with unsaved work (a new part with nothing in it doesn't count): [{ t, i }]
+  dirtyTabs() {
+    this.storeTab();
+    return this.tabs.map((t, i) => ({ t, i })).filter(({ t }) => (t.kind === 'drawing' ? t.drawing.dirty : t.dirty && t.doc && (t.doc.features.length || t.filePath)));
+  }
+  // Saves every tab with unsaved work (asking where for those never saved); false when one was not saved.
+  async saveAll() {
+    for (const { i } of this.dirtyTabs()) {
+      await this.activateTab(i);
+      await this.saveFile();
+      if (this.mode === 'drawing' ? this.drawing.dirty : this.dirty) return false;
+    }
+    return true;
+  }
+
   // Asked by the desktop shell when the window is closing with unsaved parts.
   async confirmClose() {
     platform.closeAck();
-    this.storeTab();
-    const dirty = this.tabs.map((t, i) => ({ t, i })).filter(({ t }) => (t.kind === 'drawing' ? t.drawing.dirty : t.dirty && t.doc && (t.doc.features.length || t.filePath)));
+    const dirty = this.dirtyTabs();
     if (!dirty.length) { platform.closeApp(); return; }
     const list = dirty.map(({ t }) => `<li><b>${(t.kind === 'drawing' ? t.drawing.name : t.doc.name).replace(/[<>&]/g, '')}</b>${(t.kind === 'drawing' ? t.drawing.filePath : t.filePath) ? '' : ' <span class="pm-hint">(never saved)</span>'}</li>`).join('');
     const choice = await this.ui.choose('Unsaved Changes', 'save',
@@ -1545,11 +1559,7 @@ class App {
       [['save', dirty.length === 1 ? 'Save and Close' : 'Save All and Close', true], ['discard', 'Close Without Saving'], ['cancel', 'Cancel']]);
     if (choice === 'discard') { platform.closeApp(); return; }
     if (choice !== 'save') { platform.closeCancel(); return; }
-    for (const { i } of dirty) {
-      await this.activateTab(i);
-      await this.saveFile();
-      if (this.mode === 'drawing' ? this.drawing.dirty : this.dirty) { this.toast('Not closed: a file was not saved', true); platform.closeCancel(); return; }
-    }
+    if (!(await this.saveAll())) { this.toast('Not closed: a file was not saved', true); platform.closeCancel(); return; }
     platform.closeApp();
   }
 

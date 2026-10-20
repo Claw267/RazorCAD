@@ -498,7 +498,8 @@ In this order; each item tested (regression suite + preview / exe), logged in CH
 3. Speed
 - [x] 3a More than one geometry kernel at a time (separate workers for assembly parts, drawing views, exports).
   - Done: kernelclient.js KernelPool (lazy workers up to min(4, threads / 4), affinity map, each() with one lane per worker, shared fonts via KernelClient({ fonts }) + sendFont); main.kernelPool. Assembly loadParts builds distinct parts with pool.each (shown as each finishes); drawings: drawingViews / previews / drawingPick / cutList on the pool with a per-model affinity, fast views build their parts in parallel; interference + assembly STEP export on affinity "asm-parts". Test parallel-kernels (2810 → 1144 ms, same meshes); full suite passes.
-- [ ] 3b One-click updating (download and run the new setup from the update notice).
+- [x] 3b One-click updating (download and run the new setup from the update notice).
+  - Done: razorcad.py install_info (Uninstall key InstallLocation = this exe's folder, HKCU / HKLM), download_verified (streamed, size + GitHub sha256 digest, .part file), update_script (hidden PowerShell: setup /S "/D=folder" [/ALLUSERS + RunAs], wait, log, start RazorCAD again even when refused), Api.start_update (only RazorCAD-Setup-*.exe from its releases), check_update returns the setup asset + installed. JS: platform.startUpdate, ui.updateNow (Save All and Update via main.dirtyTabs / saveAll, then closeApp), banner + dialog buttons; confirmClose uses saveAll. Tested: local-server download (good / wrong digest / wrong size), the script with a fake setup in a folder with a space and a quote, the all-users variant, the UI with stubs. A real update can only run once a newer release exists.
 4. Modelling
 - [ ] 4a Standard parts library (ISO bolts, nuts, washers, pins, bearings) inserted into assemblies, with mates.
 - [ ] 4b Macros and scripting (record / write JavaScript macros driving RazorCAD's commands).
