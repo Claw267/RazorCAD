@@ -21,7 +21,7 @@ import { platform } from './platform.js';
 import { materialById, MATERIALS, DEFAULT_BODY_COLOR, docJSON, stripThumbnail, fileStem, isDefaultName } from './model.js';
 import { STD_TYPES, makeStdPart, fitToHole, fitLength, stdLengths, lengthLabel, setParts, heightOf } from './stdparts.js';
 import { gauss } from './sketch3dmodel.js';
-import { fmt } from './expr.js';
+import { fmt, evalEquations, isValidName } from './expr.js';
 import { ExplodeTool, explodeOffsets, drawExplodeLines, animateExplode } from './explode.js';
 import { hashText, packResult, unpackResult } from './modelcache.js';
 import { packMesh, unpackMesh, MESH_CACHE } from './partmeshes.js';
@@ -632,7 +632,7 @@ export class AssemblyEditor {
 
   // ---------------------------------------------------------------- undo / changes
   // (a part copy goes in by reference: it can hold megabytes of imported geometry, and copies are replaced, never changed)
-  snapshot() { return JSON.stringify({ components: this.doc.components, mates: this.doc.mates, parts: this.doc.parts.map((p) => ({ ...p, doc: this.docRef(p.doc) })), name: this.doc.name, nextId: this.doc.nextId, configs: this.doc.configs, activeConfig: this.doc.activeConfig || null, explodes: this.doc.explodes, exploded: this.doc.exploded || null, motions: this.doc.motions || [], customProps: this.doc.customProps || null, bomCols: this.doc.bomCols || null }); }
+  snapshot() { return JSON.stringify({ components: this.doc.components, mates: this.doc.mates, parts: this.doc.parts.map((p) => ({ ...p, doc: this.docRef(p.doc) })), name: this.doc.name, nextId: this.doc.nextId, configs: this.doc.configs, activeConfig: this.doc.activeConfig || null, explodes: this.doc.explodes, exploded: this.doc.exploded || null, motions: this.doc.motions || [], customProps: this.doc.customProps || null, bomCols: this.doc.bomCols || null, equations: this.doc.equations || [] }); }
   docRef(doc) {
     this._docKeys ||= new WeakMap(); this._docs ||= new Map();
     let k = this._docKeys.get(doc);
@@ -652,7 +652,7 @@ export class AssemblyEditor {
   restore(json) {
     const s = JSON.parse(json);
     s.parts = s.parts.map((p) => ({ ...p, doc: this._docs.get(p.doc) }));
-    Object.assign(this.doc, s); if (!s.customProps) delete this.doc.customProps; if (!s.bomCols) delete this.doc.bomCols;
+    if (!s.equations) s.equations = []; Object.assign(this.doc, s); if (!s.customProps) delete this.doc.customProps; if (!s.bomCols) delete this.doc.bomCols;
     this.dirty = true; this.loadParts(); this.updateGeometry(); this.renderAll(); this.app.macros?.syncEditor(this); }
   undo() { const s = this.undoStack.pop(); if (!s) return; this.redoStack.push(this.snapshot()); this.restore(s); }
   redo() { const s = this.redoStack.pop(); if (!s) return; this.undoStack.push(this.snapshot()); this.restore(s); }
@@ -677,6 +677,7 @@ export class AssemblyEditor {
   // before comes from the model cache on disk (modelcache.js, keyed by a hash of the part as built), all of
   // them at once; the kernel builds the others one by one, and they are stored for next time.
   async loadParts() {
+    this.applyEquationLinks();
     let any = false;
     // (every part shown, through the sub-assemblies)
     const want = new Map();
@@ -1403,6 +1404,124 @@ export class AssemblyEditor {
     return made.find((c) => c.part === p.id) || made[0];
   }
 
+  // ---------------------------------------------------------------- equations shared with the parts
+  // The assembly's global variables (doc.equations: [{ name, expr, drive }]). A driven one (drive, the default) sets
+  // the variable of the same name in every part that has one (through the sub-assemblies): its value is written into
+  // the assembly's copy of the part, so the assembly, its drawings and its exports use it. Done before the parts are
+  // built, so a part read again from its file is driven again. The number of part variables changed.
+  applyEquationLinks() {
+    const eqs = this.doc.equations || [];
+    if (!eqs.some((e) => e.drive !== false)) return 0;
+    const { vars } = evalEquations(eqs);
+    let n = 0;
+    // (a changed part gets a new copy, so it is built again and an open tab's document is left alone; the same
+    // copy used in several places stays one)
+    const swapped = new Map();
+    const walk = (doc, depth = 0) => {
+      for (const p of doc.parts || []) {
+        if (isAssembly(p.doc)) { if (depth < 16) walk(p.doc, depth + 1); continue; }
+        if (swapped.has(p.doc)) { p.doc = swapped.get(p.doc); continue; }
+        let k = 0;
+        const next = (p.doc?.equations || []).map((e) => {
+          const a = eqs.find((x) => x.name === e.name && x.drive !== false);
+          if (!a || !(a.name in vars)) return e;
+          const v = String(+vars[a.name].toPrecision(12));
+          if (String(e.expr) === v) return e;
+          k++;
+          return { ...e, expr: v };
+        });
+        if (!k) continue;
+        const d = { ...p.doc, equations: next };
+        swapped.set(p.doc, d);
+        p.doc = d;
+        n += k;
+      }
+    };
+    walk(this.doc);
+    return n;
+  }
+  // the parts (names) that have a variable of this name
+  partsWithVariable(name) {
+    const out = [];
+    const walk = (doc, depth = 0) => { for (const p of doc.parts || []) { if (isAssembly(p.doc)) { if (depth < 16) walk(p.doc, depth + 1); } else if ((p.doc?.equations || []).some((e) => e.name === name) && !out.includes(p.name)) out.push(p.name); } };
+    walk(this.doc);
+    return out;
+  }
+  // Equations window: the assembly's variables, each driving the parts' variables of its name (or not)
+  showEquations() {
+    const a = this.app, ui = a.ui;
+    const rows = (this.doc.equations || []).map((e) => ({ ...e }));
+    const wrap = el('div');
+    wrap.appendChild(el('p', { class: 'pm-hint', style: 'margin:0 0 8px' }, 'The assembly\'s variables. A variable that drives the parts sets the variable of the same name in every part that has one (e.g. <code>thickness = 12</code> sets each part\'s <code>thickness</code>), so the parts are sized together. Use them in the parts\' dimensions and features as usual.'));
+    const table = el('table', { class: 'grid' });
+    wrap.appendChild(table);
+    const addBtn = el('button', { class: 'pm-btn', style: 'margin-top:8px' }, '+ Add variable');
+    wrap.appendChild(addBtn);
+    const render = () => {
+      const { vars, errors } = evalEquations(rows);
+      const names = rows.map((r) => r.name);
+      table.innerHTML = '<tr><th style="width:22%">Name</th><th>Value / Equation</th><th style="width:16%">Evaluates to</th><th style="width:26%">Drives the parts</th><th style="width:28px"></th></tr>';
+      rows.forEach((r, i) => {
+        const tr = el('tr');
+        const n = el('input', { type: 'text', value: r.name, spellcheck: 'false' });
+        const v = el('input', { type: 'text', value: String(r.expr), spellcheck: 'false' });
+        const dup = names.indexOf(r.name) !== i, bad = r.name && (!isValidName(r.name) || dup);
+        const out = el('td', { class: 'num' + (bad || errors.has(r.name) ? ' err' : '') }, bad ? (dup ? 'Duplicate name' : 'Invalid name') : r.name in vars ? fmt(vars[r.name], 4) : esc(errors.get(r.name) || ''));
+        const parts = this.partsWithVariable(r.name);
+        const drv = el('td');
+        const cb = el('input', { type: 'checkbox' });
+        cb.checked = r.drive !== false;
+        cb.onchange = () => { r.drive = cb.checked; };
+        drv.append(cb, document.createTextNode(' ' + (parts.length ? parts.join(', ') : '(no part has it)')));
+        for (const x of [n, v]) x.addEventListener('keydown', (e) => e.stopPropagation());
+        n.onchange = () => { r.name = n.value.trim(); render(); };
+        v.oninput = () => { r.expr = v.value; const ev = evalEquations(rows); out.textContent = r.name in ev.vars ? fmt(ev.vars[r.name], 4) : ev.errors.get(r.name) || ''; };
+        const del = el('button', { class: 'pm-btn', style: 'padding:0 6px;height:22px', title: 'Delete' }, '✕');
+        del.onclick = () => { rows.splice(i, 1); render(); };
+        const td1 = el('td'), td2 = el('td'), td5 = el('td');
+        td1.appendChild(n); td2.appendChild(v); td5.appendChild(del);
+        tr.append(td1, td2, out, drv, td5);
+        table.appendChild(tr);
+      });
+    };
+    addBtn.onclick = () => { let k = rows.length + 1; while (rows.some((r) => r.name === 'var' + k)) k++; rows.push({ name: 'var' + k, expr: '10', drive: true }); render(); };
+    render();
+    const apply = async () => {
+      const clean = rows.filter((r) => r.name), names = clean.map((r) => r.name);
+      if (clean.some((r, i) => !isValidName(r.name) || names.indexOf(r.name) !== i)) { a.toast('Fix invalid or duplicate names first', true); return false; }
+      this.begin();
+      this.doc.equations = clean;
+      const n = this.applyEquationLinks();
+      await this.loadParts();
+      this.solve();
+      this.change(n ? `${n} part variable${n === 1 ? '' : 's'} set from the assembly.` : 'Assembly equations changed.');
+      return true;
+    };
+    ui.modal('Assembly Equations', 'equations', wrap, [
+      { label: 'Update Open Parts', action: () => { apply().then((ok) => { if (ok) this.pushEquationsToOpenParts(); }); return false; } },
+      { label: 'OK', primary: true, action: () => { apply(); } },
+      { label: 'Cancel' },
+    ]);
+  }
+  // the driven values written into the parts open in tabs too (they show as changed, to be saved)
+  pushEquationsToOpenParts() {
+    const a = this.app, { vars } = evalEquations(this.doc.equations || []);
+    let n = 0;
+    for (const t of a.tabs) {
+      if (t.kind === 'drawing' || !t.doc || t === a.tabs[a.tabIndex]) continue;
+      if (!this.doc.parts.some((p) => this.live.get(p.id) === t || (p.path && sameFile(p.path, t.filePath)))) continue;
+      for (const e of t.doc.equations || []) {
+        const x = (this.doc.equations || []).find((q) => q.name === e.name && q.drive !== false);
+        if (!x || !(x.name in vars)) continue;
+        const v = String(+vars[x.name].toPrecision(12));
+        if (String(e.expr) !== v) { e.expr = v; t.dirty = true; n++; }
+      }
+    }
+    a.updateTitle?.();
+    a.renderTabs?.();
+    a.status(n ? `${n} variable${n === 1 ? '' : 's'} set in the open parts: save them to keep it.` : 'The open parts have these values already.');
+  }
+
   // the part (reused when it is in the assembly already)
   addPart(doc, path, tab) {
     let p = (path && this.doc.parts.find((x) => sameFile(x.path, path))) || (tab && [...this.live].find(([, t]) => t === tab) && this.doc.parts.find((x) => this.live.get(x.id) === tab));
@@ -1931,6 +2050,7 @@ export class AssemblyEditor {
       assembly: [
         { icon: 'insertComponent', label: 'Insert Components', action: () => this.insertComponents() },
         { icon: 'stdParts', label: 'Standard Parts', action: () => this.standardParts() },
+        { icon: 'equations', label: 'Equations', action: () => this.showEquations() },
         { icon: 'mate', label: 'Mate', key: 'M', action: () => this.startMate(), active: !!this.pm },
         'sep',
         { icon: 'fix', label: 'Fix', action: () => selC && this.setFixed(selC.id, true), disabled: !selC || selC.fixed },
@@ -2003,6 +2123,7 @@ export class AssemblyEditor {
       ],
       Tools: [
         { label: 'Bill of Materials…', icon: 'bom', action: () => this.showBOM() },
+        { label: 'Equations…', icon: 'equations', action: () => this.showEquations() },
         { label: 'Interference Check…', icon: 'interference', action: () => this.checkInterference() },
         { label: 'Motion Study…', icon: 'motion', action: () => this.startMotion() },
         { label: 'Fix Mates…', icon: 'fix', action: () => this.showBrokenMates() },

@@ -1098,6 +1098,51 @@ rc.log(b.bodies, b.errors.length);`, 'text');
       : { ok: false, detail: `bad ${bad.join(' | ')}; others ${others}, L ${L}, bolts ${count(/^Hex Bolt/)}, washers ${count(/^Washer/)}, nuts ${count(/^Hex Nut/)}, mates ${asm.doc.mates.length}, solved ${asm.solveOk}, y bolt ${y(/^Hex Bolt/)} nut ${y(/^Hex Nut/)} washer ${y(/^Washer/)}; own end ${own}; ${before} → ${after}` };
   },
 
+  // equations shared across an assembly: two parts made 5 thick by their own `thickness` variable are made 12
+  // thick by the assembly's `thickness = 2*base` (base = 6); a part without the variable is left; undo puts it back
+  async 'assembly-equations'() {
+    const a = window.app;
+    const box = (name, w, eq) => {
+      const p = M.newDoc(); p.name = name; if (eq) p.equations = [{ name: 'thickness', expr: '5' }];
+      const s = M.createFeature(p, 'sketch', { plane: { ref: 'top' } });
+      const pts = [[0, 0], [w, 0], [w, 20], [0, 20]];
+      Object.assign(s, { points: pts.map(([x, y], i) => ({ id: 'p' + (i + 1), x, y })), curves: pts.map((_, i) => ({ id: 'c' + (i + 1), type: 'line', p1: 'p' + (i + 1), p2: 'p' + ((i + 1) % 4 + 1), construction: false })), constraints: [] });
+      p.features.push(s, M.createFeature(p, 'extrude', { sketch: s.id, depth: eq ? 'thickness' : 5 }));
+      return p;
+    };
+    a.newAssembly(); await wait(300); closeModals();
+    const asm = a.drawing;
+    const parts = [box('Left', 30, true), box('Right', 50, true), box('Spacer', 10, false)].map((d) => asm.addPart(d, null, null));
+    for (const p of parts) await asm.addComponent(p);
+    await until(() => asm.doc.components.every((c) => asm.geo(c)?.mesh), 30000);
+    const h = (c) => { const b = asm.geo(c).box; return Math.round((b.max[1] - b.min[1]) * 1000) / 1000; };
+    const hs = () => asm.doc.components.map(h).join('/');
+    const before = hs();
+    const has = asm.partsWithVariable('thickness').join(',');
+    asm.showEquations();
+    await wait(200);
+    const rowsBefore = document.querySelectorAll('.modal .grid tr').length;
+    closeModals();
+    asm.begin();
+    asm.doc.equations = [{ name: 'base', expr: '6', drive: false }, { name: 'thickness', expr: '2*base' }];
+    const n = asm.applyEquationLinks();
+    await asm.loadParts(); asm.solve(); asm.change();
+    await until(() => asm.doc.components.every((c) => asm.geo(c)?.mesh && asm.geo(c).box), 30000);
+    await until(() => hs() !== before, 30000);
+    const after = hs();
+    // the dialog lists both variables and who they drive
+    asm.showEquations();
+    await wait(200);
+    const txt = document.querySelector('.modal .grid')?.textContent || '';
+    closeModals();
+    asm.undo();
+    await until(() => hs() === before, 30000);
+    const undone = hs();
+    const ok = before === '5/5/5' && has === 'Left,Right' && n === 2 && after === '12/12/5' && /Left, Right/.test(txt) && /12/.test(txt) && rowsBefore === 1 && undone === '5/5/5';
+    return ok ? { ok: true, detail: `heights ${before} → ${after} (thickness = 2*base drives Left, Right), undo ${undone}` }
+      : { ok: false, detail: `before ${before}, has ${has}, n ${n}, after ${after}, undo ${undone}, rows ${rowsBefore}, dialog "${txt.slice(0, 200)}"` };
+  },
+
   // macros in assemblies and drawings: a recording of a part inserted twice and mated plays back into a new
   // assembly as the same (2 components, 1 mate, solved); a note added to a drawing plays back into another drawing
   async 'macros-editors'() {

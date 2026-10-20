@@ -6,6 +6,13 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 07:56 — Equations shared across an assembly
+- **Assembly ▸ Equations…** (also in the Insert ribbon): the assembly's own variables, e.g. `base = 6`, `thickness = 2*base`. A variable that **drives the parts** sets the variable of the same name in every part that has one, through the sub-assemblies, so related parts are sized together from the top (top-down design).
+- The table shows each variable's value, the parts it drives and a Drives the parts check box (off: a variable used only to work out others).
+- The values are written into the assembly's copies of the parts, so the assembly, its drawings, BOM and exports use them, and they are applied again when a part is read again from its file. **Update Open Parts** writes them into the parts open in tabs too, to be saved there.
+- Undo and redo include the equations.
+- Regression test: assembly-equations (two parts made 5 thick by their own variable become 12 thick from the assembly; a part without it stays; undo puts it back).
+
 ## 2026-10-21 07:51 — Curvature control: 3D splines, curvature combs, lofts
 - **3D sketch splines: Shape ▸ Curvature-continuous (C2).** The spline's curvature runs on smoothly through every point it passes, where the tangent-smooth shape (C1, as before) has small kinks in curvature. Select a spline to set it.
 - **End weights:** how strongly a spline's end tangents pull (1 as before; more leaves the ends straighter), with a Tangent relation or a free end.
