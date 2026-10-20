@@ -6,6 +6,13 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 20:59 — Tool wheel on the right mouse button; Shift + right-drag pans
+- **Sketch tool wheel:** press and hold the **right** mouse button in a sketch (or start dragging with it), move toward a tool and release. It no longer clashes with rotating the view: holding the middle button still while starting to rotate used to open the wheel.
+- **A quick right click** (press and release without moving) still opens the right-click menu, in sketches and everywhere else. The browser's own menu no longer appears when the wheel closes.
+- **Pan: Shift + right-drag** (Ctrl + right-drag and Ctrl + middle-drag also pan). A plain right-drag no longer pans.
+- The middle button only turns the view (Ctrl: pan, Shift: zoom, Alt: roll). Drawings keep their own controls.
+- Help ▸ Keyboard Shortcuts, README and the user manual describe the new buttons.
+
 ## 2026-10-20 20:36 — Version 0.12.0-beta
 - `version.txt` 0.11.0-beta → **0.12.0-beta**, for the release with everything since 0.11.0-beta: drawings of assemblies (with fast hidden lines for big assemblies), the drawing tree fix, and some features and tools renamed.
 - Installer `RazorCAD-Setup-0.12.0-beta.exe` and the user manual rebuilt.

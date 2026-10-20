@@ -28,7 +28,7 @@ import * as D from './drawing.js';
 // Saved parts are auto-saved next to their file at most this often while they have unsaved changes.
 const AUTOSAVE_MS = 20000;
 
-// Tools on the middle-button tool wheel, clockwise from the top.
+// Tools on the right-button tool wheel, clockwise from the top.
 const WHEEL_TOOLS = [
   ['select', 'select'], ['dim', 'smartdim'], ['line', 'line'], ['centerline', 'centerline'],
   ['rect', 'rect'], ['crect', 'crect'], ['circle', 'circle'], ['arc', 'arc'],
@@ -2334,13 +2334,13 @@ class App {
     vp.onClick = (e) => { if (asm()) asm().vpEvent('click', e); else if (exT()) exT().click(e); else if (this.mode !== 'sketch' && this.mode !== 'sketch3d') this.handleClick(e); };
     vp.onHover = (e) => { if (asm()) asm().vpEvent('hover', e); else if (this.mode !== 'sketch' && this.mode !== 'sketch3d') this.handleHover(e); };
     vp.onContextMenu = (e) => (asm() ? asm().vpEvent('context', e) : this.viewportMenu(e));
-    // Sketch tool wheel: hold the middle mouse button still, move toward a tool, release.
+    // Sketch tool wheel: hold the right mouse button (or drag with it), move toward a tool, release.
     this.toolWheel = new ToolWheel();
-    vp.controls.onMiddleHold = (e) => {
+    vp.controls.onButtonHold = (e) => {
       if (this.mode !== 'sketch') return false;
       this.ui.closeContext?.();
       const items = WHEEL_TOOLS.map(([t, ic]) => ({ id: t, icon: ic, label: SKETCH_TOOLS[t].label, active: this.sketcher.tool === t }));
-      this.toolWheel.open(e.clientX, e.clientY, items, (it) => { if (this.mode === 'sketch') this.sketcher.setTool(it.id); });
+      this.toolWheel.open(e.clientX, e.clientY, items, (it) => { if (this.mode === 'sketch') this.sketcher.setTool(it.id); }, 2);
       return true;
     };
   }

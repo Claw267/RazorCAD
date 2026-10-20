@@ -1,5 +1,5 @@
 // Radial tool wheel (a mouse-gesture wheel).
-// Shown while the middle mouse button is held; the tool under the pointer's
+// Shown while the right mouse button is held; the tool under the pointer's
 // direction is highlighted and activated when the button is released.
 import { icon } from './icons.js';
 
@@ -16,6 +16,7 @@ export class ToolWheel {
     this.onUp = (e) => { if (e.button === this.button) this.close(true); };
     this.onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.close(false); } };
     this.onBlur = () => this.close(false);
+    this.noMenu = (e) => { e.preventDefault(); e.stopPropagation(); };
   }
 
   get isOpen() { return !!this.el; }
@@ -47,6 +48,8 @@ export class ToolWheel {
     this.labelEl = el.querySelector('.tw-label');
     this._setIndex(-1);
     window.addEventListener('pointermove', this.onMove, true);
+    // (opened with the right button: its release must not also open a right-click menu)
+    if (button === 2) { clearTimeout(this._ctxOff); window.addEventListener('contextmenu', this.noMenu, true); }
     window.addEventListener('pointerup', this.onUp, true);
     window.addEventListener('keydown', this.onKey, true);
     window.addEventListener('blur', this.onBlur);
@@ -74,6 +77,9 @@ export class ToolWheel {
     window.removeEventListener('pointerup', this.onUp, true);
     window.removeEventListener('keydown', this.onKey, true);
     window.removeEventListener('blur', this.onBlur);
+    // (the right-click menu event comes just after the release)
+    clearTimeout(this._ctxOff);
+    this._ctxOff = setTimeout(() => window.removeEventListener('contextmenu', this.noMenu, true), 400);
     const item = pick && this.index >= 0 ? this.items[this.index] : null;
     this.el.remove();
     this.el = null;

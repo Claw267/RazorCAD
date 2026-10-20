@@ -4586,13 +4586,14 @@ export class UI {
 
   showShortcuts() {
     const rows = [
-      ['Rotate view (free, about the model center)', 'Middle-drag (or left-drag outside sketches)'], ['Pan', 'Ctrl + middle-drag, or right-drag'],
+      ['Rotate view (free, about the model center)', 'Middle-drag (or left-drag outside sketches)'], ['Pan', 'Shift + right-drag, or Ctrl + middle-drag'],
       ['Zoom', 'Mouse wheel (toward the cursor), or Shift + middle-drag'], ['Roll', 'Alt + middle-drag, or Alt + ←/→'],
       ['Rotate in steps', 'Arrow keys 15° · Shift + arrows 90°'], ['Pan in steps', 'Ctrl + arrow keys'],
       ['Zoom to fit', 'F'], ['Standard views', 'Ctrl+1 … Ctrl+7'], ['Normal to', 'Ctrl+8'],
       ['Undo / Redo', 'Ctrl+Z / Ctrl+Y'], ['Rebuild', 'Ctrl+B'], ['Save / Open / New', 'Ctrl+S / Ctrl+O / Ctrl+N'],
       ['Delete feature or entity', 'Delete'], ['Accept / Cancel Property panel', 'Enter / Esc'],
       ['Sketch tools (in sketch)', 'L line · R rectangle · C circle · A arc · N spline · P polygon · S select · D dims'],
+      ['Sketch tool wheel (in sketch)', 'Hold the right mouse button (or drag with it), move toward a tool, release · a quick right click opens the menu'],
       ['Selection filters (part)', 'X faces · E edges · V vertices · B bodies · F5 clear'],
       ['Hide / show a body', 'Tab hides the body under the cursor · Shift+Tab shows the hidden body under the cursor'],
       ['Body properties / rename', 'Right-click a body in Solid Bodies (or on the model) · double-click to rename'],

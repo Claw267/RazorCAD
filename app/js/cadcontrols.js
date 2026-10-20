@@ -3,9 +3,10 @@
 //   Middle-drag ........ rotate freely about the screen axes (no locked "up")
 //   Ctrl+middle-drag ... pan            Shift+middle-drag ... zoom
 //   Alt+middle-drag .... roll (rotate about the view direction)
-//   Right-drag ......... pan            Wheel ............... zoom toward the cursor
+//   Shift+right-drag ... pan (Ctrl+right-drag too)            Wheel ... zoom toward the cursor
 //   Left-drag .......... rotate (part mode only; off while sketching)
-//   Middle press-and-hold (without moving) calls `onMiddleHold` if set (sketch tool wheel)
+//   Right press-and-hold, or a plain right-drag, calls `onButtonHold` if set (the sketch tool wheel);
+//   a plain right click stays a right click (the context menu)
 //   Arrow keys ......... rotate 15° (Shift: 90°), Alt+←/→ roll, Ctrl+arrows pan
 //
 // Rotation pivots about `getPivot()` (the model's center), so the part spins in place
@@ -13,7 +14,7 @@
 import * as THREE from 'three';
 
 const ROTATE_PER_PIXEL = Math.PI / 600; // ~0.3° per pixel
-const HOLD_MS = 220;                      // middle-button hold time before onMiddleHold fires
+const HOLD_MS = 220;                      // right-button hold time before onButtonHold fires
 
 export class CadControls {
   constructor(camera, dom, { getPivot, onChange } = {}) {
@@ -26,7 +27,8 @@ export class CadControls {
     this.getPivot = getPivot || (() => this.target);
     this.onChange = onChange || (() => {});
     this.drag = null;
-    this.onMiddleHold = null; // (event) => true if it took over the press
+    this.onButtonHold = null; // (event) => true if it took over the press (the right button)
+    this.consumed = false;    // (the last press opened the tool wheel: it is not also a click)
     this._bind();
   }
 
@@ -123,19 +125,25 @@ export class CadControls {
     const el = this.dom;
     el.addEventListener('pointerdown', (e) => {
       let mode = null;
+      this.consumed = false;
       if (e.button === 1) {
         e.preventDefault(); // no browser auto-scroll
         mode = e.ctrlKey ? 'pan' : e.shiftKey ? 'zoom' : e.altKey ? 'roll' : 'rotate';
-      } else if (e.button === 2) mode = 'pan';
+      } else if (e.button === 2) mode = e.shiftKey || e.ctrlKey ? 'pan' : 'hold';
       else if (e.button === 0 && this.leftRotate) mode = e.ctrlKey ? 'pan' : 'rotate';
       if (!mode) return;
       const d = { mode, x: e.clientX, y: e.clientY, id: e.pointerId, started: false, sx: e.clientX, sy: e.clientY };
       this.drag = d;
-      if (e.button === 1 && mode === 'rotate' && this.onMiddleHold) {
-        const at = { clientX: e.clientX, clientY: e.clientY, button: 1 };
-        d.hold = setTimeout(() => {
-          if (this.drag === d && !d.started && this.onMiddleHold(at)) this.drag = null;
-        }, HOLD_MS);
+      if (mode === 'hold') {
+        // the tool wheel: after a moment held still, or at once when the pointer starts to move
+        const at = { clientX: e.clientX, clientY: e.clientY, button: 2 };
+        d.fire = () => {
+          clearTimeout(d.hold);
+          if (this.drag !== d) return;
+          this.drag = null;
+          if (this.onButtonHold?.(at)) this.consumed = true;
+        };
+        d.hold = setTimeout(d.fire, HOLD_MS);
       }
     });
     el.addEventListener('pointermove', (e) => {
@@ -144,6 +152,7 @@ export class CadControls {
       // small threshold so plain clicks still select things
       if (!d.started) {
         if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) < 4) return;
+        if (d.mode === 'hold') { d.fire(); return; } // (a plain right-drag: the wheel, no view change)
         d.started = true;
         clearTimeout(d.hold);
         try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }

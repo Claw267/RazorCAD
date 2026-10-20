@@ -92,10 +92,10 @@ Set the `RAZORCAD_DATA_DIR` environment variable to keep a test run's recent-fil
 | Action | Mouse / keys |
 |---|---|
 | Rotate (free, about the model center) | Middle-drag, or left-drag on the model outside a sketch |
-| Pan | Ctrl + middle-drag, or right-drag |
+| Pan | Shift + right-drag, or Ctrl + middle-drag |
 | Zoom | Mouse wheel (toward the cursor), or Shift + middle-drag |
 | Roll | Alt + middle-drag, or Alt + ← / → |
-| Sketch tool wheel | In a sketch: hold the middle button still for a moment, move toward a tool, release |
+| Sketch tool wheel | In a sketch: hold the right button (or drag with it), move toward a tool, release |
 | Rotate in steps | Arrow keys 15°, Shift + arrows 90° |
 | Pan in steps | Ctrl + arrow keys |
 | Standard views | Ctrl+1 … Ctrl+7, Ctrl+8 = Normal To (press again to flip to the back side) |
@@ -153,9 +153,9 @@ A cut that slices a body in two leaves two bodies. Fillets, chamfers, patterns a
 
 ## Sketching
 
-**Tool wheel:** while sketching, press and hold the middle mouse button without moving it. After a moment a wheel of
-sketch tools appears around the pointer. Keep the button held, move toward a tool (it highlights), and release to
-activate it. Releasing in the center or pressing Esc cancels. Moving the mouse right away still rotates the view.
+**Tool wheel:** while sketching, press and hold the right mouse button. After a moment, or as soon as you start to drag,
+a wheel of sketch tools appears around the pointer. Keep the button held, move toward a tool (it highlights), and release
+to activate it. Releasing in the center or pressing Esc cancels. A quick right click still opens the right-click menu.
 
 Sketches are made of points, lines, arcs and circles held in place by **relations** and **dimensions**.
 A numerical constraint solver keeps them satisfied. Geometry is **blue when under defined** and
@@ -285,7 +285,7 @@ app/js/sketcher.js       sketch mode: tools, auto-relations, Dimension, relation
 app/js/geometry.js       sketch-plane frames and mass properties
 app/js/viewport.js       3D view, camera, face/edge picking, section caps
 app/js/cadcontrols.js    CAD-style rotate / pan / zoom / roll
-app/js/toolwheel.js      middle-button sketch tool wheel
+app/js/toolwheel.js      right-button sketch tool wheel
 app/js/ui.js             menus, Command ribbon, Feature tree, Property panel, dialogs
 app/vendor/              three.js, three-mesh-bvh, replicad + OpenCascade WASM (bundled for offline use)
 tools/make_icon.py       generates assets/razorcad.ico

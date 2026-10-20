@@ -1280,6 +1280,7 @@ export class Viewport {
       down = null;
       this.onPointerUp?.(e);
       if (moved || e.target !== cv) return;
+      if (this.controls?.consumed) { this.controls.consumed = false; return; } // (the press opened the tool wheel)
       if (d.button === 0) this.onClick?.(e);
       else if (d.button === 2) this.onContextMenu?.(e);
     });

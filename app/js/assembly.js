@@ -537,7 +537,7 @@ export class AssemblyEditor {
     // the components are drawn by an AssemblyView (each part once, placed per component)
     this.display = vp.asmView = new AssemblyView(vp);
     a.ui.showLeft('tree');
-    // (left-drag moves components; the middle button turns the view, the right one pans)
+    // (left-drag moves components; the middle button turns the view, Shift + the right one pans)
     vp.setLeftRotate(false);
     this.renderAll();
     // (the mesh is built first: loadParts only asks for it on the next frame)
