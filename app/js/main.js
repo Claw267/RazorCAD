@@ -11,7 +11,7 @@ import * as M from './model.js';
 import * as G from './geometry.js';
 import * as S from './sketchmodel.js';
 import { evaluate, evalEquations, fmt } from './expr.js';
-import { KernelClient } from './kernelclient.js';
+import { KernelClient, KernelPool } from './kernelclient.js';
 import { platform } from './platform.js';
 import { RELATION_INFO } from './solver.js';
 import { FONTS, fontFile, fontKey } from './fonts.js';
@@ -68,6 +68,7 @@ class App {
     this.filePath = null;
     installCrashHandlers(this);
     this.kernel = new KernelClient();
+    this.kernelPool = new KernelPool(this.kernel); // (more kernels for assemblies and drawings)
     this.kernel.onCrash = (err) => reportError('kernel-worker-crash', err, this);
     // the kernel broke and is being replaced; the request is repeated on the fresh kernel
     this.kernel.onRestart = (err) => {

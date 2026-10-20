@@ -1,3 +1,45 @@
+// More geometry kernels at once, for work that doesn't touch the part being edited: an assembly's parts (built
+// side by side), drawing views, picks and cut lists. Each is a worker of its own, started when first needed, up to
+// `size` (a quarter of the PC's processor threads, at most 4). A job with an affinity (a model) goes to the worker
+// that had it before, so that worker's cached build of it is used again.
+export class KernelPool {
+  constructor(main, size = Math.max(1, Math.min(4, Math.floor((navigator.hardwareConcurrency || 4) / 4)))) {
+    this.main = main;
+    this.size = size;
+    this.workers = []; // { client, jobs }
+    this.affinity = new Map(); // affinity key → worker
+  }
+  pick(aff) {
+    const w = aff && this.affinity.get(aff);
+    if (w && this.workers.includes(w)) return w;
+    let best = this.workers.find((x) => !x.jobs);
+    if (!best && this.workers.length < this.size) {
+      best = { client: new KernelClient({ fonts: this.main.fonts }), jobs: 0 };
+      best.client.ready.then(() => { for (const [k, d] of this.main.fonts) best.client.sendFont(k, d); }).catch(() => {});
+      this.workers.push(best);
+    }
+    best ||= this.workers.reduce((a, b) => (b.jobs < a.jobs ? b : a));
+    if (aff) { this.affinity.set(aff, best); if (this.affinity.size > 200) this.affinity.delete(this.affinity.keys().next().value); }
+    return best;
+  }
+  async request(type, data = {}, aff = null) {
+    const w = this.pick(aff);
+    w.jobs++;
+    try {
+      await w.client.ready;
+      for (const [k, d] of this.main.fonts) await w.client.sendFont(k, d);
+      return await w.client.request(type, data);
+    } finally { w.jobs--; }
+  }
+  // as many jobs at once as there are workers (fn(item) runs each); resolves when all are done
+  async each(items, fn) {
+    let i = 0;
+    const lane = async () => { while (i < items.length) { const k = i++; await fn(items[k], k); } };
+    await Promise.all(Array.from({ length: Math.min(this.size, items.length) }, lane));
+  }
+  stats() { return { size: this.size, started: this.workers.length, busy: this.workers.filter((w) => w.jobs).length }; }
+}
+
 // Main-thread client for the geometry worker. Rebuild requests are coalesced:
 // while one rebuild runs, only the most recent document is queued.
 // If the kernel breaks (it aborted, or its worker died), the worker is replaced by a fresh one
@@ -5,14 +47,14 @@
 const RECYCLE_MB = 3600; // the kernel can address 4 GB
 
 export class KernelClient {
-  constructor() {
+  constructor({ fonts = null } = {}) {
     this.seq = 0;
     this.calls = new Map();
     this.busy = false;
     this.nextDoc = null;
     this.waiters = [];
     this.lastDoc = null;     // last document rebuilt, to restore a replaced worker's state
-    this.fonts = new Map();  // font key -> bytes, sent again to a replaced worker
+    this.fonts = fonts || new Map();  // font key -> bytes, sent again to a replaced worker (a pool's workers share the main one's)
     this.restarts = 0;
     this.spawn();
   }
@@ -208,6 +250,15 @@ export class KernelClient {
 
   exportFaceDXF(ref) {
     return this.request('exportFaceDXF', { ref });
+  }
+
+  // (a font sent to this worker only if it doesn't have it yet: pool workers share the font list)
+  async sendFont(key, data) {
+    this._sent ||= new Set();
+    if (this._sent.has(key)) return;
+    this._sent.add(key);
+    await this.ready;
+    return this.call('loadFont', { key, data: data.slice(0) });
   }
 
   // kernel memory / stack state for crash reports (never restarts anything)

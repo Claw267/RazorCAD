@@ -496,7 +496,8 @@ In this order; each item tested (regression suite + preview / exe), logged in CH
 - [x] 1d Arrow keys move through the feature tree and the assembly tree (user request during plan 2: "also make the featuretree and assembly tree navigateable by arrow keys if it is already not possible.").
   - Done: ui.initTreeKeys (#tree focusable, pointerdown focuses it and sets the cursor row), treeRows / treeKey (↑ ↓ Home End select by clicking the row, ← closes or goes to the parent row, → opens or goes in, Enter = double-click; tree-cursor mark kept across redraws); main keydown routes these keys to the tree when it has focus (before the view's arrow keys and the drawing / assembly keys); CSS; shortcuts row. Not available before (the arrows always turned the view). Checked in the preview: sample part (planes, End / Home, folder ← / →, Enter edits Extrude1, view not turned) and an assembly (components, Origin).
 3. Speed
-- [ ] 3a More than one geometry kernel at a time (separate workers for assembly parts, drawing views, exports).
+- [x] 3a More than one geometry kernel at a time (separate workers for assembly parts, drawing views, exports).
+  - Done: kernelclient.js KernelPool (lazy workers up to min(4, threads / 4), affinity map, each() with one lane per worker, shared fonts via KernelClient({ fonts }) + sendFont); main.kernelPool. Assembly loadParts builds distinct parts with pool.each (shown as each finishes); drawings: drawingViews / previews / drawingPick / cutList on the pool with a per-model affinity, fast views build their parts in parallel; interference + assembly STEP export on affinity "asm-parts". Test parallel-kernels (2810 → 1144 ms, same meshes); full suite passes.
 - [ ] 3b One-click updating (download and run the new setup from the update notice).
 4. Modelling
 - [ ] 4a Standard parts library (ISO bolts, nuts, washers, pins, bearings) inserted into assemblies, with mates.

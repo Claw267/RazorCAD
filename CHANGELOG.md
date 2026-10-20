@@ -6,6 +6,12 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 23:11 — More geometry kernels at once
+- **Assemblies build their parts side by side.** Extra geometry kernels start when they are first needed: up to 4, a quarter of the PC's processor threads. Six slow parts took 1.1 s instead of 2.8 s, and each part shows as soon as it is built.
+- **Drawings use the extra kernels too:** views, fast assembly views (their parts built side by side), balloons and cut lists. Each model stays with the same kernel, so its build is reused. The interference check and assembly STEP export share one kernel, so they reuse the parts it built.
+- The main kernel stays with the part you are editing. Building an assembly's parts no longer replaces its state, so editing the part right after is not slowed down.
+- Regression test: parallel-kernels.
+
 ## 2026-10-20 23:08 — Motion studies
 - **Assembly ▸ Motion Study** shows how an assembly moves. Choose a driver:
   - **turning a component** about the axis of one of its mates (360°, for example);

@@ -703,25 +703,33 @@ export class AssemblyEditor {
       // (what was stored shows at once, while the kernel builds the rest)
       if (any && jobs.some((j) => !j.cached)) { this.resyncRefs(); this.solve(); this.updateGeometry(); this.renderAll(); }
     }
-    // (the same part in several places, e.g. in two sub-assemblies, is built once)
-    const built = new Map();
+    // (the same part in several places, e.g. in two sub-assemblies, is built once; different parts side by side, in
+    // the extra kernels)
+    const built = new Map(), todo = [];
     for (const j of jobs) {
       if (j.cached) continue;
-      const same = built.get(j.key);
-      if (same) { done(j, same); continue; }
-      this.app.status(`Building ${j.p.name}${j.cfgId ? ` (${this.configName(j.p, j.cfgId)})` : ''}…`);
+      if (built.has(j.key)) { built.get(j.key).push(j); continue; }
+      built.set(j.key, [j]);
+      todo.push(j);
+    }
+    let left = todo.length;
+    const pool = this.app.kernelPool || { each: async (xs, fn) => { for (const x of xs) await fn(x); }, request: (t, d) => this.app.kernel.request(t, d) };
+    await pool.each(todo, async (j) => {
+      this.app.status(left > 1 ? `Building ${left} parts…` : `Building ${j.p.name}${j.cfgId ? ` (${this.configName(j.p, j.cfgId)})` : ''}…`);
       try {
-        const r = await this.app.kernel.request('partMesh', { doc: j.json });
+        const r = await pool.request('partMesh', { doc: j.json });
         const mesh = r.body && r.body.vertices ? r.body : null;
-        done(j, mesh);
-        if (mesh) built.set(j.key, mesh);
+        for (const x of built.get(j.key)) done(x, mesh);
         // stored for next time, unless it had errors (its rebuild may come out differently)
         if (mesh && !r.errors && j.cacheKey) packResult({ body: packMesh(mesh) }).then((b64) => platform.writeModelCache(j.cacheKey, b64)).catch(() => {});
       } catch (err) {
-        done(j, null, err.message);
+        for (const x of built.get(j.key)) done(x, null, err.message);
         this.app.toast(`${j.p.name} could not be built: ${err.message}`, true);
       }
-    }
+      left--;
+      // (each part shows as soon as it is built)
+      if (todo.length > 1) { this.resyncRefs(); this.updateGeometry(); }
+    });
     this.app.hideProgress?.(); // (the part builds report progress like a rebuild)
     // mates on faces / edges follow the part (the same face or edge, by its number) in the configuration used
     this.resyncRefs();
@@ -1467,7 +1475,7 @@ export class AssemblyEditor {
     if (shown.length < 2) { this.app.toast('Interference Check needs two or more components', true); return; }
     if (this.doc.exploded) this.setExploded(null, false);
     let r;
-    try { r = await this.app.withProgress('Checking for interference…', () => this.app.kernel.request('asmInterference', { doc: JSON.stringify(this.doc) })); } catch (e) { this.app.toast('Interference Check failed: ' + e.message, true); return; }
+    try { r = await this.app.withProgress('Checking for interference…', () => (this.app.kernelPool || this.app.kernel).request('asmInterference', { doc: JSON.stringify(this.doc) }, 'asm-parts')); } catch (e) { this.app.toast('Interference Check failed: ' + e.message, true); return; }
     this.vp.setPreview(r.mesh ? { remove: r.mesh } : null);
     this.vp.requestRender?.();
     // a body's path → "Component" (inside a sub-assembly: "Sub-assembly ▸ Component")
@@ -1519,7 +1527,7 @@ export class AssemblyEditor {
   async exportSTEP() {
     if (!this.doc.components.length) return;
     try {
-      const r = await this.app.withProgress('Exporting STEP…', () => this.app.kernel.request('exportAssemblySTEP', { doc: JSON.stringify(this.exportDoc()) }));
+      const r = await this.app.withProgress('Exporting STEP…', () => (this.app.kernelPool || this.app.kernel).request('exportAssemblySTEP', { doc: JSON.stringify(this.exportDoc()) }, 'asm-parts'));
       const path = await platform.saveBinary(`${this.safeName()}.step`, r.bytes, 'step');
       if (path !== null) this.app.status(`STEP saved: ${r.parts} part${r.parts === 1 ? '' : 's'}, ${r.components} component${r.components === 1 ? '' : 's'}${r.assemblies > 1 ? `, ${r.assemblies - 1} sub-assembl${r.assemblies === 2 ? 'y' : 'ies'}` : ''}.`);
     } catch (e) { this.app.toast('STEP export failed: ' + e.message, true); }

@@ -711,6 +711,38 @@ const UI = {
       : { ok: false, detail: `error ${r.error}, done ${r.done}, B ${(turnB * 180) / Math.PI}°, rack ${rackX}; mate: ${r2.error} b ${bx}` };
   },
 
+  // more kernels at once: an assembly of six different (slow) parts built side by side, faster than in one kernel
+  // and with the same meshes
+  async 'parallel-kernels'(parts) {
+    const a = window.app, pool = a.kernelPool;
+    if (!pool) return { ok: false, detail: 'no kernel pool' };
+    const base = JSON.parse(parts.find((p) => p.name === 'dimple-pattern').json);
+    // (six different parts: the dimple pattern with other counts; `salt` keeps them from earlier builds)
+    const make = (salt) => [0, 1, 2, 3, 4, 5].map((i) => { const d = JSON.parse(JSON.stringify(base)); d.name = `Ball${i}`; for (const f of d.features) if (f.type === 'cpattern') f.count = 18 + i * 2 + salt; return d; });
+    const build = async (docs) => {
+      a.newAssembly(); await wait(300); closeModals();
+      const asm = a.drawing;
+      const ids = docs.map((d) => asm.addPart(d, null, null));
+      for (const [i, pid] of ids.entries()) { asm.doc.components.push({ id: 'c' + i, part: pid, name: `Ball${i}<1>`, pos: [i * 80, 0, 0], rot: [0, 0, 0, 1], fixed: !i, hidden: false }); }
+      const t0 = performance.now();
+      await asm.loadParts();
+      const ms = performance.now() - t0;
+      const tris = asm.doc.components.map((c) => asm.geo(c)?.mesh?.triangles?.length || 0);
+      return { ms, tris };
+    };
+    const size = pool.size;
+    pool.size = 1;
+    const one = await build(make(0));
+    pool.size = Math.max(2, size);
+    const many = await build(make(0).map((d, i) => { d.features.find((f) => f.type === 'cpattern').count += 1000; d.features.find((f) => f.type === 'cpattern').count -= 1000; d.name += 'b'; return d; }));
+    pool.size = size;
+    // (the second set is the same geometry under other names: the same meshes, built again)
+    const same = JSON.stringify(one.tris) === JSON.stringify(many.tris) && one.tris.every((n) => n > 0);
+    const faster = many.ms < one.ms * 0.8;
+    return same && faster ? { ok: true, detail: `6 parts: ${Math.round(one.ms)} ms in 1 kernel, ${Math.round(many.ms)} ms in ${Math.max(2, size)} (${pool.stats().started} started)` }
+      : { ok: false, detail: `same ${same} (${JSON.stringify(one.tris)} / ${JSON.stringify(many.tris)}), ${Math.round(one.ms)} ms vs ${Math.round(many.ms)} ms` };
+  },
+
   // the view's mouse buttons: Shift + right-drag pans, middle-drag turns, a plain right-drag changes nothing
   async 'view-mouse-buttons'() {
     const a = window.app;

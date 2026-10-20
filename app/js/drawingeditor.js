@@ -166,6 +166,9 @@ export class DrawingEditor {
     return m.id;
   }
 
+  // the kernels drawings use: the extra ones (the main kernel stays with the part being edited)
+  kernel() { return this.app.kernelPool || { request: (t, d) => this.app.kernel.request(t, d) }; }
+
   // Bring the parts up to date: from the open part tabs, else from their files.
   async refreshModels() {
     let changed = false;
@@ -195,7 +198,7 @@ export class DrawingEditor {
       const docJson = JSON.stringify(m.doc), key = docJson.length + ':' + hash(docJson);
       if (this._cutKeys.get(mid) === key) continue;
       try {
-        const members = await this.app.kernel.request('cutList', { doc: docJson });
+        const members = await this.kernel().request('cutList', { doc: docJson }, 'dwg:' + key);
         for (const x of members) x.density = materialById(bodyMaterialId(m.doc, x.id))?.density || null;
         this.cutLists.set(mid, cutListRows(members));
         this._cutKeys.set(mid, key);
@@ -217,14 +220,21 @@ export class DrawingEditor {
     const got = new Map(); // leaf → { key, mesh }
     let solids = 0, tris = 0;
     const byDoc = new Map(); // (the same part in several places: one mesh)
+    const distinct = [];
     for (const l of leaves) {
-      let r = byDoc.get(l.part.doc)?.get(l.cfg);
-      if (!r) {
-        r = await partMesh(this.app.kernel, l.part.doc, l.cfg, { onBuild: (n) => this.app.status(`Building ${n} for the drawing…`) }).catch((e) => ({ error: e.message }));
-        if (!byDoc.has(l.part.doc)) byDoc.set(l.part.doc, new Map());
-        byDoc.get(l.part.doc).set(l.cfg, r);
-      }
-      if (r.mesh) { got.set(l, r); solids += r.mesh.bodies?.length || 1; tris += r.mesh.triangles.length / 3; }
+      if (!byDoc.has(l.part.doc)) byDoc.set(l.part.doc, new Map());
+      if (!byDoc.get(l.part.doc).has(l.cfg)) { byDoc.get(l.part.doc).set(l.cfg, null); distinct.push(l); }
+    }
+    // (different parts built side by side, in the extra kernels)
+    const k = this.kernel();
+    const each = this.app.kernelPool ? (xs, fn) => this.app.kernelPool.each(xs, fn) : async (xs, fn) => { for (const x of xs) await fn(x); };
+    await each(distinct, async (l) => {
+      const r = await partMesh(k, l.part.doc, l.cfg, { onBuild: (n) => this.app.status(`Building ${n} for the drawing…`) }).catch((e) => ({ error: e.message }));
+      byDoc.get(l.part.doc).set(l.cfg, r);
+    });
+    for (const l of leaves) {
+      const r = byDoc.get(l.part.doc).get(l.cfg);
+      if (r?.mesh) { got.set(l, r); solids += r.mesh.bodies?.length || 1; tris += r.mesh.triangles.length / 3; }
     }
     const big = solids > FAST_SOLIDS || tris > FAST_TRIANGLES;
     const use = views.filter((r) => big || D.findView(this.doc, r.id)?.hlr === 'fast');
@@ -313,7 +323,7 @@ export class DrawingEditor {
         const fast = await this.fastViews(model, reqs);
         const exact = reqs.filter((r) => !fast.has(r.id));
         const res = [...fast.values()];
-        if (exact.length) res.push(...(await this.app.kernel.request('drawingViews', { doc: docJson, views: exact })));
+        if (exact.length) res.push(...(await this.kernel().request('drawingViews', { doc: docJson, views: exact }, 'dwg:' + docJson.length + ':' + hash(docJson))));
         if (run !== this._geoRun && this._geoRun) { /* a newer update follows; keep what arrived */ }
         let moved = false;
         for (const r of res) {
@@ -418,7 +428,8 @@ export class DrawingEditor {
       // (a big assembly: drawn fast, as its placed views will be)
       const fast = await this.fastViews(m, [{ ...req, id: 'preview' }]);
       if (fast.has('preview')) return fast.get('preview');
-      const [r] = await this.app.kernel.request('drawingViews', { doc: JSON.stringify(m.doc), views: [{ ...req, id: 'preview' }] });
+      const pj = JSON.stringify(m.doc);
+      const [r] = await this.kernel().request('drawingViews', { doc: pj, views: [{ ...req, id: 'preview' }] }, 'dwg:' + pj.length + ':' + hash(pj));
       return r.error ? null : r;
     } catch { return null; } finally { this.app.hideProgress(); }
   }
@@ -1274,7 +1285,8 @@ export class DrawingEditor {
         t.leader = { view: v.id, p };
         const m = this.viewModel(v.type === 'detail' ? D.findView(this.doc, v.parent) || v : v);
         const req = D.viewRequest(this.doc, v) || D.viewRequest(this.doc, D.findView(this.doc, v.parent));
-        t.item = m?.doc?.kind === 'assembly' && req ? this.app.kernel.request('drawingPick', { doc: JSON.stringify(m.doc), view: { dir: req.dir, up: req.up }, p })
+        const mj = m?.doc ? JSON.stringify(m.doc) : '';
+        t.item = m?.doc?.kind === 'assembly' && req ? this.kernel().request('drawingPick', { doc: mj, view: { dir: req.dir, up: req.up }, p }, 'dwg:' + mj.length + ':' + hash(mj))
           .then((id) => (id ? bomItemOf(m.doc, String(id).split('/')[0]) : null)).catch(() => null) : Promise.resolve(m?.doc?.kind === 'assembly' ? null : '1');
         this.app.status('Click where the balloon goes.');
         this.render();
