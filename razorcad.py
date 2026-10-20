@@ -45,6 +45,7 @@ PDF_TYPES = ('PDF Document (*.pdf)', 'All files (*.*)')
 STL_TYPES = ('STL Mesh (*.stl)', 'All files (*.*)')
 STEP_TYPES = ('STEP File (*.step;*.stp)', 'All files (*.*)')
 DXF_TYPES = ('DXF Drawing (*.dxf)', 'All files (*.*)')
+MACRO_TYPES = ('RazorCAD macro (*.js)', 'All files (*.*)')
 IMPORT_TYPES = ('STEP STL OBJ or 3MF (*.step;*.stp;*.stl;*.obj;*.3mf)', 'STEP File (*.step;*.stp)', 'STL Mesh (*.stl)', 'OBJ Mesh (*.obj)', '3MF Model (*.3mf)', 'All files (*.*)')
 OBJ_TYPES = ('OBJ Mesh (*.obj)', 'All files (*.*)')
 THREEMF_TYPES = ('3MF Model (*.3mf)', 'All files (*.*)')
@@ -649,7 +650,7 @@ class Api:
         return path
 
     def save_binary(self, name, b64, kind='stl'):
-        types = {'stl': STL_TYPES, 'step': STEP_TYPES, 'dxf': DXF_TYPES, 'pdf': PDF_TYPES, 'obj': OBJ_TYPES, '3mf': THREEMF_TYPES}.get(kind, ('All files (*.*)',))
+        types = {'stl': STL_TYPES, 'step': STEP_TYPES, 'dxf': DXF_TYPES, 'pdf': PDF_TYPES, 'obj': OBJ_TYPES, '3mf': THREEMF_TYPES, 'js': MACRO_TYPES}.get(kind, ('All files (*.*)',))
         path = first(self._window.create_file_dialog(webview.FileDialog.SAVE, save_filename=name, file_types=types))
         if not path:
             return None
@@ -850,6 +851,16 @@ class Api:
         if path.lower().endswith(('.step', '.stp', '.stl', '.obj', '.3mf')):
             return self._read_import(path)
         return self.open_path(path)
+
+    def open_macro(self):
+        """A macro file (.js, up to 1 MB): { name, content }."""
+        path = first(self._window.create_file_dialog(webview.FileDialog.OPEN, file_types=MACRO_TYPES))
+        if not path:
+            return None
+        if os.path.getsize(path) > 1 << 20:
+            raise ValueError('That file is too big for a macro')
+        with open(path, encoding='utf-8-sig') as f:
+            return {'name': os.path.basename(path), 'content': f.read()}
 
     def read_text(self, path):
         """The text of a part file (a drawing keeping its parts up to date); None if it can't be read."""

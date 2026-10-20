@@ -1814,7 +1814,7 @@ export class AssemblyEditor {
     for (const d of defs[this.cmTab]) {
       if (d === 'sep') { btns.appendChild(el('div', { class: 'cm-sep' })); continue; }
       const b = el('button', { class: 'cm-btn' + (d.active ? ' active' : ''), title: d.label + (d.key ? ` (${d.key})` : ''), disabled: d.disabled }, `<span class="cm-ic">${icon(d.icon)}${d.key ? `<span class="cm-key">${esc(d.key)}</span>` : ''}</span><span>${esc(d.label)}</span>`);
-      b.addEventListener('click', d.action);
+      b.addEventListener('click', () => { this.app.macros?.note(d.label); d.action(); });
       btns.appendChild(b);
     }
     const tabs = $('#cm-tabs');

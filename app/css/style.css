@@ -664,3 +664,21 @@ svg.ref-arrows { position: absolute; left: 0; top: 0; pointer-events: none; z-in
 .fixrefs .fix-acts { white-space: nowrap; }
 .fixrefs .fix-acts button { margin: 0 4px 4px 0; }
 
+/* Macros dialog */
+.macros { display: flex; gap: 10px; width: min(1000px, 90vw); height: min(620px, 70vh); }
+.macros .mc-side { width: 190px; flex: none; display: flex; flex-direction: column; gap: 6px; }
+.macros .mc-list { flex: 1; overflow: auto; border: 1px solid var(--border); border-radius: 3px; background: var(--panel); }
+.macros .mc-list .li { display: flex; align-items: center; gap: 6px; padding: 4px 6px; cursor: pointer; }
+.macros .mc-list .li svg { width: 16px; height: 16px; flex: none; }
+.macros .mc-list .li.active { background: var(--sel, #dbe8fb); }
+.macros .mc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.macros .mc-row { display: flex; align-items: center; gap: 8px; }
+.macros .mc-name { flex: 1; }
+.macros .mc-code { flex: 1; min-height: 200px; resize: none; font: 12.5px/1.45 Consolas, 'Cascadia Mono', monospace; tab-size: 2; padding: 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--panel); color: inherit; }
+.macros .mc-bar { display: flex; gap: 6px; flex-wrap: wrap; }
+.macros .mc-gap { flex: 1; }
+.macros .mc-out, .macros .mc-api { margin: 0; max-height: 120px; overflow: auto; font: 12px/1.4 Consolas, monospace; white-space: pre-wrap; padding: 4px 6px; background: var(--panel); border: 1px solid var(--border); border-radius: 3px; }
+.macros .mc-out:empty { display: none; }
+.macros .mc-out.err { color: #c62828; }
+.macros .mc-api { max-height: 220px; }
+#status-macro { color: #d23c3c; font-weight: 600; cursor: pointer; margin-right: 10px; }

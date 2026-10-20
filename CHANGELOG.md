@@ -6,6 +6,21 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 23:36 — Macros
+- **Tools ▸ Macros…**: write, run and save JavaScript macros that drive RazorCAD.
+  - In parts they can sketch (lines, rectangles, circles, arcs, polygons), extrude, cut, revolve, add any feature, change or delete features, set equations and the material, and rebuild.
+  - Anywhere they can run any command by its name in the command search, ask you for a value, and run other macros.
+  - The **API** button lists what a macro can use, and a sample macro shows the idea.
+  - A macro's changes to a part are one undo step. A part that was empty is zoomed to fit afterwards.
+  - Errors show their line, which is selected in the editor. Ctrl+Enter runs; Ctrl+S saves.
+- **Tools ▸ Record Macro** records what you do until **Stop Recording Macro** (or the red "● Recording macro" in the status bar):
+  - the features you add, change, delete, reorder or undo in parts, and the part's own settings;
+  - the commands you run from the menus, toolbars, command search or your shortcuts.
+  - The recording opens in the Macros dialog to be saved or edited. Features made in the recording are kept in variables; other features are found by name, so a recording plays back into another part.
+- Saved macros are in the Tools menu (**Macro: name**) and the command search, so they can have keyboard shortcuts. **Import…** / **Export…** share them as .js files.
+- Macros can do anything RazorCAD can: run only macros you trust.
+- Regression test: macros (a plate with four holes from one run; a recording played back into a new part).
+
 ## 2026-10-20 23:26 — Standard parts library
 - **Assembly ▸ Standard Parts** (also Insert ▸ Standard Parts…) adds ISO parts made to size:
   - hex bolts (ISO 4017) and socket head cap screws (ISO 4762), M3–M24, in the standard lengths;

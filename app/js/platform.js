@@ -221,6 +221,22 @@ export const platform = {
     });
   },
 
+  // A macro file (.js): { name, content } or null.
+  async openMacro() {
+    if (desktop) return api().open_macro();
+    return new Promise((resolve) => {
+      const input = document.getElementById('file-input');
+      input.value = '';
+      input.accept = '.js';
+      input.onchange = async () => {
+        const f = input.files[0];
+        input.accept = '.rcad,.rasm,.rdrw';
+        resolve(f ? { name: f.name, content: await f.text() } : null);
+      };
+      input.click();
+    });
+  },
+
   async openText() {
     if (desktop) return api().open_file();
     return new Promise((resolve) => {

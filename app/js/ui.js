@@ -1171,7 +1171,13 @@ export class UI {
   }
 
   // ------------------------------------------------------------ menus
+  // the menus of the document in front, with the macros in Tools
   menuDefs() {
+    const defs = this.baseMenuDefs();
+    if (defs && this.app.macros) defs.Tools = [...(defs.Tools || []), 'sep', ...this.app.macros.menuItems()];
+    return defs;
+  }
+  baseMenuDefs() {
     const a = this.app;
     if (a.mode === 'drawing' && a.drawing) return a.drawing.menuDefs();
     return {
@@ -1345,7 +1351,7 @@ export class UI {
       if (it === 'sep') { root.appendChild(el('div', { class: 'msep' })); continue; }
       const row = el('div', { class: 'mi' + (it.disabled ? ' disabled' : '') },
         `<span class="mi-icon">${icon(it.icon)}</span><span class="mi-label">${esc(it.label)}</span>${it.key ? `<span class="mi-key">${it.key}</span>` : ''}`);
-      row.addEventListener('click', () => { close(); it.action(); });
+      row.addEventListener('click', () => { close(); this.app.macros?.note(it.label); it.action(); });
       root.appendChild(row);
     }
   }
@@ -1592,7 +1598,7 @@ export class UI {
         `<span class="cm-ic">${icon(d.icon)}${d.key ? `<span class="cm-key">${esc(d.key)}</span>` : ''}</span><span>${esc(d.label)}</span>`);
       b.dataset.key = cmdKey(d);
       // (the click that ends a drag is not a press)
-      b.addEventListener('click', (e) => { if (this._tbJustDragged) { e.preventDefault(); return; } d.action(); });
+      b.addEventListener('click', (e) => { if (this._tbJustDragged) { e.preventDefault(); return; } this.app.macros?.note(d.label); d.action(); });
       b.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showContext(e.clientX, e.clientY, this.toolbarButtonMenu(d)); });
       this.toolbarDraggable(b);
       btns.appendChild(b);
@@ -4835,6 +4841,7 @@ export class UI {
     const run = (c) => {
       close();
       try { localStorage.setItem('razorcad.recentCommands', JSON.stringify([c.k, ...recent.filter((x) => x !== c.k)].slice(0, 8))); } catch { /* no storage */ }
+      this.app.macros?.note(c.label);
       setTimeout(() => c.action(), 0);
     };
     const find = (q) => {
@@ -4886,6 +4893,7 @@ export class UI {
     if (!b) return false;
     const c = this.commandList().find((x) => x.k === b.k);
     if (!c) { this.app.status(`${combo}: "${b.label}" is not available here.`); return true; }
+    this.app.macros?.note(c.label);
     c.action();
     return true;
   }

@@ -25,6 +25,7 @@ import { unitOf, UNIT_SYSTEM } from './units.js';
 import { isTemplate, drawingFromTemplate } from './drawtemplates.js';
 import { bodySignature, groupBodies, sameBody } from './bodygroups.js';
 import * as D from './drawing.js';
+import { Macros } from './macros.js';
 
 // Saved parts are auto-saved next to their file at most this often while they have unsaved changes.
 const AUTOSAVE_MS = 20000;
@@ -69,6 +70,7 @@ class App {
     installCrashHandlers(this);
     this.kernel = new KernelClient();
     this.kernelPool = new KernelPool(this.kernel); // (more kernels for assemblies and drawings)
+    this.macros = new Macros(this); // (Tools ▸ Macros: recording and running them)
     this.kernel.onCrash = (err) => reportError('kernel-worker-crash', err, this);
     // the kernel broke and is being replaced; the request is repeated on the fresh kernel
     this.kernel.onRestart = (err) => {
@@ -213,7 +215,9 @@ class App {
 
   commit() {
     rememberPart(this);
+    const prev = this.history.stack[this.history.idx];
     this.history.push(this.doc);
+    this.macros?.sync(prev);
     this.dirty = true;
     this.updateTitle();
     this.autosave();
@@ -3555,9 +3559,11 @@ class App {
     if (this.mode === 'sketch') { this.sketcher.undo(); return; }
     if (this.mode === 'sketch3d') { this.sketch3d.undo(); return; }
     if (this.pm) this.cancelPM();
+    const prev = this.history.stack[this.history.idx];
     const d = this.history.undo();
     if (!d) return;
     this.doc = d;
+    this.macros?.sync(prev);
     this.selection = null;
     this.dirty = true;
     this.refresh();
@@ -3569,9 +3575,11 @@ class App {
     if (this.mode === 'sketch') { this.sketcher.redo(); return; }
     if (this.mode === 'sketch3d') { this.sketch3d.redo(); return; }
     if (this.pm) this.cancelPM();
+    const prev = this.history.stack[this.history.idx];
     const d = this.history.redo();
     if (!d) return;
     this.doc = d;
+    this.macros?.sync(prev);
     this.selection = null;
     this.dirty = true;
     this.refresh();

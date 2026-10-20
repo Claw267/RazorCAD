@@ -781,6 +781,53 @@ const UI = {
       : { ok: false, detail: `fit ${JSON.stringify(fit)}, depth ${hole.depth}, face ${hole.face.face}, mates ${mates}, solved ${asm.solveOk}, pos ${r3(bolt.pos)} rot ${r3(bolt.rot)}, height ${bh}, parts ${parts}` };
   },
 
+  // macros: one run builds a plate with four holes (one undo step); a recording of features added, changed and
+  // undone, and of a command, plays back into a new part as the same features
+  async 'macros'() {
+    const a = window.app, mc = a.macros;
+    if (a.mode === 'drawing') { const i = a.tabs.findIndex((t) => t.kind !== 'drawing'); if (i >= 0) await a.activateTab(i); }
+    a.newDocument(); await wait(200);
+    const idx0 = a.history.idx;
+    const r = await mc.run(`const p = await rc.sketch('top', (s) => s.centerRect(0, 0, 120, 80));
+await rc.extrude(p, 10);
+const h = await rc.sketch('top', (s) => { for (const x of [-1, 1]) for (const y of [-1, 1]) s.circle(x * 50, y * 30, 4.5); });
+await rc.cut(h, 10);
+const b = await rc.rebuild();
+rc.log(b.bodies, b.errors.length);`, 'test');
+    const vol = async () => { const m = await a.kernel.request('measure', { refs: [{ kind: 'body', id: a.result.bodies[0].id }] }); return (m.items?.[0] || m).volume; };
+    const v1 = await vol(), want = 120 * 80 * 10 - 4 * Math.PI * 4.5 * 4.5 * 10;
+    const ran = r.ok && r.log[0] === '1 0' && a.doc.features.length === 4 && Math.abs(v1 - want) < 1 && a.history.idx === idx0 + 1;
+    // recording
+    a.newDocument(); await wait(200);
+    mc.startRecording();
+    const d = a.doc, sk = M.createFeature(d, 'sketch', { plane: { ref: 'front' } });
+    const S = await import('/js/sketchmodel.js');
+    S.addCircle(sk, S.addPoint(sk, 0, 0), 15);
+    M.insertFeature(d, sk); a.commit();
+    mc.note('Features ▸ Extrude…');
+    const ex = M.createFeature(d, 'extrude', { sketch: sk.id, depth: 30 });
+    M.insertFeature(d, ex); a.commit();
+    const ch = M.createFeature(d, 'chamfer', { distance: 1 });
+    M.insertFeature(d, ch); a.commit();
+    a.undo();
+    mc.note('Zoom to Fit');
+    M.findFeature(a.doc, ex.id).depth = 40; a.commit();
+    mc.note('Isometric');
+    await a.rebuild();
+    const code = mc.stopRecording();
+    document.querySelectorAll('.modal-back').forEach((x) => x.remove());
+    const v2 = await vol();
+    a.newDocument(); await wait(200);
+    const r2 = await mc.run(code, 'recorded');
+    await wait(100);
+    const v3 = r2.ok ? await vol() : 0;
+    const types = a.doc.features.map((f) => f.type).join(',');
+    const recOk = r2.ok && types === 'sketch,extrude' && M.findFeature(a.doc, a.doc.features[1].id).depth === 40 && Math.abs(v3 - v2) < 1e-6
+      && code.includes('await rc.command("Isometric");') && !code.includes('"Extrude"') && code.includes('rc.remove(') && code.includes('rc.set(');
+    return ran && recOk ? { ok: true, detail: `plate ${Math.round(v1)} mm³ in one undo step; recorded ${code.split('\n').length - 2} lines, played back: ${types}, ${Math.round(v3)} mm³` }
+      : { ok: false, detail: `run ${JSON.stringify(r)}, ${a.history.idx - idx0} steps, vol ${v1} vs ${want}; playback ${JSON.stringify(r2)} types ${types}, vol ${v3} vs ${v2}; code:\n${code}` };
+  },
+
   // the view's mouse buttons: Shift + right-drag pans, middle-drag turns, a plain right-drag changes nothing
   async 'view-mouse-buttons'() {
     const a = window.app;

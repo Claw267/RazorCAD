@@ -2213,7 +2213,7 @@ export class DrawingEditor {
     for (const d of defs[this.cmTab]) {
       if (d === 'sep') { btns.appendChild(el('div', { class: 'cm-sep' })); continue; }
       const b = el('button', { class: 'cm-btn' + (d.active ? ' active' : ''), title: d.label }, `<span class="cm-ic">${icon(d.icon)}</span><span>${esc(d.label)}</span>`);
-      b.addEventListener('click', d.action);
+      b.addEventListener('click', () => { this.app.macros?.note(d.label); d.action(); });
       btns.appendChild(b);
     }
     const tabs = $('#cm-tabs');
