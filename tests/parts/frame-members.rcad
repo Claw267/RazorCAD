@@ -1,0 +1,93 @@
+{
+ "version": 1,
+ "name": "frame-members",
+ "material": null,
+ "equations": [],
+ "features": [
+  {
+   "id": "f1",
+   "type": "sketch",
+   "name": "Sketch1",
+   "suppressed": false,
+   "plane": {
+    "ref": "front"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": -300,
+     "y": 0
+    },
+    {
+     "id": "p2",
+     "x": 300,
+     "y": 0
+    },
+    {
+     "id": "p3",
+     "x": 300,
+     "y": 400
+    },
+    {
+     "id": "p4",
+     "x": -300,
+     "y": 400
+    }
+   ],
+   "curves": [
+    {
+     "id": "c1",
+     "type": "line",
+     "construction": false,
+     "p1": "p1",
+     "p2": "p2"
+    },
+    {
+     "id": "c2",
+     "type": "line",
+     "construction": false,
+     "p1": "p2",
+     "p2": "p3"
+    },
+    {
+     "id": "c3",
+     "type": "line",
+     "construction": false,
+     "p1": "p3",
+     "p2": "p4"
+    },
+    {
+     "id": "c4",
+     "type": "line",
+     "construction": false,
+     "p1": "p4",
+     "p2": "p1"
+    }
+   ],
+   "constraints": [],
+   "nextSid": 105,
+   "rev": "e167302b"
+  },
+  {
+   "id": "f2",
+   "type": "structMember",
+   "name": "Structural Member1",
+   "suppressed": false,
+   "path": "f1",
+   "paths": [
+    "f1"
+   ],
+   "standard": "AS/NZS",
+   "ptype": "shs",
+   "size": "50x50x3 SHS",
+   "dims": {},
+   "pierce": "mc",
+   "rotate": 0,
+   "mirror": false,
+   "corner": "mitre",
+   "trim": "planar"
+  }
+ ],
+ "nextId": 3,
+ "rollbackAt": null
+}

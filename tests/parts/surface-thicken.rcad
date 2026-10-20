@@ -1,0 +1,76 @@
+{
+ "version": 1,
+ "name": "surface-thicken",
+ "material": null,
+ "equations": [],
+ "features": [
+  {
+   "id": "f1",
+   "type": "sketch",
+   "name": "Sketch1",
+   "suppressed": false,
+   "plane": {
+    "ref": "front"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": 0,
+     "y": 0
+    },
+    {
+     "id": "p2",
+     "x": 40,
+     "y": 0
+    },
+    {
+     "id": "p3",
+     "x": 60,
+     "y": 20
+    }
+   ],
+   "curves": [
+    {
+     "id": "c1",
+     "type": "line",
+     "construction": false,
+     "p1": "p1",
+     "p2": "p2"
+    },
+    {
+     "id": "c2",
+     "type": "line",
+     "construction": false,
+     "p1": "p2",
+     "p2": "p3"
+    }
+   ],
+   "constraints": [],
+   "nextSid": 104,
+   "rev": "rpgtfvus"
+  },
+  {
+   "id": "f2",
+   "type": "surfExtrude",
+   "name": "Surface-Extrude1",
+   "suppressed": false,
+   "sketch": "f1",
+   "end": "blind",
+   "depth": 30,
+   "reverse": false
+  },
+  {
+   "id": "f3",
+   "type": "thicken",
+   "name": "Thicken1",
+   "suppressed": false,
+   "body": "f2",
+   "thickness": 2,
+   "side": "one",
+   "flip": false,
+   "merge": true
+  }
+ ],
+ "nextId": 4,
+ "rollbackAt": null
+}

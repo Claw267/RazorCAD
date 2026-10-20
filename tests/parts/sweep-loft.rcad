@@ -1,0 +1,216 @@
+{
+ "version": 1,
+ "name": "sweep-loft",
+ "material": null,
+ "equations": [],
+ "features": [
+  {
+   "id": "f1",
+   "type": "sketch",
+   "name": "Sketch1",
+   "suppressed": false,
+   "plane": {
+    "ref": "front"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": 0,
+     "y": 0
+    },
+    {
+     "id": "p2",
+     "x": 0,
+     "y": 80
+    }
+   ],
+   "curves": [
+    {
+     "id": "c1",
+     "type": "line",
+     "construction": false,
+     "p1": "p1",
+     "p2": "p2"
+    }
+   ],
+   "constraints": [],
+   "nextSid": 103,
+   "rev": "mue7gt8n"
+  },
+  {
+   "id": "f2",
+   "type": "sketch",
+   "name": "Sketch2",
+   "suppressed": false,
+   "plane": {
+    "ref": "top"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": 0,
+     "y": 0
+    }
+   ],
+   "curves": [
+    {
+     "id": "c1",
+     "type": "circle",
+     "construction": false,
+     "c": "p1",
+     "r": 5
+    }
+   ],
+   "constraints": [],
+   "nextSid": 102,
+   "rev": "e82jjvxq"
+  },
+  {
+   "id": "f3",
+   "type": "sketch",
+   "name": "Sketch3",
+   "suppressed": false,
+   "plane": {
+    "ref": "top"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": 80,
+     "y": -20
+    },
+    {
+     "id": "p2",
+     "x": 120,
+     "y": -20
+    },
+    {
+     "id": "p3",
+     "x": 120,
+     "y": 20
+    },
+    {
+     "id": "p4",
+     "x": 80,
+     "y": 20
+    }
+   ],
+   "curves": [
+    {
+     "id": "c1",
+     "type": "line",
+     "construction": false,
+     "p1": "p1",
+     "p2": "p2"
+    },
+    {
+     "id": "c2",
+     "type": "line",
+     "construction": false,
+     "p1": "p2",
+     "p2": "p3"
+    },
+    {
+     "id": "c3",
+     "type": "line",
+     "construction": false,
+     "p1": "p3",
+     "p2": "p4"
+    },
+    {
+     "id": "c4",
+     "type": "line",
+     "construction": false,
+     "p1": "p4",
+     "p2": "p1"
+    }
+   ],
+   "constraints": [],
+   "nextSid": 105,
+   "rev": "hkl70lcm"
+  },
+  {
+   "id": "f4",
+   "type": "plane",
+   "name": "Plane1",
+   "suppressed": false,
+   "refs": [
+    {
+     "kind": "plane",
+     "id": "top"
+    }
+   ],
+   "offset": 50,
+   "flip": false,
+   "angle": 90,
+   "flipAngle": false,
+   "position": "mid",
+   "bisector": false
+  },
+  {
+   "id": "f5",
+   "type": "sketch",
+   "name": "Sketch4",
+   "suppressed": false,
+   "plane": {
+    "ref": "f4"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": 100,
+     "y": 0
+    }
+   ],
+   "curves": [
+    {
+     "id": "c1",
+     "type": "circle",
+     "construction": false,
+     "c": "p1",
+     "r": 15
+    }
+   ],
+   "constraints": [],
+   "nextSid": 102,
+   "rev": "vdwwvxe1"
+  },
+  {
+   "id": "f6",
+   "type": "sweep",
+   "name": "Sweep1",
+   "suppressed": false,
+   "op": "add",
+   "profileType": "sketch",
+   "profile": "f2",
+   "diameter": 2,
+   "path": "f1",
+   "merge": true,
+   "thin": false,
+   "thinT": 1,
+   "thinDir": "one",
+   "scopeAll": true,
+   "scope": []
+  },
+  {
+   "id": "f7",
+   "type": "loft",
+   "name": "Loft1",
+   "suppressed": false,
+   "op": "add",
+   "profiles": [
+    "f3",
+    "f5"
+   ],
+   "ruled": false,
+   "merge": true,
+   "thin": false,
+   "thinT": 1,
+   "thinDir": "one",
+   "scopeAll": true,
+   "scope": []
+  }
+ ],
+ "nextId": 8,
+ "rollbackAt": null
+}

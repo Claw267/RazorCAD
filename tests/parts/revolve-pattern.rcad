@@ -1,0 +1,177 @@
+{
+ "version": 1,
+ "name": "revolve-pattern",
+ "material": null,
+ "equations": [],
+ "features": [
+  {
+   "id": "f1",
+   "type": "sketch",
+   "name": "Sketch1",
+   "suppressed": false,
+   "plane": {
+    "ref": "front"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": 0,
+     "y": 0
+    },
+    {
+     "id": "p2",
+     "x": 40,
+     "y": 0
+    },
+    {
+     "id": "p3",
+     "x": 40,
+     "y": 10
+    },
+    {
+     "id": "p4",
+     "x": 15,
+     "y": 10
+    },
+    {
+     "id": "p5",
+     "x": 15,
+     "y": 30
+    },
+    {
+     "id": "p6",
+     "x": 0,
+     "y": 30
+    }
+   ],
+   "curves": [
+    {
+     "id": "c1",
+     "type": "line",
+     "construction": false,
+     "p1": "p1",
+     "p2": "p2"
+    },
+    {
+     "id": "c2",
+     "type": "line",
+     "construction": false,
+     "p1": "p2",
+     "p2": "p3"
+    },
+    {
+     "id": "c3",
+     "type": "line",
+     "construction": false,
+     "p1": "p3",
+     "p2": "p4"
+    },
+    {
+     "id": "c4",
+     "type": "line",
+     "construction": false,
+     "p1": "p4",
+     "p2": "p5"
+    },
+    {
+     "id": "c5",
+     "type": "line",
+     "construction": false,
+     "p1": "p5",
+     "p2": "p6"
+    },
+    {
+     "id": "c6",
+     "type": "line",
+     "construction": false,
+     "p1": "p6",
+     "p2": "p1"
+    }
+   ],
+   "constraints": [],
+   "nextSid": 107,
+   "rev": "wyau8wq3"
+  },
+  {
+   "id": "f2",
+   "type": "revolve",
+   "name": "Revolve1",
+   "suppressed": false,
+   "sketch": "f1",
+   "op": "add",
+   "merge": true,
+   "axis": "v",
+   "end": "oneway",
+   "angle": 360,
+   "reverse": false,
+   "axisEdge": null,
+   "axisFace": null,
+   "scopeAll": true,
+   "scope": []
+  },
+  {
+   "id": "f3",
+   "type": "sketch",
+   "name": "Sketch2",
+   "suppressed": false,
+   "plane": {
+    "ref": "top"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": 30,
+     "y": 0
+    }
+   ],
+   "curves": [
+    {
+     "id": "c1",
+     "type": "circle",
+     "construction": false,
+     "c": "p1",
+     "r": 3
+    }
+   ],
+   "constraints": [],
+   "nextSid": 102,
+   "rev": "4sejvevl"
+  },
+  {
+   "id": "f4",
+   "type": "extrude",
+   "name": "Extrude Cut1",
+   "suppressed": false,
+   "sketch": "f3",
+   "op": "cut",
+   "merge": true,
+   "end": "through2",
+   "depth": 10,
+   "reverse": false,
+   "toPoint": null,
+   "toVertex": null,
+   "toPlane": null,
+   "toFace": null,
+   "toOffset": 5,
+   "toFlip": false,
+   "thin": false,
+   "thinT": 2,
+   "thinDir": "one",
+   "scopeAll": true,
+   "scope": []
+  },
+  {
+   "id": "f5",
+   "type": "cpattern",
+   "name": "Circular Pattern1",
+   "suppressed": false,
+   "feature": "f4",
+   "axis": "y",
+   "angle": 360,
+   "count": 6,
+   "equal": true
+  }
+ ],
+ "nextId": 6,
+ "rollbackAt": null
+}

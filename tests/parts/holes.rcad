@@ -1,0 +1,163 @@
+{
+ "version": 1,
+ "name": "holes",
+ "material": null,
+ "equations": [],
+ "features": [
+  {
+   "id": "f1",
+   "type": "sketch",
+   "name": "Sketch1",
+   "suppressed": false,
+   "plane": {
+    "ref": "top"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": -30,
+     "y": -20
+    },
+    {
+     "id": "p2",
+     "x": 30,
+     "y": -20
+    },
+    {
+     "id": "p3",
+     "x": 30,
+     "y": 20
+    },
+    {
+     "id": "p4",
+     "x": -30,
+     "y": 20
+    }
+   ],
+   "curves": [
+    {
+     "id": "c1",
+     "type": "line",
+     "construction": false,
+     "p1": "p1",
+     "p2": "p2"
+    },
+    {
+     "id": "c2",
+     "type": "line",
+     "construction": false,
+     "p1": "p2",
+     "p2": "p3"
+    },
+    {
+     "id": "c3",
+     "type": "line",
+     "construction": false,
+     "p1": "p3",
+     "p2": "p4"
+    },
+    {
+     "id": "c4",
+     "type": "line",
+     "construction": false,
+     "p1": "p4",
+     "p2": "p1"
+    }
+   ],
+   "constraints": [],
+   "nextSid": 105,
+   "rev": "u402avbi"
+  },
+  {
+   "id": "f2",
+   "type": "extrude",
+   "name": "Extrude1",
+   "suppressed": false,
+   "sketch": "f1",
+   "op": "add",
+   "merge": true,
+   "end": "blind",
+   "depth": 20,
+   "reverse": false,
+   "toPoint": null,
+   "toVertex": null,
+   "toPlane": null,
+   "toFace": null,
+   "toOffset": 5,
+   "toFlip": false,
+   "thin": false,
+   "thinT": 2,
+   "thinDir": "one",
+   "scopeAll": true,
+   "scope": []
+  },
+  {
+   "id": "f3",
+   "type": "plane",
+   "name": "Plane1",
+   "suppressed": false,
+   "refs": [
+    {
+     "kind": "plane",
+     "id": "top"
+    }
+   ],
+   "offset": 20,
+   "flip": false,
+   "angle": 90,
+   "flipAngle": false,
+   "position": "mid",
+   "bisector": false
+  },
+  {
+   "id": "f4",
+   "type": "sketch",
+   "name": "Sketch2",
+   "suppressed": false,
+   "plane": {
+    "ref": "f3"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": -15,
+     "y": 0
+    },
+    {
+     "id": "p2",
+     "x": 15,
+     "y": 0
+    }
+   ],
+   "curves": [],
+   "constraints": [],
+   "nextSid": 103,
+   "rev": "ui8mqns2"
+  },
+  {
+   "id": "f5",
+   "type": "hole",
+   "name": "Hole1",
+   "suppressed": false,
+   "holeType": "cbore",
+   "size": "M6",
+   "fit": "normal",
+   "diameter": 6.6,
+   "cboreD": 11,
+   "cboreDepth": 6.5,
+   "csinkD": 13.7,
+   "csinkAngle": 90,
+   "system": "metric",
+   "thread": "M6",
+   "threadDepth": "",
+   "end": "through",
+   "depth": 10,
+   "drillPoint": true,
+   "reverse": false,
+   "sketch": "f4",
+   "faces": []
+  }
+ ],
+ "nextId": 6,
+ "rollbackAt": null
+}

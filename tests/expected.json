@@ -1,0 +1,205 @@
+{
+ "parts": {
+  "configurations": {
+   "default": {
+    "errors": [],
+    "bodies": [
+     {
+      "kind": "solid",
+      "faces": 6,
+      "edges": 12,
+      "volume": 60000,
+      "area": 15200
+     }
+    ]
+   },
+   "cfg1": {
+    "errors": [],
+    "bodies": [
+     {
+      "kind": "solid",
+      "faces": 6,
+      "edges": 12,
+      "volume": 150000,
+      "area": 20000
+     }
+    ]
+   }
+  },
+  "dimple-pattern": {
+   "default": {
+    "errors": [],
+    "bodies": [
+     {
+      "kind": "solid",
+      "faces": 61,
+      "edges": 146,
+      "volume": 110321.5639,
+      "area": 12417.3526
+     }
+    ]
+   }
+  },
+  "frame-members": {
+   "default": {
+    "errors": [],
+    "bodies": [
+     {
+      "kind": "solid",
+      "faces": 18,
+      "edges": 48,
+      "volume": 324493.801,
+      "area": 217858.8791
+     },
+     {
+      "kind": "solid",
+      "faces": 18,
+      "edges": 48,
+      "volume": 216329.2007,
+      "area": 145749.1456
+     },
+     {
+      "kind": "solid",
+      "faces": 18,
+      "edges": 48,
+      "volume": 324493.801,
+      "area": 217858.8791
+     },
+     {
+      "kind": "solid",
+      "faces": 18,
+      "edges": 48,
+      "volume": 216329.2007,
+      "area": 145749.1456
+     }
+    ]
+   }
+  },
+  "holes": {
+   "default": {
+    "errors": [],
+    "bodies": [
+     {
+      "kind": "solid",
+      "faces": 12,
+      "edges": 20,
+      "volume": 45840.8462,
+      "area": 9672.231784
+     }
+    ]
+   }
+  },
+  "multibody-combine": {
+   "default": {
+    "errors": [],
+    "bodies": [
+     {
+      "kind": "solid",
+      "faces": 9,
+      "edges": 20,
+      "volume": 38137.16694,
+      "area": 9091.813939
+     }
+    ]
+   }
+  },
+  "plate-features": {
+   "default": {
+    "errors": [],
+    "bodies": [
+     {
+      "kind": "solid",
+      "faces": 14,
+      "edges": 32,
+      "volume": 112529.7346,
+      "area": 24658.31847
+     }
+    ]
+   }
+  },
+  "revolve-pattern": {
+   "default": {
+    "errors": [],
+    "bodies": [
+     {
+      "kind": "solid",
+      "faces": 11,
+      "edges": 16,
+      "volume": 62706.18937,
+      "area": 15243.00756
+     }
+    ]
+   }
+  },
+  "sheet-metal": {
+   "default": {
+    "errors": [],
+    "bodies": [
+     {
+      "kind": "solid",
+      "faces": 14,
+      "edges": 36,
+      "volume": 20684.95559,
+      "area": 21498.6547,
+      "flat": {
+       "size": [
+        100,
+        103.0477868
+       ],
+       "bends": 2
+      }
+     }
+    ]
+   }
+  },
+  "shell-box": {
+   "default": {
+    "errors": [],
+    "bodies": [
+     {
+      "kind": "solid",
+      "faces": 11,
+      "edges": 24,
+      "volume": 52188,
+      "area": 35752
+     }
+    ]
+   }
+  },
+  "surface-thicken": {
+   "default": {
+    "errors": [],
+    "bodies": [
+     {
+      "kind": "solid",
+      "faces": 10,
+      "edges": 20,
+      "volume": 3869.286433,
+      "area": 4471.467819
+     }
+    ]
+   }
+  },
+  "sweep-loft": {
+   "default": {
+    "errors": [],
+    "bodies": [
+     {
+      "kind": "solid",
+      "faces": 3,
+      "edges": 2,
+      "volume": 6283.185307,
+      "area": 2670.353756
+     },
+     {
+      "kind": "solid",
+      "faces": 6,
+      "edges": 12,
+      "volume": 56453.96544,
+      "area": 8629.572673
+     }
+    ]
+   }
+  }
+ }
+}

@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 21:16 — Automated regression tests
+- **`python tests/run_tests.py`** rebuilds 11 test parts with the real geometry kernel in headless Edge and compares the results with stored ones: feature errors and, per body, face / edge count, volume, area (sheet metal: flat-pattern size and bends), in every configuration. Covered: extrude, cut, linear and circular patterns, fillet, revolve, shell, sweep, loft, reference plane, sheet-metal base and edge flanges, multiple bodies and combine, counterbored holes, surface extrude and thicken, a one-operation cut pattern, structural members, equations and configurations.
+- **UI checks** done with real pointer events: sketch a rectangle, dimension it, extrude it (checks the volume); a drawing with three views; an assembly of two components; the mouse buttons on the view.
+- Exit code 1 on any difference; `--update` stores new expected results, `--only` runs a few, `--make-parts` regenerates the test parts from `tests/make_parts.js`. See `tests/README.md`.
+
 ## 2026-10-20 20:59 — Tool wheel on the right mouse button; Shift + right-drag pans
 - **Sketch tool wheel:** press and hold the **right** mouse button in a sketch (or start dragging with it), move toward a tool and release. It no longer clashes with rotating the view: holding the middle button still while starting to rotate used to open the wheel.
 - **A quick right click** (press and release without moving) still opens the right-click menu, in sketches and everywhere else. The browser's own menu no longer appears when the wheel closes.

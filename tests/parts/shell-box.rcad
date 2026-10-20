@@ -1,0 +1,119 @@
+{
+ "version": 1,
+ "name": "shell-box",
+ "material": null,
+ "equations": [],
+ "features": [
+  {
+   "id": "f1",
+   "type": "sketch",
+   "name": "Sketch1",
+   "suppressed": false,
+   "plane": {
+    "ref": "top"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": -50,
+     "y": -30
+    },
+    {
+     "id": "p2",
+     "x": 50,
+     "y": -30
+    },
+    {
+     "id": "p3",
+     "x": 50,
+     "y": 30
+    },
+    {
+     "id": "p4",
+     "x": -50,
+     "y": 30
+    }
+   ],
+   "curves": [
+    {
+     "id": "c1",
+     "type": "line",
+     "construction": false,
+     "p1": "p1",
+     "p2": "p2"
+    },
+    {
+     "id": "c2",
+     "type": "line",
+     "construction": false,
+     "p1": "p2",
+     "p2": "p3"
+    },
+    {
+     "id": "c3",
+     "type": "line",
+     "construction": false,
+     "p1": "p3",
+     "p2": "p4"
+    },
+    {
+     "id": "c4",
+     "type": "line",
+     "construction": false,
+     "p1": "p4",
+     "p2": "p1"
+    }
+   ],
+   "constraints": [],
+   "nextSid": 105,
+   "rev": "75yc900o"
+  },
+  {
+   "id": "f2",
+   "type": "extrude",
+   "name": "Extrude1",
+   "suppressed": false,
+   "sketch": "f1",
+   "op": "add",
+   "merge": true,
+   "end": "blind",
+   "depth": 40,
+   "reverse": false,
+   "toPoint": null,
+   "toVertex": null,
+   "toPlane": null,
+   "toFace": null,
+   "toOffset": 5,
+   "toFlip": false,
+   "thin": false,
+   "thinT": 2,
+   "thinDir": "one",
+   "scopeAll": true,
+   "scope": []
+  },
+  {
+   "id": "f3",
+   "type": "shell",
+   "name": "Shell1",
+   "suppressed": false,
+   "faces": [
+    {
+     "p": [
+      0,
+      40,
+      0
+     ],
+     "n": [
+      0,
+      1,
+      0
+     ]
+    }
+   ],
+   "thickness": 3,
+   "outward": false
+  }
+ ],
+ "nextId": 4,
+ "rollbackAt": null
+}

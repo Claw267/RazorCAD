@@ -1,0 +1,165 @@
+{
+ "version": 1,
+ "name": "dimple-pattern",
+ "material": null,
+ "equations": [],
+ "features": [
+  {
+   "id": "f1",
+   "type": "sketch",
+   "name": "Sketch1",
+   "suppressed": false,
+   "plane": {
+    "ref": "front"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": 0,
+     "y": -30
+    },
+    {
+     "id": "p2",
+     "x": 0,
+     "y": 30
+    },
+    {
+     "id": "o",
+     "x": 0,
+     "y": 0
+    }
+   ],
+   "curves": [
+    {
+     "id": "c1",
+     "type": "arc",
+     "construction": false,
+     "c": "o",
+     "p1": "p1",
+     "p2": "p2"
+    },
+    {
+     "id": "c2",
+     "type": "line",
+     "construction": false,
+     "p1": "p2",
+     "p2": "p1"
+    }
+   ],
+   "constraints": [],
+   "nextSid": 103,
+   "rev": "zhqfshqu"
+  },
+  {
+   "id": "f2",
+   "type": "revolve",
+   "name": "Revolve1",
+   "suppressed": false,
+   "sketch": "f1",
+   "op": "add",
+   "merge": true,
+   "axis": "c2",
+   "end": "oneway",
+   "angle": 360,
+   "reverse": false,
+   "axisEdge": null,
+   "axisFace": null,
+   "scopeAll": true,
+   "scope": []
+  },
+  {
+   "id": "f3",
+   "type": "sketch",
+   "name": "Sketch2",
+   "suppressed": false,
+   "plane": {
+    "ref": "front"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": 27,
+     "y": 4
+    },
+    {
+     "id": "p2",
+     "x": 27,
+     "y": -4
+    },
+    {
+     "id": "p3",
+     "x": 33,
+     "y": -4
+    },
+    {
+     "id": "p4",
+     "x": 33,
+     "y": 4
+    }
+   ],
+   "curves": [
+    {
+     "id": "c1",
+     "type": "line",
+     "construction": false,
+     "p1": "p1",
+     "p2": "p2"
+    },
+    {
+     "id": "c2",
+     "type": "line",
+     "construction": false,
+     "p1": "p2",
+     "p2": "p3"
+    },
+    {
+     "id": "c3",
+     "type": "line",
+     "construction": false,
+     "p1": "p3",
+     "p2": "p4"
+    },
+    {
+     "id": "c4",
+     "type": "line",
+     "construction": false,
+     "p1": "p4",
+     "p2": "p1"
+    }
+   ],
+   "constraints": [],
+   "nextSid": 105,
+   "rev": "3xacr6ej"
+  },
+  {
+   "id": "f4",
+   "type": "revolve",
+   "name": "Revolve Cut1",
+   "suppressed": false,
+   "sketch": "f3",
+   "op": "cut",
+   "merge": true,
+   "axis": "v",
+   "end": "oneway",
+   "angle": 20,
+   "reverse": false,
+   "axisEdge": null,
+   "axisFace": null,
+   "scopeAll": true,
+   "scope": []
+  },
+  {
+   "id": "f5",
+   "type": "cpattern",
+   "name": "Circular Pattern1",
+   "suppressed": false,
+   "feature": "f4",
+   "axis": "y",
+   "angle": 360,
+   "count": 12,
+   "equal": true
+  }
+ ],
+ "nextId": 6,
+ "rollbackAt": null
+}

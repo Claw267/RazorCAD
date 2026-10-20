@@ -1,0 +1,121 @@
+{
+ "version": 1,
+ "name": "sheet-metal",
+ "material": null,
+ "equations": [],
+ "features": [
+  {
+   "id": "f1",
+   "type": "sketch",
+   "name": "Sketch1",
+   "suppressed": false,
+   "plane": {
+    "ref": "top"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": -50,
+     "y": -30
+    },
+    {
+     "id": "p2",
+     "x": 50,
+     "y": -30
+    },
+    {
+     "id": "p3",
+     "x": 50,
+     "y": 30
+    },
+    {
+     "id": "p4",
+     "x": -50,
+     "y": 30
+    }
+   ],
+   "curves": [
+    {
+     "id": "c1",
+     "type": "line",
+     "construction": false,
+     "p1": "p1",
+     "p2": "p2"
+    },
+    {
+     "id": "c2",
+     "type": "line",
+     "construction": false,
+     "p1": "p2",
+     "p2": "p3"
+    },
+    {
+     "id": "c3",
+     "type": "line",
+     "construction": false,
+     "p1": "p3",
+     "p2": "p4"
+    },
+    {
+     "id": "c4",
+     "type": "line",
+     "construction": false,
+     "p1": "p4",
+     "p2": "p1"
+    }
+   ],
+   "constraints": [],
+   "nextSid": 105,
+   "rev": "o6k3l5mc"
+  },
+  {
+   "id": "f2",
+   "type": "smBase",
+   "name": "Base-Flange1",
+   "suppressed": false,
+   "sketch": "f1",
+   "thickness": 2,
+   "radius": 2,
+   "kFactor": 0.44,
+   "reverse": false
+  },
+  {
+   "id": "f3",
+   "type": "smFlange",
+   "name": "Edge-Flange1",
+   "suppressed": false,
+   "edges": [
+    {
+     "p": [
+      0,
+      2,
+      30
+     ]
+    },
+    {
+     "p": [
+      0,
+      2,
+      -30
+     ]
+    }
+   ],
+   "length": 25,
+   "lengthRef": "outer",
+   "angle": 90,
+   "position": "inside",
+   "offset": 0,
+   "flip": false,
+   "useDefaultRadius": true,
+   "radius": 2,
+   "reliefType": "rect",
+   "reliefRatio": 0.5,
+   "corner": "closed",
+   "cornerGap": 0.1,
+   "cornerSwap": false,
+   "cornerBend": "vcut"
+  }
+ ],
+ "nextId": 4,
+ "rollbackAt": null
+}

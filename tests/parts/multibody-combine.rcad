@@ -1,0 +1,160 @@
+{
+ "version": 1,
+ "name": "multibody-combine",
+ "material": null,
+ "equations": [],
+ "features": [
+  {
+   "id": "f1",
+   "type": "sketch",
+   "name": "Sketch1",
+   "suppressed": false,
+   "plane": {
+    "ref": "top"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": -30,
+     "y": -20
+    },
+    {
+     "id": "p2",
+     "x": 30,
+     "y": -20
+    },
+    {
+     "id": "p3",
+     "x": 30,
+     "y": 20
+    },
+    {
+     "id": "p4",
+     "x": -30,
+     "y": 20
+    }
+   ],
+   "curves": [
+    {
+     "id": "c1",
+     "type": "line",
+     "construction": false,
+     "p1": "p1",
+     "p2": "p2"
+    },
+    {
+     "id": "c2",
+     "type": "line",
+     "construction": false,
+     "p1": "p2",
+     "p2": "p3"
+    },
+    {
+     "id": "c3",
+     "type": "line",
+     "construction": false,
+     "p1": "p3",
+     "p2": "p4"
+    },
+    {
+     "id": "c4",
+     "type": "line",
+     "construction": false,
+     "p1": "p4",
+     "p2": "p1"
+    }
+   ],
+   "constraints": [],
+   "nextSid": 105,
+   "rev": "3jf2zixt"
+  },
+  {
+   "id": "f2",
+   "type": "extrude",
+   "name": "Extrude1",
+   "suppressed": false,
+   "sketch": "f1",
+   "op": "add",
+   "merge": true,
+   "end": "blind",
+   "depth": 10,
+   "reverse": false,
+   "toPoint": null,
+   "toVertex": null,
+   "toPlane": null,
+   "toFace": null,
+   "toOffset": 5,
+   "toFlip": false,
+   "thin": false,
+   "thinT": 2,
+   "thinDir": "one",
+   "scopeAll": true,
+   "scope": []
+  },
+  {
+   "id": "f3",
+   "type": "sketch",
+   "name": "Sketch2",
+   "suppressed": false,
+   "plane": {
+    "ref": "top"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": 30,
+     "y": 0
+    }
+   ],
+   "curves": [
+    {
+     "id": "c1",
+     "type": "circle",
+     "construction": false,
+     "c": "p1",
+     "r": 15
+    }
+   ],
+   "constraints": [],
+   "nextSid": 102,
+   "rev": "rk6ihf7m"
+  },
+  {
+   "id": "f4",
+   "type": "extrude",
+   "name": "Extrude2",
+   "suppressed": false,
+   "sketch": "f3",
+   "op": "add",
+   "merge": false,
+   "end": "blind",
+   "depth": 25,
+   "reverse": false,
+   "toPoint": null,
+   "toVertex": null,
+   "toPlane": null,
+   "toFace": null,
+   "toOffset": 5,
+   "toFlip": false,
+   "thin": false,
+   "thinT": 2,
+   "thinDir": "one",
+   "scopeAll": true,
+   "scope": []
+  },
+  {
+   "id": "f5",
+   "type": "combine",
+   "name": "Combine1",
+   "suppressed": false,
+   "op": "add",
+   "main": "f2",
+   "bodies": [
+    "f4"
+   ],
+   "consume": true
+  }
+ ],
+ "nextId": 6,
+ "rollbackAt": null
+}

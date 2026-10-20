@@ -436,3 +436,30 @@ Status: [ ] to do · [~] in progress · [x] done
 - [x] cadcontrols.js: middle button → rotate / Ctrl pan / Shift zoom / Alt roll only (no hold timer). Right button: Shift or Ctrl → pan; plain → 'hold': onButtonHold (was onMiddleHold) fires after HOLD_MS still or at once when the pointer moves past the click threshold; `consumed` set when the wheel took the press. viewport.js: pointerup skips the click / context menu when controls.consumed. main.js: onButtonHold opens the wheel with button 2 (sketch mode only; elsewhere the release stays a right click). toolwheel.js: with button 2 a capture-phase contextmenu blocker while open and 400 ms after closing. Help shortcuts row for the wheel, Pan row; README, manual, comments.
 - [x] Tested in the preview (pointer events on the canvas): part — Shift+right-drag pans (rotation unchanged), plain right-drag changes nothing, middle-drag rotates, middle hold opens no wheel, quick right click and right hold-release open the menu; sketch — right hold opens the wheel, moving down picks Straight Slot (no menu on release; browser menu event blocked, free again later), right flick opens it at once, quick right click opens the sketch menu. RazorCAD.exe built, smoke test clean.
 
+## Improvement plan (user request 2026-10-20: "Do all in order except leave number 5 out")
+Work through in this order; each item tested, logged in CHANGELOG, RazorCAD.exe rebuilt and smoke-tested. The generators idea (5) is left out on purpose (later, for the user's own use).
+1. Reliability
+- [x] 1a Automated regression tests: test parts rebuilt by the real kernel and compared with stored results (volume, area, faces, edges, bodies, errors), plus scripted UI checks (sketch, extrude, drawing, assembly); one command runs them.
+  - Done: tests/run_tests.py (server + headless Edge via Playwright), tests/make_parts.js (11 parts), tests/suite.js (part results + 4 UI checks), tests/expected.json (values checked by hand: plate, shell, combine, configurations), tests/README.md. All pass in 5 s; a changed shell thickness is reported as a volume / area difference. (No app change, so no exe rebuild.)
+- [ ] 1b Feature references that survive edits (faces / edges / mates found more robustly) and a "fix broken references" dialog.
+- [ ] 1c Kernel requests handled strictly one at a time in the worker itself.
+2. Speed
+- [ ] 2a Cosmetic threads (shown and called out on drawings, not modelled).
+- [ ] 2b Keep each feature's finished geometry between sessions, so the first edit after opening is fast too.
+- [ ] 2c Add-patterns and mirrors in one operation (as cut patterns now).
+3. Distribution and trust
+- [ ] 3a Installer signing ready (signs when a code-signing certificate is set up; the certificate itself has to be bought by the user).
+- [ ] 3b Update check: RazorCAD says when a newer GitHub release is out.
+- [ ] 3c Loose ends: commit the right-button tool wheel change; website fallback download links and version → 0.12.0-beta.
+4. Features
+- [ ] 4a Inch units (per document).
+- [ ] 4b Assembly drawings: balloons and a bill-of-materials table.
+- [ ] 4c Drawing symbols: GD&T (feature control frames, datums), surface finish, weld symbols.
+- [ ] 4d Exploded views placed on drawing sheets.
+- [ ] 4e Assemblies: interference check.
+- [ ] 4f Assemblies: gear and rack-and-pinion mates.
+6. Ease of use
+- [ ] 6a Command search (a key, type a command name, Enter).
+- [ ] 6b Customisable keyboard shortcuts.
+- [ ] 6c Short first-run tutorial.
+
