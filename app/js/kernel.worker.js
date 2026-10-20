@@ -5048,12 +5048,17 @@ let drawingCache = { key: null, shape: null, solids: [], doc: null };
 async function drawingViews(docJson, views) {
   await ensureDrawingCache(docJson);
   const shape = drawingCache.shape;
-  if (!shape) throw new Error('The part has no solid body to draw');
+  if (!shape) throw new Error(drawingCache.doc?.kind === 'assembly' ? 'The assembly has no solid bodies to draw (or all its components are hidden)' : 'The part has no solid body to draw');
   return drawingViewsOf(shape, views);
 }
 async function ensureDrawingCache(docJson) {
   if (drawingCache.key !== docJson) {
     const doc = JSON.parse(docJson);
+    if (doc.kind === 'assembly') {
+      const { solids: list, holes } = await assemblySolids(doc);
+      drawingCache = { key: docJson, shape: list.length ? compoundOf(list) : null, solids: list, doc, holes };
+      return;
+    }
     doc.rollbackAt = null;
     const part = await rebuild(doc, null, { partial: true });
     const list = part.solids.length ? part.solids : [];
@@ -5062,6 +5067,69 @@ async function ensureDrawingCache(docJson) {
     for (const r of Object.values(part.features || {})) for (const h of r.holes || []) if (r.sizes) holes.push({ p: h.p, dir: h.dir, sizes: r.sizes, through: r.through, depth: r.depth, thread: r.thread });
     drawingCache = { key: docJson, shape: list.length ? compoundOf(list) : null, solids: list, doc, holes };
   }
+}
+
+// An assembly's parts as its components place them, through its sub-assemblies (for drawing views and cut
+// lists): every component shown in the configuration the assembly (and each sub-assembly) shows, suppressed and
+// hidden ones left out. Each part is built once (by its content, in the configuration used) and its solids are
+// placed by location, so a part used many times shares its geometry. Hole callout data are placed with them.
+async function assemblySolids(asm) {
+  const oc = R.getOC();
+  const built = new Map(); // part document (as built) → { solids, holes }
+  const solids = [], holes = [];
+  const effIn = (d, c) => {
+    const o = (d.activeConfig ? (d.configs || []).find((x) => x.id === d.activeConfig) : null)?.comps?.[c.id] || {};
+    return { config: 'config' in o ? o.config : (c.config ?? null), hidden: 'hidden' in o ? o.hidden : !!c.hidden, suppressed: 'suppressed' in o ? o.suppressed : !!c.suppressed };
+  };
+  // a component's placement as a 3×4 matrix (rows), and two of them combined
+  const poseM = (c) => {
+    const [x, y, z, w] = c.rot || [0, 0, 0, 1], l = Math.hypot(x, y, z, w) || 1, [qx, qy, qz, qw] = [x / l, y / l, z / l, w / l], p = c.pos || [0, 0, 0];
+    return [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw), p[0],
+      2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw), p[1],
+      2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy), p[2]];
+  };
+  const mul = (A, B) => {
+    const o = new Array(12);
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++) o[r * 4 + c] = A[r * 4] * B[c] + A[r * 4 + 1] * B[4 + c] + A[r * 4 + 2] * B[8 + c] + (c === 3 ? A[r * 4 + 3] : 0);
+    return o;
+  };
+  const ptM = (M, p) => [0, 1, 2].map((r) => M[r * 4] * p[0] + M[r * 4 + 1] * p[1] + M[r * 4 + 2] * p[2] + M[r * 4 + 3]);
+  const dirM = (M, d) => [0, 1, 2].map((r) => M[r * 4] * d[0] + M[r * 4 + 1] * d[1] + M[r * 4 + 2] * d[2]);
+  const placed = (shape, M) => {
+    const t = new oc.gp_Trsf();
+    try {
+      t.SetValues(M[0], M[1], M[2], M[3], M[4], M[5], M[6], M[7], M[8], M[9], M[10], M[11]);
+      const loc = new oc.TopLoc_Location(t);
+      // (Moved(location, raise on a scaled location): the second argument only in newer kernels)
+      try { let s; try { s = shape.wrapped.Moved(loc, false); } catch { s = shape.wrapped.Moved(loc); } return R.cast(s); } finally { loc.delete(); }
+    } finally { t.delete(); }
+  };
+  const walk = async (d, M, prefix, depth) => {
+    if (depth > 16) return;
+    for (const c of d.components || []) {
+      const e = effIn(d, c);
+      if (e.suppressed || e.hidden) continue;
+      const p = (d.parts || []).find((x) => x.id === c.part);
+      if (!p?.doc) continue;
+      const Mc = mul(M, poseM(c)), cfg = e.config && (p.doc.configs || []).some((x) => x.id === e.config) ? e.config : null;
+      if (p.doc.kind === 'assembly') { await walk({ ...p.doc, activeConfig: cfg }, Mc, `${prefix}${c.id}/`, depth + 1); continue; }
+      const pd = { ...p.doc, activeConfig: cfg, rollbackAt: null };
+      const key = JSON.stringify(pd);
+      let b = built.get(key);
+      if (!b) {
+        progress(null, `Building ${p.name || pd.name || 'a part'} for the drawing…`);
+        const part = await rebuild(JSON.parse(key), null, { partial: true });
+        const hs = [];
+        for (const r of Object.values(part.features || {})) for (const h of r.holes || []) if (r.sizes) hs.push({ p: h.p, dir: h.dir, sizes: r.sizes, through: r.through, depth: r.depth, thread: r.thread });
+        b = { solids: part.solids || [], holes: hs };
+        built.set(key, b);
+      }
+      for (const s of b.solids) solids.push({ ...s, id: `${prefix}${c.id}/${s.id}`, shape: placed(s.shape, Mc), comp: c.name });
+      for (const h of b.holes) holes.push({ ...h, p: ptM(Mc, h.p), dir: dirM(Mc, h.dir) });
+    }
+  };
+  await walk(asm, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], '', 0);
+  return { solids, holes };
 }
 function drawingViewsOf(shape, views) {
   const box = bbox(shape);

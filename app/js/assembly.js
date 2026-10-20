@@ -23,6 +23,7 @@ import { gauss } from './sketch3dmodel.js';
 import { fmt } from './expr.js';
 import { ExplodeTool, explodeOffsets, drawExplodeLines, animateExplode } from './explode.js';
 import { hashText, packResult, unpackResult } from './modelcache.js';
+import { packMesh, unpackMesh, MESH_CACHE } from './partmeshes.js';
 import { AssemblyView } from './asmview.js';
 import * as G from './geometry.js';
 
@@ -68,23 +69,7 @@ const len = (a) => Math.hypot(a[0], a[1], a[2]);
 const unit = (a) => { const l = len(a) || 1; return mul(a, 1 / l); };
 const r6 = (x) => Math.round(x * 1e6) / 1e6;
 
-// A part's mesh for the model cache: the edge points in one Float32Array (the vertices' precision). As JSON
-// numbers they would be most of the file, and slow to read back.
-function packMesh(m) {
-  let n = 0;
-  for (const e of m.edges) n += e.pts.length;
-  const edgePts = new Float32Array(n), edgeOff = new Uint32Array(m.edges.length + 1);
-  let o = 0;
-  m.edges.forEach((e, i) => { edgeOff[i] = o; edgePts.set(e.pts, o); o += e.pts.length; });
-  edgeOff[m.edges.length] = o;
-  return { ...m, edges: m.edges.map(({ pts, ...e }) => e), edgePts, edgeOff };
-}
-function unpackMesh(m) {
-  const { edgePts, edgeOff, ...out } = m;
-  out.edges = m.edges.map((e, i) => ({ ...e, pts: Array.from(edgePts.subarray(edgeOff[i], edgeOff[i + 1])) }));
-  return out;
-}
-const MESH_CACHE = 'assembly part mesh 1\n'; // (changes when packMesh does)
+// (a part's mesh in the model cache: packMesh / unpackMesh / MESH_CACHE in partmeshes.js, shared with drawings)
 
 // A part's mesh with the appearances set in the part (a body's colour, made transparent) over those it was
 // imported with (the mesh bodies' color / transparency), as the assembly shows them.
@@ -1533,12 +1518,13 @@ export class AssemblyEditor {
     tabs.appendChild(t);
   }
   menuDefs() {
-    const a = this.app, selC = this.sel?.kind === 'comp' ? this.comp(this.sel.id) : null;
+    const a = this.app, selC = this.selComp();
     return {
       File: [
         { label: 'New Part', icon: 'newdoc', key: 'Ctrl+N', action: () => a.newDocument() },
         { label: 'New Assembly', icon: 'assembly', action: () => a.newAssembly() },
         { label: 'New Drawing', icon: 'drawing', action: () => a.newDrawing() },
+        { label: 'Make Drawing from Assembly', icon: 'std3View', action: () => a.newDrawing(true), disabled: !this.doc.components.length },
         { label: 'Open…', icon: 'open', key: 'Ctrl+O', action: () => a.openFile() },
         { label: 'Recent Files / Start…', icon: 'open', action: () => a.showStart() },
         'sep',

@@ -11,6 +11,18 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 - Features in parts saved earlier that still carry an old default name are renamed when the part is opened; names you typed yourself are kept.
 - README, user manual, website page and the Part Builder template use the new names.
 
+## 2026-10-19 — Drawings of assemblies; drawing tree fix
+- **Drawings of assemblies**: a drawing view can show an assembly as well as a part.
+  - Model View and Standard Views list open assemblies, and Browse takes a .rasm file. **File ▸ Make Drawing from Assembly** (in an assembly) makes a drawing with its three standard views.
+  - Every component is drawn where it sits, through its sub-assemblies, in the configurations shown. Suppressed and hidden components are left out.
+  - Each part is built once and placed for every component that uses it. Section, detail, projected and other views, hole callouts and cut lists work on assemblies too.
+  - **Big assemblies are drawn fast.** Above about 200 solids (or 600,000 display triangles), plain views are worked out from the parts' display meshes, the same ones the 3D view draws and keeps in the model cache. Hidden-line removal on thousands of solids took many minutes per view.
+    - How it works: everything is drawn into a depth grid as the view sees it, then each edge, and the outline of each curved face, is followed over the grid. An edge is visible where nothing is in front of it and hidden where something is.
+    - Lines, circles and arcs come out as they are, as exact as the 3D view's. Where an edge turns hidden is accurate to about two thousandths of the view's size.
+    - On a 2,400-solid, 3.2-million-triangle site layout: a new drawing with its three standard views in about 25 s, and about 3 s per view after that (exact views took more than 9 minutes each). On a small test assembly, the visible lines matched exact hidden-line removal everywhere.
+    - Each assembly view has **Hidden lines: Automatic / Exact / Fast** in its properties. Section and flat-pattern views are always exact.
+- **The drawing tree's part row stays in its place.** It took on the look of a sketch dimension label (a white box floating over the tree), so it covered the drawing's name and moved off when the panel was widened.
+
 ## 2026-10-19 07:10 — Version 0.11.0-beta
 - `version.txt` 0.10.0-beta → **0.11.0-beta**, for the release with everything below since 0.10.0-beta (STEP assemblies with their sub-assemblies and appearances, the assembly model cache and instanced display, sub-assemblies, drawing templates and sheet formats, PC fonts, the new logo, assembly picking, selection filters, planes, separate part files, no zoom-out limit).
 - The installer is `RazorCAD-Setup-0.11.0-beta.exe`; the user manual is rebuilt for it.

@@ -691,7 +691,8 @@ RazorCAD makes 2D engineering drawings of parts, saved as **.rdrw** files and op
 ## Starting a drawing
 
 - **Start window ▸ New Drawing**, or **File ▸ New Drawing**: an empty A3 sheet.
-- **File ▸ Make Drawing from Part** (in a part): places the standard three views at a scale that fits.
+- **File ▸ Make Drawing from Part** (in a part), or **Make Drawing from Assembly** (in an assembly): places the standard three views at a scale that fits.
+- A drawing can show assemblies as well as parts: every component is drawn where it sits, through its sub-assemblies, in the configurations shown; suppressed and hidden components are left out. Big assemblies (more than about 200 solids) are drawn fast from the parts' display meshes: lines, circles and arcs as exact as the 3D view's, and where an edge turns hidden to about two thousandths of the view's size. A site layout of thousands of solids then takes seconds a view instead of many minutes. In a view's properties, **Hidden lines** chooses Automatic, Exact or Fast; section and flat-pattern views are always exact. {idx:drawing, fast hidden lines} {idx:drawing, of an assembly}
 
 Drawings are opened, saved and listed in the recent files like parts.
 
@@ -716,7 +717,7 @@ The default template is A3 with an ISO 5457 frame (zones and centring marks) and
 
 | Command | What it does |
 |---|---|
-| **Model View** | Pick an open part or browse for a part file, pick the orientation (front, back, top, bottom, left, right, isometric, dimetric, trimetric or flat pattern) and click on the sheet. Then move around it to place projected views. |
+| **Model View** | Pick an open part or assembly, or browse for its file (.rcad or .rasm), pick the orientation (front, back, top, bottom, left, right, isometric, dimetric, trimetric or flat pattern) and click on the sheet. Then move around it to place projected views. |
 | **Standard Views** | Three views laid out for first- or third-angle projection |
 | **Projected View** | A view aligned with its parent |
 | **Flat Pattern** | A sheet metal body unfolded (see below) |

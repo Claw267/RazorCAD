@@ -13,6 +13,11 @@ import { buildDXF } from './dxf.js';
 import { cutListRows } from './weldments.js';
 import { bodyMaterialId, docJSON, stripThumbnail, fileStem, isDefaultName } from './model.js';
 import { TEMPLATE_EXT, templateFromDrawing, applyTemplate } from './drawtemplates.js';
+import { partMesh, assemblyParts } from './partmeshes.js';
+
+// Assemblies this big (solids, or display triangles) are drawn with fast hidden-line removal unless a view asks
+// for exact (exact on thousands of solids takes many minutes a view)
+const FAST_SOLIDS = 200, FAST_TRIANGLES = 600000;
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -80,6 +85,10 @@ export class DrawingEditor {
     $('#viewport').hidden = false;
     $('#status-mode').textContent = 'Editing Part';
     this.tool = null;
+  }
+  // the drawing closed: its fast-views worker (and the meshes it holds) goes too
+  dispose() {
+    if (this._fast) { this._fast.w.terminate(); for (const j of this._fast.waiting.values()) j.reject(new Error('The drawing was closed')); this._fast = null; }
   }
 
   // Wire the pane's events once; they act on the active drawing (app.drawing).
@@ -158,8 +167,10 @@ export class DrawingEditor {
     let changed = false;
     for (const m of this.doc.models) {
       let doc = null;
-      const tab = this.live.get(m.id) || this.app.tabs.find((t) => t.kind !== 'drawing' && t.doc && m.path && sameFile(t.filePath, m.path));
-      if (tab && this.app.tabs.includes(tab) && tab.doc) doc = tab.doc;
+      // (an assembly: from its open assembly tab)
+      const docOf = (t) => (t.kind === 'drawing' ? (t.drawing !== this && t.drawing?.doc?.kind === 'assembly' ? t.drawing.doc : null) : t.doc);
+      const tab = this.live.get(m.id) || this.app.tabs.find((t) => docOf(t) && m.path && sameFile(t.filePath, m.path));
+      if (tab && this.app.tabs.includes(tab) && docOf(tab)) doc = docOf(tab);
       else if (m.path && platform.desktop) {
         try { const text = await platform.readText(m.path); if (text) doc = stripThumbnail(JSON.parse(text)); } catch { /* keep the copy */ }
       }
@@ -189,6 +200,70 @@ export class DrawingEditor {
     this.render();
   }
 
+  // The views of an assembly model that are drawn fast: Map view id → result (as the kernel's drawingViews
+  // returns it). Plain views (not sections or flat patterns) of a big assembly, or of any assembly whose view
+  // asks for it; a view set to Exact never.
+  async fastViews(m, reqs) {
+    const out = new Map();
+    if (m?.doc?.kind !== 'assembly') return out;
+    const views = reqs.filter((r) => !r.section && !r.flat && D.findView(this.doc, r.id)?.hlr !== 'exact');
+    if (!views.length) return out;
+    // the parts shown and their display meshes (from the cache on disk when built before)
+    const leaves = assemblyParts(m.doc);
+    const got = new Map(); // leaf → { key, mesh }
+    let solids = 0, tris = 0;
+    const byDoc = new Map(); // (the same part in several places: one mesh)
+    for (const l of leaves) {
+      let r = byDoc.get(l.part.doc)?.get(l.cfg);
+      if (!r) {
+        r = await partMesh(this.app.kernel, l.part.doc, l.cfg, { onBuild: (n) => this.app.status(`Building ${n} for the drawing…`) }).catch((e) => ({ error: e.message }));
+        if (!byDoc.has(l.part.doc)) byDoc.set(l.part.doc, new Map());
+        byDoc.get(l.part.doc).set(l.cfg, r);
+      }
+      if (r.mesh) { got.set(l, r); solids += r.mesh.bodies?.length || 1; tris += r.mesh.triangles.length / 3; }
+    }
+    const big = solids > FAST_SOLIDS || tris > FAST_TRIANGLES;
+    const use = views.filter((r) => big || D.findView(this.doc, r.id)?.hlr === 'fast');
+    if (!use.length) return out;
+    // the worker (kept for the drawing), with each part's mesh sent to it once
+    if (!this._fast) {
+      const w = new Worker(new URL('./fasthlr.worker.js', import.meta.url), { type: 'module' });
+      this._fast = { w, sent: new Set(), req: 0, waiting: new Map() };
+      w.onmessage = (e) => {
+        const d = e.data;
+        if (d.progress) { this.app.status(d.progress.replace(/Drawing \S+/, 'Drawing the views fast')); return; }
+        const job = this._fast.waiting.get(d.req);
+        if (!job) return;
+        this._fast.waiting.delete(d.req);
+        if (d.error) job.reject(new Error(d.error)); else job.resolve(d.results);
+      };
+      w.onerror = (e) => { for (const j of this._fast.waiting.values()) j.reject(new Error(e.message || 'Fast views failed')); this._fast.waiting.clear(); };
+    }
+    const F = this._fast, parts = [];
+    for (const r of new Set(got.values())) {
+      if (F.sent.has(r.key)) continue;
+      const mesh = r.mesh, T = mesh.triangles;
+      const total = mesh.faceGroups.reduce((s, g) => s + g.count, 0), gs = total === T.length ? 1 : 3;
+      let n = 0;
+      for (const e of mesh.edges) n += e.pts.length;
+      const ep = new Float32Array(n), eo = new Uint32Array(mesh.edges.length + 1);
+      let o = 0;
+      mesh.edges.forEach((e, i) => { eo[i] = o; ep.set(e.pts, o); o += e.pts.length; });
+      eo[mesh.edges.length] = o;
+      parts.push({ key: r.key, V: mesh.vertices, T, groups: mesh.faceGroups.map((g) => ({ start: g.start * gs, count: g.count * gs, curved: g.surf ? g.surf.t !== 'PLANE' : true })), ep, eo });
+      F.sent.add(r.key);
+    }
+    if (parts.length) F.w.postMessage({ type: 'parts', parts });
+    const inst = [...got].map(([l, r]) => ({ key: r.key, M: l.M }));
+    const req = ++F.req;
+    const results = await new Promise((resolve, reject) => {
+      F.waiting.set(req, { resolve, reject });
+      F.w.postMessage({ type: 'views', req, inst, views: use.map((r) => ({ id: r.id, dir: r.dir, up: r.up, cells: 4096 })) });
+    });
+    for (const r of results) out.set(r.id, r);
+    return out;
+  }
+
   async updateGeometry() {
     this.updateCutLists();
     const byModel = new Map();
@@ -196,7 +271,7 @@ export class DrawingEditor {
       const req = D.viewRequest(this.doc, v);
       if (!req) continue;
       const m = this.doc.models.find((x) => x.id === v.model);
-      if (!m) { this.errors.set(v.id, 'the part is missing'); continue; }
+      if (!m) { this.errors.set(v.id, 'the part or assembly is missing'); continue; }
       const docJson = JSON.stringify(m.doc);
       const key = docJson.length + ':' + hash(docJson) + JSON.stringify(req);
       if (this.geoKeys.get(v.id) === key) continue;
@@ -206,10 +281,14 @@ export class DrawingEditor {
     }
     if (!byModel.size) return;
     const run = ++this._geoRun;
-    for (const { docJson, reqs, keys } of byModel.values()) {
+    for (const [mid, { docJson, reqs, keys }] of byModel) {
       this.app.status('Updating drawing views…');
       try {
-        const res = await this.app.kernel.request('drawingViews', { doc: docJson, views: reqs });
+        // an assembly: its big views drawn fast (from the display meshes), the rest by the kernel
+        const fast = await this.fastViews(this.doc.models.find((x) => x.id === mid), reqs);
+        const exact = reqs.filter((r) => !fast.has(r.id));
+        const res = [...fast.values()];
+        if (exact.length) res.push(...(await this.app.kernel.request('drawingViews', { doc: docJson, views: exact })));
         if (run !== this._geoRun && this._geoRun) { /* a newer update follows; keep what arrived */ }
         let moved = false;
         for (const r of res) {
@@ -311,6 +390,9 @@ export class DrawingEditor {
     const m = this.doc.models.find((x) => x.id === model);
     if (!m) return null;
     try {
+      // (a big assembly: drawn fast, as its placed views will be)
+      const fast = await this.fastViews(m, [{ ...req, id: 'preview' }]);
+      if (fast.has('preview')) return fast.get('preview');
       const [r] = await this.app.kernel.request('drawingViews', { doc: JSON.stringify(m.doc), views: [{ ...req, id: 'preview' }] });
       return r.error ? null : r;
     } catch { return null; } finally { this.app.hideProgress(); }
@@ -614,8 +696,8 @@ export class DrawingEditor {
   toolHint() {
     const t = this.tool;
     const msg = {
-      model: 'Pick the part and its orientation, then click on the sheet to place the view.',
-      std3: 'Pick the part, then click Place (or click on the sheet) to add its three standard views.',
+      model: 'Pick the part or assembly and its orientation, then click on the sheet to place the view.',
+      std3: 'Pick the part or assembly, then click Place (or click on the sheet) to add its three standard views.',
       projected: t?.parent ? 'Move the cursor to a side of the view and click to place the projected view.' : 'Click the view to project from.',
       section: !t?.parent ? 'Click the view to cut.' : !t?.a ? 'Click on the view where the cutting line goes.' : 'Move to the side the arrows point and click to place the section view.',
       detail: !t?.parent ? 'Click the view to take the detail from.' : !t?.c ? 'Click the centre of the detail circle.' : !t?.r ? 'Click to set the circle size.' : 'Click to place the detail view.',
@@ -638,15 +720,17 @@ export class DrawingEditor {
     if (msg) this.app.status(msg);
   }
 
+  // the parts and assemblies a view can show: those in the drawing, and those open in other tabs
   partChoices() {
     const out = [];
-    for (const m of this.doc.models) out.push({ key: 'm:' + m.id, label: m.name, model: m.id });
+    for (const m of this.doc.models) out.push({ key: 'm:' + m.id, label: m.name + (m.doc?.kind === 'assembly' ? ' (assembly)' : ''), model: m.id });
     this.app.tabs.forEach((tab, i) => {
-      if (tab.kind === 'drawing') return;
-      const doc = i === this.app.tabIndex ? null : tab.doc;
-      if (!doc || !doc.features?.length) return;
+      const asm = tab.kind === 'drawing' && tab.drawing?.doc?.kind === 'assembly' && tab.drawing !== this;
+      if (tab.kind === 'drawing' && !asm) return;
+      const doc = asm ? tab.drawing.doc : i === this.app.tabIndex ? null : tab.doc;
+      if (!doc || (asm ? !doc.components?.length : !doc.features?.length)) return;
       if (this.doc.models.some((m) => (m.path && sameFile(m.path, tab.filePath)) || this.live.get(m.id) === tab)) return;
-      out.push({ key: 't:' + i, label: `${doc.name} (open part)`, tab, doc, path: tab.filePath || null, name: doc.name });
+      out.push({ key: 't:' + i, label: `${doc.name} (open ${asm ? 'assembly' : 'part'})`, tab, doc, path: (asm ? tab.drawing.filePath : null) || tab.filePath || null, name: doc.name });
     });
     return out;
   }
@@ -662,11 +746,11 @@ export class DrawingEditor {
   async browsePart() {
     let file;
     try { file = await platform.openText(); } catch (err) { this.app.toast('Could not open file: ' + err.message, true); return; }
-    if (!file || file.format) { if (file?.format) this.app.toast('Pick a RazorCAD part (.rcad); import STEP / STL into a part first', true); return; }
+    if (!file || file.format) { if (file?.format) this.app.toast('Pick a RazorCAD part (.rcad) or assembly (.rasm); open a STEP / STL file first and save it', true); return; }
     let doc;
-    try { doc = stripThumbnail(JSON.parse(file.content)); } catch { this.app.toast('That file is not a RazorCAD part', true); return; }
-    if (!Array.isArray(doc.features)) { this.app.toast('That file is not a RazorCAD part', true); return; }
-    const name = doc.name || file.name.replace(/\.rcad$/i, '');
+    try { doc = stripThumbnail(JSON.parse(file.content)); } catch { this.app.toast('That file is not a RazorCAD part or assembly', true); return; }
+    if (!Array.isArray(doc.features) && doc.kind !== 'assembly') { this.app.toast('That file is not a RazorCAD part or assembly', true); return; }
+    const name = doc.name || file.name.replace(/\.(rcad|rasm)$/i, '');
     const mid = this.addModel({ name, path: file.path || null, doc });
     if (this.tool) { this.tool.model = mid; this.tool.choice = { key: 'm:' + mid, model: mid, label: name }; this.tool.geom = null; }
     this.renderLeft();
@@ -1766,7 +1850,7 @@ export class DrawingEditor {
       return n;
     };
     node('drawing', this.doc.name, { cls: 'root', oncontext: (e) => this.app.ui.showContext(e.clientX, e.clientY, [{ label: 'Drawing Properties (Title Block)…', icon: 'titleBlock', action: () => this.propsDialog() }, { label: 'Change Template…', icon: 'titleBlock', action: () => this.changeTemplate() }]) });
-    for (const m of this.doc.models) node('part', m.name + (m.path ? '' : ' (copy kept in the drawing)'), { depth: 1, cls: 'dim' });
+    for (const m of this.doc.models) node(m.doc?.kind === 'assembly' ? 'assembly' : 'part', m.name + (m.path ? '' : ' (copy kept in the drawing)'), { depth: 1, cls: 'tree-muted' });
     for (const s of this.doc.sheets) {
       node('sheet', s.name + (s.id === this.sheetId ? '' : ''), { depth: 1, selected: s.id === this.sheetId, onclick: () => { this.sheetId = s.id; this.renderAll(); this.fit(); }, oncontext: (e) => this.app.ui.showContext(e.clientX, e.clientY, [{ label: 'Sheet Properties…', icon: 'sheetProps', action: () => { this.sheetId = s.id; this.renderAll(); this.sheetPropsDialog(); } }, { label: 'Delete Sheet', icon: 'trash', disabled: this.doc.sheets.length < 2, action: () => this.deleteSheet(s.id) }]) });
       node('sheetFormat', 'Sheet Format', { depth: 2, ondblclick: () => this.propsDialog() });
@@ -1818,18 +1902,19 @@ export class DrawingEditor {
       return w;
     };
     if (t.kind === 'model' || t.kind === 'std3') {
-      const g = group('Part');
+      const g = group('Part or Assembly');
       const choices = this.partChoices();
       const list = el('div', { class: 'pm-list' });
-      if (!choices.length) list.appendChild(el('div', { class: 'li pm-hint' }, 'No parts yet: open a part in another tab, or browse for a part file.'));
+      if (!choices.length) list.appendChild(el('div', { class: 'li pm-hint' }, 'No parts yet: open a part or assembly in another tab, or browse for its file.'));
       for (const c of choices) {
         const cur = t.choice?.key === c.key;
-        const li = el('div', { class: 'li' + (cur ? ' sel' : '') }, `${icon('part')}<span>${esc(c.label)}</span>`);
+        const isAsm = (c.doc || this.modelDoc(c.model))?.kind === 'assembly';
+        const li = el('div', { class: 'li' + (cur ? ' sel' : '') }, `${icon(isAsm ? 'assembly' : 'part')}<span>${esc(c.label)}</span>`);
         li.onclick = () => { t.choice = c; t.model = c.model || null; t.geom = null; this.renderPM(); if (t.kind === 'model') this.modelPreview(); };
         list.appendChild(li);
       }
       g.appendChild(list);
-      g.appendChild(el('button', { class: 'pm-btn', onclick: () => this.browsePart() }, 'Browse for a part file…'));
+      g.appendChild(el('button', { class: 'pm-btn', onclick: () => this.browsePart() }, 'Browse for a part or assembly file…'));
       if (t.kind === 'model') {
         const o = group('Orientation');
         const grid = el('div', { class: 'dw-orients' });
@@ -1932,6 +2017,12 @@ export class DrawingEditor {
         const tg = el('label', {}, `<input type="checkbox" ${v.tangent !== false ? 'checked' : ''}> Tangent edges`);
         tg.querySelector('input').onchange = (e) => { v.tangent = e.target.checked; this.changed(); };
         d.appendChild(tg);
+        // (an assembly: how its hidden lines are worked out — exactly, or quickly from the display meshes)
+        if (this.modelDoc(v.model)?.kind === 'assembly' && v.type !== 'section') {
+          row(d, 'Hidden lines', select([['auto', 'Automatic (fast for big assemblies)'], ['exact', 'Exact'], ['fast', 'Fast (from the display meshes)']], v.hlr || 'auto', (s) => { v.hlr = s === 'auto' ? undefined : s; this.changed(); }));
+          const fg = this.geos.get(v.id);
+          if (fg?.fast) d.appendChild(el('div', { class: 'pm-hint' }, `Drawn fast: lines are as exact as the 3D view's, and where they turn hidden to about ${D.fmtNum(fg.fast.cell * 2, this.doc)} mm.`));
+        }
       }
       const sc = group('Scale');
       const useSheet = !v.scale;

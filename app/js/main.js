@@ -1373,18 +1373,27 @@ class App {
     this.ui.showLeft('tree');
   }
 
-  // File ▸ New Drawing (fromPart: of the open part, with its standard views).
+  // File ▸ New Drawing (fromPart: of the open part or assembly, with its standard views).
   async newDrawing(fromPart = false) {
-    let partTab = null, partDoc = null;
+    let partTab = null, partDoc = null, partPath = null;
     if (fromPart) {
-      if (this.mode === 'drawing') { this.toast('Open the part first, then use Make Drawing from Part', true); return; }
-      if (!this.doc.features.length) { this.toast('The part is empty: model something first', true); return; }
-      this.storeTab();
-      partTab = this.tabs[this.tabIndex];
-      partDoc = this.doc;
+      const asm = this.mode === 'drawing' && this.drawing?.doc?.kind === 'assembly' ? this.drawing : null;
+      if (asm) {
+        if (!asm.doc.components.length) { this.toast('The assembly is empty: insert components first', true); return; }
+        partTab = this.tabs[this.tabIndex];
+        partDoc = asm.doc;
+        partPath = asm.filePath || null;
+      } else {
+        if (this.mode === 'drawing') { this.toast('Open the part or assembly first, then use Make Drawing', true); return; }
+        if (!this.doc.features.length) { this.toast('The part is empty: model something first', true); return; }
+        this.storeTab();
+        partTab = this.tabs[this.tabIndex];
+        partDoc = this.doc;
+        partPath = partTab.filePath || null;
+      }
     }
     const names = new Set(this.tabs.filter((t) => t.kind === 'drawing').map((t) => t.drawing.name));
-    let name = partDoc ? (partTab?.filePath ? M.fileStem(partTab.filePath) : partDoc.name) : 'Drawing1';
+    let name = partDoc ? (partPath ? M.fileStem(partPath) : partDoc.name) : 'Drawing1';
     if (!partDoc) for (let n = 1; names.has(name); n++) name = 'Drawing' + n;
     // set up the drawing: its template, name, title block and sheet
     const setup = await this.ui.newDrawingSetup({ name, title: partDoc ? name : '' });
@@ -1392,7 +1401,7 @@ class App {
     const doc = drawingFromTemplate(setup.template, { name: setup.name, props: setup.props, sheet: setup.sheet });
     const ed = this.openDrawingTab(doc, null);
     if (partDoc) {
-      const mid = ed.addModel({ name: partDoc.name, path: partTab.filePath || null, doc: partDoc, tab: partTab });
+      const mid = ed.addModel({ name: partDoc.name, path: partPath, doc: partDoc, tab: partTab });
       ed.snap = JSON.stringify(ed.doc);
       ed.startTool('std3', { model: mid, choice: { key: 'm:' + mid, model: mid, label: partDoc.name } });
       await ed.placeStandard3(ed.tool);
@@ -1412,6 +1421,7 @@ class App {
       if (choice === 'save' && !(await ed.save())) return false;
     }
     this.exitDrawing();
+    ed.dispose?.();
     if (this.tabs.length === 1) {
       this.tabs = [{}]; this.tabIndex = 0;
       this.filePath = null;
