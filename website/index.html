@@ -39,11 +39,11 @@
       "applicationCategory": "DesignApplication",
       "applicationSubCategory": "Computer-aided design (CAD)",
       "operatingSystem": "Windows 10, Windows 11",
-      "softwareVersion": "0.13.0-beta",
+      "softwareVersion": "0.14.0-beta",
       "url": "https://razorcad.com/",
       "downloadUrl": "https://github.com/Labs9119/RazorCAD/releases",
       "installUrl": "https://github.com/Labs9119/RazorCAD/releases",
-      "softwareHelp": "https://github.com/Labs9119/RazorCAD/releases/download/v0.13.0-beta/RazorCAD-User-Manual-0.13.0-beta.pdf",
+      "softwareHelp": "https://github.com/Labs9119/RazorCAD/releases/download/v0.14.0-beta/RazorCAD-User-Manual-0.14.0-beta.pdf",
       "releaseNotes": "https://github.com/Labs9119/RazorCAD/blob/main/CHANGELOG.md",
       "license": "https://www.gnu.org/licenses/gpl-3.0.html",
       "isAccessibleForFree": true,
@@ -126,14 +126,14 @@
       <p class="lede">Sketch with constraints, build parts feature by feature, put them together in assemblies and
         make drawings. RazorCAD runs offline on the OpenCascade kernel, and it’s yours to use, share and change.</p>
       <div class="actions">
-        <a class="btn btn-primary" href="https://github.com/Labs9119/RazorCAD/releases/download/v0.13.0-beta/RazorCAD-Setup-0.13.0-beta.exe" data-asset="setup">
+        <a class="btn btn-primary" href="https://github.com/Labs9119/RazorCAD/releases/download/v0.14.0-beta/RazorCAD-Setup-0.14.0-beta.exe" data-asset="setup">
           <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M9 2h2v9.6l3.3-3.3 1.4 1.4L10 15.4 4.3 9.7l1.4-1.4L9 11.6zM3 16h14v2H3z"/></svg>
           Download for Windows
         </a>
         <a class="btn btn-ghost" href="/app/">Try it in your browser</a>
         <a class="btn btn-ghost" href="https://github.com/Labs9119/RazorCAD">View the source on GitHub</a>
       </div>
-      <p class="meta"><span data-version>Version 0.13.0-beta</span>, <span data-size>33 MB</span>. Windows 10 and 11. GPL-3.0.</p>
+      <p class="meta"><span data-version>Version 0.14.0-beta</span>, <span data-size>33 MB</span>. Windows 10 and 11. GPL-3.0.</p>
     </section>
 
     <figure class="callout" aria-labelledby="bom-caption">
@@ -320,6 +320,7 @@
           <ul>
             <li>Projected, section, detail, auxiliary, broken and cropped views</li>
             <li>Dimensions, hole callouts, cut lists and sheet metal flat patterns</li>
+            <li>Auto Dimension, and a drawing check for missing sizes and title block entries</li>
             <li>Balloons, bill-of-materials tables and exploded views of assemblies</li>
             <li>Your own templates, title blocks, logos and fonts</li>
             <li>Export any flat face as a DXF for laser or waterjet cutting</li>
@@ -337,16 +338,19 @@
         <div class="view-text">
           <h2>Assemblies and the files you already have</h2>
           <p>Put parts together with mates, including gear and rack-and-pinion mates, nest sub-assemblies, explode them,
-            check them for interference and list them in an indented bill of materials. Open a STEP assembly and it keeps
-            its structure and colours. Big assemblies reopen in seconds.</p>
+            watch them move in motion studies, and catch parts running into each other as you drag. Add bolts, nuts and washers
+            from the standard parts library, drill holes through a whole stack with the fasteners put in for you, size parts
+            together with shared equations, and list it all in a bill of materials with mass and cost.
+            STEP assemblies open and save with their structure and colours, and big assemblies reopen in seconds.</p>
         </div>
         <table class="formats">
           <caption>File formats</caption>
           <thead><tr><th scope="col">Format</th><th scope="col">Opens</th><th scope="col">Saves</th></tr></thead>
           <tbody>
-            <tr><th scope="row">STEP</th><td>Parts and assemblies, with colours</td><td>Exact solids, one per body</td></tr>
+            <tr><th scope="row">STEP</th><td>Parts and assemblies, with colours</td><td>Parts and assemblies, exact solids</td></tr>
+            <tr><th scope="row">IGES</th><td>Surfaces and solids, sewn into solids</td><td></td></tr>
             <tr><th scope="row">STL</th><td>Meshes up to 200,000 triangles</td><td>Binary mesh</td></tr>
-            <tr><th scope="row">DXF</th><td>Into a sketch</td><td>Faces, flat patterns and drawings</td></tr>
+            <tr><th scope="row">DXF</th><td>Into a sketch or onto a drawing</td><td>Faces, flat patterns and drawings</td></tr>
             <tr><th scope="row">PDF</th><td></td><td>Drawings, with fonts embedded</td></tr>
             <tr><th scope="row">RazorCAD</th><td colspan="2">.rcad parts, .rasm assemblies and .rdrw drawings, saved as readable JSON</td></tr>
           </tbody>
@@ -381,12 +385,14 @@
         </div>
         <div class="qa">
           <h3>Does it run on Mac or Linux?</h3>
-          <p>Not at the moment. RazorCAD is a Windows program and runs on Windows 10 and 11.</p>
+          <p>RazorCAD is a Windows program for Windows 10 and 11. On a Mac or Linux PC you can
+            <a href="/app/">try it in your browser</a>: the same program, without auto-save or the Windows fonts.</p>
         </div>
         <div class="qa">
           <h3>Can I open files from other CAD programs?</h3>
-          <p>Yes, through STEP, STL and DXF. STEP assemblies open with their structure and colours, STL meshes become
-            solid bodies, and DXF files import into a sketch. RazorCAD also saves STEP, STL, DXF and PDF.</p>
+          <p>Yes, through STEP, IGES, STL and DXF. STEP assemblies open with their structure and colours, IGES surfaces
+            are sewn into solids, STL meshes become solid bodies, and DXF files import into a sketch or onto a drawing.
+            RazorCAD also saves STEP (parts and assemblies), STL, DXF and PDF.</p>
         </div>
         <div class="qa">
           <h3>What does it use for geometry?</h3>
@@ -404,7 +410,7 @@
       <div>
         <h2 id="dl-title">Install RazorCAD</h2>
         <ol class="steps">
-          <li><a href="https://github.com/Labs9119/RazorCAD/releases/download/v0.13.0-beta/RazorCAD-Setup-0.13.0-beta.exe" data-asset="setup">Download the setup program</a> from the latest GitHub release.</li>
+          <li><a href="https://github.com/Labs9119/RazorCAD/releases/download/v0.14.0-beta/RazorCAD-Setup-0.14.0-beta.exe" data-asset="setup">Download the setup program</a> from the latest GitHub release.</li>
           <li>Run it. Install just for you, without administrator rights, or for everyone on the PC.
             Setup adds the Microsoft WebView2 runtime and .NET Framework 4.8 if Windows doesn’t have them yet.</li>
           <li>Open RazorCAD from the Start menu and try the sample part, or start a new one.</li>
@@ -415,7 +421,7 @@
         <h3>This is a beta</h3>
         <p>Expect some bugs. If you make DXF files for manufacturing, check them before you cut anything.</p>
         <ul class="links">
-          <li><a href="/docs/">User manual</a> (also as a <a href="https://github.com/Labs9119/RazorCAD/releases/download/v0.13.0-beta/RazorCAD-User-Manual-0.13.0-beta.pdf" data-asset="manual">PDF</a>)</li>
+          <li><a href="/docs/">User manual</a> (also as a <a href="https://github.com/Labs9119/RazorCAD/releases/download/v0.14.0-beta/RazorCAD-User-Manual-0.14.0-beta.pdf" data-asset="manual">PDF</a>)</li>
           <li><a href="https://github.com/Labs9119/RazorCAD/blob/main/CHANGELOG.md">What’s changed</a></li>
           <li><a href="https://github.com/Labs9119/RazorCAD/releases">All releases</a></li>
         </ul>
@@ -427,7 +433,7 @@
   <footer class="titleblock" aria-label="About this site">
     <div class="tb-cell tb-logo"><img src="favicon.svg" alt="" width="44" height="44"></div>
     <div class="tb-cell tb-title"><span class="tb-label">Title</span><span class="tb-value tb-big">RazorCAD</span></div>
-    <div class="tb-cell"><span class="tb-label">Rev</span><span class="tb-value" data-rev>0.13.0-beta</span></div>
+    <div class="tb-cell"><span class="tb-label">Rev</span><span class="tb-value" data-rev>0.14.0-beta</span></div>
     <div class="tb-cell"><span class="tb-label">Licence</span><span class="tb-value"><a href="https://github.com/Labs9119/RazorCAD/blob/main/LICENSE">GPL-3.0</a></span></div>
     <div class="tb-cell"><span class="tb-label">Source</span><span class="tb-value"><a href="https://github.com/Labs9119/RazorCAD">Labs9119/RazorCAD</a></span></div>
     <div class="tb-cell"><span class="tb-label">Kernel</span><span class="tb-value">OpenCascade</span></div>

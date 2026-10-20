@@ -6,6 +6,17 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 10:25 — Version 0.14.0-beta: installer, user manual and website
+- **RazorCAD-Setup-0.14.0-beta.exe** built (in "RazorCAD Install"), with everything since 0.13.0-beta:
+  - standard parts and fastener sets, assembly holes and cuts with fasteners, motion studies, collision detection, equations shared with the parts, bill of materials with mass and cost, STEP export of assemblies, Speed Mode;
+  - Auto Dimension (with its options), Check Drawing, DXF drawings on the sheet, BOM table columns;
+  - fillets set at each vertex and setback corners, curvature-continuous 3D splines and loft continuity, etch lines, Compare With, IGES import, part properties;
+  - macros (also recorded in assemblies and drawings), languages, the dark theme, keyboard use and screen-reader labels, Update Now, Report a Problem, the fonts that come with RazorCAD, the browser version;
+  - faster rebuilds and meshing, big parts reopening ready, and geometry kernels sized to the PC.
+- **User manual** brought up to date (76 pages): new sections for all of the above, in Manual/manual_source.md, the PDF and the online manual (website/docs).
+- **Website**: the home page lists the new assembly and drawing features, IGES, the browser version for Mac and Linux users, and version 0.14.0-beta; the browser version (website/app) rebuilt.
+- The release workflow leaves a version that already has a release alone (this one is published by hand, as before).
+
 ## 2026-10-21 09:59 — Geometry kernels sized to the PC; a kernel for each open part
 - **How many geometry kernels work at once now comes from the PC RazorCAD runs on.** It is worked out from the processor threads (one per kernel, two left for the window and the rest of the PC) and the free memory (about 1 GB per kernel beyond 2 GB), read from Windows when RazorCAD starts: at least 2, at most 16. The browser version uses the browser's rough figure for the PC's memory.
   - Before, it was a quarter of the threads, at most 4, whatever the memory.

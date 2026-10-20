@@ -20,11 +20,14 @@ Main capabilities:
 - Surface modelling: extruded, revolved, planar, lofted, swept, filled, boundary and ruled surfaces, trim, extend, knit, thicken and more
 - Sheet metal: flanges, hems, miter flanges, sketched bends, jogs, forming tools, tab and slot, lofted bends, transitions, flat patterns and DXF export
 - **Fast Structure** (weldments): structural members from standard profiles, end caps, gussets, weld beads and a cut list
-- Assemblies with mates (including gear and rack-pinion mates), sub-assemblies, configurations, exploded views, an interference check and a bill of materials
-- 2D drawings of parts and assemblies, with projected, section, detail, auxiliary, broken, exploded and flat pattern views, dimensions, GD&T, cosmetic threads, balloons, bill-of-materials tables and PDF and DXF export
+- Assemblies with mates (including gear and rack-pinion mates), sub-assemblies, configurations, standard parts and fastener sets, equations shared with the parts, holes and cuts made in the assembly, exploded views, motion studies, collision detection, an interference check, a bill of materials with mass and cost, and STEP export
+- 2D drawings of parts and assemblies, with projected, section, detail, auxiliary, broken, exploded and flat pattern views, dimensions (also made automatically), GD&T, cosmetic threads, balloons, bill-of-materials tables, a drawing check, DXF drawings placed on the sheet, and PDF and DXF export
 - Millimetres or inches, chosen for each document
-- STEP, STL, OBJ and 3MF import and export; DXF import into sketches and DXF export of faces and flat patterns
+- STEP, IGES, STL, OBJ and 3MF import; STEP, STL, OBJ and 3MF export; DXF import into sketches and drawings, and DXF export of faces and flat patterns
+- Macros, recorded or written, that drive RazorCAD
+- English, German, French or Spanish, a light or dark theme, and keyboard use of the panels
 - An **Ask Claude** panel that builds features from a plain-language description
+- A browser version at razorcad.com/app, the same program without installing anything
 
 ## About this manual
 
@@ -50,6 +53,15 @@ The **Contents** and the **Index** are clickable. The footer of every page has a
 ## Running RazorCAD
 
 Double-click **RazorCAD.exe**. It is one standalone program: it needs no browser, Python or installation, and it runs offline. It uses the Microsoft Edge WebView2 runtime, which comes with Windows 10 and 11. {idx:RazorCAD.exe}
+
+## RazorCAD in your browser
+
+**razorcad.com/app** runs the same RazorCAD in a web browser (Microsoft Edge, Chrome and other current browsers), with nothing to install: parts, sketches, assemblies, drawings and macros, on the same geometry kernel. {idx:browser version}
+
+- **Open** reads a file from your PC and **Save** downloads it. Preferences stay in that browser.
+- There is no auto-save, no Windows fonts (the fonts that come with RazorCAD are used) and no Ask Claude sign-in. A notice at the top says so and links to the Windows app; ✕ closes it for good.
+- Parts that take a while to build are kept in the browser's own storage (up to 400 MB), so they open quickly the next time.
+- Closing the browser tab with unsaved work asks first.
 
 ## Installing with the setup program
 
@@ -77,6 +89,8 @@ Silent install and uninstall:
 A little after it starts (at most once a day), RazorCAD asks GitHub for the newest RazorCAD release. When there is a newer one, a notice in the corner offers **Download** (the release page), **Later** or **Skip this version**. Nothing is shown when you are up to date or offline. Only GitHub is asked; nothing about you or your parts is sent. {idx:updates}{idx:Check for Updates}
 
 **Help ▸ Check for Updates…** checks at once and says what it found. Its window also turns the check at start on or off. **Help ▸ About RazorCAD** shows the version you have.
+
+**Update Now** (in the notice and in Check for Updates) updates in one click: RazorCAD downloads the new setup from its GitHub release, checks it against the release (size and SHA-256), installs it into the same folder (asking for administrator rights only when it was installed for all users), closes and starts again as the new version. Unsaved work is saved first (**Save All and Update**), or the update waits. If anything goes wrong, the version you had starts again. A copy of RazorCAD that wasn't installed with the setup offers **Download** instead. {idx:Update Now}
 
 ## The start window
 
@@ -120,6 +134,13 @@ The ribbon shows its buttons in two rows. {idx:toolbars, customising}
 
 The layout is kept in `prefs.json` in RazorCAD's data folder.
 
+## Language and theme
+
+- **View ▸ Language**: English, Deutsch, Français or Español, in parts, assemblies and drawings. The menus, ribbons, Property panels, dialog titles and buttons, the tree's fixed items and the start window are translated; longer help texts and messages are still in English. The command search finds a command by its translated name or its English one. Macros, recordings and your shortcuts work in every language, and files are the same in all of them. {idx:language}
+- **View ▸ Theme**: Light, Dark, or Follow Windows (switches when Windows does). In the dark theme the window, the 3D view and sketches are dark; drawing sheets stay white paper. {idx:dark theme}{idx:theme}
+
+Both are kept with your preferences.
+
 ## Getting Started Tour
 
 A one-minute tour of the window in eight short steps, each pointing at its part of the window: the ribbon, the feature tree, the view and its mouse buttons, how to make a first part, the command search and the units. It ends with **Open the Sample Part**. Use **Next** / **Back** (or [[→]] / [[←]] and [[Enter]]); [[Esc]] or **Skip the tour** ends it. {idx:Getting Started Tour}{idx:tour}
@@ -142,6 +163,16 @@ Press [[Ctrl+K]] (or [[/]]), or click the magnifier next to Save, and type part 
 - It takes the place of a key RazorCAD uses itself; the window says when it does (for example [[F]], Zoom to Fit). Giving a key to another command moves it there.
 - [[Esc]], [[Enter]], [[Tab]] and [[Backspace]] can't be used.
 - ✕ removes a shortcut; **Remove All** removes them all. Your shortcuts are listed at the top of Help ▸ Keyboard Shortcuts and shown in the command search. They are kept in `prefs.json`.
+
+## Using the keyboard
+
+{idx:keyboard use}{idx:accessibility}
+
+- **The trees**: click the feature tree, assembly tree or drawing tree, then [[↑]] / [[↓]] move from row to row (selecting as a click does), [[←]] / [[→]] close and open folders, [[Enter]] opens the item as a double-click does, and [[Home]] / [[End]] go to the first and last row. While the tree has the keyboard, the arrow keys don't turn the view; click the view to give them back.
+- **Property panels**: [[Tab]] goes through a panel's fields and buttons. The group headings are buttons: [[Enter]] or [[Space]] opens or closes them. The small ✕ / ▲ buttons in lists can be pressed the same way. [[Enter]] on a focused button presses it; elsewhere in the panel it accepts the feature, as before.
+- [[F6]] / [[Shift+F6]] move the keyboard focus round the window: the Property panel (or the tree), the ribbon, the view.
+- **Dialogs** take the focus when they open (their first field), keep [[Tab]] inside, and give the focus back when they close.
+- **Screen readers**: every panel field is named by its label and unit (for example "Depth (mm)"), fields with an invalid value are marked so, and icon-only buttons are named by their tooltips. The status bar and panel messages are read out as they change, and errors at once.
 
 ## Units
 
@@ -169,10 +200,23 @@ Parts are saved as **.rcad** files, assemblies as **.rasm**, drawings as **.rdrw
 |---|---|---|
 | **File ▸ New Part** | [[Ctrl+N]] | Opens in a new tab |
 | **File ▸ New Assembly** | | Opens in a new tab |
-| **File ▸ Open…** | [[Ctrl+O]] | Opens parts, assemblies, drawings, templates, and STEP, STL, OBJ and 3MF files |
+| **File ▸ Open…** | [[Ctrl+O]] | Opens parts, assemblies, drawings, templates, and STEP, IGES, STL, OBJ and 3MF files |
 | **File ▸ Open Sample Part** | | The built-in sample, in a new tab |
 | **File ▸ Save** | [[Ctrl+S]] | Uses the normal Windows save dialog the first time |
 | **File ▸ Save As…** | [[Ctrl+Shift+S]] | Saves a copy under a new name |
+| **File ▸ Properties…** | | The part's or assembly's custom properties (see below) |
+| **File ▸ Compare With…** | | Compares the part with another version of it (see below) |
+
+## Properties
+
+**File ▸ Properties…** in a part or assembly holds custom properties such as Part Number, Description, Vendor, Finish or Cost. Common names are suggested; any name works. Undo takes a change back. A drawing of the part takes its drawing number from the Part Number, bills of materials can show any property as a column, and the **Cost** property gives the cost columns (see Bill of Materials). {idx:properties, custom}{idx:Part Number}
+
+## Compare With
+
+**File ▸ Compare With…** compares the part in front with its last saved version, another part file, or another open part. {idx:Compare With}
+
+- **Features and settings**: features added or removed, features changed (with which settings: a depth, sketch points, an end condition, a new name), features moved in the tree, and the part's own settings (material, equations, units, configurations, properties).
+- **Shapes**: both versions' volumes, and the material this version **adds** (shown yellow on the model) and **removes** (red), with their volumes.
 
 ## Tabs and closing
 
@@ -194,11 +238,13 @@ Double-clicking a .rcad, .rasm or .rdrw file opens it in RazorCAD; if RazorCAD i
 
 Saving keeps a small picture of the view in the file. Windows Explorer, the Open and Save dialogs and the start window show it as the file's thumbnail. {idx:file previews}
 
-A part that takes a while to build is stored, once built, in `%LOCALAPPDATA%\RazorCAD\modelcache` (kept under 1 GB). With it the kernel keeps the geometry after each feature. Opening the unchanged file again shows the model at once, ready to edit: the first change after opening rebuilds only from the changed feature on, as any later change does. Switching tabs also shows each part at once. {idx:model cache}
+A part that takes a while to build is stored, once built, in `%LOCALAPPDATA%\RazorCAD\modelcache` (kept under 1 GB). With it the kernel keeps the geometry after each feature. Opening the unchanged file again shows the model at once, ready to edit: the first change after opening rebuilds only from the changed feature on, as any later change does. The store is kept for each version of the geometry kernel, so it survives RazorCAD updates that leave the kernel alone. {idx:model cache}
 
-## Importing STEP, STL, OBJ and 3MF
+Each open part keeps a geometry kernel of its own, as many as the PC's processor threads and free memory allow (see Speed on your PC in the Troubleshooting chapter). Switching back to a part is then immediate, and a part still building goes on while you work in another tab.
 
-There are two ways to bring in a STEP, STL, OBJ or 3MF file: {idx:STEP, import}{idx:STL, import}{idx:OBJ}{idx:3MF}
+## Importing STEP, IGES, STL, OBJ and 3MF
+
+There are two ways to bring in a STEP, IGES, STL, OBJ or 3MF file: {idx:STEP, import}{idx:STL, import}{idx:OBJ}{idx:3MF}
 
 - **File ▸ Open…** opens it as a part of its own in a new tab, named after the file, without asking. A STEP file that holds an assembly asks first: {idx:STEP, assembly}
   - **Open as an Assembly** makes a new assembly with the file's structure: a sub-assembly for each of its sub-assemblies, a part for each part, and a component, fixed, where the file places each one. Each part keeps its own piece of the STEP file and is built on its own, and a part used several times is built once. {idx:sub-assembly, from STEP}
@@ -217,7 +263,9 @@ How imports behave:
 - Big meshes are simplified on import, by default to 80,000 triangles, keeping their edges and outlines. Set the limit in the import's properties (**Simplify meshes above … triangles**; 0 never simplifies). The import's note says how far a mesh was simplified. {idx:mesh simplification}
 - Imported bodies can be cut, extended, patterned and (for STEP) filleted like any other body. A cut or fillet on a body of more than 20,000 mesh faces warns that it can take several minutes.
 
-IGES files can't be read: the geometry kernel is built without IGES. Use STEP, which every CAD program writes.
+**IGES files** (.igs, .iges) open and import like STEP files. Trimmed and bounded surfaces, B-rep solids, B-spline, plane, revolved, extruded, cylinder, cone, sphere and torus surfaces, lines, arcs, B-spline and composite curves and polylines are read, with the file's units and transformations. Faces that close up are sewn into a solid; the rest come in as surface bodies. RazorCAD translates IGES into STEP for the geometry kernel, which has no IGES reader of its own. {idx:IGES}
+
+Volumes of bodies with B-spline faces (imported NURBS, IGES) are measured exactly.
 
 ## Exporting
 
@@ -433,7 +481,7 @@ Click the points the curve runs through (they snap like line points), then doubl
 
 ## Text
 
-Click **Text** on the Sketch tab, then click to place. The panel sets the text, font (the PC's installed fonts), height (capital-letter height), angle, bold and italic. Drag the text to move it. Text extrudes as a boss or cut; text inside an outline is cut out of it. To put text on a curved face, use **Wrap** (Features chapter). {idx:text}
+Click **Text** on the Sketch tab, then click to place. The panel sets the text, font (the PC's installed fonts, and the DejaVu Sans, Sans Mono and Serif fonts that come with RazorCAD), height (capital-letter height), angle, bold and italic. A font a PC doesn't have is drawn in the DejaVu font most like it. Drag the text to move it. Text extrudes as a boss or cut; text inside an outline is cut out of it. To put text on a curved face, use **Wrap** (Features chapter). {idx:text}
 
 ## Relations
 
@@ -491,7 +539,7 @@ Click **3D Sketch** on the Sketch tab or the Fast Structure tab (or **Insert ▸
 | **Point** | | A lone point |
 | **Circle**, **Centerpoint Arc**, **3 Point Arc**, **Polygon** | [[C]], [[A]], [[P]] | Drawn on the active drawing plane through the first click. [[Tab]] changes the plane before or between clicks. A polygon stays regular. |
 | **Tangent Arc** | | Click the free end of a line, arc or spline, then where the arc ends. Keep clicking for more arcs; [[Esc]] ends. |
-| **Spline** | [[N]] | Click the points it runs through; double-click or [[Enter]] ends it, clicking the first point closes it. A Tangent relation with a line at an end makes it leave the line smoothly. |
+| **Spline** | [[N]] | Click the points it runs through; double-click or [[Enter]] ends it, clicking the first point closes it. A Tangent relation with a line at an end makes it leave the line smoothly. Select a spline to set its **Shape**: tangent-smooth (C1) or **curvature-continuous (C2)**, whose curvature runs on smoothly through every point; and its **end weights** (how strongly the end tangents pull; more leaves the ends straighter). **Show curvature** draws curvature combs on the splines. |
 | **Sketch Fillet / Sketch Chamfer** | | Click a corner where two lines meet. The sharp corner stays as a point on both lines, so lengths measured to it keep their meaning. |
 | **Trim** | [[T]] | Click the piece to remove, up to where other entities cross or touch it |
 | **Project Edges** | [[E]] | Click model edges to bring them in, linked to the model (see below) |
@@ -613,7 +661,7 @@ Blends between two or more profile sketches, in order. A third or later profile 
 
 - A circle is split into as many equal arcs as the other profile has corners.
 - Profiles with different segment counts give an error naming the sketches.
-- Options: straight (ruled) sides, Thin.
+- Options: straight (ruled) sides, Thin. Without straight sides: **Through the profiles** curvature-continuous (C2) or tangent-continuous (C1), and **Smooth the surface**, which evens out its bends. {idx:loft, continuity}
 
 ## Hole
 
@@ -685,7 +733,8 @@ Open the feature and click edges on the model. The model is rolled back to just 
 - Edges are remembered by type, direction and position, and found again after parameter changes.
 - Where a fillet can't be added on top of earlier fillets (a corner where several blends meet), RazorCAD recomputes it together with the preceding fillets in one operation.
 - Where two blends exactly meet (for example R2 on both edges of a 4 mm wall) the result is a full round.
-- **Variable size**: a radius at the start and another at the end of each edge.
+- **Variable size**: a radius at the start and another at the end of each edge, or **Radius ▸ Set at each vertex**: the panel lists the vertices of the selected edges (the ends of each run of edges) with a radius for each; empty ones use the fillet's radius. Along each edge the radius changes from the one at its start to the one at its end.
+- **Setback at corners**: where three or more fillets meet, the corner is blended smoothly from this distance out, instead of the usual small corner patch. A little more than the radius works well; 0 keeps the usual corner. The fillet's note says how many corners were blended. {idx:fillet, setback}
 - **Face fillet**: pick faces instead of edges; the edges where they meet are rounded.
 
 ## Chamfer
@@ -1038,6 +1087,10 @@ Turns an ordinary body into sheet metal. Pick a flat face of a thin-walled body 
 - A **curved surface** that is curved one way only (a cylinder, or a profile swept straight) is converted into a rolled sheet: its section is followed by smoothly joined arcs, each a bend of its own radius. **Arc fit tolerance** (default 0.05 mm) sets how closely it follows the surface. **Thickness** goes behind the surface, in front of it, or both sides.
 - **Trim where the sheet would run into itself** (on by default) trims a rolled sheet back where its two ends would meet, leaving a small clearance.
 
+## Etch Lines
+
+**Sheet Metal ▸ Etch Lines**: pick a sketch drawn on the top or bottom face of a flat part of the sheet. Its lines, arcs, circles, splines and text are marked in the flat pattern, for etching, scribing or marking part numbers and bend marks. They go on the DXF's **ETCH** layer (DXF Settings can leave them out) and show in flat-pattern drawing views (View Properties ▸ Etch lines), clipped to the face they are on. The folded part is not changed; the etch lines show on the model as thin lines. {idx:Etch Lines}
+
 ## Sheet Metal Check
 
 **Sheet Metal Check** lists every bend of the sheet metal body: direction, angle, inside radius, length and the straight flange on each side. It warns about flanges shorter than 3 × thickness past their bend, and holes closer than 2 × thickness + radius to a bend. {idx:Sheet Metal Check}
@@ -1060,10 +1113,6 @@ Body Properties for a sheet metal body shows thickness, bend radius and K-factor
 ## DXF Settings
 
 **DXF Settings** on the Sheet Metal tab sets the defaults for every export: layer mapping (colours and line types) and options. Defaults: **up bends red**, **down bends blue**, **etch lines yellow dashed**. **Reset to Defaults** restores them. {idx:DXF Settings}
-
-## Not yet available
-
-Etch lines drawn from sketches (the layer exists).
 
 # Fast Structure
 
@@ -1141,7 +1190,7 @@ An assembly places parts and other assemblies as **components** and holds them t
 
 **File ▸ New Assembly**, or **New Assembly** in the start window. Every assembly has the standard **Front, Top and Right Planes** and the **Origin** at the top of its tree. They show in the view as a part's do (the eye in the tree, **View ▸ Show Planes**), and mates can use them; they stay where they are. {idx:assembly, planes}
 
-The **Assembly** tab of the ribbon holds Insert Components, Mate, Fix, Float, Hide Component, Suppress, Open Part, Exploded View, Explode / Collapse, Bill of Materials, Interference Check and Zoom to Fit.
+The **Assembly** tab of the ribbon holds Insert Components, Standard Parts, Equations, Assembly Hole, Assembly Cut, Mate, Fix, Float, Hide Component, Suppress, Open Part, Exploded View, Explode / Collapse, Motion Study, Bill of Materials, Interference Check, Collision Detection, Speed Mode and Zoom to Fit.
 
 ## Inserting components
 
@@ -1151,6 +1200,23 @@ The **Assembly** tab of the ribbon holds Insert Components, Mate, Fix, Float, Hi
 - If the part has configurations, you choose which one to use. Right-click a component later to switch it to another configuration. The same part can be in the assembly several times in different configurations.
 - The assembly keeps a copy of each part, refreshed from its tab or file whenever you come back to the assembly, so edit a part and the assembly follows.
 - Several instances of one part share it: it is built once and drawn once.
+
+## Standard parts
+
+**Standard Parts** (Assembly tab, or **Insert ▸ Standard Parts…**) adds parts made to size from their standards: {idx:standard parts}{idx:fasteners}
+
+- hex bolts (ISO 4017) and socket head cap screws (ISO 4762), M3–M24, in the standard lengths; hex nuts (ISO 4032) and washers (ISO 7089);
+- inch hex bolts (ASME B18.2.1), socket head cap screws (ASME B18.3), hex nuts (ASME B18.2.2) and SAE flat washers, 1/4" to 1", with UNC threads and inch lengths;
+- socket set screws (ISO 4026), dowel pins (ISO 8734), round head rivets (ISO 1051), circlips for shafts and bores (DIN 471 / 472), parallel keys (DIN 6885 A) and 6000 / 6200 series ball bearings.
+
+Each is an ordinary part with its threads as cosmetic threads, so it builds fast. Choose its material: steel, stainless, brass or aluminium. The same type, size, length and material is one part however many times it is used, so the bill of materials counts them.
+
+**Select a hole first** (its round face or edge) and the size is picked to fit it (a clearance or tapped hole for bolts, the bore for a bearing, the shaft for a key), the length to suit the hole, and the part goes into the hole at the end facing you, mated to it (Concentric, plus Coincident on the face round the hole). For a bolt or screw:
+
+- **Washer under the head**, and **washer and nut on the far side**: the whole set is mated, and the length is picked for it (a 10 mm plate: M8 × 25).
+- **All matching holes**: the same part or set goes into every hole of the same size parallel to the selected one, in one go.
+
+A hole that ends on a curved face (a cross hole in a round bar) gets a seat plane of its own, which follows the hole when the part changes.
 
 ## Mates
 
@@ -1186,6 +1252,15 @@ Left-drag a component to move it, [[Alt]]+drag to turn it. It moves only as its 
 
 Selecting works as in a part and follows the **selection filter**: with no filter a click picks the vertex, edge, face or plane under the cursor; with the Bodies filter it picks whole components. [[Ctrl]]+click adds or takes away. Right-click a face, edge or vertex for **Mate…** and the component's commands; whatever is selected goes into the mate. Dragging a component moves it, whatever is selected. {idx:assembly, selecting}
 
+## Collision detection
+
+**Collision Detection** on the Assembly tab (or **Tools ▸ Collision Detection Off / Show Collisions While Dragging / Stop at Collisions While Dragging**) checks for parts running into each other as you drag. {idx:collision detection}
+
+- **Show**: the parts that collide turn red while you drag, and the status bar names them.
+- **Stop**: the dragged component (and what its mates carry along) stops where it meets the other part, right against it.
+- Faces that only touch (mated faces) are not collisions, nor is a shaft in a hole of its size, nor a screw in a nut or tapped hole (threads are cosmetic, so the screw is its full diameter in a bore of about its minor diameter). Parts that already overlap when the drag starts are left out.
+- It works from the parts' display meshes, so it keeps up with the mouse. **Interference Check** gives the exact overlap volumes.
+
 ## The assembly tree
 
 - Each component shows **(f)** when fixed or **(-)** while still free to move, its configuration, and an eye to hide or show it.
@@ -1201,6 +1276,25 @@ An assembly can hold other assemblies as components. **Insert Components ▸ Bro
 - Mates can use the faces, edges and vertices of the parts inside it.
 - In the tree, ▶ opens a sub-assembly to show its components. Double-click one, or right-click the sub-assembly ▸ **Open Sub-assembly**, to change it in its own tab; the changes come back to the assembly.
 
+## Equations shared with the parts
+
+**Assembly ▸ Equations…** (also on the Assembly tab) holds the assembly's own variables, for example `base = 6` and `thickness = 2*base`. A variable that **drives the parts** sets the variable of the same name in every part that has one, through the sub-assemblies, so related parts are sized together from the top. {idx:equations, assembly}{idx:top-down design}
+
+- The table shows each variable's value, the parts it drives and a **Drives the parts** check box (off for a variable used only to work out others).
+- The values go into the assembly's copies of the parts, so the assembly, its drawings, the BOM and exports use them. They are applied again when a part is read again from its file.
+- **Update Open Parts** writes them into the parts open in tabs too, to be saved there.
+
+## Assembly holes and cuts
+
+**Assembly Hole** and **Assembly Cut** (Assembly tab, or the Insert menu) make holes and cuts in the assembly, through every component they pass. {idx:Assembly Hole}{idx:Assembly Cut}
+
+1. Click points on a flat face of a component. More points on the same face make more holes; clicking another face starts again.
+2. Set the hole: simple, counterbore, countersink or tapped, a standard size (ISO 273 close, normal or loose fit) or a custom one. The first component gets the hole as chosen, the ones behind it a plain hole of the drill size. **Tap the last component** makes the last one tapped for the size. A cut is a rectangle: width, length and angle.
+3. Choose **Through all** or a depth. **Components cut** lists the components it passes through; untick one to leave it out.
+4. **Fasteners**: hex bolts or socket head cap screws put into each hole as it is made, with washers and a nut on the far side if wanted, as long as the stack they hold (to a standard length) and mated in the hole. Into a tapped last component, a screw goes about one diameter into the thread, without a nut.
+
+The parts' own files are not changed: each component cut gets the feature in its copy of the part, so the assembly's drawings (hole callouts too), BOM and exports have the holes. The holes stay with the component they were clicked on: move a component and its holes are worked out again. The tree's **Assembly Features** folder lists them; right-click one to edit, suppress, rename or delete it. Fasteners put in a hole are kept when the hole is deleted.
+
 ## Exploded views
 
 **Exploded View** on the ribbon (or **Insert ▸ Exploded View…**) spreads components apart for display; the model and its mates stay put. {idx:exploded view}
@@ -1212,6 +1306,20 @@ An assembly can hold other assemblies as components. **Insert Components ▸ Bro
 
 The tree's **Exploded Views** folder lists them. Double-click one to explode or collapse it (animated); right-click for Explode / Collapse, Animate, Edit, Rename and Delete. The **Explode / Collapse** button on the ribbon does the same for the last one. Dragging a component, adding a mate or editing collapses the view first. Exploded views are saved with the file.
 
+## Motion studies
+
+**Motion Study** (Assembly tab) shows how an assembly moves. Choose a driver: {idx:motion study}
+
+- **turning a component** about the axis of one of its mates (360°, for example);
+- **sliding a component** along one of its mates' axes or faces;
+- **changing a Distance or Angle mate's value** from where it is to a new one.
+
+The motion is worked out step by step and the mates carry the other components along, gear and rack-pinion mates included. **Play / Stop** ([[Space]]), back to the start, a slider to go through the steps, the number of steps, the duration and **Loop**. Where the mates can't follow, the panel says at which step.
+
+**Detect collisions** (on for new studies) checks every step: parts that collide show in red as the motion plays, and the panel names the first collision and its step. **Stop at the first collision** ends the motion at the step before it.
+
+✔ keeps the study in the assembly's **Motion Studies** folder: double-click one to play it; right-click to edit, rename or delete it. Closing the panel puts the assembly back as it was: a motion study never moves the assembly itself.
+
 ## Interference Check
 
 **Interference Check** (Assembly tab, or **Tools ▸ Interference Check…**) finds where components overlap. Each overlap shows in red and is listed with its two components (inside sub-assemblies as "Sub-assembly ▸ Part") and its volume. Faces that only touch, such as mated faces, are not counted, and nor are the bodies of one multi-body part against each other. An exploded assembly is collapsed first, so the check is of where the mates put the parts. {idx:Interference Check, assembly}
@@ -1220,9 +1328,14 @@ The tree's **Exploded Views** folder lists them. Double-click one to explode or 
 
 **Bill of Materials** lists the parts with their quantities and materials: one row per part and configuration used, with suppressed components left out. It is indented: a sub-assembly's parts are listed under it (1.1, 1.2…), with the quantities in one of it. **Copy as CSV** or **Save CSV…** takes it to a spreadsheet. {idx:Bill of Materials}
 
+- **Columns**: click a column heading to change what it shows (an item number, quantity, part, material, file, configuration, any custom property, mass, cost, or values typed in), insert a column left or right, move, rename or remove it. Typed values are edited right in the table. The columns are kept with the assembly and are part of undo; **Default Columns** goes back to the usual ones.
+- **Mass and cost**: **Mass** and **Total mass** come from each part's material and volume; **Cost** and **Total cost** from a part's **Cost** property (for example 12.50, $3 or R12,50). A **TOTAL** row adds up the quantity, mass and cost; a sub-assembly adds up its parts. {idx:mass, bill of materials}{idx:cost}
+
 ## STEP assemblies
 
 Opening a STEP file that holds an assembly asks whether to open it **as an assembly** or **as one part** (see Importing in the Working with Files chapter). As an assembly, each part of the file becomes a part, each sub-assembly a sub-assembly, and each component is placed, fixed, where the file places it, with the names and colours from the file. {idx:STEP, assembly}
+
+**File ▸ Export ▸ STEP…** in an assembly saves the whole assembly as one STEP file with its structure: each part once, in the configuration used, every component placed where it is and named after it, sub-assemblies kept as assemblies, and the parts' colours. Suppressed components are left out. {idx:STEP, assembly export}
 
 ## Saving parts as separate files
 
@@ -1233,11 +1346,9 @@ When an assembly holds parts or sub-assemblies that are only inside it (as a STE
 
 ## Big assemblies
 
-Each part an assembly builds is kept in the model cache (`%LOCALAPPDATA%\RazorCAD\modelcache`). Opening the assembly again shows unchanged parts straight from there, and the kernel only builds parts that changed, so a large layout reopens in seconds. Each part is sent to the graphics card once and placed at every component that uses it, so moving, hiding or exploding components is instant. {idx:assembly, opening quickly}
+Each part an assembly builds is kept in the model cache (`%LOCALAPPDATA%\RazorCAD\modelcache`). Opening the assembly again shows unchanged parts straight from there, and the kernel only builds parts that changed, so a large layout reopens in seconds. Parts are built side by side in several geometry kernels at once, as many as the PC's processor threads and memory allow, and each shows as soon as it is built. Each part is sent to the graphics card once and placed at every component that uses it, so moving, hiding or exploding components is instant. {idx:assembly, opening quickly}
 
-## Not yet available
-
-STEP export of a whole assembly.
+**Speed Mode** (Assembly tab, or **View ▸ Speed Mode**) is for very large assemblies: the parts are shown from simplified display meshes, with far fewer triangles to draw and keep in memory. The faces and edges stay the same, so mates, measuring, picking and collision detection work as before. A component you select is loaded in full; turning speed mode off shows everything in full again. It is saved with the assembly, and a large assembly suggests it in the status bar. Drawings, exports and Interference Check always use the exact geometry. {idx:Speed Mode}
 
 # Drawings
 
@@ -1321,6 +1432,8 @@ A flat pattern view shows a sheet metal body unfolded with its outline and holes
 | Command | How |
 |---|---|
 | **Dimension** | Click a line for its length, a circle for its diameter (an arc: radius), two points, lines or circles for the distance between them (two lines at an angle: the angle), then click where the text goes. Horizontal, vertical or aligned depends on where you place it. Prefix, suffix, tolerance and override text can be set. |
+| **Auto Dimension** | Dimensions the selected views, or every view on the sheet (see below) |
+| **Check Drawing** | Lists what the drawing still lacks (see below) |
 | **Note** | Click on the sheet; click an edge first to add a leader |
 | **Baseline Dimension** | Click the base edge or point, then each point or edge to dimension from it; the dimensions stack one above the other |
 | **Ordinate Dimension** | Click the origin, then where the values line up, then the points to dimension |
@@ -1335,9 +1448,36 @@ A flat pattern view shows a sheet metal body unfolded with its outline and holes
 | **Revision Table** | Rows edited in one dialog; the latest revision goes into the title block |
 | **Cut List Table** | The cut list of the part in the selected view (see the Fast Structure chapter); it updates when the part changes |
 | **Balloon** | Click a part in a view, then where the balloon goes. The number is that part's item in the bill of materials, found from the part under the click (in a sub-assembly, the sub-assembly's item). Keep clicking for more; [[Esc]] ends. Where the part can't be told, it asks for the number. Right-click a balloon ▸ **Item Number…** to change it. |
-| **BOM Table** | The bill of materials of the drawing's assembly: ITEM, QTY, PART and MATERIAL, at the top right of the sheet. Drag it anywhere; right-click it to show the sub-assemblies' parts (indented). It follows the assembly. |
+| **BOM Table** | The bill of materials of the drawing's assembly: ITEM, QTY, PART and MATERIAL, at the top right of the sheet. Drag it anywhere; right-click it to show the sub-assemblies' parts (indented). It follows the assembly. Right-click a column to change what it shows (any field, custom property, mass, cost or typed values), insert, move, rename or remove it; double-click a typed value to edit it. **Columns…** (right-click the table, or double-click it) has everything in one dialog. With mass or cost columns a TOTAL row is added. |
 
 Datum features, geometric tolerances, surface finish and weld symbols can each have a leader. Right-click one ▸ **Edit…** to change it. {idx:dimensions, drawing}{idx:note}{idx:center mark}{idx:baseline dimension}{idx:ordinate dimension}{idx:Hole Callout}{idx:GD&T}{idx:geometric tolerance}{idx:datum}{idx:surface finish}{idx:weld symbol}{idx:revision table}{idx:Cut List Table}{idx:balloon}{idx:BOM Table}
+
+### Auto Dimension
+
+**Annotation ▸ Auto Dimension** (also **Insert ▸ Annotations**) adds the dimensions the selected views need, or every view on the sheet's: the overall sizes, outermost; hole diameters, one per size ("4× Ø9"); arc radii; and hole positions. Each size is given once in the drawing, and nothing is added that a view's own dimensions already give. Only views looking along the part's axes are dimensioned. {idx:Auto Dimension}
+
+It asks how, and keeps your choices for next time:
+
+- **Positions**: baseline (each from the view's edge), chain (edge to hole to hole on one row) or ordinate (values from the view's bottom left corner).
+- **Tolerance**, for example ±0.1, added to the new lengths and diameters.
+- **Spread labels that would overlap**.
+- **Add**: which kinds (overall sizes, hole diameters, hole positions, arc radii).
+
+Everything it adds is one undo step; drag the dimensions to tidy them up.
+
+### Check Drawing
+
+**Annotation ▸ Check Drawing** (or **Tools ▸ Check Drawing…**) lists what the drawing still lacks before it goes out, most important first: {idx:Check Drawing}
+
+- **Title block**: fields left empty. Title, drawing number, drawn by, date, revision and material are to fix; checked and approved are noted, to be filled in at sign-off.
+- **Dimensions per view**: part views with no dimensions (a view whose sizes all show in other views is only noted), crowded views, annotations whose view was deleted and dimensions that lost what they measured.
+- **Undimensioned features**: overall sizes, hole diameters, radii and hole positions that no dimension gives. A size given in one view is not asked for again in the part's other views, a hole callout gives a hole's diameter, and hole positions count in baseline, chain or ordinate style.
+
+Click an item to show its view or annotation. **Add Missing Dimensions** puts in what Auto Dimension would; **Title Block…** opens the drawing's properties.
+
+### DXF drawings on the sheet
+
+**Insert ▸ DXF Drawing…** places a DXF file's lines, circles, arcs, polylines, ellipses, splines and texts on the sheet as one item, in the middle of the frame at full size or scaled down to a standard scale that fits. Drag it, right-click ▸ **Scale…**, or delete it; it prints and exports with the sheet. {idx:DXF, into drawings}
 
 ## Sheet tab
 
@@ -1355,7 +1495,7 @@ Views and dimensions follow changes to the part or assembly, whether it is open 
 
 ## Not yet available
 
-DWG export: DWG is a closed format, so drawings are exported as DXF, which practically every CAD program opens.
+DWG import and export: DWG is a closed format with no free reader or writer that could run in RazorCAD, so drawings are exported, and DXF files placed, as DXF, which practically every CAD program reads and writes.
 
 # Evaluate and Tools
 
@@ -1404,6 +1544,21 @@ Every value field accepts:
 
 A value may start with `=`. Variable names start with a letter or underscore and can't be a function name.
 
+## Macros
+
+**Tools ▸ Macros…** writes, runs and saves JavaScript macros that drive RazorCAD. {idx:macros}
+
+- In parts they can sketch (lines, rectangles, circles, arcs, polygons), extrude, cut, revolve, add any feature, change or delete features, set equations and the material, and rebuild. In assemblies and drawings they can add, change and remove components, mates, views and annotations.
+- Anywhere they can run any command by its name in the command search, ask you for a value, and run other macros.
+- The **API** button lists what a macro can use; a sample macro shows the idea.
+- A macro's changes are one undo step. Errors show their line, which is selected in the editor. [[Ctrl+Enter]] runs; [[Ctrl+S]] saves.
+
+**Tools ▸ Record Macro** records what you do until **Stop Recording Macro** (or the red "● Recording macro" in the status bar): the features you add, change, delete or reorder, the commands you run, and in assemblies and drawings what you change there (parts inserted, components moved, mates, views, annotations, sheets). The recording opens in the Macros dialog to be saved or edited. Items made during the recording are kept in variables and others are found by name, so a recording plays back into another part, assembly or drawing.
+
+Saved macros are in the Tools menu (**Macro: name**) and the command search, so they can have keyboard shortcuts. **Import…** / **Export…** share them as .js files.
+
+> Warning: Macros can do anything RazorCAD can. Run only macros you trust.
+
 ## Edit Material
 
 **Tools ▸ Edit Material…** (or the Material item in the tree) sets the part material. See Appendix B for the list. {idx:Edit Material}
@@ -1449,6 +1604,16 @@ RazorCAD writes a crash report whenever something goes wrong, to `%APPDATA%\Razo
 
 Kinds of report: `ui-error`, `kernel-error`, `kernel-worker-crash`, `python-exception`, `native-crash` and `unexpected-shutdown` (a session that ended without closing normally, found at the next launch).
 
+## Reporting a problem
+
+**Help ▸ Report a Problem…**, or **Report on GitHub…** in the start window's crash notice, turns a crash report (or a plain description, without a crash) into a GitHub issue. The report holds RazorCAD's version, Windows, what went wrong and the last lines of the session log; you see the whole text first and can edit it. Your user name and folders are taken out, and the part you were working on is not included. **Open GitHub Issue** opens RazorCAD's new-issue page in your browser with the text filled in; nothing is sent until you submit it there. **Copy Text** copies it instead. {idx:Report a Problem}
+
+## Speed on your PC
+
+How many geometry kernels work at once comes from the PC RazorCAD runs on: one per processor thread beyond two (left for the window and the rest of the PC), and about 1 GB of free memory each beyond 2 GB, read from Windows when RazorCAD starts; at least 2, at most 16. Assemblies build their parts side by side in them, drawings draw their views in them, and each open part keeps one (up to half of them). Kernels that are idle for a few minutes are stopped to give their memory back. Crash reports note the figures, for example "up to 12 at once (24 threads, 14.8 GB free)". {idx:geometry kernels}{idx:performance}
+
+Editing a feature meshes again only the faces and edges it changed, and a part reopened from the model cache picks up where it left off without being built again.
+
 ## Common problems
 
 | Problem | What to do |
@@ -1471,7 +1636,7 @@ Kinds of report: `ui-error`, `kernel-error`, `kernel-worker-crash`, `python-exce
 | `%APPDATA%\RazorCAD\prefs.json` | Toolbar layout, icon size, your keyboard shortcuts, whether the tour was taken, and other preferences |
 | `%APPDATA%\RazorCAD\update.json` | The update check: on or off, when it last looked, a version you chose to skip |
 | `%APPDATA%\RazorCAD\crashes\` | Crash reports |
-| `%LOCALAPPDATA%\RazorCAD\modelcache\` | Built models of parts and assemblies, and the geometry after each feature, for fast opening and editing (up to 1 GB; safe to delete) |
+| `%LOCALAPPDATA%\RazorCAD\modelcache\` | Built models of parts and assemblies, and the geometry after each feature, for fast opening and editing, one folder per version of the geometry kernel (up to 1 GB; safe to delete) |
 | `Documents\RazorCAD\Templates\` | Your drawing templates |
 | `Name.autosave.rcad` | Auto-save, next to the part file |
 
@@ -1498,7 +1663,18 @@ Both builds sign RazorCAD.exe, the thumbnail DLL and the setup once a code-signi
 python tests/run_tests.py
 ```
 
-This rebuilds the test parts in `tests/parts` with the real geometry kernel in headless Microsoft Edge. It compares every body's volume, area, faces and edges (and flat patterns) with `tests/expected.json`. It also runs checks done as a user does them: sketching, dimensioning and extruding, drawings, assemblies, mates, references, cosmetic threads, inch units, exploded drawing views, balloons and more. It needs Python's playwright package and exits with 1 on any difference. `--update` stores new expected results, `--only` runs some of them, and `--make-parts` makes the test parts again from `tests/make_parts.js`. See `tests/README.md`. {idx:regression tests}
+This rebuilds the test parts in `tests/parts` with the real geometry kernel in headless Microsoft Edge. It compares every body's volume, area, faces and edges (and flat patterns) with `tests/expected.json`, and the drawings of six test parts with their stored line counts and sizes. It also runs checks done as a user does them: sketching, dimensioning and extruding, drawings, assemblies, mates, references, standard parts, collisions, assembly features, macros, accessibility and more. It needs Python's playwright package and exits with 1 on any difference. `--update` stores new expected results, `--only` runs some of them, and `--make-parts` makes the test parts again from `tests/make_parts.js`. See `tests/README.md`. {idx:regression tests}
+
+- **Timings**: every run's times are kept per machine in `tests/perf-history.json` (not in git). A test markedly slower than its usual time is listed under **Performance**; `--perf` lists every time and `--perf-strict` fails the run on a slowdown.
+- **On GitHub** the tests run for every push and pull request (`.github/workflows/tests.yml`).
+
+## Releases
+
+Pushing a version tag (for example `v0.14.0-beta`, matching `version.txt`) runs `.github/workflows/release.yml`: the tests, then RazorCAD.exe and the setup are built and a draft release is made with the setup, its read-me, checksums and notes from `CHANGELOG.md` (`tools/release_notes.py`). A version that already has a release is left alone. See `installer/RELEASING.md`. {idx:releases}
+
+## The website and the browser version
+
+`python tools/build_website_docs.py` builds the online manual (`website/docs`) from this manual's source and the browser version (`tools/build_web_app.py`: `app/` into `website/app`, with the geometry kernel's signature so the browser keeps stored models per kernel).
 
 ## Working on the UI
 
@@ -1521,6 +1697,10 @@ Run `python serve.py` and open http://localhost:8765/ in a browser. In that mode
 | `app/js/assembly.js`, `asmview.js`, `explode.js` | Assemblies, their display and exploded views |
 | `app/js/drawing*.js`, `drawtemplates.js`, `pdf.js`, `dxf.js` | Drawings, templates, sheet formats, PDF and DXF export |
 | `app/js/claudespec.js` | Modelling guide used by Ask Claude |
+| `app/js/collide.js`, `asmfeatures.js`, `asmcuts.js`, `motion.js`, `stdparts.js` | Collision detection, assembly holes and cuts, motion studies, standard parts |
+| `app/js/macros.js`, `drawcheck.js`, `autodim.js`, `compare.js` | Macros, Check Drawing, Auto Dimension, Compare With |
+| `app/js/a11y.js`, `machine.js`, `kernelclient.js` | Keyboard use and screen-reader labels; how many kernels the PC can run; the kernels |
+| `kernelsig.py` | The geometry kernel's signature (the model cache is kept per kernel) |
 | `Manual/` | This manual: source, build script and change tracking |
 
 # Appendix A: Keyboard and Mouse Reference
@@ -1539,6 +1719,8 @@ Run `python serve.py` and open http://localhost:8765/ in a browser. In that mode
 | Edit a feature | Double-click it in the tree |
 | Search commands | [[Ctrl+K]] or [[/]] |
 | Your own shortcuts | Help ▸ Customize Shortcuts |
+| Focus to the panel, ribbon or view | [[F6]] / [[Shift+F6]] |
+| In a tree: move / close or open / open the item / first or last | [[↑]] [[↓]] / [[←]] [[→]] / [[Enter]] / [[Home]] [[End]] |
 
 ## View
 
@@ -1595,6 +1777,7 @@ Run `python serve.py` and open http://localhost:8765/ in a browser. In that mode
 |---|---|
 | Mate | [[M]] |
 | Move a component / turn it | Left-drag / [[Alt]]+drag |
+| Motion study: play / stop | [[Space]] |
 | Zoom to fit | [[F]] |
 
 # Appendix B: Materials
@@ -1617,6 +1800,7 @@ A body or part with no material uses 1.00 g/cm³ for mass calculations.
 
 | Date | Software version | Changes |
 |---|---|---|
+| 2026-10-21 | 0.14.0-beta | New sections: RazorCAD in your browser, Update Now, Language and theme, Using the keyboard, Properties, Compare With, IGES import, Etch Lines, Standard parts, Collision detection, Equations shared with the parts, Assembly holes and cuts, Motion studies, Speed Mode, assembly STEP export, Auto Dimension, Check Drawing, DXF drawings on the sheet, Macros, Reporting a problem, Speed on your PC, Releases and the website. Updated: bill of materials columns, mass and cost; fillets set at each vertex and setback corners; curvature-continuous 3D splines and loft continuity; the fonts that come with RazorCAD; the model cache; tests. |
 | 2026-10-20 | 0.13.0-beta | New sections: Updates, Getting Started Tour, Search commands, Your own keyboard shortcuts, Units (inches), Cosmetic Thread, References that follow edits, Fix References, gear and rack-pinion mates, Fix Mates, assembly Interference Check, Code signing and Regression tests. Drawings add Balloon and BOM Table, exploded views and units; Hole callouts give cosmetic threads. Faster opening (the geometry after each feature is kept) and faster patterns of added features. |
 | 2026-10-20 | 0.12.0-beta | Brought up to date with the software. New chapters: 3D Sketches, Airfoils, Fast Structure, Configurations and Assemblies. Sheet Metal adds Sheet Metal Extrude, Lofted Bend, Transition / Reducer, Miter Flange, Hem, Sketched Bend, Jog, Cross Break, Tab and Slot, Forming Tools, Gusset, gauge tables and Sheet Metal Check. Drawings add templates, auxiliary, break and crop views, baseline, ordinate and chamfer dimensions, hole callouts, GD&T, surface finish and weld symbols, revision and cut list tables, bend tables and DXF export. Surfaces add lofted, swept, filled, boundary and ruled surfaces, trim, extend, untrim, delete and replace face, split line, projected and composite curves, flatten surface, convert to solid and repair mesh. Also: new sketch tools, Hole, Draft, Rib, Dome, Move Face, Scale, new patterns, appearances, exploded views, interference check, surface analysis, OBJ and 3MF, toolbar customising and the Claude subscription option. Feature and tool names follow the software's new names. |
 | 2026-10-13 | 0.9.0-beta | First edition. Covers parts, sketching, gears, solid features, bodies, surfaces, reference geometry, the feature tree, sheet metal (including Convert to Sheet Metal with detected thickness and bend radii), drawings, evaluate tools, Ask Claude, troubleshooting and developer notes. |

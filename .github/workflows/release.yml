@@ -1,7 +1,8 @@
 # A release, when a version is tagged (git tag v0.14.0-beta, pushed): the regression tests, then RazorCAD.exe and
 # RazorCAD-Setup-<version>.exe built (installer/build_installer.bat), and a draft release made on GitHub with the
 # setup, its read-me and checksums, and notes from CHANGELOG.md. Nothing is published: the draft waits for review.
-# It runs only for a version tag (never on ordinary pushes), and the tag must match version.txt.
+# It runs only for a version tag (never on ordinary pushes), and the tag must match version.txt. A tag that has a
+# release already (one published by hand, with a setup built and signed on a PC) is left alone.
 #
 # Code signing, when set up (installer/SIGNING.md): repository secrets RAZORCAD_SIGN_PFX_BASE64 (the .pfx,
 # base64-encoded) and RAZORCAD_SIGN_PASSWORD; without them the files are built unsigned.
@@ -24,11 +25,22 @@ jobs:
         with:
           fetch-depth: 0   # (the earlier tags, for the release notes)
 
+      - name: Is there a release for this tag already?
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" *> $null
+          if ($LASTEXITCODE -eq 0) { 'SKIP=true' >> $env:GITHUB_ENV; 'A release for this tag exists already: nothing to do.' } else { 'SKIP=false' >> $env:GITHUB_ENV }
+          exit 0
+
       - uses: actions/setup-python@v5
+        if: env.SKIP != 'true'
         with:
           python-version: '3.12'
 
       - name: Check the tag against version.txt
+        if: env.SKIP != 'true'
         shell: pwsh
         run: |
           $ver = (Get-Content -Raw version.txt).Trim()
@@ -36,14 +48,17 @@ jobs:
           "VERSION=$ver" >> $env:GITHUB_ENV
 
       - name: Install the build tools
+        if: env.SKIP != 'true'
         run: python -m pip install --upgrade pip pywebview pyinstaller pillow playwright
 
       - name: Run the regression tests
+        if: env.SKIP != 'true'
         run: python tests/run_tests.py
         env:
           CI: 'true'
 
       - name: Set up code signing (when the secrets are there)
+        if: env.SKIP != 'true'
         shell: pwsh
         env:
           PFX_BASE64: ${{ secrets.RAZORCAD_SIGN_PFX_BASE64 }}
@@ -56,12 +71,14 @@ jobs:
           } else { 'Signing: not set up (the files are built unsigned)' }
 
       - name: Build RazorCAD and the setup
+        if: env.SKIP != 'true'
         shell: cmd
         run: call installer\build_installer.bat
         env:
           RAZORCAD_SIGN_PASSWORD: ${{ secrets.RAZORCAD_SIGN_PASSWORD }}
 
       - name: Gather the release files
+        if: env.SKIP != 'true'
         shell: pwsh
         run: |
           $out = Join-Path (Split-Path $env:GITHUB_WORKSPACE) 'RazorCAD Install'
@@ -74,11 +91,13 @@ jobs:
           "DIST=$dist" >> $env:GITHUB_ENV
 
       - uses: actions/upload-artifact@v4
+        if: env.SKIP != 'true'
         with:
           name: RazorCAD-${{ env.VERSION }}
           path: ${{ env.DIST }}
 
       - name: Draft the release
+        if: env.SKIP != 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
