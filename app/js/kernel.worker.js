@@ -5335,6 +5335,33 @@ function drawingViewsOf(shape, views) {
   });
 }
 
+// The body seen at a point of a drawing view (view coordinates; v: { dir, up }): the one a line along the view
+// direction meets first from the viewer's side. Returns its id (in an assembly: "<component>/…/<body>") or null.
+async function drawingPick(docJson, v, p2) {
+  await ensureDrawingCache(docJson);
+  const list = drawingCache.solids || [];
+  if (!list.length) return null;
+  const dir = unit(v.dir), x = unit(cross(v.up || [0, 1, 0], dir)), y = cross(dir, x);
+  const L = bbox(drawingCache.shape).diag * 2 + 10;
+  const c = add(mul(x, p2[0]), mul(y, p2[1]));
+  const line = R.makeLine(add(c, mul(dir, L)), add(c, mul(dir, -L)));
+  let best = null, depth = -Infinity;
+  for (const r of list) {
+    // (quick: the body's box must reach the line)
+    const b = bbox(r.shape);
+    const corners = [];
+    for (const cx of [b.min[0], b.max[0]]) for (const cy of [b.min[1], b.max[1]]) for (const cz of [b.min[2], b.max[2]]) corners.push([dot([cx, cy, cz], x) - p2[0], dot([cx, cy, cz], y) - p2[1]]);
+    if (Math.min(...corners.map((k) => k[0])) > 1e-6 || Math.max(...corners.map((k) => k[0])) < -1e-6 || Math.min(...corners.map((k) => k[1])) > 1e-6 || Math.max(...corners.map((k) => k[1])) < -1e-6) continue;
+    let inside;
+    try { inside = r.shape.intersect(line); } catch (e) { if (isFatal(e)) throw e; continue; }
+    for (const e of inside?.edges || []) for (const u of [0, 1]) {
+      const d = dot(vec(e.pointAt(u)), dir);
+      if (d > depth) { depth = d; best = r.id; }
+    }
+  }
+  return best;
+}
+
 // Cosmetic threads in a view, as drawn by convention (thin lines, 'th'; hidden ones dashed, 'thd'): seen from
 // the side, two lines at the thread's other diameter (a shaft: the minor one; a bore: the major one, hidden
 // unless the section cuts through it) and a line across where the thread ends; seen end on, a three-quarter
@@ -6695,6 +6722,8 @@ async function handleMessage(e) {
       const r = out.res;
       result = { body: r.body, errors: [...(r.errors instanceof Map ? r.errors : Object.entries(r.errors || {}))].length };
       transfer = out.transfer;
+    } else if (type === 'drawingPick') {
+      result = await drawingPick(data.doc, data.view, data.p);
     } else if (type === 'drawingViews') {
       result = await drawingViews(data.doc, data.views || []);
     } else if (type === 'sheetCheck') {

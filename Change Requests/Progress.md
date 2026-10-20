@@ -463,7 +463,8 @@ Work through in this order; each item tested, logged in CHANGELOG, RazorCAD.exe 
 4. Features
 - [x] 4a Inch units (per document).
   - Done: units.js (lenText / lenValue / fmtLen…; mm stays the stored unit: numbers in mm, expressions wrapped "(e)*in"); expr.js unit words mm cm in inch ft (implicit 2in, variables win, "in" reserved). App: doc.units / drawing settings.units, app.units, setUnits, status MMGS/IPS clickable, Tools ▸ Units. ui.exprInput length fields, inchDefaults (1/8 in), measure, mass props; sketcher dim labels, Modify box, tips; drawing.js fmtLen / unitName (lengths only), title block Units cell, inch drawing from an inch part (3 decimals). Tests: evaluator / conversions in the browser, inch-units UI test (dimension 1.575 → 2 in, default 0.375 in, w/2 stored (w/2)*in, exact volume), inch drawing settings / title block / fmtLen; full suite passes.
-- [ ] 4b Assembly drawings: balloons and a bill-of-materials table.
+- [x] 4b Assembly drawings: balloons and a bill-of-materials table.
+  - Done: bom.js (bomRows / bomItemOf, used by AssemblyEditor.showBOM); kernel drawingPick (a line along the view direction through the click, Common with each body whose box reaches it, nearest to the viewer); drawing.js balloon prims (circle, number, leader, dot) and bomTablePrims (BOM_COLS, indented option); drawingeditor Balloon tool (pick → item, else prompt), addBOM (top right of the frame), context items, icon. Test assembly-drawing-bom-balloons; checked in the preview (table + balloons 1, 2, 2).
 - [ ] 4c Drawing symbols: GD&T (feature control frames, datums), surface finish, weld symbols.
 - [ ] 4d Exploded views placed on drawing sheets.
 - [ ] 4e Assemblies: interference check.

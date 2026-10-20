@@ -6,6 +6,12 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 22:12 — Balloons and bill of materials on assembly drawings
+- **Annotation ▸ BOM Table:** the drawing's assembly as a table (ITEM, QTY, PART, MATERIAL), placed at the top right of the sheet; drag it anywhere. Right-click it to show the sub-assemblies' parts too (indented). It follows the assembly when its parts change.
+- **Annotation ▸ Balloon:** click a part in a view, then where the balloon goes. The circled number is that part's item in the bill of materials, found from the part under the click, also in sub-assemblies (their item at the top level). Keep clicking for more balloons; Esc ends. Where no part can be told, it asks for the number (the next free one is offered). Right-click a balloon ▸ Item Number to change it.
+- The assembly's own Bill of Materials window and the drawing tables share the same rows.
+- Regression test: assembly-drawing-bom-balloons.
+
 ## 2026-10-20 22:08 — Inch units
 - **Each part, assembly and drawing can be in millimetres or inches.** Click **MMGS / IPS** in the status bar (or Tools ▸ Units). The sizes stay exactly as they are; only how they are shown and typed changes.
 - **In an inch document:** feature fields show and take inches (the arrow keys step 0.1 in, Shift 1 in). Sketch dimensions, the Modify box and the drawing tips are in inches, and so are Measure (in, in², in³) and Mass Properties (also lb). New features start at round sizes (to 1/8 in).

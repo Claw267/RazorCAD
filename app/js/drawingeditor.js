@@ -14,6 +14,7 @@ import { cutListRows } from './weldments.js';
 import { bodyMaterialId, docJSON, stripThumbnail, fileStem, isDefaultName } from './model.js';
 import { TEMPLATE_EXT, templateFromDrawing, applyTemplate } from './drawtemplates.js';
 import { partMesh, assemblyParts } from './partmeshes.js';
+import { bomRows, bomItemOf } from './bom.js';
 
 // Assemblies this big (solids, or display triangles) are drawn with fast hidden-line removal unless a view asks
 // for exact (exact on thousands of solids takes many minutes a view)
@@ -606,6 +607,8 @@ export class DrawingEditor {
       this.selected.clear(); this.selected.add(ann.id);
       if (ann.type === 'dim' || ann.type === 'note') items.push({ label: ann.type === 'dim' ? 'Edit Dimension Text…' : 'Edit Note…', icon: 'note', action: () => this.editAnn(ann) });
       if (['datum', 'fcf', 'sfin', 'weld', 'revtable'].includes(ann.type)) items.push({ label: 'Edit…', icon: 'note', action: () => this.editAnn(ann) });
+      if (ann.type === 'balloon') items.push({ label: 'Item Number…', icon: 'balloon', action: async () => { const t = await this.app.ui.promptText('Balloon', 'balloon', 'Item number', String(ann.item ?? '')); if (t != null && t.trim()) { ann.item = t.trim(); this.changed(); } } });
+      if (ann.type === 'bom') items.push({ label: ann.indented ? 'Top Level Only' : 'Show Sub-assembly Parts (Indented)', icon: 'bom', action: () => { ann.indented = !ann.indented; this.changed(); } });
       items.push({ label: 'Delete', icon: 'trash', action: () => this.deleteSelection() });
     } else if (v) {
       this.selected.clear(); this.selected.add(v.id);
@@ -1240,6 +1243,36 @@ export class DrawingEditor {
       this.cancelTool();
       return;
     }
+    if (t.kind === 'balloon') {
+      if (!t.leader) {
+        // the point on a part: its item number from the bill of materials (worked out while the balloon is placed)
+        const v = this.viewAt(P, 1);
+        if (!v || v.type === 'flat') { this.app.status('Click on a part in a view.'); return; }
+        const X = D.viewXform(this.doc, v), p = X.toView(P);
+        t.leader = { view: v.id, p };
+        const m = this.doc.models.find((x) => x.id === v.model);
+        const req = D.viewRequest(this.doc, v) || D.viewRequest(this.doc, D.findView(this.doc, v.parent));
+        t.item = m?.doc?.kind === 'assembly' && req ? this.app.kernel.request('drawingPick', { doc: JSON.stringify(m.doc), view: { dir: req.dir, up: req.up }, p })
+          .then((id) => (id ? bomItemOf(m.doc, String(id).split('/')[0]) : null)).catch(() => null) : Promise.resolve(m?.doc?.kind === 'assembly' ? null : '1');
+        this.app.status('Click where the balloon goes.');
+        this.render();
+        return;
+      }
+      const leader = t.leader;
+      t.leader = null;
+      let item = await t.item;
+      if (!item) {
+        const used = this.doc.anns.filter((x) => x.type === 'balloon').map((x) => +x.item).filter(Number.isFinite);
+        item = (await this.app.ui.promptText('Balloon', 'balloon', 'Item number (the part could not be told at that point)', String((used.length ? Math.max(...used) : 0) + 1)))?.trim();
+        if (!item) return;
+      }
+      const a = { id: D.newId(this.doc, 'a'), type: 'balloon', sheet: this.sheetId, view: leader.view, leader: leader.p, item, h: this.doc.settings.textH, pos: [0, 0] };
+      D.setAnnPos(this.doc, a, P);
+      this.doc.anns.push(a);
+      this.changed();
+      this.app.status(`Balloon ${item} placed. Click the next part, or Esc to finish.`);
+      return;
+    }
     if (t.kind === 'note') {
       const ent = t.leader ? null : this.entityAt(P, ['line', 'circle', 'point']);
       if (ent && !t.leader) {
@@ -1343,6 +1376,20 @@ export class DrawingEditor {
       const obs = new MutationObserver(() => { if (!document.contains(dlg.body)) { obs.disconnect(); finish(false); } });
       obs.observe(document.getElementById('modal-root'), { childList: true });
     });
+  }
+
+  // A bill of materials table of the drawing's assembly (of the selected view, else the first assembly), at
+  // the top right of the sheet's frame.
+  addBOM() {
+    if (this.tool) this.cancelTool(false);
+    const v = [...this.selected].map((id) => D.findView(this.doc, id)).find(Boolean);
+    const isAsm = (id) => this.doc.models.find((x) => x.id === id)?.doc?.kind === 'assembly';
+    const mid = v && isAsm(v.model) ? v.model : this.doc.models.find((x) => x.doc?.kind === 'assembly')?.id;
+    if (!mid) { this.app.toast('A bill of materials needs a view of an assembly', true); return; }
+    const f = frameRect(this.sheet, this.doc.format), W = D.BOM_COLS.reduce((s, c) => s + c[1], 0);
+    this.doc.anns.push({ id: D.newId(this.doc, 'a'), type: 'bom', sheet: this.sheetId, model: mid, pos: [f.x1 - W - 8, f.y0 + 12] });
+    this.changed();
+    this.app.status(`Bill of materials added (${bomRows(this.doc.models.find((x) => x.id === mid).doc).filter((r) => !r.depth).length} items): drag it where you want it. Right-click it to show the sub-assemblies' parts.`);
   }
 
   // A weldment cut list table for a part of the drawing (the part of the selected view, else the first),
@@ -1875,7 +1922,7 @@ export class DrawingEditor {
     const t = this.tool;
     if (!t) { root.appendChild(el('div', { class: 'pm-msg' }, 'Pick a drawing command (View Layout or Annotation tab) or double-click a view to edit it.')); return; }
     const titles = { model: t.orient === 'flat' ? ['smFlatten', 'Flat Pattern'] : ['modelView', 'Model View'], std3: ['std3View', 'Standard Views'], projected: ['projView', 'Projected View'], section: ['sectionView', 'Section View'], detail: ['detailView', 'Detail View'], dim: ['smartdim', 'Dimension'], note: ['note', 'Note'], cmark: ['centerMark', 'Center Mark'], cline: ['centerline', 'Centerline'], viewprops: ['modelView', 'Drawing View'],
-      callout: ['holeCallout', 'Hole Callout'], baseline: ['baselineDim', 'Baseline Dimension'], ordinate: ['ordinateDim', 'Ordinate Dimension'], chamferDim: ['chamferDim', 'Chamfer Dimension'], datum: ['datum', 'Datum Feature'], fcf: ['gdt', 'Geometric Tolerance'], sfin: ['surfFinish', 'Surface Finish'], weld: ['weld', 'Weld Symbol'], aux: ['auxView', 'Auxiliary View'], break: ['breakView', 'Break View'], crop: ['cropView', 'Crop View'] };
+      callout: ['holeCallout', 'Hole Callout'], balloon: ['balloon', 'Balloon'], baseline: ['baselineDim', 'Baseline Dimension'], ordinate: ['ordinateDim', 'Ordinate Dimension'], chamferDim: ['chamferDim', 'Chamfer Dimension'], datum: ['datum', 'Datum Feature'], fcf: ['gdt', 'Geometric Tolerance'], sfin: ['surfFinish', 'Surface Finish'], weld: ['weld', 'Weld Symbol'], aux: ['auxView', 'Auxiliary View'], break: ['breakView', 'Break View'], crop: ['cropView', 'Crop View'] };
     const [ic, title] = titles[t.kind] || ['modelView', t.kind];
     root.appendChild(el('div', { class: 'pm-head' }, `<span class="ti">${icon(ic)}</span><span>${esc(title)}</span>`));
     const act = el('div', { class: 'pm-actions' });
@@ -2065,7 +2112,7 @@ export class DrawingEditor {
       c.appendChild(grid);
     }
     const g = group('How');
-    g.appendChild(el('div', { class: 'pm-hint' }, { callout: 'Click a hole in a view: the callout gives its size and depth (counterbore, countersink, thread) from the Hole feature, and how many of the same holes the view shows.', baseline: 'Click the base edge or point first, then each point or edge to dimension from it; the dimensions stack one above the other.', ordinate: 'Click the origin, then where the values line up, then the points to dimension.', chamferDim: 'Click the chamfer edge and an edge next to it, then place the text (distance × angle).', datum: 'A datum letter in a box, with a triangle on the feature.', fcf: 'A feature control frame: characteristic, tolerance (Ø zone, material condition) and datums.', sfin: 'A surface finish symbol with its roughness.', weld: 'A weld symbol on a reference line with an arrow to the joint.', aux: 'A view looking square at an inclined edge (shows its true shape).', break: 'Leaves out the middle of a long part; dimensions across it keep the true length.', crop: 'Shows only the area you draw round.', dim: 'Click a line for its length, a circle for its diameter (an arc: radius), two points, lines or circles for the distance between them (two lines at an angle: the angle), then click where the text goes.', note: 'Click on the sheet for a note; click an edge first to add a leader.', cmark: 'Click circles or arcs.', cline: 'Click two lines (or two points); the centerline runs between them.' }[t.kind] || ''));
+    g.appendChild(el('div', { class: 'pm-hint' }, { balloon: 'Click a part in a view, then where the balloon goes. Its number is the part\'s item in the bill of materials (asked for when the part can\'t be told).', callout: 'Click a hole in a view: the callout gives its size and depth (counterbore, countersink, thread) from the Hole feature, and how many of the same holes the view shows.', baseline: 'Click the base edge or point first, then each point or edge to dimension from it; the dimensions stack one above the other.', ordinate: 'Click the origin, then where the values line up, then the points to dimension.', chamferDim: 'Click the chamfer edge and an edge next to it, then place the text (distance × angle).', datum: 'A datum letter in a box, with a triangle on the feature.', fcf: 'A feature control frame: characteristic, tolerance (Ø zone, material condition) and datums.', sfin: 'A surface finish symbol with its roughness.', weld: 'A weld symbol on a reference line with an arrow to the joint.', aux: 'A view looking square at an inclined edge (shows its true shape).', break: 'Leaves out the middle of a long part; dimensions across it keep the true length.', crop: 'Shows only the area you draw round.', dim: 'Click a line for its length, a circle for its diameter (an arc: radius), two points, lines or circles for the distance between them (two lines at an angle: the angle), then click where the text goes.', note: 'Click on the sheet for a note; click an edge first to add a leader.', cmark: 'Click circles or arcs.', cline: 'Click two lines (or two points); the centerline runs between them.' }[t.kind] || ''));
   }
 
   // ------------------------------------------------------------ command ribbon / menus
@@ -2103,6 +2150,9 @@ export class DrawingEditor {
         { icon: 'centerline', label: 'Centerline', action: () => this.startTool('cline'), active: this.tool?.kind === 'cline' },
         { icon: 'revTable', label: 'Revision Table', action: () => this.revisionTable() },
         { icon: 'cutList', label: 'Cut List Table', action: () => this.addCutList() },
+        'sep',
+        { icon: 'balloon', label: 'Balloon', action: () => this.startTool('balloon'), active: this.tool?.kind === 'balloon' },
+        { icon: 'bom', label: 'BOM Table', action: () => this.addBOM() },
       ],
       sheet: [
         { icon: 'sheetProps', label: 'Sheet Properties', action: () => this.sheetPropsDialog() },

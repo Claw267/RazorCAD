@@ -25,6 +25,7 @@ import { ExplodeTool, explodeOffsets, drawExplodeLines, animateExplode } from '.
 import { hashText, packResult, unpackResult } from './modelcache.js';
 import { packMesh, unpackMesh, MESH_CACHE } from './partmeshes.js';
 import { AssemblyView } from './asmview.js';
+import { bomRows } from './bom.js';
 import * as G from './geometry.js';
 
 const $ = (s) => document.querySelector(s);
@@ -1388,23 +1389,7 @@ export class AssemblyEditor {
   showBOM() {
     // (indented: one row per part / sub-assembly and configuration used, a sub-assembly's own under it with the
     // quantity in one of it; suppressed components left out)
-    const rows = [];
-    const level = (doc, effOf, prefix, depth) => {
-      let k = 0;
-      for (const p of doc.parts || []) {
-        const by = new Map();
-        for (const c of doc.components) { const e = effOf(c); if (c.part !== p.id || e.suppressed) continue; by.set(e.config, (by.get(e.config) || 0) + 1); }
-        for (const [cfgId, n] of by) {
-          const item = prefix + ++k, sub = this.isSub(p);
-          rows.push({ item, depth, name: p.name + ((p.doc.configs || []).length ? ` (${this.configName(p, cfgId)})` : ''), qty: n, material: sub ? '' : materialById(p.doc.material)?.name || '', file: p.path ? String(p.path).split(/[\\/]/).pop() : '(not saved)', sub });
-          if (sub && depth < 16) {
-            const sd = this.subView(p.doc, cfgId), cf = sd.activeConfig ? (sd.configs || []).find((x) => x.id === sd.activeConfig) : null;
-            level(sd, (c) => { const o = cf?.comps?.[c.id] || {}; return { config: 'config' in o ? o.config : (c.config ?? null), suppressed: 'suppressed' in o ? o.suppressed : !!c.suppressed }; }, item + '.', depth + 1);
-          }
-        }
-      }
-    };
-    level(this.doc, (c) => this.eff(c), '', 0);
+    const rows = bomRows(this.doc); // (bom.js: shared with the BOM tables and balloons on drawings)
     const table = `<table class="bom"><tr><th>Item</th><th>Part</th><th>Qty</th><th>Material</th><th>File</th></tr>${rows.map((r) => `<tr><td>${r.item}</td><td style="padding-left:${6 + r.depth * 14}px">${r.sub ? '<b>' : ''}${esc(r.name)}${r.sub ? '</b>' : ''}</td><td>${r.qty}</td><td>${esc(r.material)}</td><td>${esc(r.file)}</td></tr>`).join('')}</table>`;
     const csv = ['Item,Part,Qty,Material,File', ...rows.map((r) => [r.item, r.name, r.qty, r.material, r.file].map((x) => `"${String(x).replace(/"/g, '""')}"`).join(','))].join('\r\n');
     const top = rows.filter((r) => !r.depth);

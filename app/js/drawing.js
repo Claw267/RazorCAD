@@ -9,6 +9,7 @@
 // Primitives may carry `ref: { kind: 'view' | 'ann', id }` (selection).
 import { paperSize, frameRect, formatPrims, titleBlockRect, LW, hatchStyle } from './drawingformats.js';
 import { fontMetrics } from './fonts.js';
+import { bomRows } from './bom.js';
 
 export const DRAWING_EXT = '.rdrw';
 const DASH_HIDDEN = [2.4, 1.2];
@@ -593,6 +594,18 @@ export function annPrims(dwg, a, ctx) {
     out.push({ t: 'line', a: sub2(p, mul2(d, 2.5)), b: add2(q, mul2(d, 2.5)), w: LW.thin, dash: DASH_CENTER });
     return out;
   }
+  if (a.type === 'balloon') {
+    // a circled item number with a leader to a dot on the part
+    const P = annPos(dwg, a), h = a.h || th, R = h * 1.25, text = String(a.item ?? '?');
+    out.push({ t: 'circle', c: P, r: R, w: LW.thin });
+    out.push({ t: 'text', p: [P[0], P[1] + h / 2], text, h, anchor: 'middle', base: 'bottom', fit: 2 * R - 1 });
+    if (a.leader && X) {
+      const tip = X.toSheet(a.leader), d = sub2(tip, P), l = Math.hypot(d[0], d[1]);
+      if (l > R + 0.5) out.push({ t: 'line', a: add2(P, mul2(d, R / l)), b: tip, w: LW.thin }, { t: 'circle', c: tip, r: 0.6, w: LW.thin, fill: '#000' });
+    }
+    return out;
+  }
+  if (a.type === 'bom') return bomTablePrims(dwg, a);
   if (a.type === 'revtable') return revTablePrims(dwg, a);
   if (a.type === 'cutlist') return cutListPrims(dwg, a, ctx);
   if (a.type === 'datum' || a.type === 'fcf' || a.type === 'sfin' || a.type === 'weld') return symbolPrims(dwg, a, X);
@@ -862,6 +875,29 @@ export function cutListPrims(dwg, a, ctx) {
   const f = (v, deg = false) => (v == null ? '-' : deg ? fmtNum(v, dwg) + '°' : fmtLen(v, dwg));
   rows.forEach((row, i) => cell(i + 1, [row.item, row.qty, row.description, row.weld ? f(row.totalLength) : f(row.length), f(row.angle1, true), f(row.angle2, true)]));
   if (!cl) out.push({ t: 'text', p: [P[0] + W / 2, P[1] + rh * 1.7], text: '(updating…)', h: th, anchor: 'middle', base: 'bottom', color: '#8a94a6' });
+  return out;
+}
+
+// The bill of materials of an assembly in the drawing (a.model): ITEM | QTY | PART | MATERIAL, the top level
+// (a.indented: the sub-assemblies' parts too), its top-left corner at the annotation's position.
+export const BOM_COLS = [['ITEM', 12], ['QTY', 11], ['PART', 62], ['MATERIAL', 40]];
+export function bomTablePrims(dwg, a) {
+  const th = (dwg.settings?.textH || 3.5) * 0.85, P = annPos(dwg, a), rh = th * 2.2;
+  const m = (dwg.models || []).find((x) => x.id === a.model);
+  const rows = bomRows(m?.doc).filter((r) => a.indented || !r.depth);
+  const cols = BOM_COLS, W = cols.reduce((s2, c) => s2 + c[1], 0), out = [];
+  const N = rows.length + 1;
+  out.push({ t: 'text', p: [P[0] + W / 2, P[1] - rh * 0.3], text: 'BILL OF MATERIALS', h: th, anchor: 'middle', base: 'bottom', bold: true });
+  for (let r = 0; r <= N; r++) out.push({ t: 'line', a: [P[0], P[1] + r * rh], b: [P[0] + W, P[1] + r * rh], w: LW.thin });
+  let x = P[0];
+  for (let c = 0; c <= cols.length; c++) { out.push({ t: 'line', a: [x, P[1]], b: [x, P[1] + N * rh], w: LW.thin }); if (c < cols.length) x += cols[c][1]; }
+  const cell = (r, vals, bold) => {
+    let cx = P[0];
+    vals.forEach((t, c) => { out.push({ t: 'text', p: [cx + (c >= 2 ? 1.2 : cols[c][1] / 2), P[1] + r * rh + rh * 0.7], text: String(t ?? ''), h: th, anchor: c >= 2 ? 'start' : 'middle', base: 'bottom', bold, fit: cols[c][1] - 1.5 }); cx += cols[c][1]; });
+  };
+  cell(0, cols.map((c) => c[0]), true);
+  rows.forEach((r, i) => cell(i + 1, [r.item, r.qty, '  '.repeat(r.depth) + r.name, r.material || '']));
+  if (!m) out.push({ t: 'text', p: [P[0] + W / 2, P[1] + rh * 1.7], text: '(the assembly is missing)', h: th, anchor: 'middle', base: 'bottom', color: '#8a94a6' });
   return out;
 }
 

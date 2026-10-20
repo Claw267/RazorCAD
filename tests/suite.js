@@ -408,6 +408,54 @@ const UI = {
       : { ok: false, detail: `label ${label}, box ${shown}, label after ${label2}, default ${def}, stored ${stored}, volume ${vol} (want ${want})` };
   },
 
+  // an assembly drawing: a BOM table (2 blocks, 1 plate) and balloons whose numbers come from the part clicked
+  async 'assembly-drawing-bom-balloons'() {
+    const a = window.app;
+    const box = (name, w, d, h) => {
+      const p = M.newDoc(); p.name = name;
+      const s = M.createFeature(p, 'sketch', { plane: { ref: 'top' } });
+      const pts = [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]];
+      Object.assign(s, { points: pts.map(([x, y], i) => ({ id: 'p' + (i + 1), x, y })), curves: pts.map((_, i) => ({ id: 'c' + (i + 1), type: 'line', p1: 'p' + (i + 1), p2: 'p' + ((i + 1) % 4 + 1), construction: false })), constraints: [] });
+      p.features.push(s, M.createFeature(p, 'extrude', { sketch: s.id, depth: h }));
+      return p;
+    };
+    a.newAssembly();
+    await wait(400);
+    closeModals();
+    const asm = a.drawing;
+    const plate = asm.addPart(box('Plate', 60, 40, 5), null, null), block = asm.addPart(box('Block', 20, 20, 15), null, null);
+    await asm.addComponent(plate); await asm.addComponent(block); await asm.addComponent(block);
+    await until(() => asm.doc.components.every((c) => asm.geo(c)?.mesh), 30000);
+    const keep = a.ui.newDrawingSetup;
+    a.ui.newDrawingSetup = async () => ({ template: BUILTIN_TEMPLATES.find((t) => t.id === 'builtin:A3L'), name: 'Assembly drawing', props: {}, sheet: null });
+    try { await a.newDrawing(true); } finally { a.ui.newDrawingSetup = keep; }
+    const ed = a.drawing;
+    if (!ed?.doc?.views?.length) return { ok: false, detail: 'no drawing views' };
+    await until(() => ed.doc.views.every((v) => ed.geos.get(v.id)?.edges?.length), 60000, 250);
+    // the BOM table
+    ed.addBOM();
+    const bomAnn = ed.doc.anns.find((x) => x.type === 'bom');
+    const Dm = await import('/js/drawing.js');
+    const texts = Dm.annPrims(ed.doc, bomAnn, {}).filter((p) => p.t === 'text').map((p) => p.text);
+    const bomOk = texts.includes('BILL OF MATERIALS') && texts.includes('Plate') && texts.includes('Block');
+    // a balloon on the second block: the middle of its top seen from above (or its middle from the front)
+    const v = ed.doc.views.find((x) => x.orient === 'front') || ed.doc.views[0];
+    const req = Dm.viewRequest(ed.doc, v);
+    const c3 = asm.doc.components[2], g = asm.geo(c3)?.box;
+    const mid = [0, 1, 2].map((k) => c3.pos[k] + (g.min[k] + g.max[k]) / 2);
+    const un = (q) => { const l = Math.hypot(...q); return q.map((t) => t / l); }, cr = (p, q) => [p[1] * q[2] - p[2] * q[1], p[2] * q[0] - p[0] * q[2], p[0] * q[1] - p[1] * q[0]], dt = (p, q) => p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
+    const dir = un(req.dir), x = un(cr(req.up, dir)), y = cr(dir, x);
+    const X = Dm.viewXform(ed.doc, v), P = X.toSheet([dt(mid, x), dt(mid, y)]);
+    ed.startTool('balloon');
+    await ed.toolClick(P, {});
+    await ed.toolClick([P[0] + 15, P[1] - 15], {});
+    const bl = ed.doc.anns.find((x) => x.type === 'balloon');
+    const blockItem = (await import('/js/bom.js')).bomItemOf(ed.doc.models[0].doc, c3.id);
+    ed.cancelTool?.();
+    return bomOk && bl && String(bl.item) === String(blockItem) ? { ok: true, detail: `BOM: ${texts.filter((t) => /^(Plate|Block)$/.test(t)).join(', ')}; balloon on a block → item ${bl.item}` }
+      : { ok: false, detail: `bom ${bomOk} (${texts.join('|')}), balloon ${JSON.stringify(bl)} (block item ${blockItem})` };
+  },
+
   // the view's mouse buttons: Shift + right-drag pans, middle-drag turns, a plain right-drag changes nothing
   async 'view-mouse-buttons'() {
     const a = window.app;
