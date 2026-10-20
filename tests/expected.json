@@ -200,6 +200,20 @@
      }
     ]
    }
+  },
+  "boss-pattern": {
+   "default": {
+    "errors": [],
+    "bodies": [
+     {
+      "kind": "solid",
+      "faces": 106,
+      "edges": 112,
+      "volume": 112566.3706,
+      "area": 49283.18531
+     }
+    ]
+   }
   }
  }
 }

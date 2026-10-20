@@ -1596,6 +1596,32 @@ async function rebuild(doc, previewId = null, opts = {}) {
     }
     body = compoundOf(solids);
   };
+  // Many copies of an added shape at once (a pattern): each body fused with all the copies that reach it in one
+  // boolean (one after another, the body grows with every copy and each fuse gets slower), copies that reach
+  // no body made bodies of their own. Throws when it is not that simple (a copy reaching two bodies, loose
+  // copies reaching each other, a copy left apart by the fuse): the caller then adds them one by one.
+  const addAll = (copies) => {
+    const fid = cur.id;
+    const pieces = copies.flatMap((c) => solidsOf(c)).map((shape) => ({ shape, box: bbox(shape) }));
+    const tolOf = (b) => Math.max(1e-6, b.diag * 1e-7);
+    const groups = new Map(), free = [];
+    for (const pc of pieces) {
+      const hit = solids.filter((x) => !x.sheet && boxesTouch(x.box, pc.box, tolOf(pc.box)));
+      if (hit.length > 1) throw new Error('A copy reaches two bodies');
+      if (hit.length) { if (!groups.has(hit[0])) groups.set(hit[0], []); groups.get(hit[0]).push(pc); } else free.push(pc);
+    }
+    for (let i = 0; i < free.length; i++) for (let j = i + 1; j < free.length; j++) if (boxesTouch(free[i].box, free[j].box, tolOf(free[i].box))) throw new Error('Loose copies reach each other');
+    const next = [...solids];
+    for (const [rec, ps] of groups) {
+      const r = rec.shape.fuse(compoundOf(ps));
+      if (solidsOf(r).length !== 1) throw new Error('A copy stays apart from the body');
+      next[next.indexOf(rec)] = bodyRec(rec.id, r, fid, [rec]);
+    }
+    for (const pc of free) next.push(bodyRec(newId(fid), pc.shape, fid));
+    solids = next;
+    body = compoundOf(solids);
+    for (const c of copies) applied.push({ op: 'add', tool: c });
+  };
   // After an operation on all bodies together (fillet, chamfer), find each body again.
   const remapSolids = (shape, changedPts) => {
     const parts = solidsOf(shape);
@@ -2012,6 +2038,17 @@ async function rebuild(doc, previewId = null, opts = {}) {
         let flatLost = 0;
         // copies of a cut: all cut out in one boolean (much faster than one after another, as the body
         // gets more faces with every cut); sheet metal bodies keep the one-by-one way (their flat patterns)
+        // copies of an added shape (merged with the bodies): all at once as well, falling back to one by one
+        if (t && t.op === 'add' && t.merge !== false && xs.length > 1) {
+          const n0 = applied.length, before = solids;
+          try {
+            addAll(xs.map((X) => X.shape(t.shape.clone())));
+            return;
+          } catch (e) {
+            if (isFatal(e)) throw e;
+            applied.length = n0; solids = before; body = compoundOf(solids); // (then one by one)
+          }
+        }
         if (t && t.op === 'cut' && xs.length > 1 && !solids.some((s) => s.sheet && inScope(s, t.scope))) {
           const n0 = applied.length, before = solids;
           try {

@@ -1,0 +1,163 @@
+{
+ "version": 1,
+ "name": "boss-pattern",
+ "material": null,
+ "equations": [],
+ "features": [
+  {
+   "id": "f1",
+   "type": "sketch",
+   "name": "Sketch1",
+   "suppressed": false,
+   "plane": {
+    "ref": "top"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": -100,
+     "y": -50
+    },
+    {
+     "id": "p2",
+     "x": 100,
+     "y": -50
+    },
+    {
+     "id": "p3",
+     "x": 100,
+     "y": 50
+    },
+    {
+     "id": "p4",
+     "x": -100,
+     "y": 50
+    }
+   ],
+   "curves": [
+    {
+     "id": "c1",
+     "type": "line",
+     "construction": false,
+     "p1": "p1",
+     "p2": "p2"
+    },
+    {
+     "id": "c2",
+     "type": "line",
+     "construction": false,
+     "p1": "p2",
+     "p2": "p3"
+    },
+    {
+     "id": "c3",
+     "type": "line",
+     "construction": false,
+     "p1": "p3",
+     "p2": "p4"
+    },
+    {
+     "id": "c4",
+     "type": "line",
+     "construction": false,
+     "p1": "p4",
+     "p2": "p1"
+    }
+   ],
+   "constraints": [],
+   "nextSid": 105,
+   "rev": "sy3s7uu3"
+  },
+  {
+   "id": "f2",
+   "type": "extrude",
+   "name": "Extrude1",
+   "suppressed": false,
+   "sketch": "f1",
+   "op": "add",
+   "merge": true,
+   "end": "blind",
+   "depth": 5,
+   "reverse": false,
+   "toPoint": null,
+   "toVertex": null,
+   "toPlane": null,
+   "toFace": null,
+   "toOffset": 5,
+   "toFlip": false,
+   "thin": false,
+   "thinT": 2,
+   "thinDir": "one",
+   "scopeAll": true,
+   "scope": []
+  },
+  {
+   "id": "f3",
+   "type": "sketch",
+   "name": "Sketch2",
+   "suppressed": false,
+   "plane": {
+    "ref": "top"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": -90,
+     "y": 40
+    }
+   ],
+   "curves": [
+    {
+     "id": "c1",
+     "type": "circle",
+     "construction": false,
+     "c": "p1",
+     "r": 4
+    }
+   ],
+   "constraints": [],
+   "nextSid": 102,
+   "rev": "dnpgkvfb"
+  },
+  {
+   "id": "f4",
+   "type": "extrude",
+   "name": "Extrude2",
+   "suppressed": false,
+   "sketch": "f3",
+   "op": "add",
+   "merge": true,
+   "end": "blind",
+   "depth": 10,
+   "reverse": false,
+   "toPoint": null,
+   "toVertex": null,
+   "toPlane": null,
+   "toFace": null,
+   "toOffset": 5,
+   "toFlip": false,
+   "thin": false,
+   "thinT": 2,
+   "thinDir": "one",
+   "scopeAll": true,
+   "scope": []
+  },
+  {
+   "id": "f5",
+   "type": "lpattern",
+   "name": "Linear Pattern1",
+   "suppressed": false,
+   "feature": "f4",
+   "dir1": "x",
+   "rev1": false,
+   "dist1": 20,
+   "count1": 10,
+   "dir2": "z",
+   "rev2": false,
+   "dist2": 20,
+   "count2": 5
+  }
+ ],
+ "nextId": 6,
+ "rollbackAt": null
+}

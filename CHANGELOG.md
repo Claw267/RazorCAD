@@ -6,6 +6,12 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 21:54 — Faster patterns of bosses and other added features
+- **Linear, circular and other patterns of an added feature** (bosses, ribs, pins…) now fuse all their copies into the body in one operation, as patterns of cuts already did. Before, each copy was fused on its own, and each fuse was slower than the last as the body grew. A plate with 200 bosses builds in 2.0 s instead of 8.8 s; 50 bosses in 0.58 s instead of 0.89 s. The result is the same.
+- Copies that reach no body still become bodies of their own. Unusual cases (a copy bridging two bodies, loose copies overlapping each other) are still done copy by copy, as before.
+- Mirrors were already a single operation (one copy).
+- Regression test part: boss-pattern.
+
 ## 2026-10-20 21:51 — Parts reopen ready to edit
 - **The geometry of every feature is kept between sessions.** When a part that takes a while to build is saved (or opened, then left unchanged), RazorCAD also stores the geometry kernel's state after each feature next to the stored model. Opening the part again restores it instead of building every feature, so the **first change after opening is as quick as any later one**. Before, the kernel rebuilt the whole part in the background first. Example: a sphere with 120 cut dimples was ready 1.8 s after opening before, now 0.09 s, and editing its last feature rebuilds only that feature.
 - The stored states are checked feature by feature: anything changed since (in RazorCAD or in the file) is rebuilt from that feature on, as usual. They live with the stored models (%LOCALAPPDATA%\RazorCAD\modelcache, shared limit 1 GB, oldest removed first); shapes shared between features are written only once.

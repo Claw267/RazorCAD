@@ -124,5 +124,15 @@ export function makeParts() {
     doc.configs = [{ id: 'cfg1', name: 'Thick', vals: { thickness: '25' }, suppressed: [], unsuppressed: [] }];
   }));
 
+  // 12. a plate with a 10 × 5 pattern of bosses (added copies fused in one operation) and a ring of 8 on a hub
+  parts.push(part('boss-pattern', [
+    sketch('s1', 'top', rect(0, 0, 200, 100)),
+    { id: 'e1', type: 'extrude', sketch: 's1', op: 'add', end: 'blind', depth: 5 },
+    sketch('s2', 'top', circle(-90, 40, 4)),
+    { id: 'b1', type: 'extrude', sketch: 's2', op: 'add', end: 'blind', depth: 10 },
+  ], (doc, ids) => {
+    add(doc, 'lpattern', { feature: ids.get('b1'), dir1: 'x', dist1: 20, count1: 10, dir2: 'z', dist2: 20, count2: 5 });
+  }));
+
   return parts.map((d) => ({ name: d.name, doc: d }));
 }
