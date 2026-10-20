@@ -527,3 +527,34 @@ In this order; each item tested (regression suite + preview / exe), logged in CH
 - [x] 2c Opt-in crash reporting (send a report to a GitHub issue in one click).
   - Done: crashreport.py scrub (home folder → ~, C:\Users\<name> → <user>, the user name) + issue_text (markdown: version, Windows, kind, time, message, details, last 40 log lines; no part file) + CrashReporter.all_reports; razorcad.py Api.crash_reports / crash_issue(name) (folder name checked) + issue_url (≤ 7000 chars, shortened); platform.crashReports / crashIssue (browser: a blank report with the browser). ui: reportProblemMenu (choose a report or none) / reportProblem (editable preview, Open GitHub Issue via openUrl (repo URLs only), Copy Text), start-window crash box button, Help menu item. Tested: scrub / issue text / URL with made-up reports in a temp folder, the Api calls, test report-problem (URL caught); full suite passes. Nothing is sent automatically.
 
+## Improvement plan 3 (user request 2026-10-21: "1b, 1c, 1d, 1e, 1f, also make the columns editable where the user can add and remove columns or even select/change a column property. 2b, 2c, 3a, 3c, 3d, all of 4 (find another terms for lightweight), all of 6. make note of what we are skipping for now.")
+In this order; each item tested (regression suite + preview / exe), logged in CHANGELOG, RazorCAD.exe rebuilt and smoke-tested, committed locally. No installer, no push.
+1. Rounding off
+- [ ] 1b Fonts that come with RazorCAD (freely licensed), so sketch text, engraving and drawing text work in the browser version and the tests too.
+- [ ] 1c Standard parts, round two: a fastener set in one go (bolt + washers + nut), fill all matching holes, inch fasteners, set screws, circlips, keys, rivets; the hole's end face tracked when the part changes.
+- [ ] 1d Macros in assemblies and drawings (recording their changes, not only commands).
+- [ ] 1e Auto Dimension options: baseline or ordinate style, labels spread so they don't overlap, default tolerances.
+- [ ] 1f BOM mass and cost columns with totals; columns editable everywhere (the assembly's Bill of Materials window and the drawing table): add, remove, and change what a column shows, right on the table.
+2. Files
+- [ ] 2b Compare two versions of a part (features and geometry differences).
+- [ ] 2c More imports: IGES; DXF / DWG into drawings (DWG only if a usable reader exists).
+3. Modelling
+- [ ] 3a Variable-radius fillets; setback (blended) corners where fillets meet.
+- [ ] 3c 3D sketch splines with curvature control; curvature-continuous lofts.
+- [ ] 3d Equations shared across the parts of an assembly (top-down design with linked parameters).
+4. Assemblies and drawings
+- [ ] 4a Collision detection while dragging and in motion studies.
+- [ ] 4b Assembly features (holes and cuts made in the assembly) and fasteners placed in the holes they make.
+- [ ] 4c Drawing checks: undimensioned features, dimensions per view, title block completeness.
+- [ ] 4d Speed mode for very large assemblies (components shown from simplified display meshes, loaded in full when needed).
+6. Project and quality
+- [ ] 6a Releases on GitHub: a tagged version builds the setup and drafts the release (runs only when a version is tagged).
+- [ ] 6b Performance tracking in the test suite (rebuild times stored; slowdowns reported).
+- [ ] 6c Accessibility: the Property panels usable from the keyboard, labels for screen readers.
+
+Skipped for now (from the list of 2026-10-21):
+- 1a Translating the remaining help texts, status messages and panel hints.
+- 2a Browser version: files kept in the browser's storage, auto-save, offline use.
+- 3b Sheet metal punch / forming-tool library and tab-and-slot weld preparation.
+- 5a Realistic rendering with image export; 5b animated exploded views / motion studies as video.
+- Still parked: FEA, CAM, the fan and dust collector generators.
