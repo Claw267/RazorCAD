@@ -620,6 +620,16 @@ svg.ref-arrows { position: absolute; left: 0; top: 0; pointer-events: none; z-in
 #cmd-search .cs-w { color: var(--muted, #6b7280); font-size: 11.5px; white-space: nowrap; }
 #cmd-search .cs-none { padding: 10px 14px; color: var(--muted, #6b7280); }
 
+/* Customize Shortcuts */
+.sc-edit { width: min(620px, 86vw); }
+.sc-edit > input { width: 100%; box-sizing: border-box; padding: 6px 8px; margin-bottom: 6px; }
+.sc-list { max-height: 52vh; overflow: auto; border: 1px solid var(--border-soft, #e2e6ec); border-radius: 4px; margin-top: 6px; }
+.sc-row { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-bottom: 1px solid var(--border-soft, #eef0f3); font-size: 12.5px; }
+.sc-row .cs-ic svg { width: 18px; height: 18px; vertical-align: middle; }
+.sc-row .sc-l { flex: 1; }
+.sc-row .sc-l small { color: var(--muted, #6b7280); margin-left: 8px; }
+.sc-row .sc-k { min-width: 110px; text-align: right; font-family: Consolas, monospace; color: #1d4ed8; }
+
 /* a newer version is out (Help ▸ Check for Updates) */
 #update-banner { position: fixed; right: 14px; bottom: 34px; z-index: 40; display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 12px; background: var(--panel, #fff); border: 1px solid var(--border, #c9ced6); border-left: 4px solid #2b7de9; border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,.18); font-size: 12.5px; }
 #update-banner svg { width: 18px; height: 18px; }

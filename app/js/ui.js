@@ -123,6 +123,23 @@ function dxfInBox(ents, P, r) {
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// A key press as a shortcut name ("Ctrl+Shift+F", "G", "F6"), or null for a modifier key on its own.
+export function comboOf(e) {
+  const k = e.key;
+  if (!k || ['Control', 'Shift', 'Alt', 'Meta', 'AltGraph', 'CapsLock', 'Dead', 'Unidentified'].includes(k)) return null;
+  const key = k === ' ' ? 'Space' : k.length === 1 ? k.toUpperCase() : k;
+  const parts = [];
+  if (e.ctrlKey || e.metaKey) parts.push('Ctrl');
+  if (e.altKey) parts.push('Alt');
+  // (Shift with a letter or a named key; a symbol typed with Shift is that symbol)
+  if (e.shiftKey && (k.length !== 1 || /[a-z]/i.test(k))) parts.push('Shift');
+  return [...parts, key].join('+');
+}
+// shortcuts RazorCAD has of its own (a custom shortcut on one of these takes its place)
+const BUILTIN_KEYS = { 'Ctrl+S': 'Save', 'Ctrl+Shift+S': 'Save As', 'Ctrl+O': 'Open', 'Ctrl+N': 'New Part', 'Ctrl+Z': 'Undo', 'Ctrl+Y': 'Redo', 'Ctrl+B': 'Rebuild', 'Ctrl+I': 'Import', 'Ctrl+K': 'Search Commands',
+  F: 'Zoom to Fit', X: 'Face filter', E: 'Edge filter (in a sketch: Convert Entities)', V: 'Vertex filter', B: 'Body filter', F5: 'Clear the filters', Delete: 'Delete', L: 'Line (sketch)', R: 'Rectangle (sketch)', C: 'Circle (sketch)', A: 'Arc (sketch)', N: 'Spline (sketch)', P: 'Polygon (sketch)', S: 'Select (sketch)', D: 'Dimension (sketch)', T: 'Trim (sketch)', O: 'Offset (sketch)', M: 'Mate (assembly)' };
+const RESERVED_KEYS = new Set(['Escape', 'Enter', 'Tab', 'Shift+Tab', 'Backspace', '/']);
+
 const el = (tag, attrs = {}, html = '') => {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
@@ -1258,6 +1275,7 @@ export class UI {
       ],
       Help: [
         { label: 'Search Commands…', icon: 'search', key: 'Ctrl+K', action: () => this.commandSearch() },
+        { label: 'Customize Shortcuts…', icon: 'select', action: () => this.showShortcutEditor() },
         { label: 'Keyboard Shortcuts', icon: '', action: () => this.showShortcuts() },
         { label: 'Open Crash Reports Folder', icon: 'open', action: () => a.openCrashFolder() },
         { label: 'Open Files With RazorCAD (.rcad .rasm .rdrw)…', icon: 'open', action: () => this.showFileTypes() },
@@ -4687,7 +4705,8 @@ export class UI {
       const k = label.split('▸').pop().trim().toLowerCase();
       if (seen.has(k)) return;
       seen.add(k);
-      out.push({ label, where, icon: d.icon || '', key: d.key || '', action: d.action, k });
+      const own = Object.entries(this.shortcutPrefs()).find(([, v]) => v.k === k)?.[0];
+      out.push({ label, where, icon: d.icon || '', key: own || d.key || '', action: d.action, k });
     };
     for (const [name, items] of Object.entries(this.menuDefs() || {})) for (const d of items || []) add(d, name + ' menu');
     let defs = {};
@@ -4755,8 +4774,78 @@ export class UI {
     input.focus();
   }
 
+  // ---- Custom keyboard shortcuts: { "Ctrl+Shift+F": { k (the command, as the command search names it), label } }
+  shortcutPrefs() { this.prefs ||= {}; return (this.prefs.shortcuts ||= {}); }
+  // A key press with a shortcut of the user's own: its command run (when the document in front has it). true: used.
+  runShortcut(e) {
+    const map = this.prefs?.shortcuts;
+    if (!map || !Object.keys(map).length) return false;
+    const combo = comboOf(e), b = combo && map[combo];
+    if (!b) return false;
+    const c = this.commandList().find((x) => x.k === b.k);
+    if (!c) { this.app.status(`${combo}: "${b.label}" is not available here.`); return true; }
+    c.action();
+    return true;
+  }
+  showShortcutEditor() {
+    const map = this.shortcutPrefs();
+    const cmds = this.commandList();
+    // (commands with a shortcut that this kind of document doesn't have: listed too)
+    for (const [combo, b] of Object.entries(map)) if (!cmds.some((c) => c.k === b.k)) cmds.push({ label: b.label, where: 'elsewhere', k: b.k, icon: '', missing: true, combo });
+    const body = el('div', { class: 'sc-edit' });
+    const filter = el('input', { type: 'text', placeholder: 'Filter commands…', spellcheck: 'false' });
+    const msg = el('div', { class: 'pm-hint' }, 'Click Set, then press the keys (for example Ctrl+Shift+F, G or F6). Esc, Enter, Tab and Backspace stay as they are.');
+    const list = el('div', { class: 'sc-list' });
+    body.append(filter, msg, list);
+    let waiting = null;
+    const comboFor = (k) => Object.entries(map).find(([, v]) => v.k === k)?.[0] || '';
+    const render = () => {
+      const q = filter.value.toLowerCase().trim();
+      list.innerHTML = '';
+      const rows = cmds.filter((c) => !q || (c.label + ' ' + c.where).toLowerCase().includes(q)).sort((x, y) => (comboFor(y.k) ? 1 : 0) - (comboFor(x.k) ? 1 : 0) || x.label.localeCompare(y.label));
+      for (const c of rows.slice(0, 300)) {
+        const combo = comboFor(c.k);
+        const row = el('div', { class: 'sc-row' }, `<span class="cs-ic">${icon(c.icon)}</span><span class="sc-l">${esc(c.label)}<small>${esc(c.where)}</small></span><span class="sc-k">${waiting === c.k ? '<i>press the keys…</i>' : esc(combo)}</span>`);
+        const set = el('button', { class: 'pm-btn' }, waiting === c.k ? 'Cancel' : 'Set');
+        set.onclick = () => { waiting = waiting === c.k ? null : c.k; render(); };
+        row.appendChild(set);
+        if (combo) { const x = el('button', { class: 'pm-btn', title: 'Remove this shortcut' }, '✕'); x.onclick = () => { delete map[combo]; this.savePrefs(); render(); }; row.appendChild(x); }
+        list.appendChild(row);
+      }
+    };
+    const onKey = (e) => {
+      if (!waiting) return;
+      const combo = comboOf(e);
+      if (!combo) return;
+      e.preventDefault(); e.stopPropagation();
+      if (combo === 'Escape') { waiting = null; render(); return; }
+      if (RESERVED_KEYS.has(combo)) { msg.textContent = `${combo} can't be a shortcut (it closes, accepts or moves between fields).`; return; }
+      const c = cmds.find((x) => x.k === waiting);
+      const old = map[combo];
+      for (const [kk, v] of Object.entries(map)) if (v.k === waiting) delete map[kk];
+      map[combo] = { k: c.k, label: c.label };
+      this.savePrefs();
+      msg.textContent = `${combo} → ${c.label}.` + (old && old.k !== c.k ? ` (It was ${old.label}'s.)` : '') + (BUILTIN_KEYS[combo] ? ` It takes the place of RazorCAD's own ${combo} (${BUILTIN_KEYS[combo]}).` : '');
+      waiting = null;
+      render();
+    };
+    document.addEventListener('keydown', onKey, true);
+    filter.oninput = render;
+    render();
+    const dlg = this.modal('Keyboard Shortcuts: Customize', 'select', body, [
+      { label: 'Remove All', action: () => { if (!Object.keys(map).length || !confirm('Remove all your own shortcuts?')) return false; for (const k of Object.keys(map)) delete map[k]; this.savePrefs(); render(); return false; } },
+      { label: 'Close', primary: true },
+    ]);
+    // (the key catcher goes when the window does)
+    new MutationObserver((_, obs) => { if (!body.isConnected) { document.removeEventListener('keydown', onKey, true); obs.disconnect(); } }).observe($('#modal-root'), { childList: true });
+    setTimeout(() => filter.focus(), 0);
+    void dlg;
+  }
+
   showShortcuts() {
+    const own = Object.entries(this.prefs?.shortcuts || {});
     const rows = [
+      ...own.map(([combo, b]) => [`${esc(b.label)} <small>(yours)</small>`, esc(combo)]),
       ['Search commands', 'Ctrl+K or /'],
       ['Rotate view (free, about the model center)', 'Middle-drag (or left-drag outside sketches)'], ['Pan', 'Shift + right-drag, or Ctrl + middle-drag'],
       ['Zoom', 'Mouse wheel (toward the cursor), or Shift + middle-drag'], ['Roll', 'Alt + middle-drag, or Alt + ←/→'],
@@ -4773,7 +4862,7 @@ export class UI {
       ['Sketch on a face', 'Click a flat face, then Sketch (or right-click the face)'],
     ];
     const html = `<table class="grid">${rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</table>`;
-    this.modal('Keyboard & Mouse', 'select', html, [{ label: 'Close', primary: true }]);
+    this.modal('Keyboard & Mouse', 'select', html, [{ label: 'Customize…', action: () => { setTimeout(() => this.showShortcutEditor(), 0); } }, { label: 'Close', primary: true }]);
   }
 
   // Windows file types: .rcad / .rasm / .rdrw opened by double-clicking them in Explorer.

@@ -3807,6 +3807,8 @@ class App {
       const ctrl = e.ctrlKey || e.metaKey;
       const k = e.key.toLowerCase();
       // command search, everywhere
+      // the user's own shortcuts (Help ▸ Customize Shortcuts) come first
+      if (!typing && !document.querySelector('.modal-back') && !document.querySelector('#cmd-search') && this.ui.runShortcut(e)) { e.preventDefault(); return; }
       if (((ctrl && k === 'k' && !e.shiftKey && !e.altKey) || (e.key === '/' && !ctrl && !typing)) && !document.querySelector('.modal-back') && !document.querySelector('#cmd-search')) {
         e.preventDefault();
         this.ui.commandSearch();

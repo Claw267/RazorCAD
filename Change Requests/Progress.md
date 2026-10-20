@@ -476,6 +476,7 @@ Work through in this order; each item tested, logged in CHANGELOG, RazorCAD.exe 
 6. Ease of use
 - [x] 6a Command search (a key, type a command name, Enter).
   - Done: ui.commandList (menuDefs of the editor in front + its commandDefs toolbars, enabled only, menu / toolbar duplicates joined) and commandSearch overlay (word matching, ranking, recent commands in localStorage, arrows / Enter / Esc / click); main Ctrl+K and / (not over a dialog); Help menu item, quick button, search icon, shortcuts row. Checked in the preview: 192 part commands, "fil" / "circ pat" / "units inch", Enter runs (Equations opened), recent first, drawing mode finds Balloon, Esc closes.
-- [ ] 6b Customisable keyboard shortcuts.
+- [x] 6b Customisable keyboard shortcuts.
+  - Done: ui comboOf, BUILTIN_KEYS / RESERVED_KEYS, prefs.shortcuts { combo: { k, label } } (saved with the other prefs), runShortcut (main keydown, before the built-in keys; not while typing or over a dialog), showShortcutEditor (filter, Set / capture, move, clear, Remove All, built-in warning), shown in the command search and the shortcuts list, Help menu items. Checked in the preview: Ctrl+Shift+E → Equations opens it, Enter refused, F over Zoom to Fit warned, kept after reload (test shortcuts removed again).
 - [ ] 6c Short first-run tutorial.
 

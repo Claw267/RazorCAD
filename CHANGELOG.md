@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 22:28 — Your own keyboard shortcuts
+- **Help ▸ Customize Shortcuts…** (also from Help ▸ Keyboard Shortcuts ▸ Customize): find a command, click **Set** and press the keys you want (Ctrl+Shift+F, G, F6…). They work for the part, sketch, assembly or drawing in front, wherever that command exists. They are kept with your RazorCAD settings.
+- A shortcut of your own takes the place of RazorCAD's own key, and the window says when it does (F instead of Zoom to Fit, for example). Giving a key to another command moves it there. Esc, Enter, Tab and Backspace can't be taken. ✕ removes one; Remove All removes them all.
+- Your shortcuts show in the command search (Ctrl+K) and at the top of Help ▸ Keyboard Shortcuts.
+
 ## 2026-10-20 22:25 — Command search
 - **Ctrl+K** (or **/**) opens a search box. Type part of a command's name, such as "fil" for Fillet or "circ pat" for Circular Pattern, then pick with ↑/↓ and Enter or click. It searches every command of the menus and toolbars of what is in front: part, sketch, 3D sketch, assembly or drawing. Each result shows where the command lives and its shortcut. The commands used lately come first. Also in Help ▸ Search Commands and as the magnifier next to Save.
 - Help ▸ Keyboard Shortcuts lists it.
