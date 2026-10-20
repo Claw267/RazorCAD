@@ -743,6 +743,44 @@ const UI = {
       : { ok: false, detail: `same ${same} (${JSON.stringify(one.tris)} / ${JSON.stringify(many.tris)}), ${Math.round(one.ms)} ms vs ${Math.round(many.ms)} ms` };
   },
 
+  // standard parts: a 9 mm hole through a 10 mm plate picked → an M8 bolt, 20 mm long (through it with room for a nut), in it (mated concentric
+  // and seated on the plate's top); a second one reuses the part; a nut and a bearing build too
+  async 'standard-parts'() {
+    const a = window.app;
+    const S = await import('/js/stdparts.js');
+    const p = M.newDoc(); p.name = 'Plate';
+    const s = M.createFeature(p, 'sketch', { plane: { ref: 'top' } });
+    const pts = [[-30, -20], [30, -20], [30, 20], [-30, 20]];
+    Object.assign(s, { points: [...pts.map(([x, y], i) => ({ id: 'p' + (i + 1), x, y })), { id: 'p5', x: 0, y: 0 }], curves: [...pts.map((_, i) => ({ id: 'c' + (i + 1), type: 'line', p1: 'p' + (i + 1), p2: 'p' + ((i + 1) % 4 + 1), construction: false })), { id: 'c5', type: 'circle', c: 'p5', r: 4.5, construction: false }], constraints: [] });
+    p.features.push(s, M.createFeature(p, 'extrude', { sketch: s.id, depth: 10 }));
+    a.newAssembly(); await wait(300); closeModals();
+    const asm = a.drawing;
+    await asm.addComponent(asm.addPart(p, null, null));
+    const plate = asm.doc.components[0];
+    await until(() => asm.geo(plate)?.mesh, 30000);
+    asm.vp.setStandardView('iso');
+    const mesh = asm.geo(plate).mesh, gi = mesh.faceGroups.findIndex((g) => g.surf?.t === 'CYLINDER');
+    const sf = mesh.faceGroups[gi].surf;
+    const ref = { comp: plate.id, kind: 'axis', p: sf.p, d: sf.d, r: sf.r, face: gi, gi: `0:f${gi}`, what: 'Cylindrical face' };
+    const hole = asm.holeOf(ref);
+    const fit = S.fitToHole('hexBolt', 2 * hole.r, hole.depth);
+    const bolt = await asm.insertStdPart('hexBolt', fit.size, fit.length, 'steel', hole);
+    await until(() => asm.geo(bolt)?.mesh, 30000);
+    const mates = asm.doc.mates.filter((m) => m.b.comp === bolt.id).map((m) => m.type).sort().join(',');
+    const r3 = (v) => v.map((x) => Math.round(x * 1000) / 1000).join(',');
+    const placed = r3(bolt.pos) === '0,10,0' && r3(bolt.rot) === '0,0,0,1';
+    const bbox = asm.geo(bolt).box, bh = Math.round((bbox.max[1] - bbox.min[1]) * 100) / 100;
+    const bolt2 = await asm.insertStdPart('hexBolt', fit.size, fit.length, 'steel', null);
+    const nut = await asm.insertStdPart('hexNut', 'M8', null, 'steel', null);
+    const brg = await asm.insertStdPart('bearing', '6204', null, 'steel', null);
+    await until(() => [bolt2, nut, brg].every((c) => asm.geo(c)?.mesh), 30000);
+    const parts = asm.doc.parts.length;
+    const ok = fit.size === 'M8' && fit.length === 20 && Math.abs(hole.depth - 10) < 1e-3 && hole.face.face !== undefined && mates === 'coincident,concentric'
+      && asm.solveOk && placed && bh === 25.3 && parts === 4 && bolt2.part === bolt.part;
+    return ok ? { ok: true, detail: `Ø9 × 10 hole → ${fit.size}×${fit.length}, mated (${mates}), at ${r3(bolt.pos)}, ${bh} mm tall; ${parts} parts for 5 components` }
+      : { ok: false, detail: `fit ${JSON.stringify(fit)}, depth ${hole.depth}, face ${hole.face.face}, mates ${mates}, solved ${asm.solveOk}, pos ${r3(bolt.pos)} rot ${r3(bolt.rot)}, height ${bh}, parts ${parts}` };
+  },
+
   // the view's mouse buttons: Shift + right-drag pans, middle-drag turns, a plain right-drag changes nothing
   async 'view-mouse-buttons'() {
     const a = window.app;

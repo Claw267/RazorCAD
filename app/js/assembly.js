@@ -18,7 +18,8 @@
 import * as THREE from 'three';
 import { icon } from './icons.js';
 import { platform } from './platform.js';
-import { materialById, DEFAULT_BODY_COLOR, docJSON, stripThumbnail, fileStem, isDefaultName } from './model.js';
+import { materialById, MATERIALS, DEFAULT_BODY_COLOR, docJSON, stripThumbnail, fileStem, isDefaultName } from './model.js';
+import { STD_TYPES, makeStdPart, fitToHole, fitLength, stdLengths } from './stdparts.js';
 import { gauss } from './sketch3dmodel.js';
 import { fmt } from './expr.js';
 import { ExplodeTool, explodeOffsets, drawExplodeLines, animateExplode } from './explode.js';
@@ -27,7 +28,7 @@ import { packMesh, unpackMesh, MESH_CACHE } from './partmeshes.js';
 import { AssemblyView } from './asmview.js';
 import { bomRows } from './bom.js';
 import { MotionTool } from './motion.js';
-import { volWithUnit, unitOf } from './units.js';
+import { volWithUnit, lenWithUnit, unitOf } from './units.js';
 import * as G from './geometry.js';
 
 const $ = (s) => document.querySelector(s);
@@ -1192,6 +1193,115 @@ export class AssemblyEditor {
     ]);
   }
 
+  // ---------------------------------------------------------------- standard parts
+  // The hole a picked round face or edge is: its axis and radius, how deep it is (the coaxial cylindrical faces of
+  // that radius, end to end), and its end that faces the camera, with the flat face there (a mate reference; a
+  // plane of its own when there is none). In its top component's coordinates; null: not a hole.
+  holeOf(r) {
+    if (!r || r.comp === ORIGIN || r.kind !== 'axis' || !(r.r > 0) || !r.d) return null;
+    const li = this.leafOf(r), l = (this._leaves || this.leaves())[li], mesh = l && this.parts.get(l.gk)?.mesh;
+    const d = unit(r.d), subOf = l?.chain.length ? { sub: l.chain } : {};
+    let t0 = Infinity, t1 = -Infinity;
+    if (mesh) mesh.faceGroups.forEach((g, gi) => {
+      const x = refOfFace(mesh, gi);
+      if (!x || x.kind !== 'axis') return;
+      const t = this.toTop(l, x);
+      if (Math.abs(t.r - r.r) > 1e-4 || len(cross(unit(t.d), d)) > 1e-4 || len(cross(sub(t.p, r.p), d)) > 1e-4) return;
+      for (let k = g.start; k < g.start + g.count; k++) {
+        const v = mesh.triangles[k] * 3, w = this.toTop(l, { p: [mesh.vertices[v], mesh.vertices[v + 1], mesh.vertices[v + 2]] }).p;
+        const s = dot(sub(w, r.p), d);
+        if (s < t0) t0 = s;
+        if (s > t1) t1 = s;
+      }
+    });
+    if (!(t1 > t0)) { t0 = 0; t1 = 0; } // (a round edge on its own: the hole starts there)
+    const ends = [{ p: add(r.p, mul(d, t1)), n: d }, { p: add(r.p, mul(d, t0)), n: mul(d, -1) }];
+    // (the end looking at the camera)
+    const pose = this.poseOfId(r.comp), view = this.vp.camera.getWorldDirection(new THREE.Vector3()).toArray();
+    const end = ends.sort((e1, e2) => dot(dirWorld(pose, e1.n), view) - dot(dirWorld(pose, e2.n), view))[0];
+    let face = null;
+    if (mesh) for (let gi = 0; gi < mesh.faceGroups.length && !face; gi++) {
+      const x = refOfFace(mesh, gi);
+      if (!x || x.kind !== 'plane') continue;
+      const t = this.toTop(l, x);
+      if (dot(t.n, end.n) > 0.9999 && Math.abs(dot(t.n, sub(end.p, t.p))) < 1e-4) face = { comp: r.comp, ...t, face: gi, ...subOf, gi: `${li}:f${gi}` };
+    }
+    face ||= { comp: r.comp, ...subOf, kind: 'plane', p: end.p.map(r6), n: end.n.map(r6), what: 'Hole end' };
+    return { ref: r, r: r.r, depth: t1 - t0, end, face };
+  }
+
+  // Standard Parts: ISO bolts, screws, nuts, washers, dowel pins and bearings made to size. With a hole selected
+  // the size is picked to fit it, and the part goes in it, mated (concentric, and seated on the hole's end).
+  standardParts() {
+    const a = this.app, U = unitOf(this.doc);
+    const sr = this.sel?.kind === 'refs' ? this.sel.refs.find((r) => r.kind === 'axis' && r.r > 0 && r.comp !== ORIGIN) : null;
+    const hole = sr ? this.holeOf(sr) : null;
+    const last = this._stdLast || { type: 'hexBolt', material: 'steel' };
+    const body = el('div', { class: 'stdparts' });
+    body.appendChild(el('p', {}, hole
+      ? `Into the selected hole (Ø${esc(lenWithUnit(2 * hole.r, U))}${hole.depth > 0 ? `, ${esc(lenWithUnit(hole.depth, U))} deep` : ''}), mated to it: the size is picked to fit it.`
+      : 'Placed beside the assembly. To put it in a hole, mated, select the hole (its round face or edge) first.'));
+    const row = (label, ctl) => { const r = el('div', { style: 'display:flex;align-items:center;gap:8px;margin-top:6px' }, `<label class="pm-label" style="width:90px;flex:none">${esc(label)}</label>`); ctl.style.flex = '1'; r.appendChild(ctl); body.appendChild(r); return r; };
+    const typeSel = el('select'), sizeSel = el('select'), lenSel = el('select'), matSel = el('select');
+    const opts = (s, list, val) => { s.innerHTML = ''; for (const [v, t] of list) { const o = el('option', { value: v }, esc(t)); if (String(v) === String(val)) o.selected = true; s.appendChild(o); } };
+    row('Type', typeSel);
+    row('Size', sizeSel);
+    const lenRow = row('Length (mm)', lenSel);
+    row('Material', matSel);
+    const type = () => STD_TYPES.find((x) => x.id === typeSel.value);
+    const fillLen = () => {
+      const t = type();
+      lenRow.style.display = t.length ? '' : 'none';
+      if (!t.length) return;
+      const ls = stdLengths(t.id, sizeSel.value), want = hole ? fitLength(t.id, sizeSel.value, hole.depth) : last.length;
+      opts(lenSel, ls.map((L) => [L, String(L)]), ls.includes(want) ? want : ls[Math.min(3, ls.length - 1)]);
+    };
+    const fillSize = () => {
+      const t = type(), fit = hole ? fitToHole(t.id, 2 * hole.r, hole.depth) : null;
+      opts(sizeSel, t.sizes.map((s) => [s, s]), fit?.size || (t.sizes.includes(last.size) ? last.size : t.sizes[Math.floor(t.sizes.length / 2)]));
+      fillLen();
+    };
+    opts(typeSel, STD_TYPES.map((t) => [t.id, t.label]), last.type);
+    opts(matSel, MATERIALS.filter((m) => ['steel', 'stainless', 'brass', 'al6061'].includes(m.id)).map((m) => [m.id, m.name]), last.material);
+    typeSel.onchange = fillSize;
+    sizeSel.onchange = fillLen;
+    fillSize();
+    a.ui.modal('Standard Parts', 'stdParts', body, [
+      { label: 'Insert', primary: true, action: () => {
+        const t = type(), length = t.length ? Number(lenSel.value) : null;
+        this._stdLast = { type: t.id, size: sizeSel.value, length, material: matSel.value };
+        this.insertStdPart(t.id, sizeSel.value, length, matSel.value, hole).catch((e) => a.toast('Could not insert it: ' + e.message, true));
+      } },
+      { label: 'Cancel' },
+    ]);
+  }
+  // a standard part inserted (one part per type, size, length and material, however many components use it);
+  // into a hole (from holeOf): placed there, with a Concentric mate to the hole and a Coincident one on its end
+  async insertStdPart(type, size, length, material = 'steel', hole = null) {
+    const sp = makeStdPart(type, size, length, material);
+    let p = this.doc.parts.find((x) => x.libKey === sp.key);
+    if (!p) { p = this.part(this.addPart(sp.doc, null, null)); p.libKey = sp.key; }
+    if (!hole) { await this.addComponent(p.id); return this.doc.components[this.doc.components.length - 1]; }
+    this.begin();
+    const n = this.doc.components.filter((c) => c.part === p.id).length + 1;
+    // (already in place: its +Y out of the hole, its seat on the hole's end)
+    const hp = this.poseOfId(hole.ref.comp), out = unit(dirWorld(hp, hole.end.n)), at = toWorld(hp, hole.end.p);
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(...out));
+    const c = { id: this.uid('c'), part: p.id, name: `${p.name}<${n}>`, config: null, pos: sub(at, applyQ(q, sp.seat.p)).map(r6), rot: [q.x, q.y, q.z, q.w], fixed: false, hidden: false };
+    this.doc.components.push(c);
+    const mate = (t, ra, rb, align) => {
+      const k = this.doc.mates.filter((x) => x.type === t).length + 1;
+      this.doc.mates.push({ id: this.uid('m'), name: `${MATE_TYPES[t].label}${k}`, type: t, a: ra, b: rb, align, side: 1, value: null });
+    };
+    mate('concentric', { ...hole.ref }, { comp: c.id, ...sp.axis }, -1);
+    mate('coincident', { ...hole.face }, { comp: c.id, ...sp.seat }, sp.align);
+    await this.loadParts();
+    this.solve();
+    this.sel = { kind: 'comp', id: c.id };
+    this.change(`${c.name} inserted into the hole, mated to it (concentric, seated).`);
+    return c;
+  }
+
   // the part (reused when it is in the assembly already)
   addPart(doc, path, tab) {
     let p = (path && this.doc.parts.find((x) => sameFile(x.path, path))) || (tab && [...this.live].find(([, t]) => t === tab) && this.doc.parts.find((x) => this.live.get(x.id) === tab));
@@ -1677,6 +1787,7 @@ export class AssemblyEditor {
     return {
       assembly: [
         { icon: 'insertComponent', label: 'Insert Components', action: () => this.insertComponents() },
+        { icon: 'stdParts', label: 'Standard Parts', action: () => this.standardParts() },
         { icon: 'mate', label: 'Mate', key: 'M', action: () => this.startMate(), active: !!this.pm },
         'sep',
         { icon: 'fix', label: 'Fix', action: () => selC && this.setFixed(selC.id, true), disabled: !selC || selC.fixed },
@@ -1741,6 +1852,7 @@ export class AssemblyEditor {
       ],
       Insert: [
         { label: 'Components…', icon: 'insertComponent', action: () => this.insertComponents() },
+        { label: 'Standard Parts…', icon: 'stdParts', action: () => this.standardParts() },
         { label: 'Exploded View…', icon: 'explode', action: () => this.startExplode() },
         { label: 'Mate…', icon: 'mate', key: 'M', action: () => this.startMate() },
       ],

@@ -6,6 +6,15 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 23:26 — Standard parts library
+- **Assembly ▸ Standard Parts** (also Insert ▸ Standard Parts…) adds ISO parts made to size:
+  - hex bolts (ISO 4017) and socket head cap screws (ISO 4762), M3–M24, in the standard lengths;
+  - hex nuts (ISO 4032), washers (ISO 7089), dowel pins (ISO 8734, Ø2–Ø20);
+  - 6000 and 6200 series ball bearings.
+- Each is an ordinary part (threads shown as cosmetic threads, so they build fast). Choose its material: steel, stainless, brass or aluminium. The same type, size, length and material is one part however many times it is used, so the bill of materials counts them.
+- **Select a hole first** (its round face or edge): the size is picked to fit it (a clearance or tapped hole for bolts, the bore for a bearing, the pin's diameter) and the length to go through it with room for a nut. The part goes into the hole at the end facing you, mated to it: Concentric, plus Coincident on the face round the hole. Heads, nuts and washers sit on that face; a bearing is flush with the bore's end; a dowel pin is half in.
+- Regression test: standard-parts.
+
 ## 2026-10-20 23:15 — Update Now
 - **One click to update.** When a newer version is out, the notice (and Help ▸ Check for Updates) offers **Update Now**. RazorCAD then:
   - downloads the new setup from its GitHub release and checks it against the release (size and SHA-256);
