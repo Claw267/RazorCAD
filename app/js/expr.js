@@ -1,6 +1,7 @@
 // Safe-ish arithmetic expression evaluator used by every dimension field.
 // Supports + - * / ^ %, parentheses, global variables (from Equations) and
 // a few math functions. Trig functions work in degrees, like most CAD tools.
+// Lengths may name their unit: 2in, 30 mm, 1.5cm, 2ft, (w/2)*in — the result is in millimetres.
 
 const D2R = Math.PI / 180;
 const FUNCS = {
@@ -14,7 +15,9 @@ const FUNCS = {
   round: Math.round, floor: Math.floor, ceil: Math.ceil, pow: Math.pow,
   pi: Math.PI, PI: Math.PI,
 };
-export const RESERVED = new Set(Object.keys(FUNCS));
+// units of length (in millimetres); a variable of the same name wins over a unit ('in' can't be one)
+const UNITS = { mm: 1, cm: 10, in: 25.4, inch: 25.4, ft: 304.8 };
+export const RESERVED = new Set([...Object.keys(FUNCS), 'in']);
 
 const cache = new Map();
 
@@ -37,13 +40,20 @@ export function evaluate(expr, vars = {}) {
   if (s === '') throw new Error('Empty value');
   if (isNumeric(s)) return parseFloat(s);
   if (!/^[\w\s+\-*/().,^%]*$/.test(s)) throw new Error('Invalid characters in expression');
+  // a number or bracket followed by a unit: multiplied by it (2in → 2*in)
+  s = s.replace(/(\d|\))\s*(mm|cm|inch|in|ft)(?!\w)/g, '$1*$2');
 
   const ids = s.match(/(?<![\w.])[A-Za-z_]\w*/g) || [];
+  const units = new Set();
   for (const id of ids) {
-    if (!(id in vars) && !(id in FUNCS)) throw new Error(`Unknown name "${id}"`);
+    if (id in vars || id in FUNCS) continue;
+    if (id in UNITS) { units.add(id); continue; }
+    throw new Error(`Unknown name "${id}"`);
   }
-  const body = s.replace(/\^/g, '**');
-  const names = [...Object.keys(FUNCS), ...Object.keys(vars).filter((k) => !(k in FUNCS))];
+  // (units as parameters of their own: 'in' is a word of the language)
+  const body = (units.size ? s.replace(/(?<![\w.])(mm|cm|inch|in|ft)(?!\w)/g, (u) => (units.has(u) ? `__u_${u}` : u)) : s).replace(/\^/g, '**');
+  const unitNames = [...units].map((u) => `__u_${u}`);
+  const names = [...Object.keys(FUNCS), ...Object.keys(vars).filter((k) => !(k in FUNCS)), ...unitNames];
   const key = names.join(',') + '|' + body;
   let fn = cache.get(key);
   if (!fn) {
@@ -55,7 +65,7 @@ export function evaluate(expr, vars = {}) {
     if (cache.size > 2000) cache.clear();
     cache.set(key, fn);
   }
-  const args = names.map((n) => (n in FUNCS ? FUNCS[n] : vars[n]));
+  const args = names.map((n) => (n in FUNCS ? FUNCS[n] : n.startsWith('__u_') ? UNITS[n.slice(4)] : vars[n]));
   const r = fn(...args);
   if (typeof r !== 'number' || !Number.isFinite(r)) throw new Error('Result is not a number');
   return r;

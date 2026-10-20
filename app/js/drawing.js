@@ -263,6 +263,12 @@ export function viewTitle(v) {
 }
 
 // ------------------------------------------------------------ numbers
+// A length (mm) in the drawing's unit (settings.units: 'mm' or 'in'), as fmtNum formats it.
+export function fmtLen(x, dwg) {
+  return fmtNum(dwg.settings?.units === 'in' ? x / 25.4 : x, dwg);
+}
+export const unitName = (dwg) => (dwg.settings?.units === 'in' ? 'in' : 'mm');
+
 export function fmtNum(x, dwg) {
   const d = dwg.settings?.decimals ?? 2;
   let s = (Math.round(x * 10 ** d) / 10 ** d).toFixed(d);
@@ -294,7 +300,7 @@ export function sheetPrims(dwg, sheet, ctx) {
   const idx = dwg.sheets.indexOf(sheet);
   P.push(...formatPrims(sheet, {
     props: dwg.props, scaleText: scaleText(sheetScale(dwg, sheet.id)), sheetNo: idx + 1, sheetCount: dwg.sheets.length,
-    projection: sheet.projection, sizeName: sheet.size, format: dwg.format,
+    projection: sheet.projection, sizeName: sheet.size, format: dwg.format, units: unitName(dwg),
   }));
   const views = dwg.views.filter((v) => v.sheet === sheet.id);
   for (const v of views) P.push(...viewPrims(dwg, v, ctx));
@@ -420,7 +426,7 @@ function viewPrims(dwg, v, ctx) {
     out.push({ t: 'text', p: [(r.x0 + r.x1) / 2, r.y1 + 4 + h], text: title, h, anchor: 'middle', base: 'bottom', bold: true });
     if (v.type === 'flat' && g?.flat) {
       const f = g.flat;
-      out.push({ t: 'text', p: [(r.x0 + r.x1) / 2, r.y1 + 4 + h + 5], text: `${fmtNum(f.size[0], dwg)} × ${fmtNum(f.size[1], dwg)} mm  ·  t ${fmtNum(f.t, dwg)}  ·  ${f.bends} bend${f.bends === 1 ? '' : 's'}${f.cut && v.cutInfo !== false ? `  ·  cut ${fmtNum(f.cut.length, dwg)} mm, ${f.cut.loops} pierce${f.cut.loops === 1 ? '' : 's'}` : ''}`, h: dwg.settings?.textH || 3.5, anchor: 'middle', base: 'bottom' });
+      out.push({ t: 'text', p: [(r.x0 + r.x1) / 2, r.y1 + 4 + h + 5], text: `${fmtLen(f.size[0], dwg)} × ${fmtLen(f.size[1], dwg)} ${unitName(dwg)}  ·  t ${fmtLen(f.t, dwg)}  ·  ${f.bends} bend${f.bends === 1 ? '' : 's'}${f.cut && v.cutInfo !== false ? `  ·  cut ${fmtLen(f.cut.length, dwg)} ${unitName(dwg)}, ${f.cut.loops} pierce${f.cut.loops === 1 ? '' : 's'}` : ''}`, h: dwg.settings?.textH || 3.5, anchor: 'middle', base: 'bottom' });
     }
     const k = viewScale(dwg, v);
     if (v.type === 'detail' || Math.abs(k - sheetScale(dwg, v.sheet)) > 1e-9) out.push({ t: 'text', p: [(r.x0 + r.x1) / 2, r.y1 + 4 + h + (v.type === 'flat' ? 10 : 5)], text: `SCALE ${scaleText(k)}`, h: dwg.settings?.textH || 3.5, anchor: 'middle', base: 'bottom' });
@@ -552,7 +558,7 @@ export function dimValue(dwg, a) {
 export function dimText(dwg, a) {
   if (a.override) return a.override;
   const v = dimValue(dwg, a);
-  const n = a.kind === 'angle' ? `${fmtNum(v, { settings: { ...dwg.settings, decimals: Math.min(dwg.settings?.decimals ?? 2, 1) } })}°` : fmtNum(v, dwg);
+  const n = a.kind === 'angle' ? `${fmtNum(v, { settings: { ...dwg.settings, decimals: Math.min(dwg.settings?.decimals ?? 2, 1) } })}°` : fmtLen(v, dwg);
   const pre = a.kind === 'diameter' ? 'Ø' : a.kind === 'radius' ? 'R' : '';
   return `${a.prefix || ''}${pre}${n}${a.suffix || ''}${a.tol ? ` ${a.tol}` : ''}`;
 }
@@ -593,7 +599,7 @@ export function annPrims(dwg, a, ctx) {
   if (a.type === 'ordinate' && X) {
     // ordinate dimension: the distance from the origin along one axis, on a leader to a row / column
     const p = X.toSheet(a.p), P = annPos(dwg, a), ax = a.axis === 'y' ? 1 : 0;
-    const val = Math.abs(a.p[ax] - a.o[ax]), text = fmtNum(val, dwg);
+    const val = Math.abs(a.p[ax] - a.o[ax]), text = fmtLen(val, dwg);
     const d = ax ? X.ax : X.ay; // the leader runs across the measured direction
     const t = dot2(sub2(P, p), d), end = add2(p, mul2(d, t)), u = unit2(sub2(end, p));
     if (len2(sub2(end, p)) > 1) out.push({ t: 'line', a: add2(p, mul2(u, 1)), b: end, w: LW.thin });
@@ -853,7 +859,7 @@ export function cutListPrims(dwg, a, ctx) {
     vals.forEach((t, c) => { out.push({ t: 'text', p: [cx + (c === 2 ? 1 : cols[c][1] / 2), P[1] + r * rh + rh * 0.7], text: String(t ?? ''), h: th, anchor: c === 2 ? 'start' : 'middle', base: 'bottom', bold, fit: cols[c][1] - 1.5 }); cx += cols[c][1]; });
   };
   cell(0, cols.map((c) => c[0]), true);
-  const f = (v, deg = false) => (v == null ? '-' : fmtNum(v, dwg) + (deg ? '°' : ''));
+  const f = (v, deg = false) => (v == null ? '-' : deg ? fmtNum(v, dwg) + '°' : fmtLen(v, dwg));
   rows.forEach((row, i) => cell(i + 1, [row.item, row.qty, row.description, row.weld ? f(row.totalLength) : f(row.length), f(row.angle1, true), f(row.angle2, true)]));
   if (!cl) out.push({ t: 'text', p: [P[0] + W / 2, P[1] + rh * 1.7], text: '(updating…)', h: th, anchor: 'middle', base: 'bottom', color: '#8a94a6' });
   return out;

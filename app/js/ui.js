@@ -20,6 +20,7 @@ import { LIBRARY, STANDARDS, PROFILE_TYPES, PIERCE } from './profiles.js';
 import { cutListRows, cutListCSV } from './weldments.js';
 import { ACI, aciColor, LTYPES, OPTION_LABELS, loadDxfSettings, saveDxfSettings, selectEnts } from './dxf.js';
 import { CLAUDE_MODELS } from './claudespec.js';
+import { lenText, lenValue, fmtLen, lenWithUnit, areaWithUnit, volWithUnit } from './units.js';
 import { groupBodies } from './bodygroups.js';
 
 // Draw DXF entities (flat pattern) on a canvas: CAD colours on dark, line types as dash patterns.
@@ -1249,6 +1250,8 @@ export class UI {
         { label: 'Section View…', icon: 'section', action: () => a.startSection() },
         { label: 'Edit Material…', icon: 'material', action: () => this.showMaterial() },
         { label: 'Fix References…', icon: 'fix', action: () => this.showFixReferences() },
+        { label: 'Units: Millimetres', icon: '', action: () => a.setUnits('mm') },
+        { label: 'Units: Inches', icon: '', action: () => a.setUnits('in') },
         'sep',
         { label: 'Ask Claude…', icon: 'assistant', action: () => this.openClaude() },
         { label: 'Claude Settings…', icon: 'gear', action: () => this.showClaudeSettings() },
@@ -3025,10 +3028,23 @@ export class UI {
     return b;
   }
 
+  // A new feature in an inch document: its default lengths (the panel's mm fields) to the nearest 1/8 inch.
+  inchDefaults(f) {
+    for (const g of PM_SCHEMAS[f.type] || []) for (const fd of g.fields || []) {
+      if (fd.unit !== 'mm' || typeof f[fd.key] !== 'number' || !f[fd.key]) continue;
+      const v = f[fd.key], eighths = Math.max(1, Math.round((Math.abs(v) / 25.4) * 8));
+      f[fd.key] = Math.sign(v) * (eighths / 8) * 25.4;
+    }
+  }
+
   exprInput(value, unit, onValid, { min = null, optional = false } = {}) {
     const wrap = el('div', { class: 'pm-input' });
     const input = el('input', { type: 'text', spellcheck: 'false' });
-    input.value = value ?? '';
+    // a length in an inch document: shown and typed in inches, stored in millimetres (units.js)
+    const L = unit === 'mm' ? this.app.units : null;
+    const toStore = (t) => (L ? lenValue(t, L) : normalizeValue(t));
+    if (L) unit = L;
+    input.value = L ? lenText(value, L) : value ?? '';
     const valEl = el('span', { class: 'val' });
     const unitEl = el('span', { class: 'unit' }, unit || '');
     if (unit) input.style.paddingRight = '52px';
@@ -3036,12 +3052,12 @@ export class UI {
     const check = (commit) => {
       if (optional && !input.value.trim()) { input.classList.remove('bad'); input.title = ''; valEl.textContent = ''; if (commit) onValid(''); return; }
       try {
-        const v = evaluate(input.value, vars);
-        if (min !== null && v < min) throw new Error(`Must be ≥ ${min}`);
+        const v = evaluate(toStore(input.value), vars);
+        if (min !== null && v < min) throw new Error(`Must be ≥ ${L ? fmtLen(min, L) : min}`);
         input.classList.remove('bad');
         input.title = '';
-        valEl.textContent = isNumeric(input.value) ? '' : '= ' + fmt(v);
-        if (commit) onValid(normalizeValue(input.value));
+        valEl.textContent = isNumeric(input.value) ? '' : '= ' + (L ? fmtLen(v, L) : fmt(v));
+        if (commit) onValid(toStore(input.value));
       } catch (e) {
         input.classList.add('bad');
         input.title = e.message;
@@ -3053,7 +3069,7 @@ export class UI {
       if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         if (!isNumeric(input.value)) return;
         e.preventDefault();
-        const step = e.shiftKey ? 10 : 1;
+        const step = L === 'in' ? (e.shiftKey ? 1 : 0.1) : e.shiftKey ? 10 : 1;
         input.value = String(+(parseFloat(input.value) + (e.key === 'ArrowUp' ? step : -step)).toFixed(6));
         check(true);
       }
@@ -3809,13 +3825,13 @@ export class UI {
     const res = this.pmGroup(root, 'Results', 'ms:res');
     const kv = el('div', { class: 'kv measure-kv' });
     const row = (k, v) => kv.insertAdjacentHTML('beforeend', `<div class="k">${esc(k)}</div><div>${v}</div>`);
-    const mm = (x, d = 3) => `${fmt(x, d)} mm`;
+    const U = a.units, mm = (x) => lenWithUnit(x, U, U === 'in' ? 4 : 3), at = (x) => fmtLen(x, U, U === 'in' ? 4 : 3);
     if (r.items.length === 1) {
       const it = r.items[0];
-      if (it.type === 'point') row('Point', `X ${fmt(it.p[0], 3)} · Y ${fmt(it.p[1], 3)} · Z ${fmt(it.p[2], 3)}`);
+      if (it.type === 'point') row('Point', `X ${at(it.p[0])} · Y ${at(it.p[1])} · Z ${at(it.p[2])} ${U}`);
       if (it.type === 'edge') { row('Length', `<b>${mm(it.length)}</b>`); if (it.radius) row(it.curve === 'circle' ? 'Diameter' : 'Radius', it.curve === 'circle' ? mm(2 * it.radius) : mm(it.radius)); }
-      if (it.type === 'face') { row('Area', `<b>${fmt(it.area, 3)} mm²</b>`); if (it.radius) row('Diameter', mm(2 * it.radius)); }
-      if (it.type === 'body') { if (it.volume != null) row('Volume', `<b>${fmt(it.volume, 3)} mm³</b>`); row('Surface area', `${fmt(it.area, 3)} mm²`); }
+      if (it.type === 'face') { row('Area', `<b>${areaWithUnit(it.area, U)}</b>`); if (it.radius) row('Diameter', mm(2 * it.radius)); }
+      if (it.type === 'body') { if (it.volume != null) row('Volume', `<b>${volWithUnit(it.volume, U)}</b>`); row('Surface area', areaWithUnit(it.area, U)); }
       if (it.type === 'plane') row('Plane', 'Pick a second item to measure the distance');
     } else if (r.distance != null) {
       const d = [0, 1, 2].map((k) => r.b[k] - r.a[k]);
@@ -4618,14 +4634,15 @@ export class UI {
       ? `<div class="k">Material</div><div>${one ? esc(one.name) : '<i>not specified</i> (using 1.00 g/cm³)'}</div><div class="k">Density</div><div>${fmt(one ? one.density : 1, 3)} g/cm³</div>`
       : `<div class="k">Material</div><div>Several (per body, see below)</div>`;
     const bodyTable = rows.length > 1 ? `<div class="bp-sec">Bodies</div><table class="grid"><tr><th>Body</th><th>Material</th><th>Volume (mm³)</th><th>Mass (g)</th></tr>${rows.map((r) => `<tr><td>${esc(r.b.name)}</td><td>${r.b.material ? esc(r.b.material.name) : '<i>not specified</i>'}${r.b.ownMaterial ? '' : ' <span class="pm-hint">(part)</span>'}</td><td class="num">${fmt(r.mp.volume, 2)}</td><td class="num">${fmt(r.mass, 2)}</td></tr>`).join('')}</table>` : '';
+    const U = a.units, L = (x) => fmtLen(x, U);
     const html = `
       <div class="kv">
         ${matRow}
-        <div class="k">Mass</div><div><b>${fmt(mass, 2)} g</b></div>
-        <div class="k">Volume</div><div>${fmt(volume, 2)} mm³</div>
-        <div class="k">Surface area</div><div>${fmt(area, 2)} mm²</div>
-        <div class="k">Center of mass</div><div>X ${fmt(com.x)} &nbsp; Y ${fmt(com.y)} &nbsp; Z ${fmt(com.z)} mm</div>
-        <div class="k">Bounding box</div><div>${fmt(size.x)} × ${fmt(size.y)} × ${fmt(size.z)} mm</div>
+        <div class="k">Mass</div><div><b>${fmt(mass, 2)} g</b>${U === 'in' ? ` (${fmt(mass / 453.59237, 4)} lb)` : ''}</div>
+        <div class="k">Volume</div><div>${volWithUnit(volume, U, 2)}</div>
+        <div class="k">Surface area</div><div>${areaWithUnit(area, U, 2)}</div>
+        <div class="k">Center of mass</div><div>X ${L(com.x)} &nbsp; Y ${L(com.y)} &nbsp; Z ${L(com.z)} ${U}</div>
+        <div class="k">Bounding box</div><div>${L(size.x)} × ${L(size.y)} × ${L(size.z)} ${U}</div>
         <div class="k">Bodies</div><div>${rows.length}</div>
         <div class="k">Mesh triangles</div><div>${whole.triangles}</div>
       </div>${bodyTable}`;

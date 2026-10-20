@@ -5,6 +5,7 @@ import * as G from './geometry.js';
 import * as S from './sketchmodel.js';
 import { solveSketch, analyzeSketch, sketchRank, RELATION_INFO } from './solver.js';
 import { evaluate, fmt, isNumeric, normalizeValue } from './expr.js';
+import { fmtLen, lenText, lenValue } from './units.js';
 import { parseDXF, dxfShapes, addShapes } from './dxfimport.js';
 import { platform } from './platform.js';
 
@@ -2596,9 +2597,9 @@ export class Sketcher {
       const expr = !dm.preview && !isNumeric(k.value);
       el.className = 'dim' + (k.driven ? ' driven' : '') + (this.sel.has(k.id) ? ' selected' : '') + (dm.preview ? ' preview' : '');
       el.style.pointerEvents = dm.preview || (this.tool !== 'select' && this.tool !== 'dim') ? 'none' : 'auto';
-      const txt = (dm.prefix || '') + fmt(dm.value) + (dm.suffix || '');
+      const txt = (dm.prefix || '') + (k.kind === 'angle' ? fmt(dm.value) : this.L(dm.value)) + (dm.suffix || '');
       el.innerHTML = (expr ? '<span class="sig">Σ</span>' : '') + (k.driven ? `(${txt})` : txt);
-      el.title = k.driven ? 'Driven (reference) dimension' : expr ? `= ${k.value}` : 'Click to modify';
+      el.title = k.driven ? 'Driven (reference) dimension' : expr ? `= ${k.kind === 'angle' ? k.value : lenText(k.value, this.app.units)}` : 'Click to modify';
     });
     this._placeLabels();
   }
@@ -2729,6 +2730,7 @@ export class Sketcher {
   }
 
   _updateCursorUI() {
+    const fmt = (x, d) => (d === 1 ? fmtLen(x, 'mm', 1) : this.L(x)); // (lengths in the document's unit; angles have 1 decimal)
     const c = this.cursor;
     const drawing = !['select', 'trim', 'dim', 'convert', 'offset', 'extend', 'split'].includes(this.tool);
     if (this.tool === 'offset' && this.draw?.tool === 'offset' && c) {
@@ -2773,6 +2775,9 @@ export class Sketcher {
     this.tipEl.style.top = c.screen.y + 'px';
   }
 
+  // A length as the document shows it (inches in an inch document).
+  L(x, digits = null) { return this.app.units === 'in' ? fmtLen(x, 'in', digits ?? 3) : fmt(x, digits ?? 2); }
+
   // ------------------------------------------------------------ Modify dialog
   openModify(i) {
     this.closeModify();
@@ -2790,7 +2795,9 @@ export class Sketcher {
       <div class="merr"></div>`;
     el.addEventListener('pointerdown', (ev) => ev.stopPropagation());
     const input = el.querySelector('input');
-    input.value = k.driven ? fmt(dm.value, 4) : String(k.value);
+    // (a length in an inch sketch: shown and typed in inches)
+    const U = k.kind === 'angle' ? 'mm' : this.app.units;
+    input.value = k.driven ? (k.kind === 'angle' ? fmt(dm.value, 4) : fmtLen(dm.value, U, 4)) : String(lenText(k.value, U));
     if (k.driven) input.disabled = true;
     const err = el.querySelector('.merr');
     if (k.driven) err.textContent = 'Driven dimension (reference only)';
@@ -2798,10 +2805,10 @@ export class Sketcher {
       if (k.driven) return this.closeModify();
       const old = k.value;
       try {
-        const v = this.ev(input.value);
+        const v = this.ev(lenValue(input.value, U));
         if (!['hdist', 'vdist', 'pointLine', 'arcDist'].includes(k.kind) && v <= 0) throw new Error('Value must be greater than zero');
         if (k.kind === 'arcDist' && v < 0 && (k.cond || 'center') !== 'min') throw new Error('Value must not be negative');
-        k.value = normalizeValue(input.value);
+        k.value = lenValue(input.value, U);
         const r = this.solve();
         if (!r.ok) { k.value = old; this.solve(); throw new Error('The sketch cannot be solved with that value'); }
         this.closeModify();
@@ -2817,7 +2824,7 @@ export class Sketcher {
       if (ev.key === 'Escape') this.closeModify();
     });
     input.addEventListener('input', () => {
-      try { this.ev(input.value); err.textContent = ''; input.classList.remove('bad'); } catch (ex) { err.textContent = ex.message; }
+      try { this.ev(lenValue(input.value, U)); err.textContent = ''; input.classList.remove('bad'); } catch (ex) { err.textContent = ex.message; }
     });
     el.querySelectorAll('.mcond button').forEach((b) => {
       b.onclick = () => this.setArcCondition(k, b.dataset.c);

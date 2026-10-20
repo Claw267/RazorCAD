@@ -351,6 +351,63 @@ const UI = {
     return { ok: true, detail: `${notes.length} parts restored without rebuilding (${(bytes / 1048576).toFixed(1)} MB of BRep; meshing ${mesh1} ms → ${mesh2} ms)` };
   },
 
+  // an inch document: a sketch dimension shown and changed in inches, an extrude depth typed in inches (and
+  // as an expression of a variable), the defaults in round inches; the geometry stays in millimetres
+  async 'inch-units'() {
+    const a = window.app;
+    await a.newDocument?.();
+    closeModals();
+    a.setUnits('in');
+    if (document.querySelector('#status-units').textContent !== 'IPS') return { ok: false, detail: 'the status bar does not say IPS' };
+    const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'top' } });
+    a.doc.features.push(f); a.commit();
+    await a.enterSketch(f, true);
+    await wait(300);
+    const { toScreen, click, vp } = viewEvents();
+    vp.setStandardView('top', false); vp.zoomToFit(); await wait(200);
+    const sk = a.sketcher, fr = sk.frame;
+    const at = (x, y) => toScreen(fr.o.clone().addScaledVector(fr.u, x).addScaledVector(fr.v, y));
+    sk.setTool('rect');
+    await click(...at(-20, -10)); await click(...at(20, 10));
+    sk.setTool('dim');
+    await click(...at(0, -10)); await click(...at(0, -18));
+    closeModals();
+    const k = sk.f.constraints.find((c) => c.type === 'dim');
+    if (!k) return { ok: false, detail: 'no dimension' };
+    const i = sk.dims.findIndex((d) => d.k === k);
+    const label = sk.dimPool[i]?.textContent;
+    sk.openModify(i);
+    const box = document.querySelector('.modify input');
+    const shown = box.value;
+    box.value = '2';
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await wait(100);
+    if (Math.abs(k.value - 50.8) > 1e-9) return { ok: false, detail: `dimension label ${label}, box ${shown}, stored ${k.value}` };
+    const label2 = sk.dimPool[sk.dims.findIndex((d) => d.k === k)]?.textContent;
+    sk.setTool('select');
+    await a.exitSketch(true);
+    await wait(300);
+    a.doc.equations = [{ name: 'w', expr: '3' }];
+    a.commit(); await a.rebuild();
+    a.selection = { kind: 'feature', id: f.id };
+    a.startFeature('extrude', 'add');
+    await wait(400);
+    const field = [...document.querySelectorAll('#pm .pm-input')].find((w) => w.querySelector('.unit')?.textContent === 'in');
+    const inp = field?.querySelector('input');
+    const def = inp?.value;
+    inp.value = 'w/2'; inp.dispatchEvent(new Event('input'));
+    const stored = a.pm.feature.depth;
+    a.okPM();
+    const body = await until(() => (!a.kernel.pending && a.result?.bodies?.length ? a.result.bodies : null), 30000);
+    if (!body) return { ok: false, detail: 'no body' };
+    const m = await a.kernel.request('measure', { refs: [{ kind: 'body', id: body[0].id }] });
+    const vol = (m.items?.[0] || m).volume, want = 50.8 * 20 * 1.5 * 25.4;
+    const ok = label === '1.575' && shown === '1.574803' && label2 === '2' && def === '0.375' && stored === '(w/2)*in' && Math.abs(vol - want) < 1e-6 * want;
+    a.setUnits('mm');
+    return ok ? { ok: true, detail: `dimension 1.575 → 2 in, default depth 0.375 in, w/2 → ${stored}, volume ${r6(vol)}` }
+      : { ok: false, detail: `label ${label}, box ${shown}, label after ${label2}, default ${def}, stored ${stored}, volume ${vol} (want ${want})` };
+  },
+
   // the view's mouse buttons: Shift + right-drag pans, middle-drag turns, a plain right-drag changes nothing
   async 'view-mouse-buttons'() {
     const a = window.app;

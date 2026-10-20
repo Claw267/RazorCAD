@@ -137,7 +137,7 @@ export function formatPrims(sheet, info) {
   P.push(...projectionSymbol([x0 + 13, y + 5], info.projection));
   cell(x0 + 26, y, 22, 10, 'Scale', info.scaleText, 3.5);
   cell(x0 + 48, y, 14, 10, 'Size', info.sizeName, 3.5);
-  cell(x0 + 62, y, 18, 10, 'Units', 'mm', 3.5);
+  cell(x0 + 62, y, 18, 10, 'Units', info.units || 'mm', 3.5);
   cell(x0 + 80, y, 100, 10, 'Material', pr.material, 3.5);
   // row 2 (h 10): drawn | checked | approved | date | mass
   y += 10;

@@ -6,6 +6,13 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 22:08 — Inch units
+- **Each part, assembly and drawing can be in millimetres or inches.** Click **MMGS / IPS** in the status bar (or Tools ▸ Units). The sizes stay exactly as they are; only how they are shown and typed changes.
+- **In an inch document:** feature fields show and take inches (the arrow keys step 0.1 in, Shift 1 in). Sketch dimensions, the Modify box and the drawing tips are in inches, and so are Measure (in, in², in³) and Mass Properties (also lb). New features start at round sizes (to 1/8 in).
+- **Units in any value:** `2in`, `30 mm`, `1.5cm`, `2ft`, `(w/2)*in`; the result is in millimetres. In an inch document, variables count in inches when used in a length (`w/2` with w = 3 is 1.5 in). Values typed before a document became inch keep their size: an expression shows as `(…)*mm`.
+- **Drawings:** an inch drawing (Drawing Properties, or the status bar) dimensions in inches with 3 decimals, and its title block says "in". A drawing made from an inch part starts in inches. Angles and the K-factor are never converted.
+- Regression test: inch-units.
+
 ## 2026-10-20 22:01 — Update check
 - **RazorCAD says when a newer version is out.** A little after it starts (at most once a day), it asks GitHub for the newest RazorCAD release. When that is newer, a notice in the corner offers **Download** (opens the release page), **Later** or **Skip this version**. Nothing is shown when you are up to date or offline, and only GitHub is asked.
 - **Help ▸ Check for Updates…** checks now and says what it found. It also has the switch for the check at start.

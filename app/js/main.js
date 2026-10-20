@@ -21,6 +21,7 @@ import { DrawingEditor } from './drawingeditor.js';
 import { AssemblyEditor, isAssembly, newAssembly } from './assembly.js';
 import { ExplodeTool, explodeOffsets, offsetMesh, drawExplodeLines, animateExplode, newExplodeId } from './explode.js';
 import { hashText, packResult, unpackResult } from './modelcache.js';
+import { unitOf, UNIT_SYSTEM } from './units.js';
 import { isTemplate, drawingFromTemplate } from './drawtemplates.js';
 import { bodySignature, groupBodies, sameBody } from './bodygroups.js';
 import * as D from './drawing.js';
@@ -246,7 +247,56 @@ class App {
     this.lastAutosave = null;
   }
 
+  // The length unit of the document in front ('mm' or 'in', units.js): a part's or assembly's doc.units, a
+  // drawing's settings.units.
+  get units() {
+    if (this.mode === 'drawing') {
+      const d = this.drawing?.doc;
+      return d?.settings ? (d.settings.units === 'in' ? 'in' : 'mm') : unitOf(d);
+    }
+    return unitOf(this.doc);
+  }
+  setUnits(u) {
+    u = u === 'in' ? 'in' : 'mm';
+    if (u === this.units) return;
+    if (this.mode === 'drawing') {
+      const ed = this.drawing;
+      if (!ed) return;
+      if (ed.doc.settings) {
+        ed.doc.settings.units = u;
+        // (inch drawings: three decimals, as usual)
+        if (u === 'in' && (ed.doc.settings.decimals ?? 2) === 2) ed.doc.settings.decimals = 3;
+        if (u === 'mm' && ed.doc.settings.decimals === 3) ed.doc.settings.decimals = 2;
+        ed.changed();
+      } else {
+        ed.begin?.();
+        if (u === 'in') ed.doc.units = 'in'; else delete ed.doc.units;
+        ed.change?.();
+      }
+    } else {
+      if (u === 'in') this.doc.units = 'in'; else delete this.doc.units;
+      this.commit();
+      this.ui.renderPM();
+      if (this.mode === 'sketch') this.sketcher.redraw?.();
+    }
+    this.updateUnitsStatus();
+    this.status(`Units: ${u === 'in' ? 'inches' : 'millimetres'}. Sizes are kept exactly; only how they are shown and typed changes.`);
+  }
+  updateUnitsStatus() {
+    const s = $('#status-units');
+    if (!s) return;
+    const u = this.units;
+    s.textContent = UNIT_SYSTEM[u];
+    s.title = `Units: ${u === 'in' ? 'inches' : 'millimetres'} — click to change`;
+    s.style.cursor = 'pointer';
+    s.onclick = (e) => this.ui.showContext(e.clientX, e.clientY - 60, [
+      { label: (u === 'mm' ? '● ' : '　') + 'Millimetres (mm)', icon: '', action: () => this.setUnits('mm') },
+      { label: (u === 'in' ? '● ' : '　') + 'Inches (in)', icon: '', action: () => this.setUnits('in') },
+    ]);
+  }
+
   updateTitle() {
+    this.updateUnitsStatus();
     if (this.mode === 'drawing' && this.drawing) {
       const d = this.drawing;
       const file = d.filePath ? d.filePath.split(/[\\/]/).pop() : null;
@@ -3226,6 +3276,7 @@ class App {
     if (type === 'point' && sel?.kind === 'vertex') { props.pointType = 'vertex'; props.vertex = { p: sel.p }; }
     if (type === 'sketch3d' && sel?.kind === 'vertex') { const q = (sel.p.toArray ? sel.p.toArray() : sel.p).map((x) => +x.toFixed(6)); props.pts = [{ x: q[0], y: q[1], z: q[2] }]; }
     const f = M.createFeature(doc, type, props);
+    if (this.units === 'in') this.ui.inchDefaults(f); // (default sizes in round inches)
     M.insertFeature(doc, f);
     this.pm = { kind: 'feature', feature: f, isNew: true };
     this.selection = null;

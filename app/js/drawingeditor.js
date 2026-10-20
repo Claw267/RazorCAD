@@ -159,6 +159,8 @@ export class DrawingEditor {
     if (!p.title) p.title = name;
     if (!p.number) p.number = name.toUpperCase().replace(/\s+/g, '-');
     if (!p.material) { const mat = materialById(doc.material); if (mat) p.material = mat.name; }
+    // (the first part's units, when it is in inches and nothing was chosen)
+    if (this.doc.models.length === 1 && doc.units === 'in' && !this.doc.settings.units) { this.doc.settings.units = 'in'; if ((this.doc.settings.decimals ?? 2) === 2) this.doc.settings.decimals = 3; }
     return m.id;
   }
 
@@ -1164,7 +1166,7 @@ export class DrawingEditor {
       const dc = unit2(sub2(c.b, c.a)), de = unit2(sub2(e2.b, e2.a));
       const ang = (Math.acos(Math.min(1, Math.abs(dot2(dc, de)))) * 180) / Math.PI, L = len2(sub2(c.b, c.a));
       const dist = L * Math.cos((ang * Math.PI) / 180);
-      const a = { id: D.newId(this.doc, 'a'), type: 'note', sheet: v.sheet, view: v.id, leader: mul2(add2(c.a, c.b), 0.5), text: `${D.fmtNum(dist, this.doc)} × ${D.fmtNum(ang, { settings: { ...this.doc.settings, decimals: 1 } })}°`, h: this.doc.settings.textH, pos: [0, 0] };
+      const a = { id: D.newId(this.doc, 'a'), type: 'note', sheet: v.sheet, view: v.id, leader: mul2(add2(c.a, c.b), 0.5), text: `${D.fmtLen(dist, this.doc)} × ${D.fmtNum(ang, { settings: { ...this.doc.settings, decimals: 1 } })}°`, h: this.doc.settings.textH, pos: [0, 0] };
       D.setAnnPos(this.doc, a, P);
       this.doc.anns.push(a);
       t.picks = [];
@@ -1262,7 +1264,7 @@ export class DrawingEditor {
   // The callout text of a hole (circle `e` in view v): from the Hole feature when it made the hole,
   // else the diameter. Holes of the same kind in the view are counted (4× …).
   holeCallout(v, e) {
-    const g = D.viewGeom(this.doc, v, this.geos), f = (x) => D.fmtNum(x, this.doc);
+    const g = D.viewGeom(this.doc, v, this.geos), f = (x) => D.fmtLen(x, this.doc);
     const holes = g?.holes || [];
     const tol = Math.max(1e-4, e.r * 1e-3);
     const h = holes.find((x) => len2(sub2(x.c, e.c)) < tol);
@@ -1280,7 +1282,7 @@ export class DrawingEditor {
     } else {
       lines.push(`Ø${f(z.d)} ${depth}`);
       if (z.type === 'cbore') lines.push(`CBORE Ø${f(z.cbD)} DEEP ${f(z.cbDepth)}`);
-      if (z.type === 'csink') lines.push(`CSK Ø${f(z.csD)} × ${f(z.csAng)}°`);
+      if (z.type === 'csink') lines.push(`CSK Ø${f(z.csD)} × ${D.fmtNum(z.csAng, this.doc)}°`);
     }
     if (n > 1) lines[0] = `${n}× ${lines[0]}`;
     return lines.join('\n');
@@ -1565,7 +1567,7 @@ export class DrawingEditor {
     }
     if (a.type !== 'dim') return;
     const box = el('div', { class: 'dw-form' });
-    box.innerHTML = `<div class="pm-hint">Value: <b>${esc(D.fmtNum(D.dimValue(this.doc, a), this.doc))}</b>${a.kind === 'angle' ? '°' : ' mm'}</div>
+    box.innerHTML = `<div class="pm-hint">Value: <b>${esc(a.kind === 'angle' ? D.fmtNum(D.dimValue(this.doc, a), this.doc) : D.fmtLen(D.dimValue(this.doc, a), this.doc))}</b>${a.kind === 'angle' ? '°' : ' ' + D.unitName(this.doc)}</div>
       <div class="kv"><div class="k">Prefix</div><div><input type="text" class="d-pre"></div>
       <div class="k">Suffix</div><div><input type="text" class="d-suf"></div>
       <div class="k">Tolerance</div><div><input type="text" class="d-tol" placeholder="e.g. ±0.1  or  H7"></div>
