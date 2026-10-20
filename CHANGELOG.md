@@ -6,6 +6,19 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 09:59 — Geometry kernels sized to the PC; a kernel for each open part
+- **How many geometry kernels work at once now comes from the PC RazorCAD runs on.** It is worked out from the processor threads (one per kernel, two left for the window and the rest of the PC) and the free memory (about 1 GB per kernel beyond 2 GB), read from Windows when RazorCAD starts: at least 2, at most 16. The browser version uses the browser's rough figure for the PC's memory.
+  - Before, it was a quarter of the threads, at most 4, whatever the memory.
+  - The kernels for an assembly's parts and drawing views use the budget, and those idle for 3 minutes are stopped to give their memory back.
+- **Each open part keeps a kernel of its own** (as many as the budget allows, up to 8):
+  - Switching back to a part is immediate, with no rebuild: the Giant Golfball back in front 86 ms after another part, where its kernel had to build it again before.
+  - A part still building goes on building while you work in another tab.
+  - One kernel is kept started ahead, so a new part doesn't wait for one to start.
+  - A closed part's kernel is stopped. Past the budget, a new part takes the kernel of the part used longest ago, which then builds the new part (as all parts did before).
+- Fixed: a rebuild started just before another tab came to the front could leave the first tab's kernel waiting for good.
+- The kernels in use are noted in crash reports, e.g. "up to 12 at once (24 threads, 14.8 GB free)" on a PC with 24 threads and 14.8 GB free (memory is what limits it there).
+- Regression test: kernel-per-tab (budgets for a small, mid-size and big PC; two parts each with their own kernel, the first still holding its part when it comes back; the closed part's kernel stopped; with a budget of one, the kernel lent).
+
 ## 2026-10-21 09:24 — Meshing only what changed; opening big parts at once
 - **Editing a feature remeshes only what it changed.** A feature usually leaves most of a body's faces and edges as they were. Their triangles and edge points are now kept and reused, and only the new faces are meshed. The geometry library's mesher used to mesh every face again each time.
   - Giant Golfball, the last dimple edited: 2.3 s → 1.15 s; its meshing 1.75 s → 0.58 s.

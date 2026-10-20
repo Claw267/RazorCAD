@@ -144,6 +144,8 @@ export const platform = {
   // The model as last built (modelcache.js), by key: base64 text or null. On disk in the desktop app; in the
   // browser's database in the browser version (when the website build gave it a kernel signature).
   get modelStore() { return desktop || !!webKernel(); },
+  // The PC's processor threads and memory (machine.js): { threads, totalMB, freeMB } in the desktop app, else null.
+  async systemInfo() { return desktop ? api().system_info() : null; },
   async readModelCache(key) { if (!key) return null; if (desktop) return api().read_model_cache(key); try { return await webRead(key); } catch { return null; } },
   async writeModelCache(key, b64) { if (!key) return null; if (desktop) return api().write_model_cache(key, b64); try { return await webWrite(key, b64); } catch { return null; } },
 

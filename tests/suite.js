@@ -1543,6 +1543,50 @@ await rc.cut(h, 10);`, 'plate');
       : { ok: false, detail: `vertices ${A.vertices.length}/${B.vertices.length} same ${same(A.vertices, B.vertices)}, triangles ${A.triangles.length}/${B.triangles.length} same ${same(A.triangles, B.triangles)}, normals ${same(A.normals, B.normals)}, groups ${groups}, edges ${edges}, errors ${inc.errors.length}` };
   },
 
+  // kernels by what the PC has: the budget from threads and free memory (a small, a mid-size and a big PC); each
+  // open part keeps a kernel of its own, so switching back to a part needs no rebuild (every feature reused) and it
+  // can build while another part is in front; a closed part's kernel is stopped; past the budget, a new part takes
+  // the kernel of the part used longest ago
+  async 'kernel-per-tab'() {
+    const a = window.app, { kernelBudget } = await import('/js/machine.js');
+    const budgets = [[{ threads: 4, freeMB: 3000 }, 2], [{ threads: 8, freeMB: 12000 }, 6], [{ threads: 8, freeMB: 5000 }, 2], [{ threads: 24, freeMB: 30000 }, 16], [{ threads: 16, freeMB: null, totalMB: 8192 }, 4]];
+    const budgetOk = budgets.every(([m, n]) => kernelBudget(m) === n);
+    if (a.mode === 'drawing') { const i = a.tabs.findIndex((t) => t.kind !== 'drawing'); if (i >= 0) await a.activateTab(i); }
+    const keep = a.tabKernelMax;
+    a.tabKernelMax = Math.max(2, keep);
+    try {
+      a.newDocument(); await wait(200);
+      const r = await a.macros.run(`const p = await rc.sketch('top', (s) => s.centerRect(0, 0, 60, 40)); await rc.extrude(p, 10);
+const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4); }); await rc.cut(h, 10);`, 'tab A');
+      if (!r.ok) return { ok: false, detail: r.error };
+      const iA = a.tabIndex, kA = a.kernel, nA = a.doc.features.length;
+      a.newDocument(); await wait(200);
+      const iB = a.tabIndex, kB = a.kernel;
+      await a.macros.run(`await rc.extrude(await rc.sketch('top', (s) => s.centerRect(0, 0, 10, 10)), 5);`, 'tab B');
+      // back to A: its own kernel, which still holds it
+      await a.activateTab(iA);
+      while (a.kernel.busy || a.kernel.pending) await wait(20);
+      // (kernel A still holds part A: rebuilt again, every feature is reused)
+      const again = await kA.rebuild(JSON.parse(JSON.stringify(a.doc)), null, null);
+      const back = a.kernel === kA && again.timing?.reused === nA;
+      // B closed: its kernel stopped
+      await a.activateTab(iB);
+      a.dirty = false; // (closed without the Save question)
+      await a.closeTab(iB);
+      const stopped = kB.disposed === true && a.kernel === kA;
+      // only one kernel for parts: a new part borrows A's, and A rebuilds when it comes back
+      a.tabKernelMax = 1;
+      if (a._spareKernel) { a._spareKernel.dispose(); a._spareKernel = null; }
+      const before = a.liveKernels();
+      a.newDocument(); await wait(200);
+      // (no new kernel: one already running, given up by the part that had it)
+      const lent = before.has(a.kernel) && !a.tabs.some((t, i) => i !== a.tabIndex && t.kernel === a.kernel);
+      const ok = budgetOk && kA !== kB && back && stopped && lent;
+      return ok ? { ok: true, detail: `budgets ${budgets.map(([m]) => kernelBudget(m)).join('/')}; A and B each their own kernel, back to A with all ${nA} features reused; B's kernel stopped; with one, lent` }
+        : { ok: false, detail: `budget ${budgetOk} (${budgets.map(([m]) => kernelBudget(m)).join('/')}), own ${kA !== kB}, back ${back} (reused ${again?.timing?.reused}/${nA}), stopped ${stopped}, lent ${lent}` };
+    } finally { a.tabKernelMax = keep; }
+  },
+
   // BOM mass and cost: a steel plate (60 × 40 × 5) and two aluminium blocks (20 × 20 × 15) with costs → masses from
   // the materials, totals 0.126 kg and 18.50; the window's column menu changes a column; on the drawing table the
   // column under a point is found, and a typed value is edited

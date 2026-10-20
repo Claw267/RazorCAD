@@ -28,6 +28,7 @@ import * as D from './drawing.js';
 import { Macros } from './macros.js';
 import { igesToStep } from './igesstep.js';
 import { installA11y, onControl } from './a11y.js';
+import { machineInfo, kernelBudget, memoryFor } from './machine.js';
 
 // Saved parts are auto-saved next to their file at most this often while they have unsaved changes.
 const AUTOSAVE_MS = 20000;
@@ -72,6 +73,9 @@ class App {
     installCrashHandlers(this);
     this.kernel = new KernelClient();
     this.kernelPool = new KernelPool(this.kernel); // (more kernels for assemblies and drawings)
+    // (the kernels at once: from the PC's threads and free memory; a kernel for each open part, up to tabKernelMax)
+    this.tabKernelMax = 1;
+    this.sizeKernels();
     this.macros = new Macros(this); // (Tools ▸ Macros: recording and running them)
     // the theme changed: the 3D view's and the sketch's lines in its colours
     window.addEventListener('razorcad-theme', () => {
@@ -80,14 +84,7 @@ class App {
       else if (this.mode === 'sketch3d') this.sketch3d?.redraw?.();
       this.drawing?.render?.();
     });
-    this.kernel.onCrash = (err) => reportError('kernel-worker-crash', err, this);
-    // the kernel broke and is being replaced; the request is repeated on the fresh kernel
-    this.kernel.onRestart = (err) => {
-      breadcrumb(`Geometry kernel restarted after: ${err.message}`);
-      this.toast('The geometry kernel hit an internal error and was restarted; rebuilding the model.', true);
-      reportError('kernel-restarted', err, this, { restarts: this.kernel.restarts });
-    };
-    this.kernel.onProgress = (v, label, feature) => { if (feature !== undefined) this._progFeature = feature; this.showProgress(v, label); };
+    this.wireKernel(this.kernel);
     this.result = { vars: {}, ev: (x) => evaluate(x, {}), errors: new Map(), eqErrors: new Map(), sketches: new Map(), planes: new Map(), consumed: new Set(), body: null, time: 0 };
     this.wireViewport();
     this.wireKeys();
@@ -346,14 +343,15 @@ class App {
   }
 
   // Fonts used by sketch text, sent to the kernel once.
-  async ensureFonts() {
+  async ensureFonts(kernel = this.kernel) {
     const need = new Map();
     for (const f of this.doc?.features || []) for (const t of f.texts || []) need.set(fontKey(t), t);
     for (const [key, t] of need) {
-      if (this.kernel.fonts.has(key)) continue;
+      // (fonts are shared by the kernels: one loaded already is sent to this kernel if it hasn't it yet)
+      if (kernel.fonts.has(key)) { await kernel.sendFont(key, kernel.fonts.get(key)); continue; }
       // (a font this PC doesn't have: the bundled one most like it)
       const data = await platform.fontData(fontFile(t.font, t.bold, t.italic)) || await platform.fontData(fontFile(fallbackFamily(t.font), t.bold, t.italic));
-      if (data) await this.kernel.loadFont(key, data);
+      if (data) await kernel.loadFont(key, data);
     }
   }
 
@@ -368,23 +366,24 @@ class App {
   }
 
   async rebuild() {
-    const doc = this.doc;
-    this.kernel.expect(true);
-    try { await this.ensureFonts().catch(() => {}); } finally { this.kernel.expect(false); }
+    const doc = this.doc, kernel = this.kernel;
+    // (the kernel this rebuild goes to, throughout: another tab may come to the front meanwhile, with its own)
+    kernel.expect(true);
+    try { await this.ensureFonts(kernel).catch(() => {}); } finally { kernel.expect(false); }
     $('#status-rebuild').textContent = 'Rebuilding…';
     $('#status-rebuild').style.color = '';
     let r;
     // a slow feature still being built that this change makes pointless (it was deleted, or something
     // before it changed, or another part was opened): stop it now instead of queueing behind it
-    if (this.kernel.busy && performance.now() - this.kernel.runningSince > 1500 && this.runningWorkIsStale()) {
+    if (kernel.busy && performance.now() - kernel.runningSince > 1500 && this.runningWorkIsStale()) {
       breadcrumb('Stopped a stale rebuild');
       this.endLongRun();
-      await this.kernel.cancel();
+      await kernel.cancel();
       this._forceMesh = true;
     }
     this.watchLongRun();
     try {
-      r = await this.kernel.rebuild(this.doc, this.previewId(), this._forceMesh ? null : this.result?.body?.key || null);
+      r = await kernel.rebuild(this.doc, this.previewId(), this._forceMesh ? null : this.result?.body?.key || null);
       this._forceMesh = false;
     } catch (err) {
       if (err.cancelled) return; // (stopped: the rebuild that follows shows the model)
@@ -394,7 +393,7 @@ class App {
       reportError('kernel-error', err, this);
       return;
     }
-    if (this.kernel.pending) return; // a newer rebuild is already queued
+    if (kernel.pending) return; // a newer rebuild is already queued
     if (this.mode === 'drawing') return; // (a drawing or assembly tab came to the front meanwhile)
     if (this.doc !== doc) return; // (another part came to the front meanwhile)
     if (r.time > 1000 || r.errors.length) breadcrumb(`Rebuild ${Math.round(r.time)} ms` + (r.errors.length ? `, feature errors: ${r.errors.map(([id, m]) => `${M.findFeature(this.doc, id)?.name || id}: ${m}`).join(' | ').slice(0, 400)}` : ''));
@@ -1313,6 +1312,79 @@ class App {
     this.ui.renderPM();
   }
 
+  // ------------------------------------------------------------ geometry kernels: one per open part
+  // How many kernels may work at once on this PC (machine.js): the pool's size (an assembly's parts, drawing views)
+  // and how many open parts keep a kernel of their own. A part with its own kernel is ready the moment its tab
+  // comes back (the kernel still holds it), and goes on building while another tab is worked on.
+  async sizeKernels() {
+    try {
+      const m = await machineInfo();
+      this.machine = m;
+      const n = kernelBudget(m);
+      this.kernelPool.size = Math.max(1, n - 1);
+      this.tabKernelMax = Math.max(1, Math.min(8, Math.ceil(n / 2)));
+      this.warmSpareKernel();
+      breadcrumb(`Geometry kernels: up to ${n} at once (${m.threads} threads${m.freeMB != null ? `, ${(m.freeMB / 1024).toFixed(1)} GB free` : m.totalMB != null ? `, about ${Math.round(m.totalMB / 1024)} GB` : ''}): ${this.kernelPool.size} for assemblies and drawings, ${this.tabKernelMax} for open parts`);
+    } catch { /* keep the defaults */ }
+  }
+  wireKernel(k) {
+    k.onCrash = (err) => reportError('kernel-worker-crash', err, this);
+    // the kernel broke and is being replaced; the request is repeated on the fresh kernel
+    k.onRestart = (err) => {
+      breadcrumb(`Geometry kernel restarted after: ${err.message}`);
+      if (k === this.kernel) this.toast('The geometry kernel hit an internal error and was restarted; rebuilding the model.', true);
+      reportError('kernel-restarted', err, this, { restarts: k.restarts });
+    };
+    // (progress shown for the part in front only)
+    k.onProgress = (v, label, feature) => { if (k !== this.kernel) return; if (feature !== undefined) this._progFeature = feature; this.showProgress(v, label); };
+    return k;
+  }
+  // the kernels the open parts hold
+  liveKernels() { return new Set([this.kernel, ...this.tabs.map((t) => t.kernel), this._spareKernel].filter((k) => k && !k.disposed)); }
+  // (one kernel started ahead, while the PC allows another: a new part's tab takes it ready, without waiting for a
+  // kernel to start)
+  warmSpareKernel() {
+    clearTimeout(this._spareTimer);
+    this._spareTimer = setTimeout(() => {
+      if (this._spareKernel || this.liveKernels().size >= this.tabKernelMax || (this.machine && !memoryFor(this.machine, this.liveKernels().size))) return;
+      this._spareKernel = this.wireKernel(new KernelClient({ fonts: this.kernel.fonts }));
+    }, 300);
+  }
+  // A kernel for a part coming to the front (tab: its tab, or a new one): its own if it still has one; else a
+  // new one while the PC allows (machine.js); else the one of the part used longest ago (it builds this part next).
+  kernelForTab(tab) {
+    if (tab.kernel && !tab.kernel.disposed) return tab.kernel;
+    const live = this.liveKernels();
+    if (this._spareKernel && !this._spareKernel.disposed) {
+      tab.kernel = this._spareKernel;
+      this._spareKernel = null;
+      this.warmSpareKernel();
+      return tab.kernel;
+    }
+    if (live.size < this.tabKernelMax && (!this.machine || memoryFor(this.machine, live.size))) {
+      // (the free memory looked at again for next time)
+      machineInfo().then((m) => { this.machine = m; this.warmSpareKernel(); }).catch(() => {});
+      return (tab.kernel = this.wireKernel(new KernelClient({ fonts: this.kernel.fonts })));
+    }
+    const others = this.tabs.filter((t) => t !== tab && t.kernel && !t.kernel.disposed && t.kernel !== this.kernel).sort((a, b) => (a.kernelUsed || 0) - (b.kernelUsed || 0));
+    const from = others[0];
+    const k = from ? from.kernel : this.kernel;
+    if (from) from.kernel = null;
+    for (const t of this.tabs) if (t !== tab && t.kernel === k) t.kernel = null;
+    return (tab.kernel = k);
+  }
+  // the part of tab t to the front: its kernel becomes the app's
+  useTabKernel(t) {
+    const k = this.kernelForTab(t);
+    t.kernelUsed = performance.now();
+    this.kernel = k;
+  }
+  // a closed part's kernel stopped, unless another part still uses it or it is the last one
+  releaseKernel(k) {
+    if (!k || k.disposed || k === this.kernel || this.tabs.some((t) => t.kernel === k) || ![...this.liveKernels()].some((x) => x !== k)) return;
+    k.dispose();
+  }
+
   // ------------------------------------------------------------ part tabs
   // The active part's state lives on the app; switching tabs stores it and loads the other one.
   storeTab() {
@@ -1320,7 +1392,7 @@ class App {
     if (t?.kind === 'drawing') { t.dirty = t.drawing.dirty; t.filePath = t.drawing.filePath; return; }
     if (!t || !this.doc) return;
     Object.assign(t, { doc: this.doc, history: this.history, filePath: this.filePath, dirty: this.dirty, lastAutosave: this.lastAutosave, view: this.viewport.saveView(),
-      model: this._model?.doc === this.doc ? this._model.r : null, fileKey: this._fileKey, cachedKey: this._cachedKey, statesKey: this._statesKey });
+      model: this._model?.doc === this.doc ? this._model.r : null, fileKey: this._fileKey, cachedKey: this._cachedKey, statesKey: this._statesKey, kernel: this.kernel, kernelUsed: performance.now() });
   }
 
   // Open the next part in a new tab, unless this tab holds an empty, untouched part.
@@ -1341,6 +1413,7 @@ class App {
     this.storeTab();
     this.tabs.push({});
     this.tabIndex = this.tabs.length - 1;
+    this.useTabKernel(this.tabs[this.tabIndex]);
     this.isolated = null;
     if (this.showHiddenMode) this.exitShowHidden(false);
     this.showBanner(null);
@@ -1359,6 +1432,7 @@ class App {
     this.tabIndex = i;
     const t = this.tabs[i];
     if (t.kind === 'drawing') { this.enterDrawing(t.drawing); return; }
+    this.useTabKernel(t);
     this.doc = t.doc; this.history = t.history; this.filePath = t.filePath; this.dirty = t.dirty; this.lastAutosave = t.lastAutosave;
     this._fileKey = t.fileKey || null; this._cachedKey = t.cachedKey || null; this._statesKey = t.statesKey || null; this._model = null;
     this.selection = null;
@@ -1404,12 +1478,15 @@ class App {
       await this.setDoc(M.newDoc());
       return true;
     }
-    this.tabs.splice(i, 1);
+    const closed = this.tabs.splice(i, 1)[0], closedKernel = this.kernel;
     this.tabIndex = -1; // nothing to store: the closed part is gone
     const next = Math.min(i, this.tabs.length - 1);
     const t = this.tabs[next];
     this.tabIndex = next;
-    if (t.kind === 'drawing') { this.enterDrawing(t.drawing); return true; }
+    if (closed) closed.kernel = null;
+    if (t.kind === 'drawing') { this.releaseKernel(closedKernel); this.enterDrawing(t.drawing); return true; }
+    this.useTabKernel(t);
+    this.releaseKernel(closedKernel);
     this.doc = t.doc; this.history = t.history; this.filePath = t.filePath; this.dirty = t.dirty; this.lastAutosave = t.lastAutosave;
     this._fileKey = t.fileKey || null; this._cachedKey = t.cachedKey || null; this._statesKey = t.statesKey || null; this._model = null;
     this.selection = null;

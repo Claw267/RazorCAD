@@ -956,6 +956,23 @@ class Api:
             pass
         return True
 
+    # --- the PC, for how many geometry kernels may work at once (app/js/machine.js) ---
+    def system_info(self):
+        class MemoryStatus(ctypes.Structure):
+            _fields_ = [('dwLength', ctypes.c_ulong), ('dwMemoryLoad', ctypes.c_ulong), ('ullTotalPhys', ctypes.c_ulonglong),
+                        ('ullAvailPhys', ctypes.c_ulonglong), ('ullTotalPageFile', ctypes.c_ulonglong), ('ullAvailPageFile', ctypes.c_ulonglong),
+                        ('ullTotalVirtual', ctypes.c_ulonglong), ('ullAvailVirtual', ctypes.c_ulonglong), ('ullAvailExtendedVirtual', ctypes.c_ulonglong)]
+        out = {'threads': os.cpu_count() or 4, 'totalMB': None, 'freeMB': None}
+        try:
+            m = MemoryStatus()
+            m.dwLength = ctypes.sizeof(MemoryStatus)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m)):
+                out['totalMB'] = m.ullTotalPhys // 1048576
+                out['freeMB'] = m.ullAvailPhys // 1048576
+        except (AttributeError, OSError):
+            pass
+        return out
+
     # --- drawing templates (app/js/drawtemplates.js) ----------------------
     def _template_info(self, path):
         try:

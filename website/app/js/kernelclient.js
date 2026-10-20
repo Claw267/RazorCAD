@@ -1,13 +1,27 @@
 // More geometry kernels at once, for work that doesn't touch the part being edited: an assembly's parts (built
 // side by side), drawing views, picks and cut lists. Each is a worker of its own, started when first needed, up to
-// `size` (a quarter of the PC's processor threads, at most 4). A job with an affinity (a model) goes to the worker
-// that had it before, so that worker's cached build of it is used again.
+// `size` (set from what the PC has: machine.js; until that is known, a quarter of its threads, at most 4). A job
+// with an affinity (a model) goes to the worker that had it before, so that worker's cached build of it is used
+// again. Workers idle for IDLE_MS are stopped (their memory given back), one kept.
+const IDLE_MS = 180000;
 export class KernelPool {
   constructor(main, size = Math.max(1, Math.min(4, Math.floor((navigator.hardwareConcurrency || 4) / 4)))) {
     this.main = main;
     this.size = size;
-    this.workers = []; // { client, jobs }
+    this.workers = []; // { client, jobs, used }
     this.affinity = new Map(); // affinity key → worker
+    this._reap = setInterval(() => this.reap(), 30000);
+  }
+  // (workers idle a while stopped, the most recently used one kept)
+  reap(now = performance.now()) {
+    const idle = this.workers.filter((w) => !w.jobs && now - (w.used || 0) > IDLE_MS).sort((a, b) => (a.used || 0) - (b.used || 0));
+    if (idle.length === this.workers.length) idle.pop();
+    for (const w of idle) {
+      this.workers.splice(this.workers.indexOf(w), 1);
+      for (const [k, x] of this.affinity) if (x === w) this.affinity.delete(k);
+      w.client.dispose();
+    }
+    return idle.length;
   }
   pick(aff) {
     const w = aff && this.affinity.get(aff);
@@ -29,7 +43,7 @@ export class KernelPool {
       await w.client.ready;
       for (const [k, d] of this.main.fonts) await w.client.sendFont(k, d);
       return await w.client.request(type, data);
-    } finally { w.jobs--; }
+    } finally { w.jobs--; w.used = performance.now(); }
   }
   // as many jobs at once as there are workers (fn(item) runs each); resolves when all are done
   async each(items, fn) {
@@ -250,6 +264,14 @@ export class KernelClient {
 
   exportFaceDXF(ref) {
     return this.request('exportFaceDXF', { ref });
+  }
+
+  // The worker stopped for good (its memory given back); requests still waiting fail.
+  dispose() {
+    this.disposed = true;
+    const err = new Error('The geometry kernel was stopped'); err.fatal = false; err.cancelled = true;
+    try { this.failAll(this.worker, err); } catch { /* nothing waiting */ }
+    this.worker.terminate();
   }
 
   // (a font sent to this worker only if it doesn't have it yet: pool workers share the font list)
