@@ -134,7 +134,7 @@ Faces, edges and bodies also offer **Body Properties** and **Export Body as STEP
 ## Bodies
 
 A part can contain several **solid bodies**. A boss that doesn't touch the existing material makes a new body;
-untick **Merge result** in an Extruded/Revolved Boss (or an import) to keep it separate even where it touches.
+untick **Merge result** in an Extrude or Revolve (or an import) to keep it separate even where it touches.
 A cut that slices a body in two leaves two bodies. Fillets, chamfers, patterns and mirrors work on bodies as usual.
 
 - The **Solid Bodies(n)** folder at the top of the Feature tree lists the bodies. Click one to select and
@@ -166,10 +166,10 @@ A numerical constraint solver keeps them satisfied. Geometry is **blue when unde
 | **Corner / Center Rectangle** (R) | Built with H/V relations; the center rectangle also adds construction diagonals with a midpoint relation |
 | **Circle** (C), **Centerpoint Arc** (A) | The arc direction follows the mouse |
 | **Straight Slot**, **Polygon** (P) | Built with tangent / equal relations; set the polygon side count in the Property panel |
-| **Smart Dimension** (D) | Click a line, circle or arc, or two entities, then click to place. Moving the mouse switches between horizontal, vertical and aligned. Two lines give an angle; a point and a line give a perpendicular distance. Values accept equations (`width/2`). A dimension that would over-define the sketch is added as a driven (reference) dimension. |
-| **Trim Entities** (T) | Power trim: hover over a segment and it highlights red; click to remove it up to the nearest intersections. Lines are shortened or split, circles become arcs, and the new end points get on-curve relations. |
-| **Offset Entities** (O) | Click a line, arc or circle: its whole connected chain is offset. You can also click a **model edge** (with *Select chain*, the connected edges lying in a plane parallel to the sketch, e.g. a face outline) or a curve of another sketch. Move the mouse to the side and distance you want and click, then type the exact distance. Corners are re-trimmed or extended. In the Property panel choose **Linked offset** (the offset follows its source, including model edges when the model changes, and one dimension drives the chain; relation "Offset ⇉") or untick it for a **single offset** (plain geometry, no link). |
-| **Convert Entities** (E) | Click a model edge, or an entity of an earlier sketch, to project it into this sketch. Projected geometry is *linked*: it updates when the source changes (relation "On Edge ⇲"). |
+| **Dimension** (D) | Click a line, circle or arc, or two entities, then click to place. Moving the mouse switches between horizontal, vertical and aligned. Two lines give an angle; a point and a line give a perpendicular distance. Values accept equations (`width/2`). A dimension that would over-define the sketch is added as a driven (reference) dimension. |
+| **Trim** (T) | Power trim: hover over a segment and it highlights red; click to remove it up to the nearest intersections. Lines are shortened or split, circles become arcs, and the new end points get on-curve relations. |
+| **Offset** (O) | Click a line, arc or circle: its whole connected chain is offset. You can also click a **model edge** (with *Select chain*, the connected edges lying in a plane parallel to the sketch, e.g. a face outline) or a curve of another sketch. Move the mouse to the side and distance you want and click, then type the exact distance. Corners are re-trimmed or extended. In the Property panel choose **Linked offset** (the offset follows its source, including model edges when the model changes, and one dimension drives the chain; relation "Offset ⇉") or untick it for a **single offset** (plain geometry, no link). |
+| **Project Edges** (E) | Click a model edge, or an entity of an earlier sketch, to project it into this sketch. Projected geometry is *linked*: it updates when the source changes (relation "On Edge ⇲"). |
 | **Construction Geometry** (Q) | Toggles the selected curves to or from construction geometry (ignored by features). Construction geometry is drawn dotted. |
 
 **Circles and arcs:** dimension from a circle or arc to another circle, arc, point or line by clicking both. The
@@ -177,10 +177,10 @@ Modify box then offers **Center** (center to center), **Min** (nearest arc to ar
 measures the gap between concentric circles, so offset arcs can be dimensioned. Switching the condition keeps the
 geometry where it is and shows the newly measured value.
 
-**Smart Dimension to outside references:** while dimensioning, you can also click model edges, model vertices
+**Dimension to outside references:** while dimensioning, you can also click model edges, model vertices
 or entities of earlier sketches. RazorCAD creates linked construction geometry for the reference and dimensions to it,
 so the dimension follows the model. For example, "keep this hole 25 mm from the right edge" still holds after a width change.
-The mouse pointer shows a dimension badge while Smart Dimension is active, and similar badges for Trim and Convert.
+The mouse pointer shows a dimension badge while Dimension is active, and similar badges for Trim and Convert.
 
 ### Relations
 Select entities (Ctrl+click for several). The Property panel then lists the relations that apply:
@@ -216,11 +216,11 @@ and the feature is shown in colour: **yellow** for material it adds and **red** 
 through the body) for material it removes. Fillets and chamfers show the material they add or shave off,
 and reference geometry being edited is drawn in orange. Click ✔ to finish the feature.
 
-- Extruded Boss/Base and Extruded Cut: Blind, Mid Plane, Through All, Through All – Both,
+- Extrude and Extrude Cut: Blind, Mid Plane, Through All, Through All – Both,
   **Up To Vertex** (click a model vertex or choose a reference point), **Up To Surface** and
   **Offset From Surface** (click a flat model face or choose a plane; angled surfaces are supported, and
   the extrusion is trimmed to the surface)
-- Revolved Boss and Revolved Cut, about the sketch axes or any line in the sketch (e.g. a centerline)
+- Revolve and Revolve Cut, about the sketch axes or any line in the sketch (e.g. a centerline)
 - Linear Pattern, Circular Pattern, Mirror. Pattern directions and the circular pattern axis can be X/Y/Z or any
   reference axis. A reference axis can also be the axis of a Revolve.
 - **Reference Plane**: pick up to three references (faces, edges or vertices on the model; planes in the view;
@@ -279,7 +279,7 @@ app/js/kernel.worker.js  geometry kernel worker: replays the history with OpenCa
 app/js/kernelclient.js   main-thread client for the worker (coalesces rebuilds)
 app/js/sketchmodel.js    sketch data, builders, exact profiles, intersections, trim, projection, migration
 app/js/solver.js         geometric constraint solver (Levenberg–Marquardt) + DOF analysis
-app/js/sketcher.js       sketch mode: tools, auto-relations, Smart Dimension, relations, trim, convert
+app/js/sketcher.js       sketch mode: tools, auto-relations, Dimension, relations, trim, convert
 app/js/geometry.js       sketch-plane frames and mass properties
 app/js/viewport.js       3D view, camera, face/edge picking, section caps
 app/js/cadcontrols.js    CAD-style rotate / pan / zoom / roll
@@ -294,7 +294,7 @@ tools/make_icon.py       generates assets/razorcad.ico
   can lose a fillet edge or projected edge; the feature then shows an error so you can re-pick.
 - **Sketches on model faces are stored as fixed planes.** They don't follow the face if the model changes;
   use a reference plane driven by an equation when that matters.
-- **Convert Entities and outside references only see visible sketches** (not ones absorbed into features),
+- **Project Edges and outside references only see visible sketches** (not ones absorbed into features),
   and only sketches earlier in the history.
 - **STL bodies with thousands of faces can't be filleted or chamfered**, and they don't offer pickable edges.
 - **Cuts act on every body they reach** (there is no feature scope yet), and a fillet can't blend across two

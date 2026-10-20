@@ -1,4 +1,4 @@
-// Hole Wizard standards: ISO metric screw sizes with clearance holes (ISO 273: close / normal / loose
+// Hole standards: ISO metric screw sizes with clearance holes (ISO 273: close / normal / loose
 // fits), counterbores for socket head cap screws (ISO 4762) and countersinks for countersunk socket screws
 // (ISO 10642, 90°); tapped holes from the thread tables (tap drill = major diameter − pitch).
 import { threadList } from './threads.js';

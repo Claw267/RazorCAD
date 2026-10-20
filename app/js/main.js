@@ -2673,7 +2673,7 @@ class App {
       items.push({ label: 'Exit Sketch', icon: 'exitSketch', action: () => this.exitSketch(true) });
       items.push({ label: 'Discard Changes', icon: 'cancel', action: () => this.exitSketch(false) });
       items.push('sep');
-      for (const [t, ic, l] of [['select', 'select', 'Select'], ['dim', 'smartdim', 'Smart Dimension'], ['line', 'line', 'Line'], ['centerline', 'centerline', 'Centerline'], ['rect', 'rect', 'Corner Rectangle'], ['circle', 'circle', 'Circle'], ['arc', 'arc', 'Centerpoint Arc'], ['trim', 'trim', 'Trim Entities']])
+      for (const [t, ic, l] of [['select', 'select', 'Select'], ['dim', 'smartdim', 'Dimension'], ['line', 'line', 'Line'], ['centerline', 'centerline', 'Centerline'], ['rect', 'rect', 'Corner Rectangle'], ['circle', 'circle', 'Circle'], ['arc', 'arc', 'Centerpoint Arc'], ['trim', 'trim', 'Trim']])
         items.push({ label: l, icon: ic, action: () => this.sketcher.setTool(t) });
       if (this.sketcher.sel.size) {
         items.push('sep');
@@ -2914,7 +2914,7 @@ class App {
     this.ui.renderPM();
     this.ui.renderTree();
     this.ui.refreshCommandStates();
-    this.status(kept && save ? `${f.name} saved. Use it as a sweep path (e.g. Swept Boss/Base or a structural member).` : 'Ready');
+    this.status(kept && save ? `${f.name} saved. Use it as a sweep path (e.g. Sweep or a structural member).` : 'Ready');
     return kept ? f : null;
   }
 
@@ -2962,7 +2962,7 @@ class App {
     this.ui.setCmTab('features');
     this.ui.renderPM();
     this.ui.refreshCommandStates();
-    this.status(kept && save ? `${f.name} saved. Choose a feature such as Extruded Boss/Base to use it.` : 'Ready');
+    this.status(kept && save ? `${f.name} saved. Choose a feature such as Extrude to use it.` : 'Ready');
     const pf = this.pendingFeature;
     this.pendingFeature = null;
     if (pf && save && kept) setTimeout(() => this.continuePendingFeature(pf, f), 0);
@@ -3535,6 +3535,7 @@ class App {
       }
       if (!Array.isArray(doc.features)) throw new Error('Not a RazorCAD part file');
       doc.equations ??= [];
+      M.renameLegacyNames(doc); // (features still carrying an old default name get the current one)
       doc.nextId ??= doc.features.length + 1;
       const stored = file.path && !recovered ? await this.readModelCache(doc) : { key: null, r: null };
       if (file.path && M.isDefaultName(doc.name)) doc.name = M.fileStem(file.path); // (a part still called "Part1": its file's name)

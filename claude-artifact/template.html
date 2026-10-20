@@ -144,8 +144,8 @@ input[type=file] { display: none; }
 const GUIDE = __GUIDE__;
 
 // ---------------------------------------------------------------- the part (RazorCAD document)
-const BASE = { sketch: ['Sketch'], extrude: ['Boss-Extrude', 'Cut-Extrude'], revolve: ['Revolve', 'Cut-Revolve'], plane: ['Plane'],
-  lpattern: ['LPattern'], cpattern: ['CirPattern'], mirror: ['Mirror'], fillet: ['Fillet'], chamfer: ['Chamfer'], shell: ['Shell'],
+const BASE = { sketch: ['Sketch'], extrude: ['Extrude', 'Extrude Cut'], revolve: ['Revolve', 'Revolve Cut'], plane: ['Plane'],
+  lpattern: ['Linear Pattern'], cpattern: ['Circular Pattern'], mirror: ['Mirror'], fillet: ['Fillet'], chamfer: ['Chamfer'], shell: ['Shell'],
   smBase: ['Base-Flange'], smFlange: ['Edge-Flange'], smCornerRelief: ['Corner-Relief'], smClosedCorner: ['Closed-Corner'] };
 const DEFAULTS = {
   sketch: { plane: { ref: 'front' }, points: [], curves: [], constraints: [], nextSid: 1 },

@@ -31,6 +31,29 @@ export function fileStem(path) {
 // A document still called by its default name (Part1, Assembly2, Drawing1…): it takes its file's name.
 export const isDefaultName = (name) => !name || /^(Part|Assembly|Drawing)\s*\d*$/i.test(String(name).trim());
 
+// Default feature names used by earlier versions, and what they are called now. A feature still carrying
+// an old default name (old name + number) is renamed when its part is opened (names the user typed are kept).
+const LEGACY_NAMES = [['Boss-Extrude', 'Extrude'], ['Cut-Extrude', 'Extrude Cut'], ['Cut-Revolve', 'Revolve Cut'], ['Cut-Sweep', 'Sweep Cut'],
+  ['Cut-Loft', 'Loft Cut'], ['LPattern', 'Linear Pattern'], ['CirPattern', 'Circular Pattern'], ['Body-Move/Copy', 'Move Body'],
+  ['Body-Delete', 'Delete Body'], ['3DSketch', '3D Sketch']];
+export function renameLegacyNames(doc) {
+  const feats = doc?.features || [];
+  const taken = new Set(feats.map((f) => f.name));
+  let n = 0;
+  for (const f of feats) {
+    for (const [old, now] of LEGACY_NAMES) {
+      const m = typeof f.name === 'string' && f.name.startsWith(old) ? /^(\d+)$/.exec(f.name.slice(old.length)) : null;
+      if (!m || taken.has(now + m[1])) continue;
+      taken.delete(f.name);
+      f.name = now + m[1];
+      taken.add(f.name);
+      n++;
+      break;
+    }
+  }
+  return n;
+}
+
 // A document as read from a file, without its preview (kept out of memory, undo and copies).
 export function stripThumbnail(doc) {
   if (doc && typeof doc === 'object') delete doc.thumbnail;
@@ -60,13 +83,13 @@ export const materialById = (id) => MATERIALS.find((m) => m.id === id) || null;
 
 export const TYPE_INFO = {
   sketch: { base: 'Sketch', icon: 'sketch' },
-  extrude: { base: 'Boss-Extrude', cutBase: 'Cut-Extrude', icon: 'extrude', cutIcon: 'cutExtrude' },
-  revolve: { base: 'Revolve', cutBase: 'Cut-Revolve', icon: 'revolve', cutIcon: 'cutRevolve' },
+  extrude: { base: 'Extrude', cutBase: 'Extrude Cut', icon: 'extrude', cutIcon: 'cutExtrude' },
+  revolve: { base: 'Revolve', cutBase: 'Revolve Cut', icon: 'revolve', cutIcon: 'cutRevolve' },
   plane: { base: 'Plane', icon: 'plane' },
   axis: { base: 'Axis', icon: 'axis' },
   point: { base: 'Point', icon: 'refpoint' },
-  lpattern: { base: 'LPattern', icon: 'lpattern' },
-  cpattern: { base: 'CirPattern', icon: 'cpattern' },
+  lpattern: { base: 'Linear Pattern', icon: 'lpattern' },
+  cpattern: { base: 'Circular Pattern', icon: 'cpattern' },
   mirror: { base: 'Mirror', icon: 'mirror' },
   fillet: { base: 'Fillet', icon: 'fillet' },
   chamfer: { base: 'Chamfer', icon: 'chamfer' },
@@ -74,10 +97,10 @@ export const TYPE_INFO = {
   shell: { base: 'Shell', icon: 'shell' },
   combine: { base: 'Combine', icon: 'combine' },
   split: { base: 'Split', icon: 'split' },
-  moveBody: { base: 'Body-Move/Copy', icon: 'moveBody' },
-  deleteBody: { base: 'Body-Delete', icon: 'deleteBody' },
-  sweep: { base: 'Sweep', cutBase: 'Cut-Sweep', icon: 'sweep', cutIcon: 'cutSweep' },
-  loft: { base: 'Loft', cutBase: 'Cut-Loft', icon: 'loft', cutIcon: 'cutLoft' },
+  moveBody: { base: 'Move Body', icon: 'moveBody' },
+  deleteBody: { base: 'Delete Body', icon: 'deleteBody' },
+  sweep: { base: 'Sweep', cutBase: 'Sweep Cut', icon: 'sweep', cutIcon: 'cutSweep' },
+  loft: { base: 'Loft', cutBase: 'Loft Cut', icon: 'loft', cutIcon: 'cutLoft' },
   helix: { base: 'Helix', icon: 'helix' },
   hole: { base: 'Hole', icon: 'hole' },
   draft: { base: 'Draft', icon: 'draft' },
@@ -88,7 +111,7 @@ export const TYPE_INFO = {
   dome: { base: 'Dome', icon: 'dome' },
   scale: { base: 'Scale', icon: 'scale' },
   moveFace: { base: 'Move Face', icon: 'moveFace' },
-  sketch3d: { base: '3DSketch', icon: 'sketch3d' },
+  sketch3d: { base: '3D Sketch', icon: 'sketch3d' },
   thread: { base: 'Thread-Extrude', cutBase: 'Thread-Cut', icon: 'threadExtrude', cutIcon: 'threadCut' },
   wrap: { base: 'Wrap', icon: 'wrap' },
   deleteSurface: { base: 'Surface-Delete', icon: 'deleteSurface' },
@@ -284,7 +307,7 @@ export function createFeature(doc, type, props = {}) {
     sweep: { op: 'add', profileType: 'sketch', profile: null, diameter: 2, path: null, merge: true, thin: false, thinT: 1, thinDir: 'one', scopeAll: true, scope: [] },
     // profiles: sketch ids in order; circles are split to match the other profiles' points
     loft: { op: 'add', profiles: [], ruled: false, merge: true, thin: false, thinT: 1, thinDir: 'one', scopeAll: true, scope: [] },
-    // Hole Wizard: holeType 'simple' | 'cbore' | 'csink' | 'tapped'; size a standard screw size (or
+    // Hole: holeType 'simple' | 'cbore' | 'csink' | 'tapped'; size a standard screw size (or
     // 'custom': diameter / cboreD / cboreDepth / csinkD / csinkAngle), fit 'close' | 'normal' | 'loose';
     // tapped: system + thread (cosmetic, threadDepth for the callout); end 'blind' (depth, drill point) | 'through'
     hole: { holeType: 'simple', size: 'M6', fit: 'normal', diameter: 6.6, cboreD: 11, cboreDepth: 6.5, csinkD: 13.7, csinkAngle: 90, system: 'metric', thread: 'M6', threadDepth: '', end: 'blind', depth: 10, drillPoint: true, reverse: false, sketch: null, faces: [] },

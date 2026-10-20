@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 20:21 — Some features and tools renamed
+- Some features, sketch tools, drawing tools and a ribbon tab have new, plainer names.
+- Features in parts saved earlier that still carry an old default name are renamed when the part is opened; names you typed yourself are kept.
+- README, user manual, website page and the Part Builder template use the new names.
+
 ## 2026-10-19 07:10 — Version 0.11.0-beta
 - `version.txt` 0.10.0-beta → **0.11.0-beta**, for the release with everything below since 0.10.0-beta (STEP assemblies with their sub-assemblies and appearances, the assembly model cache and instanced display, sub-assemblies, drawing templates and sheet formats, PC fonts, the new logo, assembly picking, selection filters, planes, separate part files, no zoom-out limit).
 - The installer is `RazorCAD-Setup-0.11.0-beta.exe`; the user manual is rebuilt for it.
@@ -107,14 +112,14 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 - Source published at https://github.com/Labs9119/RazorCAD; the installer and manual are attached to the 0.10.0-beta release.
 - Installer read-me: crash reports and feature requests go to GitHub Issues.
 
-## 2026-10-18 15:44 — Convert Entities works on selected edges
-- **Select model edges first, then click Convert Entities (or press E)**: the selected edges, vertices or other sketches' entities become real sketch geometry at once (solid, purple, linked to the source, ends joined), and the Select tool stays active.
+## 2026-10-18 15:44 — Project Edges works on selected edges
+- **Select model edges first, then click Project Edges (or press E)**: the selected edges, vertices or other sketches' entities become real sketch geometry at once (solid, purple, linked to the source, ends joined), and the Select tool stays active.
   - Before, the tool ignored the selection. Clicking an edge with Select only makes a temporary reference for relations and dimensions: dotted construction geometry that is not part of the profile. So selected-then-converted edges stayed dotted and unusable.
-- With nothing selected, Convert Entities works as before: click the edges to convert.
+- With nothing selected, Project Edges works as before: click the edges to convert.
 
 ## 2026-10-18 15:02 — Projected (converted) sketch geometry: visible, and usable as profiles
-- **Projected / converted geometry is purple.** Lines, arcs and circles linked to model edges or other sketches (Convert Entities, intersection curves, linked offsets) are now drawn in purple. Before, they were near-black like the model edges they usually lie on, so they could not be seen.
-- **Converted entities join up.** Convert Entities now joins the ends of the new lines with each other and with sketch geometry already at those points. Converting the edges of a face gives a closed outline that can be extruded or cut; before, each line kept its own ends and the sketch had "no closed profile".
+- **Projected / converted geometry is purple.** Lines, arcs and circles linked to model edges or other sketches (Project Edges, intersection curves, linked offsets) are now drawn in purple. Before, they were near-black like the model edges they usually lie on, so they could not be seen.
+- **Converted entities join up.** Project Edges now joins the ends of the new lines with each other and with sketch geometry already at those points. Converting the edges of a face gives a closed outline that can be extruded or cut; before, each line kept its own ends and the sketch had "no closed profile".
 - Converting something already in the sketch no longer stacks a copy on top: the status bar says it is already there.
 - The linked outline still follows the model: widening the source part moves the converted corners, and the features made from them update.
 
@@ -243,8 +248,8 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 - Undo / redo in the assembly.
 - Not in yet: exploded views, interference detection, assembly drawings and STEP export of the whole assembly.
 
-## 2026-10-18 08:26 — 3D Sketch: Convert Entities, Spline, Tangent Arc, Move / Copy / Rotate
-- **Convert Entities** (Sketch tab, E): click model edges to bring them into a 3D sketch. Lines stay lines, circular edges become arcs or circles, and other curves become splines; edges that meet share their corner points.
+## 2026-10-18 08:26 — 3D Sketch: Project Edges, Spline, Tangent Arc, Move / Copy / Rotate
+- **Project Edges** (Sketch tab, E): click model edges to bring them into a 3D sketch. Lines stay lines, circular edges become arcs or circles, and other curves become splines; edges that meet share their corner points.
   - The converted geometry (purple) stays **linked to the model**. When the part changes (say a box gets wider or taller), it follows the edges, and what is attached to it (lines drawn from its corners, dimensions) follows too.
   - "Unlink from the Model" in the Property panel makes it ordinary geometry.
 - **Spline** (N): click the points it runs through (they snap like line points). Double-click or Enter ends it; clicking the first point closes it.
@@ -260,7 +265,7 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 - Also: two arcs that meet can be made Tangent.
 
 ## 2026-10-17 21:49 — 3D Trim and Chamfer; equal radii; fillets and chamfers made equal per use of the tool
-- **Trim Entities in 3D sketches** (Sketch tab, T): click the piece of a line, arc or circle to remove, up to where other entities cross or touch it.
+- **Trim in 3D sketches** (Sketch tab, T): click the piece of a line, arc or circle to remove, up to where other entities cross or touch it.
   - A piece between two crossings splits the entity in two.
   - A circle loses the clicked piece between two crossings and becomes an arc.
   - With nothing crossing it, the whole entity goes.
@@ -280,7 +285,7 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
   - **Polygon:** click the centre, then a corner (sides set in the Property panel, default 6). It stays regular (Regular Polygon relation).
   - **Sketch Fillet:** set the radius in the Property panel and click a corner where two lines meet. Both lines are trimmed and joined by a tangent arc, with a radius dimension (double-click to change it). The sharp corner stays as a point on both lines, so lengths measured to it keep their meaning.
 - Arcs join lines end to end: a run of lines and arcs is one curve, e.g. a pipe route or sweep path with exact bends. Circles are curves of their own.
-- Smart Dimension: click an arc for its **radius**, a circle for its **diameter**. A Tangent relation can be added between an arc and a line that meet. Points snap to the midpoints of arcs too.
+- Dimension: click an arc for its **radius**, a circle for its **diameter**. A Tangent relation can be added between an arc and a line that meet. Points snap to the midpoints of arcs too.
 - A selected arc shows its radius, angle and length; a circle its diameter.
 
 ## 2026-10-17 21:23 — One set of sketch tools for 2D and 3D sketches
@@ -288,7 +293,7 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 - With no sketch open, a tool such as Circle starts a **2D sketch**: you are asked for a plane or flat face, then the tool is ready.
 - **3D Sketch** must be clicked to draw in 3D. While a 3D sketch is open:
   - The **3D Sketch** button stays highlighted and the first button becomes **Exit 3D Sketch**.
-  - The tools a 3D sketch has stay available: **Select, Line, Centerline, Point and Smart Dimension**, plus **Construction Geometry** (Q) for the selected lines and **Delete**.
+  - The tools a 3D sketch has stay available: **Select, Line, Centerline, Point and Dimension**, plus **Construction Geometry** (Q) for the selected lines and **Delete**.
   - Every 2D-only tool (rectangles, circles, arcs, splines, trim, offset, patterns, blocks, text, gears…) is **greyed out and can't be clicked**.
 - The 3D sketch's Property panel no longer repeats the tool buttons. It names the active tool and keeps the drawing plane, the selection, exact points and the curve options.
 
@@ -374,9 +379,9 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 - The previous installer was renamed `RazorCAD-Setup-0.9.0-beta.exe` (kept, not deleted).
 - Building: set the version in `version.txt`, then run `installer\build_installer.bat`.
 
-## 2026-10-14 23:28 — Fixed: Smart Dimension did nothing in sketches
-- Clicking a line, circle or point with Smart Dimension again picks it, and the next click places the dimension and opens the Modify box.
-- Cause: the 13:23 build ("Sketch tools: ellipse, … extend, split …") accidentally removed the line that passed Smart Dimension clicks to the dimension code. Clicks then went to the code for two-click drawing tools, which created nothing. A check of the other changes made that day found nothing else removed this way.
+## 2026-10-14 23:28 — Fixed: Dimension did nothing in sketches
+- Clicking a line, circle or point with Dimension again picks it, and the next click places the dimension and opens the Modify box.
+- Cause: the 13:23 build ("Sketch tools: ellipse, … extend, split …") accidentally removed the line that passed Dimension clicks to the dimension code. Clicks then went to the code for two-click drawing tools, which created nothing. A check of the other changes made that day found nothing else removed this way.
 
 ## 2026-10-14 22:40 — Cut lofted bends have square edges; no rolling lines on formed parts
 - A cut through a Lofted-Bend (or a Transition) now gives edges square to the sheet, as a laser-cut blank formed to shape has. Before, the body was cut by the tool as it was, so a trimmed edge followed the cutting surface at a slant through the thickness, which could leave a thin lip where it met the sheet at a shallow angle (e.g. a fan blade's tip on the A diameter).
@@ -404,7 +409,7 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 ## 2026-10-14 20:25 — Fixed: a deleted STL body stayed on screen (and in new parts); long operations can be stopped
 - Cause: an Extrude cut through the imported 3DBenchy (79,000 mesh faces) takes several minutes. While it ran, every later change (deleting the Benchy, opening a new part) waited in line behind it, so the screen and the Solid Bodies list kept showing the old Benchy.
 - Deleting or changing the feature being worked on (or anything before it), or opening another part, now stops the stale work at once. Deleting the Benchy and the cut now clears the model in about 1 second.
-- After 4 seconds a banner above the model says what is being worked on ("Still working on Cut-Extrude1 (12 s)…"), with a **Stop** button (also next to the progress bar in the status bar). Stop restarts the geometry kernel. A feature you are still editing is cancelled, and a finished feature is suppressed (unsuppress it to try again).
+- After 4 seconds a banner above the model says what is being worked on ("Still working on Extrude Cut1 (12 s)…"), with a **Stop** button (also next to the progress bar in the status bar). Stop restarts the geometry kernel. A feature you are still editing is cancelled, and a finished feature is suppressed (unsuppress it to try again).
 - Starting a cut, boss, fillet, shell, combine and similar features on a body with more than 20,000 mesh faces shows a warning that it can take several minutes.
 
 ## 2026-10-14 20:07 — Fixed: big STL files (e.g. 3DBenchy) would not import
@@ -419,20 +424,20 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 - Toolbar icon size: Small, Medium or Large, from View ▸ Toolbar Icons or by right-clicking the ribbon (a button, a tab or the empty space). The ribbon's height follows the size, and the choice is remembered.
 - Dragging buttons to rearrange them works across both rows.
 
-## 2026-10-14 18:26 — Weldments: weld beads and cut list
+## 2026-10-14 18:26 — Fast Structure: weld beads and cut list
 - Weld Bead: beads of the weld size along every line where the chosen bodies touch (none chosen: every weldment member). Each joint is its own bead body.
-- Cut List (Weldments tab): identical members counted together, with their length, end angles, total length and mass each (from the bodies' materials), then plates and welds (total weld length). It also shows the total length by profile and exports to CSV (opens in Excel).
+- Cut List (Fast Structure tab): identical members counted together, with their length, end angles, total length and mass each (from the bodies' materials), then plates and welds (total weld length). It also shows the total length by profile and exports to CSV (opens in Excel).
 - Drawings: Cut List Table (Annotation tab) for the part of the selected view. It updates when the part changes.
 - Fixed: a drawing view could get a stray line far outside the part (seen with weld beads looked at end on), which spoiled the view's size and the sheet scale.
 
-## 2026-10-14 15:46 — Weldments: Trim/Extend, End Cap, Gusset
+## 2026-10-14 15:46 — Fast Structure: Trim/Extend, End Cap, Gusset
 - Trim/Extend: members trimmed or extended to a plane or another body at their nearer end, either cut square on the boundary's face or coped to it. Click the members on the model.
 - End Cap: a plate on the open end of a tube or pipe, on the end or set inside it flush.
 - Gusset: a triangular plate in the corner between two members (click a flat face on each), with leg lengths, thickness, a corner chamfer for weld clearance, and its position along the corner.
 - Caps and gussets are bodies of their own, named by size for the cut list.
 
-## 2026-10-14 15:43 — Weldments: Structural Member
-- New Weldments tab with Structural Member: a standard profile along every line and arc of a sketch or 3D sketch (and of more sketches added to the list, for frames in 3D). Each member is its own body, named after its profile.
+## 2026-10-14 15:43 — Fast Structure: Structural Member
+- New Fast Structure tab with Structural Member: a standard profile along every line and arc of a sketch or 3D sketch (and of more sketches added to the list, for frames in 3D). Each member is its own body, named after its profile.
 - Profiles: SHS, RHS, CHS (pipe), equal and unequal angle, channel (PFC / UPN), I-beams (UB, UC, IPE, HEA), flat and round bar. Size tables for AS/NZS and EN/ISO, or enter your own sizes.
 - Corners where two members meet: mitred, or butted either way. A member ending on the middle of another (a T-joint), or under a corner (e.g. a table leg), is trimmed to it, square on its face. Pipes and round bars are coped (fish-mouthed).
 - Alignment: which point of the profile the sketch line runs through (centre, corners, edges), profile rotation and mirror.
@@ -474,7 +479,7 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 - IGES is not available: the geometry kernel in RazorCAD is built without its IGES module. STEP does the same job and is read by all CAD programs.
 
 ## 2026-10-14 13:49 — Drawings: callouts, baseline/ordinate/chamfer dimensions, auxiliary/break/crop views, GD&T and symbols, revision table, DXF export
-- Hole Callout: click a hole and the callout gives its size and depth from the Hole Wizard (counterbore, countersink, tapped thread and tap drill), plus how many of the same holes the view shows (e.g. "4× Ø6.6 THRU ALL / CBORE Ø11 DEEP 6.5").
+- Hole Callout: click a hole and the callout gives its size and depth from the Hole feature (counterbore, countersink, tapped thread and tap drill), plus how many of the same holes the view shows (e.g. "4× Ø6.6 THRU ALL / CBORE Ø11 DEEP 6.5").
 - Baseline Dimension (stacked from one base), Ordinate Dimension (distances from an origin along a row) and Chamfer Dimension ("3 × 45°").
 - Auxiliary View (looking square at an inclined edge), Break (a long part shortened, with dimensions across the break keeping the true length) and Crop View (only the area drawn round). Views can be un-broken or un-cropped from the right-click menu.
 - Datum Feature, Geometric Tolerance (feature control frames with the 14 characteristic symbols, Ø zone, material condition and up to three datums), Surface Finish and Weld Symbol (fillet, square, V, bevel, plug; arrow / other / both sides; all-around, field weld, tail), each with an optional leader.
@@ -497,15 +502,15 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 - Toolbars you have rearranged now show commands added in later versions next to their usual neighbours, instead of at the end of the bar.
 
 ## 2026-10-14 13:23 — Sketch tools: ellipse, 3 point and tangent arcs, point, extend, split, sketch patterns, blocks
-- Ellipse tool (centre, end of the major axis, minor radius). Trim an ellipse for an elliptical arc. Smart Dimension on an ellipse sets the minor radius, or the major radius when placed nearer the major axis. Points can be put on ellipses with On Curve relations. Ellipses extrude, revolve and sweep exactly.
+- Ellipse tool (centre, end of the major axis, minor radius). Trim an ellipse for an elliptical arc. Dimension on an ellipse sets the minor radius, or the major radius when placed nearer the major axis. Points can be put on ellipses with On Curve relations. Ellipses extrude, revolve and sweep exactly.
 - 3 Point Arc (start, end, then a point it runs through) and Tangent Arc (from the end of a line or arc, kept tangent by a Tangent relation).
-- Point tool: lone sketch points that stay (e.g. for Hole Wizard positions).
-- Extend Entities (a line or arc end runs on to the first entity in its way and stays on it) and Split Entities (a line or arc split in two at the click, kept collinear / equal).
+- Point tool: lone sketch points that stay (e.g. for Hole positions).
+- Extend (a line or arc end runs on to the first entity in its way and stays on it) and Split (a line or arc split in two at the click, kept collinear / equal).
 - Linear and Circular Sketch Patterns of the selected entities. The relations and dimensions among them are copied too (circular patterns copy only the ones a rotation keeps). A selected point is the circular pattern's centre.
 - Blocks: Make Block saves the selection (with its relations) under a name in your settings. Insert Block places copies with a click, in any sketch, and can delete blocks from the library.
 
-## 2026-10-14 11:47 — Hole Wizard
-- New Hole Wizard (Features tab, Insert ▸ Features): clearance holes (ISO 273 close / normal / loose for M2–M24), counterbores (socket head cap screws, ISO 4762), countersinks (ISO 10642, 90°) and tapped holes (ISO metric and Unified, drilled at the tap drill size, the thread kept for callouts), or your own sizes. Blind with a 118° drill point, or through all; reversible. Placed at clicked points on a flat face, or exactly at the points and circle centres of a sketch on the face. Works on sheet metal too.
+## 2026-10-14 11:47 — Hole
+- New Hole (Features tab, Insert ▸ Features): clearance holes (ISO 273 close / normal / loose for M2–M24), counterbores (socket head cap screws, ISO 4762), countersinks (ISO 10642, 90°) and tapped holes (ISO metric and Unified, drilled at the tap drill size, the thread kept for callouts), or your own sizes. Blind with a 118° drill point, or through all; reversible. Placed at clicked points on a flat face, or exactly at the points and circle centres of a sketch on the face. Works on sheet metal too.
 
 ## 2026-10-14 11:28 — Miter Flange, Sheet Metal Check and bend tables
 - New Miter Flange (Sheet Metal tab): a flange with a profile of up to four segments (length to the outside of the bends, angle; a negative angle folds back the other way — 90 / 90 makes a C, 90 / −90 a Z) along a chain of edges, the corners mitred (closed, with a gap) at every level.

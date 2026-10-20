@@ -811,7 +811,7 @@ export function revolveAxis(f, sketch) {
   return { a: [0, 0], d: [0, 1] };
 }
 
-// ------------------------------------------------------------ projection (Convert Entities)
+// ------------------------------------------------------------ projection (Project Edges)
 // Frames here are plain arrays: { o, u, v, n } (3-vectors).
 const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];

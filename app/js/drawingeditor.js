@@ -1175,7 +1175,7 @@ export class DrawingEditor {
     }
   }
 
-  // The callout text of a hole (circle `e` in view v): from the Hole Wizard when it made the hole,
+  // The callout text of a hole (circle `e` in view v): from the Hole feature when it made the hole,
   // else the diameter. Holes of the same kind in the view are counted (4× …).
   holeCallout(v, e) {
     const g = D.viewGeom(this.doc, v, this.geos), f = (x) => D.fmtNum(x, this.doc);
@@ -1788,7 +1788,7 @@ export class DrawingEditor {
     root.innerHTML = '';
     const t = this.tool;
     if (!t) { root.appendChild(el('div', { class: 'pm-msg' }, 'Pick a drawing command (View Layout or Annotation tab) or double-click a view to edit it.')); return; }
-    const titles = { model: t.orient === 'flat' ? ['smFlatten', 'Flat Pattern'] : ['modelView', 'Model View'], std3: ['std3View', 'Standard 3 View'], projected: ['projView', 'Projected View'], section: ['sectionView', 'Section View'], detail: ['detailView', 'Detail View'], dim: ['smartdim', 'Smart Dimension'], note: ['note', 'Note'], cmark: ['centerMark', 'Center Mark'], cline: ['centerline', 'Centerline'], viewprops: ['modelView', 'Drawing View'],
+    const titles = { model: t.orient === 'flat' ? ['smFlatten', 'Flat Pattern'] : ['modelView', 'Model View'], std3: ['std3View', 'Standard Views'], projected: ['projView', 'Projected View'], section: ['sectionView', 'Section View'], detail: ['detailView', 'Detail View'], dim: ['smartdim', 'Dimension'], note: ['note', 'Note'], cmark: ['centerMark', 'Center Mark'], cline: ['centerline', 'Centerline'], viewprops: ['modelView', 'Drawing View'],
       callout: ['holeCallout', 'Hole Callout'], baseline: ['baselineDim', 'Baseline Dimension'], ordinate: ['ordinateDim', 'Ordinate Dimension'], chamferDim: ['chamferDim', 'Chamfer Dimension'], datum: ['datum', 'Datum Feature'], fcf: ['gdt', 'Geometric Tolerance'], sfin: ['surfFinish', 'Surface Finish'], weld: ['weld', 'Weld Symbol'], aux: ['auxView', 'Auxiliary View'], break: ['breakView', 'Break View'], crop: ['cropView', 'Crop View'] };
     const [ic, title] = titles[t.kind] || ['modelView', t.kind];
     root.appendChild(el('div', { class: 'pm-head' }, `<span class="ti">${icon(ic)}</span><span>${esc(title)}</span>`));
@@ -1969,7 +1969,7 @@ export class DrawingEditor {
       c.appendChild(grid);
     }
     const g = group('How');
-    g.appendChild(el('div', { class: 'pm-hint' }, { callout: 'Click a hole in a view: the callout gives its size and depth (counterbore, countersink, thread) from the Hole Wizard, and how many of the same holes the view shows.', baseline: 'Click the base edge or point first, then each point or edge to dimension from it; the dimensions stack one above the other.', ordinate: 'Click the origin, then where the values line up, then the points to dimension.', chamferDim: 'Click the chamfer edge and an edge next to it, then place the text (distance × angle).', datum: 'A datum letter in a box, with a triangle on the feature.', fcf: 'A feature control frame: characteristic, tolerance (Ø zone, material condition) and datums.', sfin: 'A surface finish symbol with its roughness.', weld: 'A weld symbol on a reference line with an arrow to the joint.', aux: 'A view looking square at an inclined edge (shows its true shape).', break: 'Leaves out the middle of a long part; dimensions across it keep the true length.', crop: 'Shows only the area you draw round.', dim: 'Click a line for its length, a circle for its diameter (an arc: radius), two points, lines or circles for the distance between them (two lines at an angle: the angle), then click where the text goes.', note: 'Click on the sheet for a note; click an edge first to add a leader.', cmark: 'Click circles or arcs.', cline: 'Click two lines (or two points); the centerline runs between them.' }[t.kind] || ''));
+    g.appendChild(el('div', { class: 'pm-hint' }, { callout: 'Click a hole in a view: the callout gives its size and depth (counterbore, countersink, thread) from the Hole feature, and how many of the same holes the view shows.', baseline: 'Click the base edge or point first, then each point or edge to dimension from it; the dimensions stack one above the other.', ordinate: 'Click the origin, then where the values line up, then the points to dimension.', chamferDim: 'Click the chamfer edge and an edge next to it, then place the text (distance × angle).', datum: 'A datum letter in a box, with a triangle on the feature.', fcf: 'A feature control frame: characteristic, tolerance (Ø zone, material condition) and datums.', sfin: 'A surface finish symbol with its roughness.', weld: 'A weld symbol on a reference line with an arrow to the joint.', aux: 'A view looking square at an inclined edge (shows its true shape).', break: 'Leaves out the middle of a long part; dimensions across it keep the true length.', crop: 'Shows only the area you draw round.', dim: 'Click a line for its length, a circle for its diameter (an arc: radius), two points, lines or circles for the distance between them (two lines at an angle: the angle), then click where the text goes.', note: 'Click on the sheet for a note; click an edge first to add a leader.', cmark: 'Click circles or arcs.', cline: 'Click two lines (or two points); the centerline runs between them.' }[t.kind] || ''));
   }
 
   // ------------------------------------------------------------ command ribbon / menus
@@ -1977,7 +1977,7 @@ export class DrawingEditor {
     return {
       layout: [
         { icon: 'modelView', label: 'Model View', action: () => this.startTool('model'), active: this.tool?.kind === 'model' },
-        { icon: 'std3View', label: 'Standard 3 View', action: () => this.startTool('std3'), active: this.tool?.kind === 'std3' },
+        { icon: 'std3View', label: 'Standard Views', action: () => this.startTool('std3'), active: this.tool?.kind === 'std3' },
         { icon: 'projView', label: 'Projected View', action: () => this.startTool('projected'), active: this.tool?.kind === 'projected' },
         { icon: 'smFlatten', label: 'Flat Pattern', action: () => this.startTool('model', { orient: 'flat' }), active: this.tool?.kind === 'model' && this.tool.orient === 'flat' },
         'sep',
@@ -1990,7 +1990,7 @@ export class DrawingEditor {
         { icon: 'rebuild', label: 'Update Views', action: async () => { await this.refreshModels(); this.geoKeys.clear(); this.updateGeometry(); } },
       ],
       annotation: [
-        { icon: 'smartdim', label: 'Smart Dimension', action: () => this.startTool('dim'), active: this.tool?.kind === 'dim' },
+        { icon: 'smartdim', label: 'Dimension', action: () => this.startTool('dim'), active: this.tool?.kind === 'dim' },
         { icon: 'note', label: 'Note', action: () => this.startTool('note'), active: this.tool?.kind === 'note' },
         'sep',
         { icon: 'baselineDim', label: 'Baseline Dimension', action: () => this.startTool('baseline'), active: this.tool?.kind === 'baseline' },
@@ -2073,13 +2073,13 @@ export class DrawingEditor {
       ],
       Insert: [
         { label: 'Drawing View ▸ Model View…', icon: 'modelView', action: () => this.startTool('model') },
-        { label: 'Drawing View ▸ Standard 3 View', icon: 'std3View', action: () => this.startTool('std3') },
+        { label: 'Drawing View ▸ Standard Views', icon: 'std3View', action: () => this.startTool('std3') },
         { label: 'Drawing View ▸ Projected View', icon: 'projView', action: () => this.startTool('projected') },
         { label: 'Drawing View ▸ Flat Pattern', icon: 'smFlatten', action: () => this.startTool('model', { orient: 'flat' }) },
         { label: 'Drawing View ▸ Section View', icon: 'sectionView', action: () => this.startTool('section') },
         { label: 'Drawing View ▸ Detail View', icon: 'detailView', action: () => this.startTool('detail') },
         'sep',
-        { label: 'Annotations ▸ Smart Dimension', icon: 'smartdim', action: () => this.startTool('dim') },
+        { label: 'Annotations ▸ Dimension', icon: 'smartdim', action: () => this.startTool('dim') },
         { label: 'Annotations ▸ Note', icon: 'note', action: () => this.startTool('note') },
         { label: 'Annotations ▸ Center Mark', icon: 'centerMark', action: () => this.startTool('cmark') },
         { label: 'Annotations ▸ Centerline', icon: 'centerline', action: () => this.startTool('cline') },
@@ -2091,7 +2091,7 @@ export class DrawingEditor {
         { label: 'Drawing Properties (Title Block)…', icon: 'titleBlock', action: () => this.propsDialog() },
       ],
       Help: [
-        { label: 'About Drawings', icon: '', action: () => this.app.ui.modal('Drawings', 'drawing', '<p>Place views of a part with <b>Model View</b> or <b>Standard 3 View</b>; make <b>Projected</b>, <b>Section</b> and <b>Detail</b> views from them; add <b>Smart Dimensions</b>, <b>Notes</b>, <b>Center Marks</b> and <b>Centerlines</b>; fill in the title block (<b>Title Block</b>) and export a PDF.</p><p class="pm-hint">Middle or right mouse button drags the sheet, the wheel zooms, F fits the sheet. Drag views and annotations to move them; double-click to edit; Del deletes.</p>', [{ label: 'OK', primary: true }]) },
+        { label: 'About Drawings', icon: '', action: () => this.app.ui.modal('Drawings', 'drawing', '<p>Place views of a part with <b>Model View</b> or <b>Standard Views</b>; make <b>Projected</b>, <b>Section</b> and <b>Detail</b> views from them; add <b>Dimensions</b>, <b>Notes</b>, <b>Center Marks</b> and <b>Centerlines</b>; fill in the title block (<b>Title Block</b>) and export a PDF.</p><p class="pm-hint">Middle or right mouse button drags the sheet, the wheel zooms, F fits the sheet. Drag views and annotations to move them; double-click to edit; Del deletes.</p>', [{ label: 'OK', primary: true }]) },
       ],
     };
   }

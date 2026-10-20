@@ -13,7 +13,7 @@ Solid modelling runs on the **OpenCascade** B-rep kernel (the engine behind Free
 
 Main capabilities:
 
-- Constraint-driven 2D sketches with relations, Smart Dimensions and equations
+- Constraint-driven 2D sketches with relations, Dimensions and equations
 - Solid features: extrude, revolve, sweep, loft, helix, threads, wrap, patterns, mirror, fillet, chamfer, shell
 - Multi-body parts with combine, subtract, split, move/copy and per-body materials
 - Surface modelling: extruded, revolved, planar, offset, knit and thicken
@@ -302,11 +302,11 @@ In the sketch Property panel, **Rotate 90°** turns the sketch axes about the sk
 | **Centerpoint Arc** | [[A]] | Centre, start, end; the direction follows the mouse |
 | **Straight Slot** | | Built with tangent and equal relations |
 | **Polygon** | [[P]] | Set the number of sides in the Property panel |
-| **Smart Dimension** | [[D]] | See below |
-| **Trim Entities** | [[T]] | See below |
-| **Convert Entities** | [[E]] | See below |
-| **Offset Entities** | [[O]] | See below |
-| **Mirror Entities** | | Select the entities plus a centerline, then click Mirror Entities |
+| **Dimension** | [[D]] | See below |
+| **Trim** | [[T]] | See below |
+| **Project Edges** | [[E]] | See below |
+| **Offset** | [[O]] | See below |
+| **Mirror** | | Select the entities plus a centerline, then click Mirror |
 | **Text** | | See below |
 | **Gears** | | See the Gears chapter |
 | **Sketch Fillet / Sketch Chamfer** | | Set the radius or distance, then click corners |
@@ -315,11 +315,11 @@ In the sketch Property panel, **Rotate 90°** turns the sketch axes about the sk
 | **Display Relations** | | Shows or hides the relation glyphs |
 | **Delete** | [[Del]] | Deletes the selected entities or relations |
 
-{idx:sketch tools}{idx:Line tool}{idx:rectangle}{idx:circle}{idx:arc}{idx:slot}{idx:polygon}{idx:construction geometry}{idx:Mirror Entities}{idx:sketch fillet}
+{idx:sketch tools}{idx:Line tool}{idx:rectangle}{idx:circle}{idx:arc}{idx:slot}{idx:polygon}{idx:construction geometry}{idx:Mirror}{idx:sketch fillet}
 
-## Smart Dimension
+## Dimension
 
-Click a line, circle or arc (or two entities), then click to place the dimension. {idx:Smart Dimension}
+Click a line, circle or arc (or two entities), then click to place the dimension. {idx:Dimension}
 
 - Moving the mouse switches between horizontal, vertical and aligned.
 - Two lines give an angle; a point and a line give a perpendicular distance.
@@ -328,22 +328,22 @@ Click a line, circle or arc (or two entities), then click to place the dimension
 - **Circles and arcs:** dimension from a circle or arc to another circle, arc, point or line by clicking both. The Modify box offers **Center** (centre to centre), **Min** (nearest) and **Max** (farthest). Min also measures the gap between concentric circles. Switching keeps the geometry in place and shows the new value.
 - **Outside references:** you can also click model edges, model vertices or entities of earlier sketches. RazorCAD creates linked construction geometry and dimensions to it, so the dimension follows the model. Example: "keep this hole 25 mm from the right edge" still holds after the width changes.
 
-## Trim Entities
+## Trim
 
-Power trim: hover over a segment and it turns red; click to remove it up to the nearest intersections. Lines are shortened or split, circles become arcs, and new end points get on-curve relations. {idx:Trim Entities}
+Power trim: hover over a segment and it turns red; click to remove it up to the nearest intersections. Lines are shortened or split, circles become arcs, and new end points get on-curve relations. {idx:Trim}
 
-## Offset Entities
+## Offset
 
-Click a line, arc or circle and its whole connected chain is offset. Move the mouse to the side and distance you want and click, then type the exact distance. Corners are re-trimmed or extended. {idx:Offset Entities}
+Click a line, arc or circle and its whole connected chain is offset. Move the mouse to the side and distance you want and click, then type the exact distance. Corners are re-trimmed or extended. {idx:Offset}
 
 - You can also click a **model edge** (with **Select chain**, the connected edges lying in a plane parallel to the sketch, such as a face outline) or a curve of another sketch.
 - **Linked offset** (default): the offset follows its source, including model edges when the model changes, and one dimension drives the chain (relation "Offset ⇉").
 - Untick it for a **single offset**: plain geometry with no link.
 - While the tool is active, the faces the sketch plane cuts are highlighted and the cut outline is drawn in teal. Clicking it offsets the whole outline.
 
-## Convert Entities
+## Project Edges
 
-Click a model edge, or an entity of an earlier sketch, to project it into this sketch. Projected geometry is linked and updates when the source changes (relation "On Edge ⇲"). While the tool is active, the outline where the sketch plane cuts the bodies is drawn in teal; clicking it converts the whole outline. This works for solids and surfaces. {idx:Convert Entities}
+Click a model edge, or an entity of an earlier sketch, to project it into this sketch. Projected geometry is linked and updates when the source changes (relation "On Edge ⇲"). While the tool is active, the outline where the sketch plane cuts the bodies is drawn in teal; clicking it converts the whole outline. This works for solids and surfaces. {idx:Project Edges}
 
 ## Text
 
@@ -413,9 +413,9 @@ While a feature's Property panel is open, the model is rolled back to just befor
 
 Every value field accepts numbers or equations (see Equations in the Evaluate chapter).
 
-## Extruded Boss/Base and Extruded Cut
+## Extrude and Extrude Cut
 
-Extrudes a sketch profile into a solid, or cuts it out. {idx:extrude}{idx:Extruded Cut}
+Extrudes a sketch profile into a solid, or cuts it out. {idx:extrude}{idx:Extrude Cut}
 
 End conditions:
 
@@ -434,11 +434,11 @@ Options:
 - **Thin Feature**: makes a wall of the given thickness from the profile; direction one side, other side or mid-plane. Open sketches switch it on automatically. {idx:thin feature}
 - **Feature Scope** (cuts): **All bodies** by default; untick it and click the bodies to cut. {idx:feature scope}
 
-## Revolved Boss/Base and Revolved Cut
+## Revolve and Revolve Cut
 
 Revolves a profile about an axis: the sketch axes, any line in the sketch (such as a centerline), a reference axis, a straight model edge or a cylindrical face (click it in the view). Cuts have the same Feature Scope option as extruded cuts. {idx:revolve}
 
-## Swept Boss/Base and Swept Cut
+## Sweep and Sweep Cut
 
 Sweeps a profile along a path. {idx:sweep}
 
@@ -446,7 +446,7 @@ Sweeps a profile along a path. {idx:sweep}
 - **Path**: a sketch chain or a helix.
 - **Thin** option.
 
-## Lofted Boss/Base and Lofted Cut
+## Loft and Loft Cut
 
 Blends between two or more profile sketches, in order. A third or later profile shapes the middle. {idx:loft}
 
@@ -717,14 +717,14 @@ The default template is A3 with an ISO 5457 frame (zones and centring marks) and
 | Command | What it does |
 |---|---|
 | **Model View** | Pick an open part or browse for a part file, pick the orientation (front, back, top, bottom, left, right, isometric, dimetric, trimetric or flat pattern) and click on the sheet. Then move around it to place projected views. |
-| **Standard 3 View** | Three views laid out for first- or third-angle projection |
+| **Standard Views** | Three views laid out for first- or third-angle projection |
 | **Projected View** | A view aligned with its parent |
 | **Flat Pattern** | A sheet metal body unfolded (see below) |
 | **Section View** | Horizontal or vertical cutting line, hatched cut faces, A-A labels and arrows, flip |
 | **Detail View** | A circle with a letter, 2:1 by default |
 | **Update Views** | Re-reads the parts and redraws the views |
 
-{idx:Model View}{idx:Standard 3 View}{idx:Projected View}{idx:Section View, drawing}{idx:Detail View}
+{idx:Model View}{idx:Standard Views}{idx:Projected View}{idx:Section View, drawing}{idx:Detail View}
 
 Views are hidden-line projections computed by the geometry kernel.
 
@@ -747,7 +747,7 @@ A flat pattern view shows a sheet metal body unfolded with its outline and holes
 
 | Command | How |
 |---|---|
-| **Smart Dimension** | Click a line for its length, a circle for its diameter (an arc: radius), two points, lines or circles for the distance between them (two lines at an angle: the angle), then click where the text goes. Horizontal, vertical or aligned depends on where you place it. Prefix, suffix, tolerance and override text can be set. |
+| **Dimension** | Click a line for its length, a circle for its diameter (an arc: radius), two points, lines or circles for the distance between them (two lines at an angle: the angle), then click where the text goes. Horizontal, vertical or aligned depends on where you place it. Prefix, suffix, tolerance and override text can be set. |
 | **Note** | Click on the sheet; click an edge first to add a leader |
 | **Center Mark** | Click circles or arcs |
 | **Centerline** | Click two lines (or two points); the centerline runs between them |
@@ -841,7 +841,7 @@ Kinds of report: `ui-error`, `kernel-error`, `kernel-worker-crash`, `python-exce
 |---|---|
 | A fillet or projected edge loses its edge after a big change | Edge references are found again by geometry, not by true topological naming. Edit the feature and re-pick the edge. |
 | A sketch on a model face doesn't follow the face | Sketches on faces are stored as fixed planes. Use a reference plane driven by an equation when that matters. |
-| Convert Entities can't see a sketch | It only sees visible sketches earlier in the history. Show the sketch first. |
+| Project Edges can't see a sketch | It only sees visible sketches earlier in the history. Show the sketch first. |
 | An STL body can't be filleted | STL bodies with thousands of faces can't be filleted or chamfered and don't offer pickable edges. |
 | A fillet won't blend across two touching bodies | Combine the bodies first. |
 | Open fails with a file filter error | Fixed in 0.9.0-beta. Update RazorCAD. |
@@ -934,9 +934,9 @@ Run `python serve.py` and open http://localhost:8765/ in a browser. In that mode
 | Arc | [[A]] |
 | Polygon | [[P]] |
 | Trim | [[T]] |
-| Smart Dimension | [[D]] |
-| Convert Entities | [[E]] |
-| Offset Entities | [[O]] |
+| Dimension | [[D]] |
+| Project Edges | [[E]] |
+| Offset | [[O]] |
 | Construction Geometry | [[Q]] |
 | Delete | [[Del]] |
 | End tool, then exit sketch | [[Esc]] |

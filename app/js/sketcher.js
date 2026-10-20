@@ -1,5 +1,5 @@
 // Sketch edit mode: drawing tools with automatic relations, selection,
-// solver-driven dragging, Smart Dimension, relations and Trim Entities.
+// solver-driven dragging, Dimension, relations and Trim.
 import * as THREE from 'three';
 import * as G from './geometry.js';
 import * as S from './sketchmodel.js';
@@ -38,7 +38,7 @@ const CURSORS = {
 
 export const SKETCH_TOOLS = {
   select: { label: 'Select', hint: 'Click to select, Ctrl+click to add to the selection, drag points or lines to move them. Model edges and vertices can be selected too (e.g. a hole edge and a circle for Concentric or Equal). Selected entities show Add Relations in the Property panel.' },
-  dim: { label: 'Smart Dimension', hint: 'Click a line, circle, arc, or two entities, then click where to place the dimension. Move the mouse to switch between horizontal, vertical and aligned. Model edges/vertices and other sketches can be used as references too.' },
+  dim: { label: 'Dimension', hint: 'Click a line, circle, arc, or two entities, then click where to place the dimension. Move the mouse to switch between horizontal, vertical and aligned. Model edges/vertices and other sketches can be used as references too.' },
   line: { label: 'Line', hint: 'Click to place points. Horizontal/vertical and coincident relations are added automatically. Double-click, Enter or Esc ends the chain.' },
   spline: { label: 'Spline', hint: 'Click to place the points the curve runs through (they snap to other points, like the line). Double-click, Enter or Esc ends it; click the first point again to close it into a loop. Drag its points afterwards to reshape it.' },
   centerline: { label: 'Centerline', hint: 'Click two points to draw a construction centerline (use it as a symmetry line or revolve axis).' },
@@ -48,16 +48,16 @@ export const SKETCH_TOOLS = {
   arc: { label: 'Centerpoint Arc', hint: 'Click the center, then the start point, then the end point (direction follows the mouse).' },
   arc3: { label: '3 Point Arc', hint: 'Click the start point, then the end point, then a third point the arc runs through.' },
   tarc: { label: 'Tangent Arc', hint: 'Click the end of a line or arc, then where the arc should end: it leaves tangent to that line or arc (a Tangent relation keeps it so).' },
-  ellipse: { label: 'Ellipse', hint: 'Click the centre, then the end of the major axis, then set the minor radius. Trim it for an elliptical arc. Smart Dimension on it sets the minor radius (or, nearer the major axis, the major radius).' },
+  ellipse: { label: 'Ellipse', hint: 'Click the centre, then the end of the major axis, then set the minor radius. Trim it for an elliptical arc. Dimension on it sets the minor radius (or, nearer the major axis, the major radius).' },
   point: { label: 'Point', hint: 'Click to place a sketch point (e.g. for hole positions or as a reference). It snaps like the line tool.' },
   slot: { label: 'Straight Slot', hint: 'Click the first arc center, the second arc center, then set the width.' },
   polygon: { label: 'Polygon', hint: 'Click the center, then a vertex. Set the number of sides in the Property panel.' },
-  trim: { label: 'Trim Entities', hint: 'Power trim: hover over a segment (it turns red) and click to remove it up to the nearest intersections.' },
-  extend: { label: 'Extend Entities', hint: 'Click a line or arc near the end to extend: it runs on to the first entity in its way (and stays on it).' },
-  split: { label: 'Split Entities', hint: 'Click a line or arc where it should be split into two joined pieces.' },
+  trim: { label: 'Trim', hint: 'Power trim: hover over a segment (it turns red) and click to remove it up to the nearest intersections.' },
+  extend: { label: 'Extend', hint: 'Click a line or arc near the end to extend: it runs on to the first entity in its way (and stays on it).' },
+  split: { label: 'Split', hint: 'Click a line or arc where it should be split into two joined pieces.' },
   block: { label: 'Insert Block', hint: 'Click where the block goes (its centre). Click again for more copies; Esc ends.' },
-  offset: { label: 'Offset Entities', hint: 'Click a line, arc or circle — or a model edge (its chain of edges in a plane parallel to the sketch) — then move to the side and distance you want and click, and type the exact distance. Choose a linked or a single offset in the Property panel.' },
-  convert: { label: 'Convert Entities', hint: 'Click model edges, vertices or entities of other sketches to project them into this sketch. Projected geometry stays linked and updates when its source changes.' },
+  offset: { label: 'Offset', hint: 'Click a line, arc or circle — or a model edge (its chain of edges in a plane parallel to the sketch) — then move to the side and distance you want and click, and type the exact distance. Choose a linked or a single offset in the Property panel.' },
+  convert: { label: 'Project Edges', hint: 'Click model edges, vertices or entities of other sketches to project them into this sketch. Projected geometry stays linked and updates when its source changes.' },
   text: { label: 'Text', hint: 'Click where the text should start. Type it and choose the font, height, bold and italic in the Property panel. Text makes closed outlines for extruded bosses and cuts (and Wrap).' },
   sfillet: { label: 'Sketch Fillet', hint: 'Set the radius in the Property panel, then click a corner where two lines meet. The lines are trimmed and joined by a tangent arc.' },
   schamfer: { label: 'Sketch Chamfer', hint: 'Set the distance in the Property panel, then click a corner where two lines meet. The corner is cut off by a line at that distance along both lines.' },
@@ -200,7 +200,7 @@ export class Sketcher {
   }
 
   setTool(t) {
-    // Convert Entities with model edges (or another sketch's entities) selected: those become sketch
+    // Project Edges with model edges (or another sketch's entities) selected: those become sketch
     // geometry at once (the tool itself waits for clicks when nothing is selected)
     if (t === 'convert' && this.convertSelection()) return;
     this.blendFirst = null;
@@ -481,7 +481,7 @@ export class Sketcher {
   }
 
   // ------------------------------------------------------------ sections (where the sketch plane cuts the model)
-  // For Convert / Offset Entities: the section curves are drawn and can be picked; the faces the plane cuts are highlighted.
+  // For Project Edges / Offset: the section curves are drawn and can be picked; the faces the plane cuts are highlighted.
   async loadSection() {
     const f = this.f;
     this.sectionPrims = null;
@@ -1659,7 +1659,7 @@ export class Sketcher {
     else S.addRel(this.f, 'midpoint', [best, s.curve]);
   }
 
-  // ------------------------------------------------------------ Offset Entities
+  // ------------------------------------------------------------ Offset
   // Model edge (and, with Select chain, the connected edges lying in a plane parallel to the
   // sketch) or a curve of another sketch, projected onto this sketch: [{ src, prims }].
   offsetSourcePrims(ext) {
@@ -1771,7 +1771,7 @@ export class Sketcher {
     }
   }
 
-  // ------------------------------------------------------------ Smart Dimension
+  // ------------------------------------------------------------ Dimension
   dimClick(raw, ev) {
     if (!this.draw) this.draw = { tool: 'dim', picks: [], spec: null, ext: [] };
     const d = this.draw;
@@ -2372,7 +2372,7 @@ export class Sketcher {
       const col = this.sel.has(t.id) ? COL.selected : this.hover === t.id ? COL.hover : COL.defined;
       for (const pl of this.textPolys?.[t.id] || []) addSegs(col, false, pl);
     }
-    // where the sketch plane cuts the model (Convert / Offset Entities can pick these)
+    // where the sketch plane cuts the model (Project Edges / Offset can pick these)
     if (this.sectionPrims && (this.tool === 'convert' || this.tool === 'offset')) for (const g of this.sectionPrims) addSegs(0x0891b2, true, primPolyline(g));
 
     // preview geometry

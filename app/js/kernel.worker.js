@@ -4299,7 +4299,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
           break;
         }
         case 'hole': {
-          // Hole Wizard: simple, counterbored, countersunk or tapped holes at sketch points / circle centres
+          // Hole: simple, counterbored, countersunk or tapped holes at sketch points / circle centres
           // or clicked points on a flat face, square into the material
           const spec = holeSpec(f, ev);
           if (!(spec.d > 0)) throw new Error('The hole diameter must be greater than zero');
@@ -5057,7 +5057,7 @@ async function ensureDrawingCache(docJson) {
     doc.rollbackAt = null;
     const part = await rebuild(doc, null, { partial: true });
     const list = part.solids.length ? part.solids : [];
-    // Hole Wizard holes (for hole callouts)
+    // holes made by the Hole feature (for hole callouts)
     const holes = [];
     for (const r of Object.values(part.features || {})) for (const h of r.holes || []) if (r.sizes) holes.push({ p: h.p, dir: h.dir, sizes: r.sizes, through: r.through, depth: r.depth, thread: r.thread });
     drawingCache = { key: docJson, shape: list.length ? compoundOf(list) : null, solids: list, doc, holes };

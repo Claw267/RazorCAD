@@ -1176,17 +1176,17 @@ export class UI {
         { label: 'Sketch', icon: 'sketch', action: () => a.startSketch() },
         { label: 'Exploded View… (multi-body part)', icon: 'explode', action: () => a.startExplode() },
         'sep',
-        { label: 'Boss/Base ▸ Extrude…', icon: 'extrude', action: () => a.startFeature('extrude', 'add') },
-        { label: 'Boss/Base ▸ Revolve…', icon: 'revolve', action: () => a.startFeature('revolve', 'add') },
+        { label: 'Extrude…', icon: 'extrude', action: () => a.startFeature('extrude', 'add') },
+        { label: 'Revolve…', icon: 'revolve', action: () => a.startFeature('revolve', 'add') },
         { label: 'Cut ▸ Extrude…', icon: 'cutExtrude', action: () => a.startFeature('extrude', 'cut') },
         { label: 'Cut ▸ Revolve…', icon: 'cutRevolve', action: () => a.startFeature('revolve', 'cut') },
-        { label: 'Boss/Base ▸ Sweep…', icon: 'sweep', action: () => a.startFeature('sweep', 'add') },
-        { label: 'Boss/Base ▸ Loft…', icon: 'loft', action: () => a.startFeature('loft', 'add') },
+        { label: 'Sweep…', icon: 'sweep', action: () => a.startFeature('sweep', 'add') },
+        { label: 'Loft…', icon: 'loft', action: () => a.startFeature('loft', 'add') },
         { label: 'Cut ▸ Sweep…', icon: 'cutSweep', action: () => a.startFeature('sweep', 'cut') },
         { label: 'Cut ▸ Loft…', icon: 'cutLoft', action: () => a.startFeature('loft', 'cut') },
         { label: 'Curve ▸ Helix…', icon: 'helix', action: () => a.startFeature('helix') },
         { label: '3D Sketch…', icon: 'sketch3d', action: () => a.startFeature('sketch3d') },
-        { label: 'Features ▸ Hole Wizard…', icon: 'hole', action: () => a.startFeature('hole') },
+        { label: 'Features ▸ Hole…', icon: 'hole', action: () => a.startFeature('hole') },
         { label: 'Features ▸ Thread Cut…', icon: 'threadCut', action: () => a.startFeature('thread', 'cut') },
         { label: 'Features ▸ Thread Extrude…', icon: 'threadExtrude', action: () => a.startFeature('thread', 'add') },
         { label: 'Features ▸ Wrap (Emboss / Deboss)…', icon: 'wrap', action: () => a.startFeature('wrap') },
@@ -1325,17 +1325,17 @@ export class UI {
     const only2d = (d) => (s3 ? { ...d, disabled: true, active: false } : d);
     return {
       features: [
-        { icon: 'extrude', label: 'Extruded Boss/Base', action: () => a.startFeature('extrude', 'add') },
-        { icon: 'revolve', label: 'Revolved Boss/Base', action: () => a.startFeature('revolve', 'add') },
+        { icon: 'extrude', label: 'Extrude', action: () => a.startFeature('extrude', 'add') },
+        { icon: 'revolve', label: 'Revolve', action: () => a.startFeature('revolve', 'add') },
         'sep',
-        { icon: 'sweep', label: 'Swept Boss/Base', action: () => a.startFeature('sweep', 'add') },
-        { icon: 'loft', label: 'Lofted Boss/Base', action: () => a.startFeature('loft', 'add') },
+        { icon: 'sweep', label: 'Sweep', action: () => a.startFeature('sweep', 'add') },
+        { icon: 'loft', label: 'Loft', action: () => a.startFeature('loft', 'add') },
         'sep',
-        { icon: 'cutExtrude', label: 'Extruded Cut', action: () => a.startFeature('extrude', 'cut') },
-        { icon: 'cutRevolve', label: 'Revolved Cut', action: () => a.startFeature('revolve', 'cut') },
-        { icon: 'cutSweep', label: 'Swept Cut', action: () => a.startFeature('sweep', 'cut') },
-        { icon: 'cutLoft', label: 'Lofted Cut', action: () => a.startFeature('loft', 'cut') },
-        { icon: 'hole', label: 'Hole Wizard', action: () => a.startFeature('hole') },
+        { icon: 'cutExtrude', label: 'Extrude Cut', action: () => a.startFeature('extrude', 'cut') },
+        { icon: 'cutRevolve', label: 'Revolve Cut', action: () => a.startFeature('revolve', 'cut') },
+        { icon: 'cutSweep', label: 'Sweep Cut', action: () => a.startFeature('sweep', 'cut') },
+        { icon: 'cutLoft', label: 'Loft Cut', action: () => a.startFeature('loft', 'cut') },
+        { icon: 'hole', label: 'Hole', action: () => a.startFeature('hole') },
         'sep',
         { icon: 'helix', label: 'Helix', action: () => a.startFeature('helix') },
         { icon: 'threadCut', label: 'Thread Cut', action: () => a.startFeature('thread', 'cut') },
@@ -1375,7 +1375,7 @@ export class UI {
           : s3 ? { id: 'sketch-toggle', icon: 'exitSketch', label: 'Exit 3D Sketch', action: () => a.exitSketch3D(true) }
             : { id: 'sketch-toggle', icon: 'sketch', label: 'Sketch', action: () => a.startSketch() },
         { id: 'sketch3d-toggle', icon: 'sketch3d', label: '3D Sketch', action: () => (s3 ? null : a.startFeature('sketch3d')), active: s3 },
-        tool('dim', 'smartdim', 'Smart Dimension'),
+        tool('dim', 'smartdim', 'Dimension'),
         'sep',
         tool('select', 'select', 'Select'),
         tool('line', 'line', 'Line'),
@@ -1392,12 +1392,12 @@ export class UI {
         tool('slot', 'slot', 'Straight Slot'),
         tool('polygon', 'polygon', 'Polygon'),
         'sep',
-        tool('trim', 'trim', 'Trim Entities'),
-        tool('extend', 'extend', 'Extend Entities'),
-        tool('split', 'skSplit', 'Split Entities'),
-        tool('convert', 'convert', 'Convert Entities'),
-        tool('offset', 'offset', 'Offset Entities'),
-        only2d({ icon: 'sketchMirror', label: 'Mirror Entities', action: () => (sk ? a.sketcher.mirrorSelected() : a.startSketch()) }),
+        tool('trim', 'trim', 'Trim'),
+        tool('extend', 'extend', 'Extend'),
+        tool('split', 'skSplit', 'Split'),
+        tool('convert', 'convert', 'Project Edges'),
+        tool('offset', 'offset', 'Offset'),
+        only2d({ icon: 'sketchMirror', label: 'Mirror', action: () => (sk ? a.sketcher.mirrorSelected() : a.startSketch()) }),
         only2d({ icon: 'dxfImport', label: 'Import DXF', action: () => (sk ? a.sketcher.importDXF() : a.startSketch()) }),
         only2d({ icon: 'skLinPattern', label: 'Linear Sketch Pattern', action: () => (sk ? a.sketcher.linearPatternSel() : a.startSketch()) }),
         only2d({ icon: 'skCirPattern', label: 'Circular Sketch Pattern', action: () => (sk ? a.sketcher.circularPatternSel() : a.startSketch()) }),
@@ -1570,7 +1570,7 @@ export class UI {
   }
   savePrefs() { platform.setPrefs(this.prefs || {}).catch?.(() => {}); }
   toolbarTabs() {
-    const out = [['features', 'Features'], ['sketch', 'Sketch'], ['surfaces', 'Surfaces'], ['sheetmetal', 'Sheet Metal'], ['weldments', 'Weldments'], ['evaluate', 'Evaluate']].map(([id, label]) => ({ id, label }));
+    const out = [['features', 'Features'], ['sketch', 'Sketch'], ['surfaces', 'Surfaces'], ['sheetmetal', 'Sheet Metal'], ['weldments', 'Fast Structure'], ['evaluate', 'Evaluate']].map(([id, label]) => ({ id, label }));
     for (const c of this.tbPrefs().custom) out.push({ id: 'custom:' + c.id, label: c.name, custom: true });
     out.push({ id: 'claude', label: 'Claude', html: `${icon('assistant')}Claude` });
     return out;
@@ -4018,7 +4018,7 @@ export class UI {
     const a = this.app;
     let members;
     try { members = await a.kernel.request('cutList', {}); } catch (e) { a.toast(e.message, true); return; }
-    if (!members.length) { a.toast('There are no weldment members yet (Weldments ▸ Structural Member)', true); return; }
+    if (!members.length) { a.toast('There are no weldment members yet (Fast Structure ▸ Structural Member)', true); return; }
     for (const m of members) m.density = a.bodyById(m.id)?.material?.density || null;
     const cl = cutListRows(members);
     const f2 = (x) => (x == null ? '—' : fmt(x, 1));

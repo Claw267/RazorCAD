@@ -8,7 +8,7 @@
 //  * Ctrl+click a plane or a flat face (or click a plane in the tree) to draw on it: its points get On Plane;
 //  * points snap to the sketch's own points (coincident), the midpoints of lines and arcs, onto lines, model
 //    vertices and the origin (fixed there);
-//  * Smart Dimension: lengths, distances, angles, arc radii and circle diameters; Tab while placing a length or
+//  * Dimension: lengths, distances, angles, arc radii and circle diameters; Tab while placing a length or
 //    distance measures it along X, Y or Z instead;
 //  * a selected point shows its X / Y / Z (type new values); a selected line its length and ΔX / ΔY / ΔZ;
 //  * construction geometry (Centerline tool, Construction Geometry) shapes the sketch but makes no curve.
@@ -37,7 +37,7 @@ export { REL3D, normalize3d, solve3d, freedom3d, applicableRelations, getPt, get
 // the Sketch tab's tools a 3D sketch has (the rest are 2D only), and their keys
 export const S3_TOOLS = ['select', 'line', 'centerline', 'point', 'dim', 'circle', 'arc', 'arc3', 'tarc', 'spline', 'polygon', 'sfillet', 'schamfer', 'trim', 'convert'];
 export const S3_KEYS = { select: 'S', line: 'L', circle: 'C', arc: 'A', spline: 'N', polygon: 'P', dim: 'D', trim: 'T', convert: 'E' };
-const TOOL_NAMES = { select: 'Select', line: 'Line', centerline: 'Centerline', point: 'Point', dim: 'Smart Dimension', circle: 'Circle', arc: 'Centerpoint Arc', arc3: '3 Point Arc', tarc: 'Tangent Arc', spline: 'Spline', polygon: 'Polygon', sfillet: 'Sketch Fillet', schamfer: 'Sketch Chamfer', trim: 'Trim Entities', convert: 'Convert Entities' };
+const TOOL_NAMES = { select: 'Select', line: 'Line', centerline: 'Centerline', point: 'Point', dim: 'Dimension', circle: 'Circle', arc: 'Centerpoint Arc', arc3: '3 Point Arc', tarc: 'Tangent Arc', spline: 'Spline', polygon: 'Polygon', sfillet: 'Sketch Fillet', schamfer: 'Sketch Chamfer', trim: 'Trim', convert: 'Project Edges' };
 const DRAW_TOOLS = new Set(['line', 'centerline', 'point', 'circle', 'arc', 'arc3', 'tarc', 'spline', 'polygon']);
 const LINKED = 0x7c3aed; // converted (linked) geometry
 
@@ -395,17 +395,17 @@ export class Sketcher3D {
       line: 'Click points to draw lines in space. Points snap to other points, to the midpoints of lines and onto lines (Midpoint / On Line), and along X, Y or Z from the last point (Along relation). Tab switches the drawing plane XY / YZ / ZX; Ctrl+click a plane or flat face to draw on it. Double-click or Esc ends the line.',
       centerline: 'Centerline: construction lines that shape the sketch (e.g. an envelope to attach to) but make no curve.',
       point: 'Click to place a point (on the drawing plane, a sketch point, a line or its midpoint, a model vertex or the origin).',
-      dim: 'Smart Dimension: click a line (length), two points (distance), two lines (angle), an arc (radius) or a circle (diameter), then click where to place it. Tab measures a length along X, Y or Z instead.',
+      dim: 'Dimension: click a line (length), two points (distance), two lines (angle), an arc (radius) or a circle (diameter), then click where to place it. Tab measures a length along X, Y or Z instead.',
       circle: 'Circle: click the centre, then a point on the circle. It lies on the drawing plane (Tab switches it first).',
       arc: 'Centerpoint Arc: click the centre, then the start, then the end (the arc follows the mouse round). It lies on the drawing plane.',
       arc3: '3 Point Arc: click the start, then the end, then a point the arc runs through (on the drawing plane through the start).',
       polygon: `Polygon: click the centre, then a corner (${this.polySides} sides — set them in the Property panel). It lies on the drawing plane and stays regular.`,
       sfillet: `Sketch Fillet: click corners where two lines meet. Radius ${this.filletR} mm (set it in the Property panel); further fillets are made equal to the first until you leave the tool.`,
       schamfer: `Sketch Chamfer: click corners where two lines meet. Distance ${this.chamferD} mm (set it in the Property panel); further chamfers are made equal to the first until you leave the tool.`,
-      trim: 'Trim Entities: click the piece of a line, arc or circle to remove, up to where other entities cross or touch it (nothing crosses it: the whole entity goes).',
+      trim: 'Trim: click the piece of a line, arc or circle to remove, up to where other entities cross or touch it (nothing crosses it: the whole entity goes).',
       spline: 'Spline: click points it runs through (they snap like line points). Double-click or Enter ends it; click the first point to close it. A Tangent relation with a line at an end makes it leave the line smoothly.',
       tarc: 'Tangent Arc: click the free end of a line, arc or spline, then where the arc ends. It carries on tangent from there; keep clicking for more arcs, Esc ends.',
-      convert: 'Convert Entities: click model edges to bring them into the 3D sketch. They stay linked: when the model changes they follow (and what is attached to them).',
+      convert: 'Project Edges: click model edges to bring them into the 3D sketch. They stay linked: when the model changes they follow (and what is attached to them).',
     };
     this.app.status(hints[t]);
     this.app.ui.renderPM();
@@ -744,7 +744,7 @@ export class Sketcher3D {
     const id = newId(f, 's');
     f.segs.push({ id, type: 'circle', c: cid, r: r6(r), n: n.map(r6) });
     this.changed();
-    this.app.status('Circle added. Click for another; Smart Dimension sets its diameter.');
+    this.app.status('Circle added. Click for another; Dimension sets its diameter.');
   }
 
   finishPolygon() {
@@ -778,7 +778,7 @@ export class Sketcher3D {
     const bid = d.picks[2].pid && Math.abs(len(sub(V(getPt(f, d.picks[2].pid)), C)) - R) < 1e-6 * Math.max(1, R) ? d.picks[2].pid : this.newPoint(B);
     f.segs.push({ id: newId(f, 's'), type: 'arc', a: aid, b: bid, c: cid, n: n.map(r6) });
     this.changed();
-    this.app.status('Arc added. Its ends join lines drawn from them; Smart Dimension sets its radius.');
+    this.app.status('Arc added. Its ends join lines drawn from them; Dimension sets its radius.');
   }
 
   finishArc3() {
@@ -797,7 +797,7 @@ export class Sketcher3D {
     const cid = this.newPoint(C);
     f.segs.push({ id: newId(f, 's'), type: 'arc', a: aid, b: bid, c: cid, n: n.map(r6) });
     this.changed();
-    this.app.status('Arc added. Smart Dimension sets its radius.');
+    this.app.status('Arc added. Dimension sets its radius.');
   }
 
   // Sketch Fillet: the corner point where two lines meet becomes a tangent arc of radius R. The lines are trimmed
@@ -877,7 +877,7 @@ export class Sketcher3D {
     this.app.status(first ? 'Corner chamfered, equal to the first chamfer (Equal Distance). Leave the tool to start a new size.' : `Corner chamfered (${fmt(d)} mm). Further chamfers are made equal to it; double-click a distance to change them all.`);
   }
 
-  // ---------------------------------------------------------------- Trim Entities
+  // ---------------------------------------------------------------- Trim
   // Where the entity id is crossed or touched by the others: [{ t, p, pid?, by? }] along it (t: distance for a
   // line, angle for an arc / circle), and the parameter of the clicked spot.
   cutsOn(id) {
@@ -1001,7 +1001,7 @@ export class Sketcher3D {
     f.rels = f.rels.filter((r) => !r.refs.includes(pid));
   }
 
-  // ---------------------------------------------------------------- Smart Dimension: pick, then click to place
+  // ---------------------------------------------------------------- Dimension: pick, then click to place
   dimClick(e) {
     const h = this.pick(e);
     if (!h) {
@@ -1567,7 +1567,7 @@ export class Sketcher3D {
     root.appendChild(act);
     const st = !this.solveOk ? ['err', 'The relations and dimensions conflict: delete one of them.'] : this.dof === 0 ? ['ok', 'Fully defined'] : this.dof ? ['', `Under defined — ${this.dof} degree${this.dof === 1 ? '' : 's'} of freedom`] : ['', ''];
     if (f.pts.length) root.appendChild(el('div', { class: 'pm-msg ' + st[0] }, st[1]));
-    root.appendChild(el('div', { class: 'pm-hint s3-toolnote' }, `Tool: <b>${TOOL_NAMES[this.tool]}</b>. The 3D sketch tools are on the <b>Sketch</b> tab (Line, Centerline, Circle, arcs, Polygon, Point, Sketch Fillet, Smart Dimension); the greyed ones are 2D only.`));
+    root.appendChild(el('div', { class: 'pm-hint s3-toolnote' }, `Tool: <b>${TOOL_NAMES[this.tool]}</b>. The 3D sketch tools are on the <b>Sketch</b> tab (Line, Centerline, Circle, arcs, Polygon, Point, Sketch Fillet, Dimension); the greyed ones are 2D only.`));
 
     // the active tool's settings
     if (this.tool === 'sfillet' || this.tool === 'schamfer' || this.tool === 'polygon') {
@@ -1773,9 +1773,9 @@ export class Sketcher3D {
       { label: 'Centerpoint Arc', icon: 'arc', action: () => this.setTool('arc') },
       { label: 'Tangent Arc', icon: 'tarc', action: () => this.setTool('tarc') },
       { label: 'Spline', icon: 'spline', action: () => this.setTool('spline') },
-      { label: 'Convert Entities', icon: 'convert', action: () => this.setTool('convert') },
+      { label: 'Project Edges', icon: 'convert', action: () => this.setTool('convert') },
       { label: 'Sketch Fillet', icon: 'sketchFillet', action: () => this.setTool('sfillet') },
-      { label: 'Smart Dimension', icon: 'smartdim', action: () => this.setTool('dim') },
+      { label: 'Dimension', icon: 'smartdim', action: () => this.setTool('dim') },
       { label: `Drawing Plane: ${this.planeLabel()} (Tab for the next)`, icon: 'plane', action: () => this.nextPlane() },
       'sep',
       { label: 'Exit 3D Sketch', icon: 'ok', action: () => this.app.exitSketch3D(true) },
