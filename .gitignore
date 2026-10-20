@@ -12,6 +12,9 @@ signing.local.json
 *.pfx
 *.p12
 
+# Test times, per machine (tests/run_tests.py)
+tests/perf-history.json
+
 # Python
 __pycache__/
 *.pyc

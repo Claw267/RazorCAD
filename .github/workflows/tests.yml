@@ -19,6 +19,12 @@ jobs:
           python-version: '3.12'
       - name: Install Playwright
         run: python -m pip install --upgrade pip playwright
+      # (the test times of earlier runs, so slowdowns are reported; each run stores its own)
+      - uses: actions/cache@v4
+        with:
+          path: tests/perf-history.json
+          key: perf-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: perf-${{ runner.os }}-
       - name: Run the regression tests
         run: python tests/run_tests.py
         env:

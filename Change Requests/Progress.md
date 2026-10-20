@@ -564,7 +564,8 @@ In this order; each item tested (regression suite + preview / exe), logged in CH
 6. Project and quality
 - [x] 6a Releases on GitHub: a tagged version builds the setup and drafts the release (runs only when a version is tagged).
   - Done: .github/workflows/release.yml (on push tags v[0-9]*; contents: write; windows-latest: checkout fetch-depth 0, Python 3.12, tag = v + version.txt check, pip pywebview pyinstaller pillow playwright, tests, optional PFX from secrets RAZORCAD_SIGN_PFX_BASE64 / RAZORCAD_SIGN_PASSWORD, installer\build_installer.bat, files + SHA256SUMS, upload-artifact, gh release create --draft [--prerelease]). tools/release_notes.py (entries not in the previous tag's CHANGELOG.md; regression-test lines dropped; checked locally against v0.13.0-beta: 29 entries). installer/RELEASING.md. Not run (no tag pushed).
-- [ ] 6b Performance tracking in the test suite (rebuild times stored; slowdowns reported).
+- [x] 6b Performance tracking in the test suite (rebuild times stored; slowdowns reported).
+  - Done: tests/run_tests.py: timings(results) (part:name/cfg, drawing:name, ui:name), perf_report (history per machine() = node|processor|cpus, PERF_RUNS 10, PERF_MIN_RUNS 3, SLOW_RATIO 1.5 + SLOW_MS 300, _total_s from full runs only, slowest 3), --perf / --perf-strict. .gitignore tests/perf-history.json; tests.yml caches it (actions/cache, run-id key with restore prefix). Checked with a made-up history (a 9.5× slower test flagged, 10% not); full suite passes.
 - [ ] 6c Accessibility: the Property panels usable from the keyboard, labels for screen readers.
 
 Skipped for now (from the list of 2026-10-21):

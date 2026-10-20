@@ -6,6 +6,12 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 08:35 — Performance tracking in the regression tests
+- `tests/run_tests.py` keeps every run's times (each part's rebuild per configuration, each drawing, each UI test, the whole run) for each machine, the last 10 of each, in `tests/perf-history.json` (not in git).
+- A **Performance** section after the results compares each time with the test's usual time (the median of its earlier runs, after 3 of them). A test markedly slower (1.5× and 300 ms more) is listed as SLOWER. The three slowest tests are listed too.
+- `--perf` lists every time against its usual one; `--perf-strict` fails the run when something got slower. `--only` runs are timed but leave the whole-run time alone.
+- On GitHub the Tests workflow keeps the history between runs, so slowdowns show there too.
+
 ## 2026-10-21 08:31 — Releases from a version tag
 - New GitHub workflow **Release** (`.github/workflows/release.yml`), run only when a version tag is pushed (e.g. `v0.14.0-beta`), never on ordinary pushes. It checks the tag against `version.txt`, runs the regression tests, builds RazorCAD.exe and the setup (signed when signing secrets are set up), and drafts a release with the setup, its read-me and SHA-256 checksums. Betas are marked as pre-releases. Nothing is published until the draft is reviewed.
 - `tools/release_notes.py`: the release notes from CHANGELOG.md, the entries added since the previous tag (test notes left out).
