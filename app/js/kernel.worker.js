@@ -5140,7 +5140,7 @@ async function exportBody(format, bodyId = null, info = {}) {
   const shape = compoundOf(list);
   let blob;
   if (format === 'step') {
-    blob = R.exportSTEP(list.map((s) => ({ shape: s.shape, name: info[s.id]?.name || lastName, ...(info[s.id]?.color ? { color: info[s.id].color } : {}) })), { unit: 'mm' });
+    blob = R.exportSTEP(list.map((s) => ({ shape: s.shape, name: info[s.id]?.name || lastName, ...(info[s.id]?.color ? { color: linearHex(info[s.id].color) } : {}) })), { unit: 'mm' });
   } else if (format === 'obj' || format === '3mf') {
     const parts = list.map((r) => ({ name: info[r.id]?.name || lastName, ...meshArrays(r.shape) }));
     return format === 'obj' ? new TextEncoder().encode(objText(parts)) : threeMF(parts);
@@ -5283,6 +5283,19 @@ async function ensureDrawingCache(docJson) {
 // hidden ones left out. Each part is built once (by its content, in the configuration used) and its solids are
 // placed by location, so a part used many times shares its geometry. Hole callout data are placed with them.
 const asmPartsBuilt = new Map(); // part document (as built) → { solids, holes, threads }: the latest few, kept
+// A part of an assembly built (key: its document as built, in the configuration used), from the latest few kept.
+async function builtPart(key, name, why = 'the drawing') {
+  let b = asmPartsBuilt.get(key);
+  if (b) return b;
+  progress(null, `Building ${name || 'a part'} for ${why}…`);
+  const part = await rebuild(JSON.parse(key), null, { partial: true });
+  const hs = [];
+  for (const r of Object.values(part.features || {})) for (const h of r.holes || []) if (r.sizes) hs.push({ p: h.p, dir: h.dir, sizes: r.sizes, through: r.through, depth: r.depth, thread: r.thread });
+  b = { solids: part.solids || [], holes: hs, threads: Object.values(part.threads || {}).flat() };
+  asmPartsBuilt.set(key, b);
+  while (asmPartsBuilt.size > 60) asmPartsBuilt.delete(asmPartsBuilt.keys().next().value);
+  return b;
+}
 async function assemblySolids(asm) {
   const oc = R.getOC();
   const built = asmPartsBuilt;
@@ -5324,17 +5337,8 @@ async function assemblySolids(asm) {
       const Mc = mul(M, poseM(c)), cfg = e.config && (p.doc.configs || []).some((x) => x.id === e.config) ? e.config : null;
       if (p.doc.kind === 'assembly') { await walk({ ...p.doc, activeConfig: cfg }, Mc, `${prefix}${c.id}/`, depth + 1); continue; }
       const pd = { ...p.doc, activeConfig: cfg, rollbackAt: null };
-      const key = JSON.stringify(pd);
-      let b = built.get(key);
-      if (!b) {
-        progress(null, `Building ${p.name || pd.name || 'a part'} for the drawing…`);
-        const part = await rebuild(JSON.parse(key), null, { partial: true });
-        const hs = [];
-        for (const r of Object.values(part.features || {})) for (const h of r.holes || []) if (r.sizes) hs.push({ p: h.p, dir: h.dir, sizes: r.sizes, through: r.through, depth: r.depth, thread: r.thread });
-        b = { solids: part.solids || [], holes: hs, threads: Object.values(part.threads || {}).flat() };
-        built.set(key, b);
-        while (built.size > 60) built.delete(built.keys().next().value);
-      }
+      const b = await builtPart(JSON.stringify(pd), p.name || pd.name);
+      void built;
       for (const s of b.solids) solids.push({ ...s, id: `${prefix}${c.id}/${s.id}`, shape: placed(s.shape, Mc), comp: c.name });
       for (const h of b.holes) holes.push({ ...h, p: ptM(Mc, h.p), dir: dirM(Mc, h.dir) });
       for (const t of b.threads) threads.push({ ...t, o: ptM(Mc, t.o), d: dirM(Mc, t.d) });
@@ -5343,6 +5347,120 @@ async function assemblySolids(asm) {
   await walk(asm, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], '', 0);
   return { solids, holes, threads };
 }
+// A colour (#rrggbb, as shown) as the kernel's linear RGB: STEP files hold the colour as shown, and the
+// kernel converts its linear values to that when it writes them (given the shown values, it wrote them lighter).
+function linearRGB(hex) {
+  const n = parseInt(String(hex).replace('#', ''), 16) || 0;
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => { const c = v / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; });
+}
+// (the same as a hex colour, for the part exporter, which passes hex colours straight on)
+const linearHex = (hex) => '#' + linearRGB(hex).map((c) => Math.round(c * 255).toString(16).padStart(2, '0')).join('');
+
+// STEP export of an assembly with its structure: each part once, as a shape of its own in the configuration used
+// (with its colour, p.exportColor, and its bodies' own colours); each (sub-)assembly an assembly of its
+// components, placed as they are and named after them. Suppressed components are left out.
+async function exportAssemblySTEP(docJson) {
+  const asm = JSON.parse(docJson);
+  const oc = R.getOC();
+  const keep = [];
+  const str = (s) => { const x = new oc.TCollection_ExtendedString(String(s || ''), true); keep.push(x); return x; };
+  const rgb = (hex) => { const [r, g, b] = linearRGB(hex); const x = new oc.Quantity_ColorRGBA(r, g, b, 1); keep.push(x); return x; };
+  const doc = new oc.TDocStd_Document(str('XmlOcaf'));
+  oc.XCAFDoc_ShapeTool.SetAutoNaming(false);
+  const main = doc.Main(), tool = oc.XCAFDoc_DocumentTool.ShapeTool(main), ctool = oc.XCAFDoc_DocumentTool.ColorTool(main);
+  const SURF = oc.XCAFDoc_ColorType.XCAFDoc_ColorSurf;
+  const effIn = (d, c) => {
+    const o = (d.activeConfig ? (d.configs || []).find((x) => x.id === d.activeConfig) : null)?.comps?.[c.id] || {};
+    return { config: 'config' in o ? o.config : (c.config ?? null), suppressed: 'suppressed' in o ? o.suppressed : !!c.suppressed };
+  };
+  const location = (c) => {
+    const [x, y, z, w] = c.rot || [0, 0, 0, 1], l = Math.hypot(x, y, z, w) || 1, [qx, qy, qz, qw] = [x / l, y / l, z / l, w / l], p = c.pos || [0, 0, 0];
+    const t = new oc.gp_Trsf();
+    t.SetValues(1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw), p[0],
+      2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw), p[1],
+      2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy), p[2]);
+    keep.push(t);
+    const loc = new oc.TopLoc_Location(t);
+    keep.push(loc);
+    return loc;
+  };
+  const labels = new Map(); // part / sub-assembly (as used) → its label
+  const stats = { parts: 0, assemblies: 0, components: 0 };
+  const partLabel = async (p, cfg) => {
+    const key = JSON.stringify({ ...p.doc, activeConfig: cfg, rollbackAt: null });
+    if (labels.has(key)) return labels.get(key);
+    const b = await builtPart(key, p.name, 'the STEP file');
+    const list = b.solids.filter((s) => s.shape);
+    let label = null;
+    if (list.length) {
+      const shape = list.length === 1 ? list[0].shape : compoundOf(list);
+      label = tool.AddShape(shape.wrapped, false, false);
+      oc.TDataStd_Name.Set(label, str(p.name || p.doc.name || 'Part'));
+      if (p.exportColor) ctool.SetColor(label, rgb(p.exportColor), SURF);
+      // (bodies with a colour of their own)
+      if (list.length > 1) for (const s of list) {
+        const c = p.doc.bodies?.[s.id]?.color;
+        if (!c) continue;
+        try { const sub = tool.AddSubShape(label, s.shape.wrapped); if (sub && !sub.IsNull?.()) ctool.SetColor(sub, rgb(c), SURF); } catch (e) { if (isFatal(e)) throw e; }
+      }
+      stats.parts++;
+    }
+    labels.set(key, label);
+    return label;
+  };
+  const asmLabel = async (d, name, depth) => {
+    const key = 'asm:' + JSON.stringify(d);
+    if (labels.has(key)) return labels.get(key);
+    const label = tool.NewShape();
+    oc.TDataStd_Name.Set(label, str(name || 'Assembly'));
+    let any = false;
+    for (const c of d.components || []) {
+      const e = effIn(d, c);
+      if (e.suppressed) continue;
+      const p = (d.parts || []).find((x) => x.id === c.part);
+      if (!p?.doc) continue;
+      const cfg = e.config && (p.doc.configs || []).some((x) => x.id === e.config) ? e.config : null;
+      const child = p.doc.kind === 'assembly'
+        ? (depth < 16 ? await asmLabel({ ...p.doc, activeConfig: cfg, parts: (p.doc.parts || []).map((q) => ({ ...q, exportColor: q.exportColor })) }, p.name || p.doc.name, depth + 1) : null)
+        : await partLabel(p, cfg);
+      if (!child) continue;
+      const cl = tool.AddComponent(label, child, location(c));
+      oc.TDataStd_Name.Set(cl, str(c.name || p.name));
+      stats.components++;
+      any = true;
+    }
+    stats.assemblies++;
+    labels.set(key, any ? label : null);
+    return any ? label : null;
+  };
+  const top = await asmLabel(asm, asm.name, 0);
+  if (!top) throw new Error('The assembly has no parts to export');
+  tool.UpdateAssemblies();
+  progress(null, 'Writing the STEP file…');
+  oc.Interface_Static.SetCVal('xstep.cascade.unit', 'MM');
+  oc.Interface_Static.SetCVal('write.step.unit', 'MM');
+  const session = new oc.XSControl_WorkSession();
+  const writer = new oc.STEPCAFControl_Writer(session, false);
+  try {
+    writer.SetColorMode(true);
+    writer.SetLayerMode(true);
+    writer.SetNameMode(true);
+    oc.Interface_Static.SetIVal('write.surfacecurve.mode', 1);
+    oc.Interface_Static.SetIVal('write.precision.mode', 0);
+    oc.Interface_Static.SetIVal('write.step.assembly', 1);
+    oc.Interface_Static.SetIVal('write.step.schema', 5);
+    const pr = new oc.Message_ProgressRange();
+    keep.push(pr);
+    if (!writer.Perform(doc, 'asm-export.step', pr)) throw new Error('The STEP file could not be written');
+    const file = oc.FS.readFile('/asm-export.step');
+    oc.FS.unlink('/asm-export.step');
+    return { bytes: file, ...stats };
+  } finally {
+    writer.delete(); session.delete(); doc.delete();
+    for (const x of keep) { try { x.delete(); } catch { /* gone */ } }
+  }
+}
+
 function drawingViewsOf(shape, views) {
   const box = bbox(shape);
   return views.map((v) => {
@@ -6746,6 +6864,9 @@ async function handleMessage(e) {
       const r = out.res;
       result = { body: r.body, errors: [...(r.errors instanceof Map ? r.errors : Object.entries(r.errors || {}))].length };
       transfer = out.transfer;
+    } else if (type === 'exportAssemblySTEP') {
+      result = await exportAssemblySTEP(data.doc);
+      transfer = [result.bytes.buffer];
     } else if (type === 'asmInterference') {
       result = await asmInterference(data.doc);
       if (result.mesh) transfer = [result.mesh.vertices.buffer, result.mesh.normals.buffer, result.mesh.triangles.buffer];

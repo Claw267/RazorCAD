@@ -585,6 +585,37 @@ const UI = {
     return ok ? { ok: true, detail: `${titles.length} steps: ${titles.join(' · ')}` } : { ok: false, detail: `${titles.join(' · ')}; open ${!!document.querySelector('#tour')}` };
   },
 
+  // STEP export of an assembly with its structure: a plate, two blocks and a sub-assembly of two more blocks;
+  // read back, each part is in it once, every component placed where it was, named as in the assembly
+  async 'assembly-step-export'() {
+    const a = window.app;
+    const box = (name, w, d, h) => {
+      const p = M.newDoc(); p.name = name;
+      const s = M.createFeature(p, 'sketch', { plane: { ref: 'top' } });
+      const pts = [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]];
+      Object.assign(s, { points: pts.map(([x, y], i) => ({ id: 'p' + (i + 1), x, y })), curves: pts.map((_, i) => ({ id: 'c' + (i + 1), type: 'line', p1: 'p' + (i + 1), p2: 'p' + ((i + 1) % 4 + 1), construction: false })), constraints: [] });
+      p.features.push(s, M.createFeature(p, 'extrude', { sketch: s.id, depth: h }));
+      return p;
+    };
+    const plateDoc = box('Plate', 60, 40, 5), blockDoc = box('Block', 20, 20, 15);
+    const comp = (id, part, name, pos) => ({ id, part, name, pos, rot: [0, 0, 0, 1], fixed: false, hidden: false });
+    const sub = { kind: 'assembly', version: 1, name: 'Pair', nextId: 3, parts: [{ id: 'pt1', name: 'Block', doc: blockDoc }], components: [comp('s1', 'pt1', 'Block<1>', [0, 0, 0]), comp('s2', 'pt1', 'Block<2>', [30, 0, 0])], mates: [] };
+    const asm = { kind: 'assembly', version: 1, name: 'Top', nextId: 9, parts: [{ id: 'pa', name: 'Plate', doc: plateDoc }, { id: 'pb', name: 'Block', doc: blockDoc }, { id: 'pc', name: 'Pair', doc: sub }],
+      components: [comp('c1', 'pa', 'Plate<1>', [0, 0, 0]), comp('c2', 'pb', 'Block<1>', [100, 0, 0]), comp('c3', 'pb', 'Block<2>', [150, 0, 0]), comp('c4', 'pc', 'Pair<1>', [0, 50, 0]), { ...comp('c5', 'pb', 'Block<3>', [0, 0, 300]), suppressed: true }], mates: [] };
+    const r = await a.kernel.request('exportAssemblySTEP', { doc: JSON.stringify(asm) });
+    const text = new TextDecoder().decode(r.bytes);
+    const { readStepAssembly } = await import('/js/stepasm.js');
+    const s = readStepAssembly(text);
+    const top = s.assemblies?.find((x) => x.key === s.root);
+    const pair = s.assemblies?.find((x) => x.name === 'Pair');
+    const names = (top?.children || []).map((c) => c.name).sort();
+    const at = (n) => top?.children.find((c) => c.name === n)?.pos?.map((v) => Math.round(v * 1e6) / 1e6).join(',');
+    const ok = r.parts === 2 && s.parts?.length === 2 && s.occurrences?.length === 5 && pair?.children?.length === 2
+      && JSON.stringify(names) === JSON.stringify(['Block<1>', 'Block<2>', 'Pair<1>', 'Plate<1>']) && at('Block<2>') === '150,0,0' && at('Pair<1>') === '0,50,0';
+    return ok ? { ok: true, detail: `${s.parts.length} parts, ${s.occurrences.length} placed, sub-assembly kept; names ${names.join(', ')}` }
+      : { ok: false, detail: `stats ${JSON.stringify({ parts: r.parts, comps: r.components })}, read: parts ${s.parts?.length}, occ ${s.occurrences?.length}, top ${JSON.stringify(top?.children?.map((c) => [c.name, c.kind, c.pos]))}, warnings ${JSON.stringify(s.warnings)}` };
+  },
+
   // the view's mouse buttons: Shift + right-drag pans, middle-drag turns, a plain right-drag changes nothing
   async 'view-mouse-buttons'() {
     const a = window.app;

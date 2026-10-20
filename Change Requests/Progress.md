@@ -484,3 +484,29 @@ Work through in this order; each item tested, logged in CHANGELOG, RazorCAD.exe 
 ## Installer after the improvement plan (user request 2026-10-20: "run the full installer update when all the updates from this run have been implemented.")
 - [x] version.txt → 0.13.0-beta (0.12.0-beta is already released; the update check needs a higher number to tell testers). installer\build_installer.bat run once, output checked.
 
+## Improvement plan 2 (user request 2026-10-20: "Do all except for FEA and CAM for now. Do item number 2 last when all other feature/improvements have been made. ... Forget about the fan and dust collector generator for now.")
+In this order; each item tested (regression suite + preview / exe), logged in CHANGELOG, RazorCAD.exe rebuilt and smoke-tested, committed locally. FEA, CAM and the fan / dust collector generators are left out on purpose. No installer build and no publishing unless asked.
+1. Gaps
+- [x] 1a STEP export of a whole assembly (components placed, names, colours, sub-assemblies).
+  - Done: kernel builtPart (shared with assemblySolids), exportAssemblySTEP (XCAF: AddShape per part as used, NewShape + AddComponent per (sub-)assembly with TopLoc_Location from the pose, TDataStd_Name for parts / components, ColorTool from p.exportColor and body colours, STEPCAFControl_Writer with write.step.assembly 1), linearRGB / linearHex (colours were written too light; part export fixed too). AssemblyEditor.exportDoc (part colours as shown) / exportSTEP, File ▸ Export ▸ STEP…. Test assembly-step-export; preview: re-imported parts 12000 / 6000 mm³, colours exact.
+- [ ] 1b Etch lines on sheet metal (sketch lines marked onto the flat pattern and its DXF).
+- [ ] 1c Motion: drive a gear / slider / angle and play it back (also settles the half-turn limit of gear mates).
+3. Speed
+- [ ] 3a More than one geometry kernel at a time (separate workers for assembly parts, drawing views, exports).
+- [ ] 3b One-click updating (download and run the new setup from the update notice).
+4. Modelling
+- [ ] 4a Standard parts library (ISO bolts, nuts, washers, pins, bearings) inserted into assemblies, with mates.
+- [ ] 4b Macros and scripting (record / write JavaScript macros driving RazorCAD's commands).
+5. Drawings
+- [ ] 5a Automatic dimensioning of a view (outline, holes, hole patterns; ordinate for flat patterns).
+- [ ] 5b Parts-list options: custom columns (part number, description, mass) from part properties.
+6. Reach and polish
+- [ ] 6a Browser version for razorcad.com ("try it online"), built into the website folder (deployed only when published).
+- [ ] 6b Dark theme.
+- [ ] 6c Other languages (translation framework and translations).
+- [ ] 6d Code signing: nothing to build (ready since 0.13.0-beta; needs the user's certificate) — note only.
+2. Reliability (last)
+- [ ] 2a Regression tests on GitHub (CI) on every push.
+- [ ] 2b More test parts (STEP imports, sheet metal flat patterns, big assemblies, drawings against stored output).
+- [ ] 2c Opt-in crash reporting (send a report to a GitHub issue in one click).
+

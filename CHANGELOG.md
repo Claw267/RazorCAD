@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 22:54 — STEP export of assemblies
+- **Assembly ▸ File ▸ Export ▸ STEP…** saves the whole assembly as one STEP file with its structure. Each part is stored once, in the configuration used. Every component is placed where it is and named after it, sub-assemblies stay assemblies, and the parts keep their colours (and multi-body parts their bodies' colours). Suppressed components are left out. Other CAD programs open it as an assembly; RazorCAD opens it back the same way.
+- Fix: colours in exported STEP files (parts too) came out lighter than shown; they now match.
+- Regression test: assembly-step-export (read back: 2 parts, 5 placed, the sub-assembly kept, names and positions).
+
 ## 2026-10-20 22:33 — Version 0.13.0-beta: installer
 - **RazorCAD-Setup-0.13.0-beta.exe** built (in "RazorCAD Install"), with everything since 0.12.0-beta:
   - automated regression tests;

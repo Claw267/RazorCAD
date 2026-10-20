@@ -1486,6 +1486,26 @@ export class AssemblyEditor {
     ]);
   }
 
+  // The assembly as a STEP file with its structure: each part once, every component placed and named after it,
+  // sub-assemblies as assemblies, with the parts' colours (suppressed components left out).
+  exportDoc() {
+    // (each part's colour as the view shows it: its material's, else its own)
+    const withColours = (d) => ({ ...d, parts: (d.parts || []).map((p) => {
+      if (isAssembly(p.doc)) return { ...p, doc: withColours(p.doc) };
+      const c = materialById(p.doc?.material)?.color ?? p.color ?? DEFAULT_BODY_COLOR;
+      return { ...p, exportColor: '#' + (Number(c) >>> 0 & 0xffffff).toString(16).padStart(6, '0') };
+    }) });
+    return withColours(this.doc);
+  }
+  async exportSTEP() {
+    if (!this.doc.components.length) return;
+    try {
+      const r = await this.app.withProgress('Exporting STEP…', () => this.app.kernel.request('exportAssemblySTEP', { doc: JSON.stringify(this.exportDoc()) }));
+      const path = await platform.saveBinary(`${this.safeName()}.step`, r.bytes, 'step');
+      if (path !== null) this.app.status(`STEP saved: ${r.parts} part${r.parts === 1 ? '' : 's'}, ${r.components} component${r.components === 1 ? '' : 's'}${r.assemblies > 1 ? `, ${r.assemblies - 1} sub-assembl${r.assemblies === 2 ? 'y' : 'ies'}` : ''}.`);
+    } catch (e) { this.app.toast('STEP export failed: ' + e.message, true); }
+  }
+
   // ---------------------------------------------------------------- file
   safeName() { return (this.doc.name || 'Assembly').replace(/[\\/:*?"<>|]/g, '_'); }
   async save(saveAs = false) {
@@ -1675,6 +1695,8 @@ export class AssemblyEditor {
         'sep',
         { label: 'Save', icon: 'save', key: 'Ctrl+S', action: () => a.saveFile() },
         { label: 'Save As…', icon: 'save', key: 'Ctrl+Shift+S', action: () => a.saveFile(true) },
+        'sep',
+        { label: 'Export ▸ STEP…', icon: 'step', action: () => this.exportSTEP(), disabled: !this.doc.components.length },
       ],
       Edit: [
         { label: 'Undo', icon: 'undo', key: 'Ctrl+Z', action: () => this.undo(), disabled: !this.undoStack.length },
