@@ -17,7 +17,7 @@ import { partMesh, assemblyParts } from './partmeshes.js';
 import { bomRows, bomItemOf, BOM_FIELDS, bomPropNames, bomCell } from './bom.js';
 import { propOf } from './custprops.js';
 import { explodeOffsets } from './explode.js';
-import { autoDims } from './autodim.js';
+import { autoDims, AUTO_DIM_DEFAULTS } from './autodim.js';
 import { t as tr } from './i18n.js';
 
 // Assemblies this big (solids, or display triangles) are drawn with fast hidden-line removal unless a view asks
@@ -1421,7 +1421,30 @@ export class DrawingEditor {
   // the top right of the sheet's frame.
   // Auto Dimension: the dimensions the selected views (or all of the sheet's) need, placed round them; each size
   // once (the front view's first), none that a view's own dimensions give already. One undo step.
-  autoDimension() {
+  // Auto Dimension's options (kept with the preferences): the style of the hole positions, a tolerance for the
+  // new lengths and diameters, overlapping texts spread, which kinds of dimension
+  autoDimensionDialog() {
+    const ui = this.app.ui, o = { ...AUTO_DIM_DEFAULTS, ...(ui.prefs?.autoDim || {}) };
+    const box = el('div', { class: 'dw-form' });
+    box.innerHTML = `<div class="kv">
+      <div class="k">Positions</div><div><select data-k="style"><option value="baseline">Baseline (each from the edge)</option><option value="chain">Chain (feature to feature)</option><option value="ordinate">Ordinate (values from a corner)</option></select></div>
+      <div class="k">Tolerance</div><div><input type="text" data-k="tol" placeholder="none, e.g. ±0.1"></div>
+      <div class="k">Add</div><div class="ad-kinds">${[['overall', 'Overall sizes'], ['holes', 'Hole diameters'], ['positions', 'Hole positions'], ['radii', 'Arc radii']].map(([k, l]) => `<label><input type="checkbox" data-k="${k}"> ${esc(l)}</label>`).join('')}</div>
+      <div class="k"></div><div><label class="ad-check"><input type="checkbox" data-k="spread"> Spread labels that would overlap</label></div></div>
+      <div class="pm-hint">For the selected views, or every view on the sheet. Sizes already given in a view are not added again; Ctrl+Z takes them all away.</div>`;
+    box.querySelectorAll('[data-k]').forEach((i) => { const k = i.dataset.k; if (i.type === 'checkbox') i.checked = !!o[k]; else i.value = o[k] ?? ''; i.addEventListener('keydown', (e) => e.stopPropagation()); });
+    ui.modal('Auto Dimension', 'autoDim', box, [
+      { label: 'Dimension', primary: true, action: () => {
+        box.querySelectorAll('[data-k]').forEach((i) => { const k = i.dataset.k; o[k] = i.type === 'checkbox' ? i.checked : i.value.trim(); });
+        ui.prefs ||= {};
+        ui.prefs.autoDim = o;
+        ui.savePrefs();
+        this.autoDimension(o);
+      } },
+      { label: 'Cancel' },
+    ]);
+  }
+  autoDimension(opts = null) {
     const sel = this.doc.views.filter((v) => this.selected.has(v.id) && v.sheet === this.sheetId);
     const views = sel.length ? sel : this.doc.views.filter((v) => v.sheet === this.sheetId);
     if (!views.length) { this.app.toast('Place a view of a part first', true); return 0; }
@@ -1429,7 +1452,7 @@ export class DrawingEditor {
     // (models in the order of their first view; a model view before the views projected from it)
     const order = (v) => (v.type === 'model' || v.type === 'flat' ? 0 : 1);
     const list = [...views].sort((p, q) => order(p) - order(q));
-    const anns = autoDims(this.doc, list, this.geos);
+    const anns = autoDims(this.doc, list, this.geos, new Set(), opts || this.app.ui.prefs?.autoDim || {});
     for (const a of anns) { a.id = D.newId(this.doc, 'a'); this.doc.anns.push(a); }
     if (anns.length) this.changed();
     this.app.status(anns.length ? `${anns.length} dimension${anns.length === 1 ? '' : 's'} added${sel.length ? ' to the selected view' + (sel.length > 1 ? 's' : '') : ''}. Drag them to tidy up; Ctrl+Z takes them all away.` : 'Nothing more to dimension: the views have the sizes already.');
@@ -2256,7 +2279,7 @@ export class DrawingEditor {
       ],
       annotation: [
         { icon: 'smartdim', label: 'Dimension', action: () => this.startTool('dim'), active: this.tool?.kind === 'dim' },
-        { icon: 'autoDim', label: 'Auto Dimension', action: () => this.autoDimension() },
+        { icon: 'autoDim', label: 'Auto Dimension', action: () => this.autoDimensionDialog() },
         { icon: 'note', label: 'Note', action: () => this.startTool('note'), active: this.tool?.kind === 'note' },
         'sep',
         { icon: 'baselineDim', label: 'Baseline Dimension', action: () => this.startTool('baseline'), active: this.tool?.kind === 'baseline' },
@@ -2349,7 +2372,7 @@ export class DrawingEditor {
         { label: 'Drawing View ▸ Detail View', icon: 'detailView', action: () => this.startTool('detail') },
         'sep',
         { label: 'Annotations ▸ Dimension', icon: 'smartdim', action: () => this.startTool('dim') },
-        { label: 'Annotations ▸ Auto Dimension', icon: 'autoDim', action: () => this.autoDimension() },
+        { label: 'Annotations ▸ Auto Dimension', icon: 'autoDim', action: () => this.autoDimensionDialog() },
         { label: 'Annotations ▸ Note', icon: 'note', action: () => this.startTool('note') },
         { label: 'Annotations ▸ Center Mark', icon: 'centerMark', action: () => this.startTool('cmark') },
         { label: 'Annotations ▸ Centerline', icon: 'centerline', action: () => this.startTool('cline') },

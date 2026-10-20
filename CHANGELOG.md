@@ -6,6 +6,14 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 06:35 — Auto Dimension options
+- **Auto Dimension** now asks how to dimension. Your choices are kept for next time.
+  - **Positions:** baseline (each hole from the edge, as before), chain (edge → hole → hole, on one row), or ordinate (values from the view's bottom left corner, on a row above and a column to the right).
+  - **Tolerance:** e.g. ±0.1, added to the new lengths and diameters.
+  - **Spread labels that would overlap:** texts on one row are moved apart, and hole and arc labels are moved further out along their leader.
+  - **Add:** choose which kinds: overall sizes, hole diameters, hole positions, arc radii.
+- Regression test: auto-dimension-styles (chain with ±0.1 and no overlapping texts, then ordinate).
+
 ## 2026-10-21 06:31 — Macros in assemblies and drawings
 - **Record Macro** now records what you change in **assemblies and drawings** too, not only their commands:
   - in assemblies: parts inserted, components placed or moved, mates, explode steps, motion studies, configurations;

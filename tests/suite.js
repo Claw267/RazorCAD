@@ -1146,6 +1146,48 @@ rc.log(b.bodies, b.errors.length);`, 'text');
       : { ok: false, detail: `asm ${JSON.stringify(r)} parts ${asm.doc.parts.length} comps ${asm.doc.components.length} mates ${asm.doc.mates.length} solved ${asm.solveOk} y ${top?.pos} undo ${asm.undoStack.length}; dwg ${JSON.stringify(r2)} note ${JSON.stringify(note)}; code:\n${code.slice(0, 600)}\n${code2.slice(0, 400)}` };
   },
 
+  // Auto Dimension options: chain style with a ±0.1 tolerance on the plate (edge → hole → hole), then ordinate
+  // style (values from the corner); texts on a row do not overlap, also with holes close together
+  async 'auto-dimension-styles'() {
+    const a = window.app;
+    if (a.mode === 'drawing') { const i = a.tabs.findIndex((t) => t.kind !== 'drawing'); if (i >= 0) await a.activateTab(i); }
+    a.newDocument(); await wait(200);
+    const r = await a.macros.run(`const p = await rc.sketch('top', (s) => s.centerRect(0, 0, 120, 80));
+await rc.extrude(p, 10);
+const h = await rc.sketch('top', (s) => { for (const x of [-50, -44, 50]) s.circle(x, 30, 2); });
+await rc.cut(h, 10);`, 'plate');
+    if (!r.ok) return { ok: false, detail: r.error };
+    const keep = a.ui.newDrawingSetup;
+    a.ui.newDrawingSetup = async () => ({ template: BUILTIN_TEMPLATES.find((t) => t.id === 'builtin:A3L'), name: 'Styles', props: {}, sheet: null });
+    try { await a.newDrawing(true); } finally { a.ui.newDrawingSetup = keep; }
+    const ed = a.drawing;
+    await until(() => ed.doc.views.length === 3 && ed.doc.views.every((v) => (ed.geos.get(v.id)?.edges?.length || 0) > 0), 60000, 250);
+    const n1 = ed.autoDimension({ style: 'chain', tol: '±0.1', spread: true });
+    const dims = ed.doc.anns.filter((x) => x.type === 'dim' && x.kind === 'linear');
+    const vals = dims.map((x) => Math.round(D2.dimValue(ed.doc, x) * 1000) / 1000).sort((p, q) => p - q).join(',');
+    const tolOk = dims.every((x) => D2.dimText(ed.doc, x).endsWith(' ±0.1'));
+    // (texts on one row: no two overlap)
+    const th = ed.doc.settings?.textH || 3.5;
+    let overlap = 0;
+    for (const v of ed.doc.views) for (const o of ['h', 'v']) {
+      const rows = new Map();
+      for (const x of dims.filter((d) => d.view === v.id && d.orient === o)) { const k = Math.round(x.pos[o === 'h' ? 1 : 0] * 1000); if (!rows.has(k)) rows.set(k, []); rows.get(k).push(x); }
+      for (const list of rows.values()) {
+        const iv = list.map((x) => { const w = D2.textWidth(D2.dimText(ed.doc, x), th), c = x.pos[o === 'h' ? 0 : 1]; return [c - w / 2, c + w / 2]; }).sort((p, q) => p[0] - q[0]);
+        for (let i = 1; i < iv.length; i++) if (iv[i][0] < iv[i - 1][1]) overlap++;
+      }
+    }
+    ed.undo();
+    const n2 = ed.autoDimension({ style: 'ordinate', tol: '', spread: true });
+    const ords = ed.doc.anns.filter((x) => x.type === 'ordinate');
+    // (the view with the holes: the most ordinate values)
+    const top = [...ed.doc.views].sort((p, q) => ords.filter((x) => x.view === q.id).length - ords.filter((x) => x.view === p.id).length)[0];
+    const xvals = ords.filter((x) => x.view === top?.id && x.axis === 'x').map((x) => Math.round(Math.abs(x.p[0] - x.o[0]) * 1000) / 1000).sort((p, q) => p - q).join(',');
+    const ok = vals === '6,10,10,70,80,94,120' && tolOk && overlap === 0 && n1 === 8 && xvals === '0,10,16,110,120' && n2 > 8;
+    return ok ? { ok: true, detail: `chain: ${vals} (±0.1), no overlaps; ordinate: x ${xvals}` }
+      : { ok: false, detail: `chain ${n1}: ${vals}, tol ${tolOk}, overlaps ${overlap}; ordinate ${n2}: x ${xvals}` };
+  },
+
   // the browser version's notice: above the window, as wide as it (the text wraps), gone with ✕
   async 'web-notice'() {
     const a = window.app, root = document.getElementById('app');
