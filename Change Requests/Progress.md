@@ -441,7 +441,8 @@ Work through in this order; each item tested, logged in CHANGELOG, RazorCAD.exe 
 1. Reliability
 - [x] 1a Automated regression tests: test parts rebuilt by the real kernel and compared with stored results (volume, area, faces, edges, bodies, errors), plus scripted UI checks (sketch, extrude, drawing, assembly); one command runs them.
   - Done: tests/run_tests.py (server + headless Edge via Playwright), tests/make_parts.js (11 parts), tests/suite.js (part results + 4 UI checks), tests/expected.json (values checked by hand: plate, shell, combine, configurations), tests/README.md. All pass in 5 s; a changed shell thickness is reported as a volume / area difference. (No app change, so no exe rebuild.)
-- [ ] 1b Feature references that survive edits (faces / edges / mates found more robustly) and a "fix broken references" dialog.
+- [x] 1b Feature references that survive edits (faces / edges / mates found more robustly) and a "fix broken references" dialog.
+  - Done: kernel edge refs keep fn (side faces: type, outward normal, convex/concave), near matches must fit it, then a signature search near the box-remapped point (pattern copies turn fn); findFace / findFaceAny: a moved planar face found (same normal, clearly nearest) and the ref moved onto it; per-feature refLog → res.missing (paths) and moved refs written back. main: result.missing, removeMissingRefs, status-bar error count opens the dialog. ui: showFixReferences (Tools, feature menu). assembly: refind (geometry first, then number, then nearest same kind/direction), brokenMates with tree marker, Tools ▸ Fix Mates. Tests added; all 17 pass. Checked in the preview: moved inside-corner fillet followed 40 → 85 → 60; step removed → dialog → Remove missing → no errors; broken mate marked and listed.
 - [ ] 1c Kernel requests handled strictly one at a time in the worker itself.
 2. Speed
 - [ ] 2a Cosmetic threads (shown and called out on drawings, not modelled).

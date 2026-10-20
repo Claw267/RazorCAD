@@ -607,3 +607,12 @@ svg.ref-arrows { position: absolute; left: 0; top: 0; pointer-events: none; z-in
 .sm-check-t th, .sm-check-t td { border: 1px solid var(--border-soft, #dde3ea); padding: 2px 6px; text-align: right; }
 .sm-check-t th { background: var(--panel, #f4f6f8); text-align: center; }
 .sm-check-t td:first-child, .sm-check-t td:nth-child(2) { text-align: left; }
+
+/* Fix References */
+.fixrefs { max-width: 760px; max-height: 60vh; overflow: auto; }
+.fixrefs td { vertical-align: top; }
+.fixrefs td svg { width: 16px; height: 16px; vertical-align: -3px; }
+.fixrefs tr.focus td { background: var(--sel-soft, rgba(33, 150, 243, 0.12)); }
+.fixrefs .fix-acts { white-space: nowrap; }
+.fixrefs .fix-acts button { margin: 0 4px 4px 0; }
+

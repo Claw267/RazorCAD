@@ -6,6 +6,13 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 21:27 — References that survive edits; Fix References
+- **Edges are found again after bigger changes.** An edge reference (fillets, chamfers, axes…) now also remembers the faces on its two sides and whether it is an outside or inside corner. When a dimension moves the edge so far that other edges lie nearer its old place, RazorCAD still finds the right one. It no longer takes a nearby edge of a different kind for it.
+- **Faces that moved are found again** (shell, draft, faces picked for other features): the face facing the same way that is clearly nearest. A reference found this way is updated in the part, so it keeps following the model.
+- **Mates follow their parts.** A mate's face or edge is checked by its geometry, not only by its number in the part. After a part gets a new feature (its faces numbered differently) or a dimension moves the face, the mate stays on the same face. A mate whose face or edge is gone is marked with a red **!** in the tree ("1 mate lost a face"), instead of quietly moving to another face.
+- **Tools ▸ Fix References** (also: click the red error count in the status bar, or right-click a failed feature) lists every feature that failed to rebuild, what went wrong and which edges / faces are no longer found. For each: **Edit** (pick again), **Remove missing** (keep the references still found) or **Suppress**. The list updates after every rebuild. In assemblies: **Tools ▸ Fix Mates** (Edit / Suppress / Delete).
+- Regression tests: references-follow-edits and mates-follow-part-edits.
+
 ## 2026-10-20 21:16 — Automated regression tests
 - **`python tests/run_tests.py`** rebuilds 11 test parts with the real geometry kernel in headless Edge and compares the results with stored ones: feature errors and, per body, face / edge count, volume, area (sheet metal: flat-pattern size and bends), in every configuration. Covered: extrude, cut, linear and circular patterns, fillet, revolve, shell, sweep, loft, reference plane, sheet-metal base and edge flanges, multiple bodies and combine, counterbored holes, surface extrude and thicken, a one-operation cut pattern, structural members, equations and configurations.
 - **UI checks** done with real pointer events: sketch a rectangle, dimension it, extrude it (checks the volume); a drawing with three views; an assembly of two components; the mouse buttons on the view.

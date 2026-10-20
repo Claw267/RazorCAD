@@ -669,12 +669,85 @@ export class AssemblyEditor {
 
   resyncRefs() {
     this._leaves = this.leaves();
-    for (const m of this.doc.mates) for (const r of [m.a, m.b]) {
+    this.brokenMates = new Map(); // mate id → which of its two references (a / b) are no longer found
+    for (const m of this.doc.mates) for (const side of ['a', 'b']) {
+      const r = m[side];
+      if (r.comp === ORIGIN) continue;
       const l = this._leaves[this.leafOf(r)], mesh = l && this.parts.get(l.gk)?.mesh;
       if (!mesh) continue;
-      const fresh = r.face !== undefined ? refOfFace(mesh, r.face) : r.edge !== undefined ? refOfEdge(mesh, r.edge, r.endAt) : null;
-      if (fresh && fresh.kind === r.kind) { const t = this.toTop(l, fresh); Object.assign(r, { p: t.p, n: t.n, d: t.d, r: t.r }); }
+      const hit = this.refind(l, mesh, r);
+      if (hit === undefined) continue;
+      if (!hit) { this.brokenMates.set(m.id, [...(this.brokenMates.get(m.id) || []), side]); continue; }
+      Object.assign(r, { p: hit.p, n: hit.n, d: hit.d, r: hit.r });
+      if (r.face !== undefined) r.face = hit.idx; else r.edge = hit.idx;
     }
+  }
+
+  // The face / edge a mate reference is on, found again after its part changed (in top-component coordinates,
+  // with its number idx). By its number while that one is still exactly where it was; else the face of the same
+  // kind exactly where it was (the part's faces were numbered differently, e.g. after a feature was added);
+  // else the numbered one if it is still the same kind, facing the same way (it moved with a dimension); else
+  // the one of the same kind and direction clearly nearest. null: gone; undefined: not a face or edge.
+  refind(l, mesh, r) {
+    const isFace = r.face !== undefined;
+    if (!isFace && r.edge === undefined) return undefined;
+    const count = isFace ? mesh.faceGroups?.length || 0 : mesh.edges?.length || 0;
+    const make = (i) => {
+      const x = isFace ? refOfFace(mesh, i) : refOfEdge(mesh, i, r.endAt);
+      return x && x.kind === r.kind && !!x.circle === !!r.circle ? { ...this.toTop(l, x), idx: i } : null;
+    };
+    const dir = (x) => x.n || x.d;
+    const parallel = (x) => {
+      const a = dir(x), b = dir(r);
+      if (!a || !b) return !a && !b;
+      return r.kind === 'plane' ? dot(a, b) > 0.999 : Math.abs(dot(a, b)) > 0.999;
+    };
+    // how far from where it was: a plane's offset, an axis's distance (and change of radius), a point's distance
+    const dist = (x) => r.kind === 'plane' ? Math.abs(dot(sub(x.p, r.p), r.n))
+      : r.kind === 'axis' ? len(cross(sub(x.p, r.p), unit(r.d))) + Math.abs((x.r || 0) - (r.r || 0))
+      : len(sub(x.p, r.p));
+    const TOL = 1e-5;
+    const own = isFace ? r.face : r.edge;
+    const cur = own < count ? make(own) : null;
+    if (cur && parallel(cur) && dist(cur) < TOL) return cur;
+    const cands = [];
+    for (let i = 0; i < count; i++) { const x = make(i); if (x && parallel(x)) cands.push([dist(x), x]); }
+    const exact = cands.filter(([d]) => d < TOL).map(([, x]) => x);
+    if (exact.length) return exact.sort((x, y) => len(sub(x.p, r.p)) - len(sub(y.p, r.p)))[0];
+    if (cur && parallel(cur)) return cur;
+    cands.sort((x, y) => x[0] - y[0]);
+    if (cands.length && (cands.length === 1 || cands[1][0] > cands[0][0] * 1.6)) return cands[0][1];
+    return null;
+  }
+
+  // The mates whose faces / edges are no longer found in their parts: what each one lost, and ways to fix it.
+  showBrokenMates() {
+    const ui = this.app.ui, body = document.createElement('div');
+    body.className = 'fixrefs';
+    const render = () => {
+      const bad = this.doc.mates.filter((m) => this.brokenMates?.has(m.id));
+      if (!bad.length) { body.innerHTML = '<p>Every mate finds its faces and edges.</p>'; return; }
+      body.innerHTML = `<p class="pm-hint">${bad.length} mate${bad.length > 1 ? 's have' : ' has'} a face or edge that is no longer in its part (it keeps its last position for now). Edit the mate to pick it again, or suppress or delete it.</p>`;
+      const tbl = document.createElement('table');
+      tbl.className = 'grid';
+      tbl.innerHTML = '<tr><th>Mate</th><th>Not found</th><th></th></tr>';
+      for (const m of bad) {
+        const tr = document.createElement('tr');
+        const lost = this.brokenMates.get(m.id).map((k) => `${m[k].what || 'Reference'} of ${this.comp(m[k].comp)?.name || '?'}`).join(', ');
+        tr.innerHTML = `<td>${icon(MATE_TYPES[m.type]?.icon || 'mate')} ${esc(m.name)}</td><td>${esc(lost)}</td>`;
+        const td = document.createElement('td');
+        td.className = 'fix-acts';
+        const btn = (label, fn) => { const b = document.createElement('button'); b.textContent = label; b.onclick = fn; td.appendChild(b); };
+        btn('Edit', () => { dlg.close(); this.startMate(m.id); });
+        btn(this.effMate(m).suppressed ? 'Unsuppress' : 'Suppress', () => { this.toggleMate(m.id); render(); });
+        btn('Delete', () => { this.deleteMate(m.id); render(); });
+        tr.appendChild(td);
+        tbl.appendChild(tr);
+      }
+      body.appendChild(tbl);
+    };
+    render();
+    const dlg = ui.modal('Fix Mates', 'fix', body, [{ label: 'Close', primary: true }]);
   }
   // a reference in a part's own coordinates → in its top component's (through the sub-assemblies it is in)
   toTop(l, r) {
@@ -1550,6 +1623,7 @@ export class AssemblyEditor {
       ],
       Tools: [
         { label: 'Bill of Materials…', icon: 'bom', action: () => this.showBOM() },
+        { label: 'Fix Mates…', icon: 'fix', action: () => this.showBrokenMates() },
         ...(selC ? [{ label: `Open ${selC.name}`, icon: 'part', action: () => this.openPart(selC.id) }] : []),
       ],
     };
@@ -1559,10 +1633,10 @@ export class AssemblyEditor {
     if (!this.isActive()) return;
     const root = $('#tree');
     root.innerHTML = '';
-    const row = ({ ic, label, depth = 0, cls = '', sub = '', title = '', selected = false, onClick, onDbl, menu, vis, twisty = '', onTwisty, onHover }) => {
+    const row = ({ ic, label, depth = 0, cls = '', sub = '', title = '', selected = false, onClick, onDbl, menu, vis, twisty = '', onTwisty, onHover, error = '' }) => {
       const n = el('div', { class: 'tn' + (cls ? ' ' + cls : '') + (selected ? ' selected' : ''), title });
       n.style.paddingLeft = 6 + depth * 16 + 'px';
-      n.innerHTML = `<span class="tw">${twisty}</span><span class="ti">${icon(ic)}</span><span class="tl">${esc(label)}</span>${sub ? `<span class="tsub">${esc(sub)}</span>` : ''}<span class="tvis"></span>`;
+      n.innerHTML = `<span class="tw">${twisty}</span><span class="ti">${icon(ic)}</span><span class="tl">${esc(label)}</span>${sub ? `<span class="tsub">${esc(sub)}</span>` : ''}${error ? `<span class="terr" title="${esc(error)}">!</span>` : ''}<span class="tvis"></span>`;
       if (vis) {
         const v = n.querySelector('.tvis');
         v.innerHTML = icon(vis.on ? 'visOn' : 'visOff');
@@ -1580,7 +1654,7 @@ export class AssemblyEditor {
     };
     const free = [...this.dofs.values()].reduce((t, x) => t + x, 0);
     row({ ic: 'assembly', label: this.doc.name + (this.cfg() ? ` (${this.cfg().name})` : ''), cls: 'tree-part', title: free ? `${free} degree${free === 1 ? '' : 's'} of freedom left among the floating components` : 'Fully placed',
-      sub: !this.solveOk && this.doc.mates.length ? 'mates conflict' : '',
+      sub: this.brokenMates?.size ? `${this.brokenMates.size} mate${this.brokenMates.size > 1 ? 's' : ''} lost a face` : !this.solveOk && this.doc.mates.length ? 'mates conflict' : '',
       onDbl: () => this.app.ui.promptText('Rename Assembly', 'rename', 'Name', this.doc.name).then((v) => { if (v?.trim()) { this.begin(); this.doc.name = v.trim(); this.change(); } }) });
     // the assembly's own planes and origin (as in a part: select them, mate to them, show or hide them)
     const selRef = (key) => this.sel?.kind === 'refs' && this.sel.refs.some((r) => r.comp === ORIGIN && r.plane === key);
@@ -1645,6 +1719,7 @@ export class AssemblyEditor {
       const val = info.value ? ` ${fmt(Number(m.value))}${info.value === '°' ? '°' : ' mm'}` : '';
       row({
         ic: info.icon, label: `${m.name}${val}`, depth: 2, cls: m.suppressed ? 'suppressed' : '',
+        error: this.brokenMates?.has(m.id) ? 'A face or edge of this mate is no longer in its part: edit the mate to pick it again (Tools ▸ Fix Mates)' : '',
         sub: `(${[m.a, m.b].map((r) => (r.comp === ORIGIN ? r.what : this.comp(r.comp)?.name || '?')).join(', ')})`,
         selected: this.sel?.kind === 'mate' && this.sel.id === m.id,
         onClick: () => this.select({ kind: 'mate', id: m.id }),

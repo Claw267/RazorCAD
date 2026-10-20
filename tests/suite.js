@@ -140,6 +140,108 @@ const UI = {
     return apart ? { ok: true, detail: `2 components, ${tris / 3} triangles each, placed apart` } : { ok: false, detail: 'the second component was placed on the first' };
   },
 
+  // references that follow edits: a fillet on the inside corner of a step still finds its edge after the step
+  // moves (other edges now lie nearer its old place); a shell's removed face after the box gets taller; and
+  // an edge that is gone is reported as a missing reference
+  async 'references-follow-edits'() {
+    const k = window.app.kernel;
+    const stepped = (step) => {
+      const d = M.newDoc();
+      const s = M.createFeature(d, 'sketch', { plane: { ref: 'front' } });
+      const pts = step === null ? [[0, 0], [100, 0], [100, 20], [0, 20]] : [[0, 0], [100, 0], [100, 20], [step, 20], [step, 50], [0, 50]];
+      Object.assign(s, { points: pts.map(([x, y], i) => ({ id: 'p' + (i + 1), x, y })), curves: pts.map((_, i) => ({ id: 'c' + (i + 1), type: 'line', p1: 'p' + (i + 1), p2: 'p' + ((i + 1) % pts.length + 1), construction: false })), constraints: [] });
+      d.features.push(s, M.createFeature(d, 'extrude', { sketch: s.id, depth: 30 }));
+      return d;
+    };
+    const vol = async (r) => { const b = r.body?.bodies?.[0]; if (!b) return null; const m = await k.request('measure', { refs: [{ kind: 'body', id: b.id }] }); return (m.items?.[0] || m).volume; };
+    const near = (a, b) => a != null && Math.abs(a - b) < 1e-6 * b;
+    // 1. the fillet picked with the step at x = 40 (the kernel completes the reference: box, faces at its sides)
+    const d1 = stepped(40);
+    const ext = d1.features[1];
+    const z = ext.reverse ? -15 : 15;
+    const fil = M.createFeature(d1, 'fillet', { radius: 5, edges: [{ p: [40, 20, z] }] });
+    d1.features.push(fil);
+    let r = await k.rebuild(d1, null, null);
+    if (r.errors?.length) return { ok: false, detail: 'first build: ' + JSON.stringify(r.errors) };
+    if (r.body?.bodies?.length !== 1) return { ok: false, detail: 'first build: no body' };
+    Object.assign(fil, r.features?.[fil.id] || {});
+    if (!fil.edges[0].fn) return { ok: false, detail: 'the edge reference was not given its sides' };
+    // 2. the step moved to x = 85
+    const d2 = stepped(85); d2.features[0].id = d1.features[0].id; d2.features[1] = { ...ext }; d2.features.push(JSON.parse(JSON.stringify(fil)));
+    r = await k.rebuild(d2, null, null);
+    const want = (100 * 20 + 85 * 30) * 30 + (25 - (25 * Math.PI) / 4) * 30;
+    const v2 = await vol(r);
+    if (r.errors?.length || !near(v2, want)) return { ok: false, detail: `moved step: errors ${JSON.stringify(r.errors)}, volume ${v2} (expected ${want.toFixed(3)})` };
+    // 3. the step taken away: the fillet's edge is reported missing
+    const d3 = stepped(null); d3.features[0].id = d1.features[0].id; d3.features[1] = { ...ext }; d3.features.push(JSON.parse(JSON.stringify(fil)));
+    r = await k.rebuild(d3, null, null);
+    const miss = r.missing?.[fil.id];
+    if (!r.errors?.length || JSON.stringify(miss) !== '[["edges",0]]') return { ok: false, detail: `removed step: errors ${JSON.stringify(r.errors)}, missing ${JSON.stringify(r.missing)}` };
+    // 4. a shell's removed top face after the box grows from 40 to 100 high
+    const box = (h) => {
+      const d = M.newDoc();
+      const s = M.createFeature(d, 'sketch', { plane: { ref: 'top' } });
+      const pts = [[-50, -30], [50, -30], [50, 30], [-50, 30]];
+      Object.assign(s, { points: pts.map(([x, y], i) => ({ id: 'p' + (i + 1), x, y })), curves: pts.map((_, i) => ({ id: 'c' + (i + 1), type: 'line', p1: 'p' + (i + 1), p2: 'p' + ((i + 1) % 4 + 1), construction: false })), constraints: [] });
+      d.features.push(s, M.createFeature(d, 'extrude', { sketch: s.id, depth: h }), M.createFeature(d, 'shell', { thickness: 3, faces: [{ p: [0, 40, 0], n: [0, 1, 0] }] }));
+      return d;
+    };
+    r = await k.rebuild(box(100), null, null);
+    const v4 = await vol(r), want4 = 100 * 60 * 100 - 94 * 54 * 97;
+    if (r.errors?.length || !near(v4, want4)) return { ok: false, detail: `taller shell: errors ${JSON.stringify(r.errors)}, volume ${v4} (expected ${want4})` };
+    return { ok: true, detail: 'moved edge found, missing edge reported, moved face found' };
+  },
+
+  // mates follow their part: a face found again after the part's faces are numbered differently, after it
+  // moves with a dimension; a mate whose face is gone is reported
+  async 'mates-follow-part-edits'() {
+    const a = window.app;
+    const square = (w) => [[-w / 2, -w / 2], [w / 2, -w / 2], [w / 2, w / 2], [-w / 2, w / 2]];
+    const setSketch = (s, pts) => Object.assign(s, { points: pts.map(([x, y], i) => ({ id: 'p' + (i + 1), x, y })), curves: pts.map((_, i) => ({ id: 'c' + (i + 1), type: 'line', p1: 'p' + (i + 1), p2: 'p' + ((i + 1) % pts.length + 1), construction: false })), constraints: [] });
+    const part = M.newDoc(); part.name = 'MateBlock';
+    const s = M.createFeature(part, 'sketch', { plane: { ref: 'top' } });
+    setSketch(s, square(20));
+    part.features.push(s, M.createFeature(part, 'extrude', { sketch: s.id, depth: 15 }));
+    a.newAssembly();
+    await wait(400);
+    closeModals();
+    const ed = a.drawing;
+    const pid = ed.addPart(part, null, null);
+    await ed.addComponent(pid); await ed.addComponent(pid);
+    const [c1, c2] = ed.doc.components;
+    const mesh = await until(() => ed.geo(c1)?.mesh, 30000);
+    if (!mesh) return { ok: false, detail: 'no part mesh' };
+    const faceOf = (m, n) => m.faceGroups.findIndex((g) => g.surf?.t === 'PLANE' && g.surf.n.every((v, k) => Math.abs(v - n[k]) < 1e-9));
+    const fx = faceOf(mesh, [1, 0, 0]), fnx = faceOf(mesh, [-1, 0, 0]), fy = faceOf(mesh, [0, 1, 0]);
+    if (fx < 0 || fnx < 0 || fy < 0) return { ok: false, detail: 'faces of the block not found' };
+    const ref = (c, gi) => { const g = mesh.faceGroups[gi].surf; return { comp: c.id, kind: 'plane', face: gi, p: g.p.slice(), n: g.n.slice(), what: 'Face' }; };
+    ed.doc.mates.push({ id: 'mtest', name: 'Coincident1', type: 'coincident', a: ref(c1, fx), b: ref(c2, fnx), value: 0 });
+    const m = ed.doc.mates[ed.doc.mates.length - 1];
+    // 1. the part's faces numbered differently: the mate points at another face number, the geometry is the +x face
+    m.a.face = fy;
+    ed.resyncRefs();
+    if (m.a.face !== fx || ed.brokenMates.size) return { ok: false, detail: `renumbered: face ${m.a.face} (expected ${fx}), broken ${ed.brokenMates.size}` };
+    // 2. the block made 30 wide: the +x face moved to x = 15
+    // (a changed part arrives as a new document, as when its file is saved)
+    let pd = JSON.parse(JSON.stringify(ed.part(pid).doc));
+    setSketch(pd.features[0], square(30)); pd.features[0].rev = (pd.features[0].rev || 0) + 1;
+    ed.part(pid).doc = pd;
+    await ed.loadParts();
+    const moved = await until(() => (Math.abs((ed.geo(c1)?.box?.max?.[0] ?? 0) - 15) < 1e-6 ? true : null), 30000);
+    ed.resyncRefs();
+    if (!moved || Math.abs(m.a.p[0] - 15) > 1e-6 || ed.brokenMates.size) return { ok: false, detail: `moved: p ${JSON.stringify(m.a.p)}, broken ${ed.brokenMates.size}` };
+    // 3. the block made round: no +x face any more
+    pd = JSON.parse(JSON.stringify(pd));
+    const cs = pd.features[0];
+    Object.assign(cs, { points: [{ id: 'p1', x: 0, y: 0 }], curves: [{ id: 'c1', type: 'circle', c: 'p1', r: 12, construction: false }], constraints: [] }); cs.rev++;
+    ed.part(pid).doc = pd;
+    await ed.loadParts();
+    await until(() => (ed.geo(c1)?.mesh?.faceGroups?.some((g) => g.surf?.t === 'CYLINDER') ? true : null), 30000);
+    ed.resyncRefs();
+    if (JSON.stringify(ed.brokenMates.get('mtest')) !== '["a","b"]') return { ok: false, detail: `round: broken ${JSON.stringify([...ed.brokenMates])}` };
+    return { ok: true, detail: 'renumbered face found, moved face followed, lost face reported' };
+  },
+
   // the view's mouse buttons: Shift + right-drag pans, middle-drag turns, a plain right-drag changes nothing
   async 'view-mouse-buttons'() {
     const a = window.app;

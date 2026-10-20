@@ -511,7 +511,7 @@ class App {
     const axes = new Map(Object.entries(r.axes || {}).map(([k, a]) => [k, { o: new THREE.Vector3(...a.o), d: new THREE.Vector3(...a.d) }]));
     const points = new Map(Object.entries(r.points || {}).map(([k, p]) => [k, new THREE.Vector3(...p)]));
     this.result = {
-      vars, ev: (x) => evaluate(x, vars), eqErrors, errors: new Map(r.errors), sketches, planes, axes, points,
+      vars, ev: (x) => evaluate(x, vars), eqErrors, errors: new Map(r.errors), missing: new Map(Object.entries(r.missing || {})), sketches, planes, axes, points,
       consumed: new Set(doc.features.filter((f) => f.type !== 'sketch').flatMap((f) => M.sketchesUsedBy(f))), body: r.body, time: r.time,
       preview: r.preview, previewOf: this.previewId(),
     };
@@ -538,6 +538,11 @@ class App {
     const n = this.result.errors.size;
     $('#status-rebuild').textContent = `Rebuild ${this.result.time.toFixed(0)} ms` + (n ? ` · ${n} error${n > 1 ? 's' : ''}` : '');
     $('#status-rebuild').style.color = n ? '#c62828' : '';
+    // (the error count opens Fix References)
+    $('#status-rebuild').style.cursor = n ? 'pointer' : '';
+    $('#status-rebuild').title = n ? 'Click to see and fix the features with errors' : '';
+    $('#status-rebuild').onclick = n ? () => this.ui.showFixReferences() : null;
+    this.ui.refreshFixReferences?.();
     if (this.viewport.section) this.applySection();
     this.updateEdgeHighlights();
     this.ui.updatePMStatus();
@@ -3351,6 +3356,26 @@ class App {
     this.doc.bodyFolders = (this.doc.bodyFolders || []).filter((g) => g.id !== id);
     this.commit();
     this.ui.renderTree();
+  }
+
+  // Fix References: drop a feature's references that are no longer found in the model (the rest are kept).
+  // Returns how many were removed.
+  removeMissingRefs(id) {
+    const f = M.findFeature(this.doc, id), paths = this.result?.missing?.get(id) || [];
+    if (!f) return 0;
+    if (this.pm) this.cancelPM();
+    // (from the end of each list, so the other places in it stay right)
+    const items = paths.filter((p) => typeof p[p.length - 1] === 'number').sort((x, y) => y[y.length - 1] - x[x.length - 1]);
+    let n = 0;
+    for (const p of items) {
+      const list = p.slice(0, -1).reduce((o, k) => o?.[k], f);
+      if (Array.isArray(list) && p[p.length - 1] < list.length) { list.splice(p[p.length - 1], 1); n++; }
+    }
+    if (!n) return 0;
+    this.commit();
+    this.refresh();
+    this.status(`${f.name}: ${n} missing reference${n > 1 ? 's' : ''} removed.`);
+    return n;
   }
 
   toggleSuppress(id) {

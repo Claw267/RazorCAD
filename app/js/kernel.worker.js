@@ -330,6 +330,43 @@ function nearestTwo(cands, p, shapeOf) {
 
 const findEdge = (body, ref) => findEdgeInfo(body, ref)?.e ?? null;
 
+// What the reference searches found and missed while one feature is rebuilt (set by rebuild): references
+// not found are reported (res.missing) so they can be fixed; when one was found again only by a looser
+// search (it moved), the feature's references are written back so they follow the model from then on.
+let refLog = null;
+const refFound = (ref, hit, moved) => { if (refLog) { refLog.found.add(ref); if (moved) refLog.moved = true; } return hit; };
+const refLost = (ref) => { if (refLog) refLog.lost.push(ref); return null; };
+
+// The faces on the two sides of an edge, [{ t: surface type, n: outward normal (planes) }], and between
+// two planes whether the edge is convex (an outside corner, cv: 1) or concave (an inside one, cv: -1): an
+// edge reference keeps them (fn), so a moved edge is found again and a different one is not taken for it.
+function sidesOf(shape, e) {
+  const faces = adjacentFaces(shape, e);
+  const out = faces.map((face) => (face.geomType === 'PLANE' ? { t: 'PLANE', n: unit(vec(face.normalAt())) } : { t: face.geomType }));
+  if (out.length === 2 && out[0].n && out[1].n && Math.abs(dot(out[0].n, out[1].n)) < 0.999) {
+    // (the other face's middle lies behind this face's plane at an outside corner)
+    const m = vec(e.pointAt(0.5)), k = dot(sub(vec(faces[1].center), m), out[0].n);
+    if (Math.abs(k) > 1e-9) out[0].cv = out[1].cv = k < 0 ? 1 : -1;
+  }
+  return out;
+}
+function edgeSides(c) {
+  if (!c.sides) c.sides = sidesOf(c.part, c.e);
+  return c.sides;
+}
+// The same kinds of faces on the sides (planes facing the same way, to within about 25°; the same corner)?
+function sameSides(a, b) {
+  if (a.length !== b.length) return false;
+  if (a[0]?.cv && b[0]?.cv && a[0].cv !== b[0].cv) return false;
+  const left = [...a];
+  for (const s of b) {
+    const i = left.findIndex((x) => x.t === s.t && (s.t !== 'PLANE' || !x.n || !s.n || dot(x.n, s.n) > 0.9));
+    if (i < 0) return false;
+    left.splice(i, 1);
+  }
+  return true;
+}
+
 // The edge a reference points at, with the body it belongs to (info.part).
 function findEdgeInfo(body, ref) {
   if (!body) return null;
@@ -338,20 +375,32 @@ function findEdgeInfo(body, ref) {
   const search = (p) => nearestTwo(candidates, p, (c) => c.e);
   const tol = Math.max(0.05, b.diag * 0.15);
   const ok = (r) => r.best && r.bd < tol && (r.bd < 1e-3 || r.second > r.bd * 1.6);
+  // (an edge found near, not at, the old place must have the same faces on its sides, when they are known)
+  const fits = (c) => !Array.isArray(ref.fn) || sameSides(edgeSides(c), ref.fn);
   const raw = search(ref.p);
-  if (raw.best && raw.bd < Math.max(1e-3, b.diag * 1e-4)) return raw.best;
+  if (raw.best && raw.bd < Math.max(1e-3, b.diag * 1e-4)) return refFound(ref, raw.best, false);
   const mapped = ref.box ? search(mapIntoBox(ref.p, ref.box, b)) : null;
-  const choices = [raw, mapped].filter((r) => r && ok(r)).sort((x, y) => x.bd - y.bd);
-  if (choices.length) return choices[0].best;
+  const choices = [raw, mapped].filter((r) => r && ok(r) && fits(r.best)).sort((x, y) => x.bd - y.bd);
+  if (choices.length) return refFound(ref, choices[0].best, true);
   // a circular edge that moved further (e.g. a hole whose position changed): the one circle of the
   // same radius lying in the same plane as before
   if (ref.t === 'CIRCLE' && ref.r && ref.c && ref.n) {
     const tolR = Math.max(1e-6, ref.r * 1e-6), tolP = Math.max(1e-4, b.diag * 1e-6);
     const same = candidates.filter((c) => c.circ && Math.abs(c.circ.r - ref.r) < tolR && Math.abs(Math.abs(dot(c.circ.n, ref.n)) - 1) < 1e-6
       && Math.abs(dot(sub(c.circ.c, ref.c), ref.n)) < tolP);
-    if (same.length === 1) return same[0];
+    if (same.length === 1) return refFound(ref, same[0], true);
   }
-  return null;
+  // an edge that moved further, or that other edges now lie nearer to: the edge of the same kind and
+  // direction with the same faces on its sides that is clearly nearest its old place (remapped into the
+  // model's new box)
+  if (Array.isArray(ref.fn)) {
+    const p = ref.box ? mapIntoBox(ref.p, ref.box, b) : ref.p;
+    const near = candidates.map((c) => [boxDist(c.box, p), c]).sort((x, y) => x[0] - y[0]).slice(0, 80).map((x) => x[1]).filter(fits);
+    if (near.length === 1 && candidates.length <= 80) return refFound(ref, near[0], true);
+    const r = nearestTwo(near, p, (c) => c.e);
+    if (r.best && r.second > r.bd * 1.6 + b.diag * 1e-6) return refFound(ref, r.best, true);
+  }
+  return refLost(ref);
 }
 
 // Radius, centre and normal of a circular edge.
@@ -367,7 +416,10 @@ function circleOf(e) {
 // Refresh a reference from the edge it was matched to.
 function updateEdgeRef(ref, e, body) {
   const b = bbox(body);
+  const was = ref.p;
   ref.p = vec(e.pointAt(0.5));
+  // the faces on its sides (looked up when new or moved: it means going through the body's faces)
+  if (!Array.isArray(ref.fn) || !was || len(sub(was, ref.p)) > 1e-6) ref.fn = sidesOf(body, e);
   ref.t = e.geomType;
   if (ref.t === 'LINE') { const v = vec(e.tangentAt(0.5)); const l = len(v) || 1; ref.d = mul(v, 1 / l); } else delete ref.d;
   // circles also remember radius, centre and plane, so they can be found again after a bigger move
@@ -418,15 +470,20 @@ function findFace(body, ref) {
   const search = (p) => nearestTwo(cands, p, (c) => c.face);
   const tol = Math.max(0.05, b.diag * 0.15);
   const ok = (r) => r.best && r.bd < tol && (r.bd < 1e-3 || r.second > r.bd * 1.6);
-  let hit = null;
+  let hit = null, moved = false;
   const raw = search(ref.p);
   if (raw.best && raw.bd < 1e-3) hit = raw.best;
   else {
+    moved = true;
     const mapped = ref.box ? search(mapIntoBox(ref.p, ref.box, b)) : null;
     const choices = [raw, mapped].filter((r) => r && ok(r)).sort((x, y) => x.bd - y.bd);
     if (choices.length) hit = choices[0].best;
+    // further away: the only face facing that way, or the one clearly nearest the old place
+    else if (cands.length === 1) hit = cands[0];
+    else if (mapped?.best && mapped.bd < b.diag * 0.5 && mapped.second > mapped.bd * 2.5) hit = mapped.best;
   }
-  if (!hit) return null;
+  if (!hit) return refLost(ref);
+  refFound(ref, hit, moved);
   // a point on the found face's plane: project the reference point onto it
   const c = vec(hit.face.center);
   const p = add(ref.p, mul(hit.n, dot(sub(c, ref.p), hit.n)));
@@ -1396,6 +1453,31 @@ async function importShape(f) {
 // before it and its effect is returned separately as preview meshes.
 // opts.partial: only replay the features and return { solids, surfaces } (used by Shell to get
 // the body without its small fillets); no meshing, no change to the exported state.
+// After a feature is rebuilt: its references that could not be found (paths into the feature, for the
+// Fix References dialog), and, when one was found again only after it moved, the feature's references
+// sent back to the document.
+function noteRefs(f, res) {
+  const log = refLog;
+  refLog = null;
+  if (!log || f.type === 'sketch') return;
+  const lost = new Set(log.lost.filter((r) => !log.found.has(r)));
+  if (lost.size) {
+    const paths = [];
+    const walk = (x, path) => {
+      if (!x || typeof x !== 'object' || path.length > 4) return;
+      if (lost.has(x)) { paths.push(path); return; }
+      for (const [k, v] of Object.entries(x)) walk(v, [...path, Array.isArray(x) ? +k : k]);
+    };
+    walk(f, []);
+    if (paths.length) (res.missing ||= {})[f.id] = paths;
+  }
+  if (log.moved) {
+    const u = {};
+    for (const [k, v] of Object.entries(f)) if (v && typeof v === 'object') u[k] = v;
+    res.features[f.id] = { ...u, ...(res.features[f.id] || {}) };
+  }
+}
+
 async function rebuild(doc, previewId = null, opts = {}) {
   const t0 = performance.now();
   // the active configuration: its variable values and the features it suppresses (or un-suppresses)
@@ -1800,6 +1882,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
       if (v3(o.n)) o.n = X.dir(o.n);
       if (v3(o.d)) o.d = X.dir(o.d);
       if (v3(o.c)) o.c = X.pt(o.c);
+      if (Array.isArray(o.fn)) o.fn = o.fn.map((x) => (v3(x?.n) ? { ...x, n: X.dir(x.n) } : x));
       delete o.box;
     }
     for (const k of Object.keys(o)) if (o[k] && typeof o[k] === 'object') moveRefs(o[k], X);
@@ -1908,6 +1991,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
     applied = [];
     blendStep = null;
     blendPair = null;
+    refLog = { lost: [], found: new Set(), moved: false };
     try {
       // (a function, so that patterns can run a copy of another feature)
       const runFeature = async (f) => {
@@ -4789,6 +4873,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
         thicken: ' — try a smaller thickness', surfOffset: ' — try a smaller distance', split: ' — check that the tool cuts right through the bodies' }[f.type] || '';
       res.errors.push([f.id, raw ? `The geometry kernel could not compute this ${f.type === 'moveBody' ? 'move' : 'feature'}${hint}` : e.message]);
     }
+    noteRefs(f, res);
     timing.features.push([f.name, Math.round(performance.now() - tf)]);
     // any other feature that changes the solid ends the run of blends
     if (body !== bodyIn && f.type !== 'fillet' && f.type !== 'chamfer') blendChain = null;
@@ -5545,9 +5630,26 @@ function findFaceAny(bodies, ref) {
     // (faces on top of each other, e.g. a copied surface on its solid: the body that was clicked)
     if (d < bd - 1e-9 || (Math.abs(d - bd) <= 1e-9 && ref.body && b.id === ref.body)) { bd = d; best = { body: b, face }; }
   }
-  if (!best) return null;
-  const diag = bbox(best.body.shape).diag;
-  return bd < Math.max(1e-3, diag * 2e-3) ? best : null;
+  if (best && bd < Math.max(1e-3, bbox(best.body.shape).diag * 2e-3)) return refFound(ref, best, false);
+  // a planar face that moved (a dimension before it changed): the face facing the same way clearly
+  // nearest the old point; the reference is moved onto it, so it follows the face from now on
+  if (Array.isArray(ref.n) && ref.n.length === 3) {
+    const pl = [];
+    for (const b of bodies) {
+      if (b.dense) continue;
+      for (const c of faceInfos(b.shape)) if (dot(c.n, ref.n) > 0.999) pl.push({ ...c, body: b });
+    }
+    const r = nearestTwo(pl, ref.p, (c) => c.face);
+    const diag = r.best ? bbox(r.best.body.shape).diag : 0;
+    if (r.best && r.bd < diag * 0.5 && r.second > r.bd * 1.6) {
+      const c = vec(r.best.face.center);
+      ref.p = add(ref.p, mul(r.best.n, dot(sub(c, ref.p), r.best.n)));
+      // (and onto the face itself, when the old point is now beside it)
+      try { const q = new R.DistanceQuery(R.makeVertex(ref.p)); if (q.distanceTo(r.best.face) > 1e-6) ref.p = vec(r.best.face.center); } catch (e) { if (isFatal(e)) throw e; }
+      return refFound(ref, { body: r.best.body, face: r.best.face }, true);
+    }
+  }
+  return refLost(ref);
 }
 
 // The body nearest to a point (for vertices).

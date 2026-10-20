@@ -1227,6 +1227,7 @@ export class UI {
         { label: 'Mass Properties…', icon: 'mass', action: () => this.showMassProps() },
         { label: 'Section View…', icon: 'section', action: () => a.startSection() },
         { label: 'Edit Material…', icon: 'material', action: () => this.showMaterial() },
+        { label: 'Fix References…', icon: 'fix', action: () => this.showFixReferences() },
         'sep',
         { label: 'Ask Claude…', icon: 'assistant', action: () => this.openClaude() },
         { label: 'Claude Settings…', icon: 'gear', action: () => this.showClaudeSettings() },
@@ -2887,6 +2888,7 @@ export class UI {
       items.push(a.sketchShown(f) ? { label: 'Hide', icon: 'hide', action: () => a.setSketchVisible(f.id, false) } : { label: 'Show', icon: 'show', action: () => a.setSketchVisible(f.id, true) });
     }
     else {
+      if (a.result?.errors.has(f.id)) items.push({ label: 'Fix References…', icon: 'fix', action: () => this.showFixReferences(f.id) });
       items.push(f.type === 'sketch3d' ? { label: 'Edit 3D Sketch', icon: 'sketch3d', action: () => a.editFeature(f.id) } : { label: 'Edit Feature', icon: 'edit', action: () => a.editFeature(f.id) });
       if (f.sketch) items.push({ label: 'Edit Sketch', icon: 'sketch', action: () => a.editSketch(f.sketch) });
     }
@@ -4519,6 +4521,54 @@ export class UI {
     row.appendChild(el('button', { class: 'pm-btn', onclick: () => { f.edges.length = 0; this.renderPM(); a.updateEdgeHighlights(); a.preview(); } }, 'Clear'));
     body.appendChild(row);
   }
+
+  // Fix References: every feature that failed to rebuild, what went wrong, and the ways to fix it. A feature
+  // whose picked edges / faces are no longer found can drop just those (keeping the others), be edited to pick
+  // them again, or be suppressed. The list follows each rebuild while it is open.
+  showFixReferences(focusId = null) {
+    const a = this.app;
+    if (a.mode === 'drawing' && a.drawing?.showBrokenMates) { a.drawing.showBrokenMates(); return; }
+    if (a.mode === 'drawing' || !a.result) { a.toast('Open a part to see its feature errors', true); return; }
+    this._fix?.close();
+    const body = el('div', { class: 'fixrefs' });
+    const what = (path) => {
+      const key = String(path.find((k) => typeof k === 'string') || '');
+      return /edge/i.test(key) ? 'edge' : /face/i.test(key) ? 'face' : /vert/i.test(key) ? 'vertex' : 'reference';
+    };
+    const render = () => {
+      const errs = a.result?.errors || new Map();
+      const feats = a.doc.features.filter((f) => errs.has(f.id));
+      if (!feats.length) { body.innerHTML = '<p>Every feature rebuilds without errors.</p>'; return; }
+      body.innerHTML = `<p class="pm-hint">${feats.length} feature${feats.length > 1 ? 's have' : ' has'} errors. Features below a failed one may fail only because of it: fix them from the top.</p>`;
+      const tbl = el('table', { class: 'grid' });
+      tbl.innerHTML = '<tr><th>Feature</th><th>Problem</th><th></th></tr>';
+      for (const f of feats) {
+        const miss = a.result.missing?.get(f.id) || [];
+        const kinds = {};
+        for (const p of miss) kinds[what(p)] = (kinds[what(p)] || 0) + 1;
+        const lost = Object.entries(kinds).map(([k, n]) => `${n} ${k}${n > 1 ? (k === 'vertex' ? 'es' : 's') : ''}`).join(', ');
+        const tr = el('tr');
+        if (f.id === focusId) tr.className = 'focus';
+        tr.innerHTML = `<td>${icon(iconFor(f))} ${esc(f.name)}</td><td>${esc(errs.get(f.id))}${lost ? `<div class="pm-hint">Not found in the model: ${esc(lost)}</div>` : ''}</td>`;
+        const td = el('td', { class: 'fix-acts' });
+        const btn = (label, title, fn) => { const b = el('button', { title }, esc(label)); b.onclick = fn; td.appendChild(b); };
+        btn(f.type === 'sketch' ? 'Edit Sketch' : 'Edit', 'Open the feature to pick its references again', () => { this._fix?.close(); a.editFeature(f.id); });
+        if (miss.some((p) => typeof p[p.length - 1] === 'number')) btn('Remove missing', 'Keep the references that are still found and drop the others', () => a.removeMissingRefs(f.id));
+        btn(a.isSuppressed(f) ? 'Unsuppress' : 'Suppress', 'Leave the feature out of the model for now', () => a.toggleSuppress(f.id));
+        tr.appendChild(td);
+        tbl.appendChild(tr);
+      }
+      body.appendChild(tbl);
+      tbl.querySelector('tr.focus')?.scrollIntoView({ block: 'nearest' });
+    };
+    render();
+    const dlg = this.modal('Fix References', 'fix', body, [{ label: 'Close', primary: true }]);
+    const close0 = dlg.close;
+    this._fix = { render, close: () => { this._fix = null; close0(); } };
+    // (closed with ✕, Escape or a click outside: forget it too)
+    new MutationObserver((_, obs) => { if (!body.isConnected) { if (this._fix?.render === render) this._fix = null; obs.disconnect(); } }).observe($('#modal-root'), { childList: true });
+  }
+  refreshFixReferences() { this._fix?.render(); }
 
   showMassProps() {
     const a = this.app, geo = a.viewport.bodyGeo;
