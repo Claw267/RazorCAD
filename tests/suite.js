@@ -322,6 +322,35 @@ const UI = {
       : { ok: false, detail: `top: ${kinds(vt)} callouts ${JSON.stringify(callouts)}; front: ${kinds(vf)}` };
   },
 
+  // the state after each feature written out and read back (as between sessions): every test part rebuilt
+  // from it without building a feature again, with the same results; a change to the last feature rebuilds
+  // only that one
+  async 'feature-states-kept'(parts) {
+    const k = window.app.kernel;
+    const sum = (r) => JSON.stringify([(r.errors || []).length, (r.body?.bodies || []).map((b) => [b.faceCount, b.edgeCount])]);
+    const notes = [];
+    let bytes = 0, mesh1 = 0, mesh2 = 0;
+    for (const p of parts) {
+      const d = JSON.parse(p.json);
+      const r1 = await k.rebuild(d, null, null);
+      const snaps = await k.request('exportSnaps', { ids: d.features.map((f) => f.id) });
+      if (!snaps?.brep) return { ok: false, detail: `${p.name}: not written out (${snaps?.error || 'nothing'})` };
+      bytes += snaps.brep.length;
+      await k.rebuild(M.newDoc(), null, null); // (the cache now holds another part)
+      if (!(await k.request('importSnaps', { snaps }))) return { ok: false, detail: `${p.name}: not read back` };
+      const r2 = await k.rebuild(d, null, null);
+      if (r2.timing?.reused !== d.features.length) return { ok: false, detail: `${p.name}: ${r2.timing?.reused} of ${d.features.length} features reused` };
+      if (sum(r1) !== sum(r2)) return { ok: false, detail: `${p.name}: ${sum(r1)} before, ${sum(r2)} after` };
+      mesh1 += r1.timing?.mesh || 0; mesh2 += r2.timing?.mesh || 0;
+      // (a renamed last feature: rebuilt alone)
+      const d3 = JSON.parse(p.json); d3.features[d3.features.length - 1].name += ' (renamed)';
+      const r3 = await k.rebuild(d3, null, null);
+      if (r3.timing?.reused !== d.features.length - 1 || sum(r3) !== sum(r1)) return { ok: false, detail: `${p.name}: after a change to the last feature ${r3.timing?.reused} reused, ${sum(r3)}` };
+      notes.push(p.name);
+    }
+    return { ok: true, detail: `${notes.length} parts restored without rebuilding (${(bytes / 1048576).toFixed(1)} MB of BRep; meshing ${mesh1} ms → ${mesh2} ms)` };
+  },
+
   // the view's mouse buttons: Shift + right-drag pans, middle-drag turns, a plain right-drag changes nothing
   async 'view-mouse-buttons'() {
     const a = window.app;
@@ -355,7 +384,7 @@ export async function run(parts, only = null) {
   for (const [name, fn] of Object.entries(UI)) {
     if (only && !only.includes(name)) continue;
     const t0 = performance.now();
-    try { out.ui[name] = await fn(); } catch (e) { out.ui[name] = { ok: false, detail: 'crashed: ' + (e?.stack || e) }; }
+    try { out.ui[name] = await fn(parts); } catch (e) { out.ui[name] = { ok: false, detail: 'crashed: ' + (e?.stack || e) }; }
     out.ui[name].ms = Math.round(performance.now() - t0);
   }
   return out;

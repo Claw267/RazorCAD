@@ -6,6 +6,13 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 21:51 — Parts reopen ready to edit
+- **The geometry of every feature is kept between sessions.** When a part that takes a while to build is saved (or opened, then left unchanged), RazorCAD also stores the geometry kernel's state after each feature next to the stored model. Opening the part again restores it instead of building every feature, so the **first change after opening is as quick as any later one**. Before, the kernel rebuilt the whole part in the background first. Example: a sphere with 120 cut dimples was ready 1.8 s after opening before, now 0.09 s, and editing its last feature rebuilds only that feature.
+- The stored states are checked feature by feature: anything changed since (in RazorCAD or in the file) is rebuilt from that feature on, as usual. They live with the stored models (%LOCALAPPDATA%\RazorCAD\modelcache, shared limit 1 GB, oldest removed first); shapes shared between features are written only once.
+- Parts that build quickly (under 0.8 s, counting every feature) are not stored. The stored model now also follows the cost of the whole part, not just the last (quick) rebuild, so a big part saved after a small change is still stored.
+- The session log notes how soon the model was ready after opening.
+- Regression test: feature-states-kept (every test part written out, read back and rebuilt from it with the same result).
+
 ## 2026-10-20 21:36 — Cosmetic threads
 - **Insert ▸ Features ▸ Cosmetic Thread** (also on the Features toolbar): click a bore or a shaft and choose the thread (metric or inch, automatic size from the face, custom, pitch, left-hand). Length: the whole face, a depth, or up to a plane / face; it starts at the end nearest where you clicked. The thread is **shown but not modelled**, so it costs nothing to rebuild, unlike Thread Cut / Thread Extrude. The feature's note says when the face is not the size the thread expects.
 - **In the model:** a thin bronze helix on the bore or shaft. **Tapped holes** made with the Hole feature now show their thread the same way.

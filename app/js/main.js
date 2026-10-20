@@ -175,14 +175,35 @@ class App {
     if (!r || r.preview || this.previewId() || this.mode !== 'part') return;
     const full = { ...r, body: this.result?.body || null, preview: null };
     this._model = { doc: this.doc, r: full };
-    // on disk, for opening it again: parts that take a while to build, unchanged since their file
-    if (!platform.desktop || !this.filePath || this.dirty || !this._fileKey || !full.body?.vertices || (r.time || 0) < 800) return;
-    if (this._cachedKey === this._fileKey) return;
+    // on disk, for opening it again: parts that take a while to build (all their features, including those
+    // the kernel reused from its cache this time), unchanged since their file
+    const cost = Math.max(r.time || 0, (r.timing?.features || []).reduce((t, x) => t + (x[1] || 0), 0));
+    if (!platform.desktop || !this.filePath || this.dirty || !this._fileKey || !full.body?.vertices || cost < 800) return;
     const key = this._fileKey;
-    this._cachedKey = key;
-    setTimeout(async () => {
-      try { await platform.writeModelCache(key, await packResult(full)); } catch { this._cachedKey = null; }
-    }, 300);
+    if (this._cachedKey !== key) {
+      this._cachedKey = key;
+      setTimeout(async () => {
+        try { await platform.writeModelCache(key, await packResult(full)); } catch { this._cachedKey = null; }
+      }, 300);
+    }
+    // and the state after each feature (the kernel's rebuild cache), so the first change after opening is
+    // as quick as later ones
+    if (this._statesKey !== key) { this._statesKey = key; setTimeout(() => this.keepKernelStates(key), 600); }
+  }
+  async statesKey(key) { return hashText(key + ':kernel-states'); }
+  async keepKernelStates(key) {
+    try {
+      const snaps = await this.kernel.request('exportSnaps', { ids: this.doc.features.map((f) => f.id) });
+      if (snaps?.error) breadcrumb(`Feature states not kept: ${snaps.error}`);
+      if (!snaps?.brep || snaps.brep.length > 300e6 || this._fileKey !== key) return;
+      await platform.writeModelCache(await this.statesKey(key), await packResult(snaps));
+    } catch { this._statesKey = null; }
+  }
+  async readKernelStates(key) {
+    try {
+      const b64 = key && await platform.readModelCache(await this.statesKey(key));
+      return b64 ? await unpackResult(b64) : null;
+    } catch { return null; }
   }
 
   commit() {
@@ -305,6 +326,12 @@ class App {
     if (r.time > 1000 || r.errors.length) breadcrumb(`Rebuild ${Math.round(r.time)} ms` + (r.errors.length ? `, feature errors: ${r.errors.map(([id, m]) => `${M.findFeature(this.doc, id)?.name || id}: ${m}`).join(' | ').slice(0, 400)}` : ''));
     this.applyResult(r);
     this.keepModel(r);
+    // (the first full model after opening a part: how long it took, and what the stored states saved)
+    if (this._firstBuild?.doc === doc) {
+      const fb = this._firstBuild;
+      this._firstBuild = null;
+      breadcrumb(`Model ready ${Math.round(performance.now() - fb.t0)} ms after opening (rebuild ${Math.round(r.time)} ms, meshing ${r.timing?.mesh ?? 0} ms, ${r.timing?.reused ?? 0} of ${doc.features.length} features from the stored states)`);
+    }
     if (!this._progressHold) this.hideProgress();
   }
 
@@ -1217,7 +1244,7 @@ class App {
     if (t?.kind === 'drawing') { t.dirty = t.drawing.dirty; t.filePath = t.drawing.filePath; return; }
     if (!t || !this.doc) return;
     Object.assign(t, { doc: this.doc, history: this.history, filePath: this.filePath, dirty: this.dirty, lastAutosave: this.lastAutosave, view: this.viewport.saveView(),
-      model: this._model?.doc === this.doc ? this._model.r : null, fileKey: this._fileKey, cachedKey: this._cachedKey });
+      model: this._model?.doc === this.doc ? this._model.r : null, fileKey: this._fileKey, cachedKey: this._cachedKey, statesKey: this._statesKey });
   }
 
   // Open the next part in a new tab, unless this tab holds an empty, untouched part.
@@ -1257,7 +1284,7 @@ class App {
     const t = this.tabs[i];
     if (t.kind === 'drawing') { this.enterDrawing(t.drawing); return; }
     this.doc = t.doc; this.history = t.history; this.filePath = t.filePath; this.dirty = t.dirty; this.lastAutosave = t.lastAutosave;
-    this._fileKey = t.fileKey || null; this._cachedKey = t.cachedKey || null; this._model = null;
+    this._fileKey = t.fileKey || null; this._cachedKey = t.cachedKey || null; this._statesKey = t.statesKey || null; this._model = null;
     this.selection = null;
     this.isolated = null;
     if (this.showHiddenMode) this.exitShowHidden(false);
@@ -1308,7 +1335,7 @@ class App {
     this.tabIndex = next;
     if (t.kind === 'drawing') { this.enterDrawing(t.drawing); return true; }
     this.doc = t.doc; this.history = t.history; this.filePath = t.filePath; this.dirty = t.dirty; this.lastAutosave = t.lastAutosave;
-    this._fileKey = t.fileKey || null; this._cachedKey = t.cachedKey || null; this._model = null;
+    this._fileKey = t.fileKey || null; this._cachedKey = t.cachedKey || null; this._statesKey = t.statesKey || null; this._model = null;
     this.selection = null;
     this.ui.renderPM();
     this.ui.refreshCommandStates();
@@ -1441,7 +1468,7 @@ class App {
     this.tabIndex = next;
     if (t.kind === 'drawing') { this.enterDrawing(t.drawing); return true; }
     this.doc = t.doc; this.history = t.history; this.filePath = t.filePath; this.dirty = t.dirty; this.lastAutosave = t.lastAutosave;
-    this._fileKey = t.fileKey || null; this._cachedKey = t.cachedKey || null; this._model = null;
+    this._fileKey = t.fileKey || null; this._cachedKey = t.cachedKey || null; this._statesKey = t.statesKey || null; this._model = null;
     this.selection = null;
     this.ui.renderPM();
     this.ui.refreshCommandStates();
@@ -3593,11 +3620,20 @@ class App {
       doc.nextId ??= doc.features.length + 1;
       const stored = file.path && !recovered ? await this.readModelCache(doc) : { key: null, r: null };
       if (file.path && M.isDefaultName(doc.name)) doc.name = M.fileStem(file.path); // (a part still called "Part1": its file's name)
+      // the state after each feature as last built: the kernel picks up from it instead of building them all
+      let states = false;
+      if (stored.r) {
+        const snaps = await this.readKernelStates(stored.key);
+        if (snaps) states = await this.kernel.request('importSnaps', { snaps }).catch(() => false);
+      }
       this.beginTab();
       this.cancelAutosave();
+      this._firstBuild = { doc, t0: performance.now() };
       await this.withProgress(`Opening ${file.name}…`, () => this.setDoc(doc, { cached: stored.r }));
       this._fileKey = recovered ? null : stored.key;
       this._cachedKey = stored.r ? stored.key : null;
+      this._statesKey = states ? stored.key : null;
+      if (states) breadcrumb(`Feature states restored: ${file.name}`);
       if (stored.r) breadcrumb(`Opened from the stored model: ${file.name}`);
       this.filePath = file.path;
       // (built just now, before it had its file: store it for the next time)

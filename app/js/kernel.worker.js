@@ -1985,7 +1985,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
     if (doc.rollbackAt && f.id === doc.rollbackAt) break; // the rollback bar: nothing below it is built
     if (!opts.partial) progressFeature = f.id;
     progress((0.8 * fi) / nFeat, `Rebuilding ${f.name}…`);
-    if (f.suppressed) { if (entries) entries[fi] = { json: fjson[fi], snap: takeSnap() }; continue; }
+    if (f.suppressed) { if (entries) entries[fi] = { id: f.id, json: fjson[fi], snap: takeSnap() }; continue; }
     const bodyIn = body, solidsIn = solids, surfacesIn = surfaces;
     const tf = performance.now();
     cur = f;
@@ -4955,7 +4955,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
       surfaces = surfacesIn;
       break;
     }
-    if (entries) entries[fi] = { json: fjson[fi], snap: takeSnap() };
+    if (entries) entries[fi] = { id: f.id, json: fjson[fi], snap: takeSnap() };
   }
   if (useCache) rebuildCache = { eqKey, entries };
 
@@ -6459,6 +6459,150 @@ function featureFaces(id) {
   return out;
 }
 
+// ------------------------------------------------------------ the rebuild cache, kept between sessions
+// The state after each feature (bodies, tools, sketches, planes… as the rebuild cache holds it) written out
+// so that opening the part again restores it instead of rebuilding every feature: the first change after
+// opening is then as quick as any later one. The shapes go into one BRep compound (geometry that the
+// states share, such as the faces a feature left alone, is written once); everything else into a graph of
+// plain values (objects shared between states stay shared). A state holding anything else is not kept.
+const SNAP_VERSION = 2;
+function encodeGraph(root, shapes) {
+  const nodes = [], ids = new Map(), path = [];
+  const enc = (x, key = '') => {
+    if (x === undefined) return { $u: 1 };
+    if (x === null || typeof x === 'boolean' || typeof x === 'string') return x;
+    if (typeof x === 'number') return Number.isFinite(x) ? x : { $n: String(x) };
+    // (a tool's `view`: how its preview looks, worked out when shown; not needed again)
+    if (typeof x === 'function' && key === 'view') return { $u: 1 };
+    if (typeof x !== 'object') throw new Error(`a ${typeof x} cannot be kept (${[...path, key].join('.')})`);
+    let id = ids.get(x);
+    if (id !== undefined) return { $r: id };
+    id = nodes.length;
+    ids.set(x, id);
+    nodes.push(null);
+    path.push(key);
+    let node;
+    if (x instanceof R.Shape) {
+      // (a shape: by its place in the compound, with what the kernel keeps on it, e.g. a body's parts)
+      const extra = {};
+      for (const k of Object.keys(x)) if (k !== 'oc' && k !== '_wrapped') extra[k] = enc(x[k], k);
+      node = { t: 'S', i: shapes.push(x) - 1, x: extra };
+    } else if (Array.isArray(x)) node = { t: 'a', v: x.map((v, i) => enc(v, i)) };
+    else if (x instanceof Map) node = { t: 'm', v: [...x].map(([k, v]) => [enc(k), enc(v, String(k))]) };
+    else if (x instanceof Set) node = { t: 's', v: [...x].map((v) => enc(v)) };
+    else if (ArrayBuffer.isView(x)) node = { t: 'ta', c: x.constructor.name, v: x.slice() }; // (kept as it is: packed as bytes)
+    else {
+      const proto = Object.getPrototypeOf(x);
+      if (proto !== Object.prototype && proto !== null) throw new Error(`a ${proto?.constructor?.name || 'value'} cannot be kept (${[...path, key].join('.')})`);
+      const o = {};
+      for (const k of Object.keys(x)) o[k] = enc(x[k], k);
+      node = { t: 'o', v: o };
+    }
+    path.pop();
+    nodes[id] = node;
+    return { $r: id };
+  };
+  return { nodes, root: enc(root) };
+}
+function decodeGraph(nodes, root, shapes) {
+  const T = { Float32Array, Float64Array, Uint32Array, Int32Array, Uint16Array, Int16Array, Uint8Array, Int8Array };
+  const objs = nodes.map((n) => (n.t === 'a' ? [] : n.t === 'm' ? new Map() : n.t === 's' ? new Set() : n.t === 'S' ? shapes[n.i] : n.t === 'ta' ? (ArrayBuffer.isView(n.v) ? n.v : new T[n.c](n.v)) : {}));
+  const dec = (v) => (v === null || typeof v !== 'object' ? v : '$r' in v ? objs[v.$r] : '$u' in v ? undefined : '$n' in v ? Number(v.$n) : v);
+  nodes.forEach((n, i) => {
+    const o = objs[i];
+    if (n.t === 'a') for (const x of n.v) o.push(dec(x));
+    else if (n.t === 'm') for (const [k, v] of n.v) o.set(dec(k), dec(v));
+    else if (n.t === 's') for (const v of n.v) o.add(dec(v));
+    else if (n.t === 'o') for (const [k, v] of Object.entries(n.v)) o[k] = dec(v);
+    else if (n.t === 'S') for (const [k, v] of Object.entries(n.x)) o[k] = dec(v);
+  });
+  return dec(root);
+}
+// The shapes are found again in the compound read back by where an explorer meets them: the explorer goes
+// through a shape the same way before and after it is written and read, and this kernel has no way to list
+// a compound's own children. A compound is put together again from what it holds (its solids, loose shells,
+// faces…), each found the same way.
+const TOPO_TYPES = ['TopAbs_COMPSOLID', 'TopAbs_SOLID', 'TopAbs_SHELL', 'TopAbs_FACE', 'TopAbs_WIRE', 'TopAbs_EDGE', 'TopAbs_VERTEX'];
+const TOPO_AVOID = { TopAbs_COMPSOLID: 'TopAbs_SHAPE', TopAbs_SOLID: 'TopAbs_COMPSOLID', TopAbs_SHELL: 'TopAbs_SOLID', TopAbs_FACE: 'TopAbs_SHELL', TopAbs_WIRE: 'TopAbs_FACE', TopAbs_EDGE: 'TopAbs_WIRE', TopAbs_VERTEX: 'TopAbs_EDGE' };
+const topoType = (raw) => { const T = R.getOC().TopAbs_ShapeEnum, t = raw.ShapeType(); return ['TopAbs_COMPOUND', ...TOPO_TYPES].find((n) => T[n] === t); };
+function exploreAll(raw, type, avoid = 'TopAbs_SHAPE') {
+  const oc = R.getOC(), T = oc.TopAbs_ShapeEnum, ex = new oc.TopExp_Explorer(raw, T[type], T[avoid]);
+  const out = [];
+  try { for (; ex.More(); ex.Next()) out.push(ex.Current()); } finally { ex.delete(); }
+  return out;
+}
+// what a compound holds: its compsolids, solids, shells not in a solid, faces not in a shell…
+const compoundLeaves = (raw) => TOPO_TYPES.flatMap((t) => exploreAll(raw, t, TOPO_AVOID[t]));
+
+// The rebuild cache, written out — when it is of this part (ids: its features' ids, in order). null: nothing
+// to keep (another part was built last); { v: 0, error }: a state holds something that cannot be written.
+function exportSnaps(ids) {
+  const c = rebuildCache;
+  if (!c?.entries?.length || c.entries.length > ids.length || c.entries.some((e, i) => !e?.snap || e.id !== ids[i])) return null;
+  const shapes = [];
+  let graph;
+  // (with the meshes of the bodies as last shown, so they are not worked out again either)
+  const meshes = [];
+  for (const sh of [...(lastSolids.length ? lastSolids.map((r) => r.shape) : lastBody ? [lastBody] : []), ...lastSurfaces.map((r) => r.shape)]) {
+    const m = meshCache.get(sh);
+    if (m) meshes.push([sh, m]);
+  }
+  try { graph = encodeGraph({ entries: c.entries.map((e) => ({ id: e.id, json: e.json, snap: e.snap })), meshes }, shapes); } catch (e) { if (isFatal(e)) throw e; return { v: 0, error: e.message }; }
+  const oc = R.getOC(), builder = new oc.TopoDS_Builder(), comp = new oc.TopoDS_Compound();
+  const temp = [];
+  try {
+    builder.MakeCompound(comp);
+    for (const sh of shapes) builder.Add(comp, sh.wrapped);
+    // where each shape is met: [type, index] (a compound: the places of what it holds)
+    const lists = {};
+    const place = (raw) => {
+      const t = topoType(raw);
+      if (!lists[t]) {
+        const all = exploreAll(comp, t), byHash = new Map();
+        temp.push(...all);
+        all.forEach((x, i) => { const h = oc.ReplicadShapeHasher.HashCode(x, R.HASH_CODE_MAX); if (!byHash.has(h)) byHash.set(h, []); byHash.get(h).push(i); });
+        lists[t] = { all, byHash };
+      }
+      const L = lists[t], i = (L.byHash.get(oc.ReplicadShapeHasher.HashCode(raw, R.HASH_CODE_MAX)) || []).find((k) => L.all[k].IsEqual(raw));
+      if (i === undefined) throw new Error('a shape was not found in the written compound');
+      return [t, i];
+    };
+    const places = shapes.map((sh) => {
+      const raw = sh.wrapped;
+      if (topoType(raw) !== 'TopAbs_COMPOUND') return place(raw);
+      const leaves = compoundLeaves(raw);
+      try { return { c: leaves.map(place) }; } finally { leaves.forEach((x) => x.delete()); }
+    });
+    return { v: SNAP_VERSION, eqKey: c.eqKey, n: shapes.length, places, ...graph, brep: oc.BRepToolsWrapper.Write(comp) };
+  } catch (e) { if (isFatal(e)) throw e; return { v: 0, error: e.message }; } finally { temp.forEach((x) => x.delete()); comp.delete(); builder.delete(); }
+}
+// Put a written-out rebuild cache back. The next rebuild uses each state only while the features up to it
+// are exactly as they were (as with the cache in memory).
+function importSnaps(data) {
+  if (data?.v !== SNAP_VERSION || typeof data.brep !== 'string' || data.places?.length !== data.n) return false;
+  const oc = R.getOC();
+  const whole = oc.BRepToolsWrapper.Read(data.brep);
+  const lists = {};
+  const at = ([t, i]) => (lists[t] ||= exploreAll(whole, t))[i];
+  let shapes;
+  try {
+    shapes = data.places.map((pl) => {
+      if (!pl.c) { const raw = at(pl); if (!raw) throw new Error('missing'); return R.cast(raw); }
+      const builder = new oc.TopoDS_Builder(), comp = new oc.TopoDS_Compound();
+      try {
+        builder.MakeCompound(comp);
+        for (const q of pl.c) { const raw = at(q); if (!raw) throw new Error('missing'); builder.Add(comp, raw); }
+        return R.cast(comp);
+      } finally { comp.delete(); builder.delete(); }
+    });
+  } catch (e) { if (isFatal(e)) throw e; return false; } finally { for (const l of Object.values(lists)) l.forEach((x) => x.delete()); whole.delete(); }
+  const { entries, meshes } = decodeGraph(data.nodes, data.root, shapes) || {};
+  if (!Array.isArray(entries) || !entries.length) return false;
+  rebuildCache = { eqKey: data.eqKey, entries };
+  for (const [sh, m] of meshes || []) meshCache.set(sh, m);
+  return true;
+}
+
 // Requests are handled strictly one after another, in the order they came. A request that waits part way
 // (a STEP or 3MF import, an export being packed) would otherwise let the next one start in that pause, on a
 // half-built model and with the kernel's stack reset under it.
@@ -6530,6 +6674,10 @@ async function handleMessage(e) {
     } else if (type === 'interference') {
       result = interference();
       if (result.mesh) transfer = [result.mesh.vertices.buffer, result.mesh.normals.buffer, result.mesh.triangles.buffer];
+    } else if (type === 'exportSnaps') {
+      result = exportSnaps(data.ids || []);
+    } else if (type === 'importSnaps') {
+      result = importSnaps(data.snaps);
     } else if (type === 'ping') {
       result = 'ready';
     } else if (type === 'ocHas') {
