@@ -90,6 +90,30 @@ def compare(name, got, want):
     return diffs
 
 
+def compare_drawing(got, want):
+    """Differences between a part's drawing views and the expected ones (line counts exact, sizes to REL)."""
+    if 'crash' in got:
+        return [f'crashed: {got["crash"]}']
+    diffs = []
+    for vid, w in want.items():
+        g = got.get(vid)
+        if g is None:
+            diffs.append(f'{vid}: no view')
+        elif g.get('error') or w.get('error'):
+            if g.get('error') != w.get('error'):
+                diffs.append(f'{vid}: error {g.get("error")} (expected {w.get("error")})')
+        else:
+            if g['counts'] != w['counts']:
+                diffs.append(f'{vid}: lines {g["counts"]} (expected {w["counts"]})')
+            gs, ws = g.get('size') or [], w.get('size') or []
+            if len(gs) != len(ws) or not all(same_num(x, y) for x, y in zip(gs, ws)):
+                diffs.append(f'{vid}: size {gs} (expected {ws})')
+    for vid in got:
+        if vid not in want:
+            diffs.append(f'{vid}: new view (not in expected.json)')
+    return diffs
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--update', action='store_true')
@@ -106,7 +130,9 @@ def main():
     console_errors = []
     t0 = time.time()
     with sync_playwright() as p:
-        browser = p.chromium.launch(channel='msedge', headless=not args.headed)
+        # (on a CI machine with no graphics card, WebGL needs the software renderer allowed)
+        ci_args = ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'] if os.environ.get('CI') else []
+        browser = p.chromium.launch(channel='msedge', headless=not args.headed, args=ci_args)
         page = browser.new_page(viewport={'width': 1400, 'height': 900})
         page.on('console', lambda m: console_errors.append(m.text) if m.type == 'error' else None)
         page.on('pageerror', lambda e: console_errors.append(str(e)))
@@ -150,6 +176,20 @@ def main():
         for d in diffs:
             print(f'        {d}')
         failures += bool(diffs)
+    drawings = results.get('drawings', {})
+    if drawings:
+        print(f'\nDrawings ({len(drawings)}):')
+    for name, got in drawings.items():
+        ms = got.pop('ms', '?') if isinstance(got, dict) else '?'
+        if args.update:
+            print(f'  {name:24} recorded ({ms} ms)')
+            continue
+        want = expected.get('drawings', {}).get(name)
+        diffs = ['not in expected.json (run with --update)'] if want is None else compare_drawing(got, want)
+        print(f'  {"PASS" if not diffs else "FAIL"}  {name:24} {ms} ms')
+        for d in diffs:
+            print(f'        {d}')
+        failures += bool(diffs)
     print(f'\nUI ({len(results["ui"])}):')
     for name, r in results['ui'].items():
         print(f'  {"PASS" if r.get("ok") else "FAIL"}  {name:24} {r.get("ms", "?")} ms  {r.get("detail", "")}')
@@ -162,6 +202,8 @@ def main():
         merged = dict(expected)
         merged.setdefault('parts', {})
         merged['parts'].update(results['parts'])
+        merged.setdefault('drawings', {})
+        merged['drawings'].update(drawings)
         for v in merged['parts'].values():
             for c in v.values():
                 if isinstance(c, dict):
@@ -169,7 +211,7 @@ def main():
         with open(EXPECTED, 'w', encoding='utf-8', newline='\n') as f:
             json.dump(merged, f, indent=1)
             f.write('\n')
-        print(f'\nexpected.json updated ({len(results["parts"])} parts).')
+        print(f'\nexpected.json updated ({len(results["parts"])} parts, {len(drawings)} drawings).')
     print(f'\n{"ALL PASSED" if not failures else f"{failures} FAILED"}  ({time.time() - t0:.0f} s)')
     sys.exit(1 if failures and not args.update else 0)
 

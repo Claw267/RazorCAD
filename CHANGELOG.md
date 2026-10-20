@@ -6,6 +6,15 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 00:17 — More regression tests, and tests on GitHub
+- **Tests on GitHub:** the regression tests now run on GitHub for every push and pull request (Windows, Microsoft Edge, the software renderer for the 3D view). The README shows whether they pass. They start running from the next push.
+- **More tests:**
+  - **Drawings against stored output:** six test parts drawn in the front, top, right and isometric views (sheet metal also as its flat pattern). The count of each kind of line and the size of every view must match the stored results.
+  - **A sheet metal tray:** a 1.5 mm base with flanges on all four sides, closed corners, a hole and a slot. Its flat pattern (154.79 × 114.79 mm, 4 bends) checks out by hand.
+  - **STEP round trip:** a part exported as STEP and imported again gives the same solid: volume, area, 12 faces and 20 edges.
+  - **A big assembly:** 120 components of 3 parts. It loads, the bill of materials counts 3 × 40, and the assembly STEP export holds each part once.
+- On small machines (such as GitHub's) the parallel-kernels test only asks for a smaller speed-up.
+
 ## 2026-10-21 00:10 — Other languages
 - **View ▸ Language**: English, Deutsch, Français or Español, in parts, assemblies and drawings, kept with your preferences.
 - Translated:

@@ -1,5 +1,7 @@
 # RazorCAD
 
+[![Tests](https://github.com/Labs9119/RazorCAD/actions/workflows/tests.yml/badge.svg)](https://github.com/Labs9119/RazorCAD/actions/workflows/tests.yml)
+
 A parametric part modeler for Windows with a classic feature-tree interface. It has a feature history,
 constraint-driven sketches, equations and live previews. Its solid modeling runs on the
 **OpenCascade** B-rep kernel, the engine behind FreeCAD, via replicad.

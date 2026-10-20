@@ -134,5 +134,17 @@ export function makeParts() {
     add(doc, 'lpattern', { feature: ids.get('b1'), dir1: 'x', dist1: 20, count1: 10, dir2: 'z', dist2: 20, count2: 5 });
   }));
 
+  // 13. sheet metal: a tray (a 1.5 mm base with flanges on all four sides, closed corners) with a hole and a slot
+  // cut in its base, and its flat pattern
+  parts.push(part('sheet-metal-tray', [
+    sketch('s1', 'top', rect(0, 0, 120, 80)),
+    { id: 'b1', type: 'smBase', sketch: 's1', thickness: 1.5, radius: 1.5, kFactor: 0.44 },
+    { type: 'smFlange', edges: [{ p: [0, 1.5, 40] }, { p: [0, 1.5, -40] }, { p: [60, 1.5, 0] }, { p: [-60, 1.5, 0] }], length: 20, angle: 90, lengthRef: 'outer', position: 'inside', corner: 'closed', cornerGap: 0.2 },
+    sketch('s2', 'top', circle(-30, 0, 10)),
+    { type: 'extrude', sketch: 's2', op: 'cut', end: 'through2' },
+    sketch('s3', 'top', rect(25, 0, 40, 8)),
+    { type: 'extrude', sketch: 's3', op: 'cut', end: 'through2' },
+  ]));
+
   return parts.map((d) => ({ name: d.name, doc: d }));
 }

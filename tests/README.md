@@ -12,11 +12,14 @@ no browser download is needed, the installed Edge is used) and:
 - **Parts:** rebuilds every `tests/parts/*.rcad` with the real kernel, in each configuration, and compares the
   feature errors and, per body, its kind, face and edge count, volume and area (and for sheet metal the flat
   pattern's size and bend count) with `tests/expected.json`. Numbers must agree to 1 part in a million.
+- **Drawings:** draws some of the test parts in the standard views (front, top, right, isometric; sheet metal also
+  flat) with the kernel and compares each view's count of each kind of line and its size with `expected.json`.
 - **UI:** does a few things the way a user does them, with pointer events on the view: sketch a rectangle,
   dimension it and extrude it; make a drawing of the part; build an assembly from two components; check the
   mouse buttons (Shift + right-drag pans, a plain right-drag changes nothing, middle-drag turns).
 
-The exit code is 1 when anything fails, so it can be run before every build.
+The exit code is 1 when anything fails, so it can be run before every build. GitHub runs it on every push and pull
+request too (`.github/workflows/tests.yml`, on Windows with Edge; there the software renderer draws the 3D view).
 
 | Option | |
 |---|---|

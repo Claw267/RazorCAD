@@ -520,7 +520,9 @@ In this order; each item tested (regression suite + preview / exe), logged in CH
 - [x] 6d Code signing: nothing to build (ready since 0.13.0-beta; needs the user's certificate) — note only.
   - Note only (nothing to build): signing is ready since 0.13.0-beta (tools/sign.py, installer/SIGNING.md); it needs your code-signing certificate in signing.local.json, which is never put in git.
 2. Reliability (last)
-- [ ] 2a Regression tests on GitHub (CI) on every push.
-- [ ] 2b More test parts (STEP imports, sheet metal flat patterns, big assemblies, drawings against stored output).
+- [x] 2a Regression tests on GitHub (CI) on every push.
+  - Done: .github/workflows/tests.yml (windows-latest, Python 3.12, pip playwright, python tests/run_tests.py with CI=true → Edge launched with --enable-unsafe-swiftshader / ANGLE SwiftShader); README badge; tests/README. Runs from the next push (not pushed). Local run with CI=true passes (40 s).
+- [x] 2b More test parts (STEP imports, sheet metal flat patterns, big assemblies, drawings against stored output).
+  - Done: drawings section in tests/expected.json (suite drawingResult: kernel drawingViews front / top / right / iso (+ flat) for 6 parts → line counts by kind + view size; run_tests compare_drawing / --update); test part sheet-metal-tray (flat 154.786 × 114.786, 4 bends, verified by hand); UI tests step-roundtrip (holes part → STEP → import: same volume / area / 12 faces / 20 edges) and big-assembly (120 components: load, BOM 3 × 40, STEP 3 parts / 120 placed); parallel-kernels speed-up 0.97 on < 8 threads. 13 parts, 6 drawings, 30 UI tests pass.
 - [ ] 2c Opt-in crash reporting (send a report to a GitHub issue in one click).
 

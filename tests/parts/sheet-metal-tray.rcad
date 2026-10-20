@@ -1,0 +1,273 @@
+{
+ "version": 1,
+ "name": "sheet-metal-tray",
+ "material": null,
+ "equations": [],
+ "features": [
+  {
+   "id": "f1",
+   "type": "sketch",
+   "name": "Sketch1",
+   "suppressed": false,
+   "plane": {
+    "ref": "top"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": -60,
+     "y": -40
+    },
+    {
+     "id": "p2",
+     "x": 60,
+     "y": -40
+    },
+    {
+     "id": "p3",
+     "x": 60,
+     "y": 40
+    },
+    {
+     "id": "p4",
+     "x": -60,
+     "y": 40
+    }
+   ],
+   "curves": [
+    {
+     "id": "c1",
+     "type": "line",
+     "construction": false,
+     "p1": "p1",
+     "p2": "p2"
+    },
+    {
+     "id": "c2",
+     "type": "line",
+     "construction": false,
+     "p1": "p2",
+     "p2": "p3"
+    },
+    {
+     "id": "c3",
+     "type": "line",
+     "construction": false,
+     "p1": "p3",
+     "p2": "p4"
+    },
+    {
+     "id": "c4",
+     "type": "line",
+     "construction": false,
+     "p1": "p4",
+     "p2": "p1"
+    }
+   ],
+   "constraints": [],
+   "nextSid": 105,
+   "rev": "rqa4n0hk"
+  },
+  {
+   "id": "f2",
+   "type": "smBase",
+   "name": "Base-Flange1",
+   "suppressed": false,
+   "sketch": "f1",
+   "thickness": 1.5,
+   "radius": 1.5,
+   "kFactor": 0.44,
+   "reverse": false
+  },
+  {
+   "id": "f3",
+   "type": "smFlange",
+   "name": "Edge-Flange1",
+   "suppressed": false,
+   "edges": [
+    {
+     "p": [
+      0,
+      1.5,
+      40
+     ]
+    },
+    {
+     "p": [
+      0,
+      1.5,
+      -40
+     ]
+    },
+    {
+     "p": [
+      60,
+      1.5,
+      0
+     ]
+    },
+    {
+     "p": [
+      -60,
+      1.5,
+      0
+     ]
+    }
+   ],
+   "length": 20,
+   "lengthRef": "outer",
+   "angle": 90,
+   "position": "inside",
+   "offset": 0,
+   "flip": false,
+   "useDefaultRadius": true,
+   "radius": 2,
+   "reliefType": "rect",
+   "reliefRatio": 0.5,
+   "corner": "closed",
+   "cornerGap": 0.2,
+   "cornerSwap": false,
+   "cornerBend": "vcut"
+  },
+  {
+   "id": "f4",
+   "type": "sketch",
+   "name": "Sketch2",
+   "suppressed": false,
+   "plane": {
+    "ref": "top"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": -30,
+     "y": 0
+    }
+   ],
+   "curves": [
+    {
+     "id": "c1",
+     "type": "circle",
+     "construction": false,
+     "c": "p1",
+     "r": 10
+    }
+   ],
+   "constraints": [],
+   "nextSid": 102,
+   "rev": "3uc4jg2r"
+  },
+  {
+   "id": "f5",
+   "type": "extrude",
+   "name": "Extrude Cut1",
+   "suppressed": false,
+   "sketch": "f4",
+   "op": "cut",
+   "merge": true,
+   "end": "through2",
+   "depth": 10,
+   "reverse": false,
+   "toPoint": null,
+   "toVertex": null,
+   "toPlane": null,
+   "toFace": null,
+   "toOffset": 5,
+   "toFlip": false,
+   "thin": false,
+   "thinT": 2,
+   "thinDir": "one",
+   "scopeAll": true,
+   "scope": []
+  },
+  {
+   "id": "f6",
+   "type": "sketch",
+   "name": "Sketch3",
+   "suppressed": false,
+   "plane": {
+    "ref": "top"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": 5,
+     "y": -4
+    },
+    {
+     "id": "p2",
+     "x": 45,
+     "y": -4
+    },
+    {
+     "id": "p3",
+     "x": 45,
+     "y": 4
+    },
+    {
+     "id": "p4",
+     "x": 5,
+     "y": 4
+    }
+   ],
+   "curves": [
+    {
+     "id": "c1",
+     "type": "line",
+     "construction": false,
+     "p1": "p1",
+     "p2": "p2"
+    },
+    {
+     "id": "c2",
+     "type": "line",
+     "construction": false,
+     "p1": "p2",
+     "p2": "p3"
+    },
+    {
+     "id": "c3",
+     "type": "line",
+     "construction": false,
+     "p1": "p3",
+     "p2": "p4"
+    },
+    {
+     "id": "c4",
+     "type": "line",
+     "construction": false,
+     "p1": "p4",
+     "p2": "p1"
+    }
+   ],
+   "constraints": [],
+   "nextSid": 105,
+   "rev": "h4hop6l1"
+  },
+  {
+   "id": "f7",
+   "type": "extrude",
+   "name": "Extrude Cut2",
+   "suppressed": false,
+   "sketch": "f6",
+   "op": "cut",
+   "merge": true,
+   "end": "through2",
+   "depth": 10,
+   "reverse": false,
+   "toPoint": null,
+   "toVertex": null,
+   "toPlane": null,
+   "toFace": null,
+   "toOffset": 5,
+   "toFlip": false,
+   "thin": false,
+   "thinT": 2,
+   "thinDir": "one",
+   "scopeAll": true,
+   "scope": []
+  }
+ ],
+ "nextId": 8,
+ "rollbackAt": null
+}

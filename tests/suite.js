@@ -738,7 +738,8 @@ const UI = {
     pool.size = size;
     // (the second set is the same geometry under other names: the same meshes, built again)
     const same = JSON.stringify(one.tris) === JSON.stringify(many.tris) && one.tris.every((n) => n > 0);
-    const faster = many.ms < one.ms * 0.8;
+    // (a small machine, e.g. a CI runner, gains less from a second kernel)
+    const faster = many.ms < one.ms * ((navigator.hardwareConcurrency || 4) >= 8 ? 0.8 : 0.97);
     return same && faster ? { ok: true, detail: `6 parts: ${Math.round(one.ms)} ms in 1 kernel, ${Math.round(many.ms)} ms in ${Math.max(2, size)} (${pool.stats().started} started)` }
       : { ok: false, detail: `same ${same} (${JSON.stringify(one.tris)} / ${JSON.stringify(many.tris)}), ${Math.round(one.ms)} ms vs ${Math.round(many.ms)} ms` };
   },
@@ -946,6 +947,51 @@ await rc.cut(h, 10);`, 'plate');
       : { ok: false, detail: `menubar ${menubar}; ribbon has Verrundung ${ribbon.includes('Verrundung')}; ${parts}; ${counted}; ${modal}; macro ${JSON.stringify(r)}; back ${back}` };
   },
 
+  // STEP round trip: a test part exported as STEP and imported into a new part gives the same solid (volume,
+  // area, faces and edges)
+  async 'step-roundtrip'(parts) {
+    const a = window.app;
+    if (a.mode === 'drawing') { const i = a.tabs.findIndex((t) => t.kind !== 'drawing'); if (i >= 0) await a.activateTab(i); }
+    const src = JSON.parse(parts.find((p) => p.name === 'holes').json);
+    const k = a.kernel;
+    const r0 = await k.rebuild(src, null, null);
+    const m = async (r) => { const x = await k.request('measure', { refs: [{ kind: 'body', id: r.body.bodies[0].id }] }); return x.items?.[0] || x; };
+    const g0 = await m(r0), b0 = r0.body.bodies[0];
+    const bytes = await k.exportBody('step', null, { name: 'holes' });
+    const text = new TextDecoder().decode(bytes);
+    const d = M.newDoc(); d.name = 'reimported';
+    d.features.push(M.createFeature(d, 'import', { format: 'step', fileName: 'holes.step', data: text, name: 'holes' }));
+    const r1 = await k.rebuild(d, null, null);
+    const g1 = r1.body?.bodies?.length ? await m(r1) : {};
+    const b1 = r1.body?.bodies?.[0] || {};
+    const same = (x, y) => Math.abs(x - y) <= 1e-6 * Math.max(1, Math.abs(x));
+    const ok = text.startsWith('ISO-10303-21') && r1.errors.length === 0 && same(g1.volume, g0.volume) && same(g1.area, g0.area) && b0.faceCount > 0 && b1.faceCount === b0.faceCount && b1.edgeCount === b0.edgeCount;
+    return ok ? { ok: true, detail: `${Math.round(text.length / 1024)} kB of STEP; volume ${r6(g1.volume)}, ${b1.faceCount} faces, ${b1.edgeCount} edges, as before` }
+      : { ok: false, detail: `errors ${JSON.stringify(r1.errors)}; volume ${g1.volume} vs ${g0.volume}, area ${g1.area} vs ${g0.area}, faces ${b1.faceCount}/${b0.faceCount}, edges ${b1.edgeCount}/${b0.edgeCount}` };
+  },
+
+  // a big assembly: 3 parts placed 40 times each (120 components) loads, counts right in the bill of materials and
+  // exports as one STEP assembly with each part once
+  async 'big-assembly'(parts) {
+    const a = window.app;
+    const docs = ['plate-features', 'holes', 'shell-box'].map((n) => JSON.parse(parts.find((p) => p.name === n).json));
+    a.newAssembly(); await wait(300); closeModals();
+    const asm = a.drawing;
+    const ids = docs.map((d) => asm.addPart(d, null, null));
+    let n = 0;
+    ids.forEach((pid, j) => { for (let i = 0; i < 40; i++) asm.doc.components.push({ id: 'c' + ++n, part: pid, name: `${docs[j].name}<${i + 1}>`, pos: [(i % 8) * 160, j * 120, Math.floor(i / 8) * 120], rot: [0, 0, 0, 1], fixed: n === 1, hidden: false }); });
+    const t0 = performance.now();
+    await asm.loadParts();
+    const ms = Math.round(performance.now() - t0);
+    const built = asm.doc.components.every((c) => asm.geo(c)?.mesh);
+    const B = await import('/js/bom.js');
+    const rows = B.bomRows(asm.doc);
+    const r = await (a.kernelPool || a.kernel).request('exportAssemblySTEP', { doc: JSON.stringify(asm.exportDoc()) }, 'asm-parts');
+    const ok = built && rows.length === 3 && rows.every((x) => x.qty === 40) && r.parts === 3 && r.components === 120;
+    return ok ? { ok: true, detail: `120 components of 3 parts loaded in ${ms} ms; BOM 3 × 40; STEP: ${r.parts} parts, ${r.components} placed` }
+      : { ok: false, detail: `built ${built}, BOM ${JSON.stringify(rows.map((x) => [x.name, x.qty]))}, STEP ${JSON.stringify({ parts: r.parts, comps: r.components })}` };
+  },
+
   // the browser version's notice: above the window, as wide as it (the text wraps), gone with ✕
   async 'web-notice'() {
     const a = window.app, root = document.getElementById('app');
@@ -983,12 +1029,45 @@ await rc.cut(h, 10);`, 'plate');
   },
 };
 
+// Drawings against stored output: these test parts drawn in the standard views by the kernel (hidden lines
+// removed), each view as the count of each kind of line (visible / hidden / tangent…, line / circle / arc /
+// curve) and its extent; sheet metal also as its flat pattern.
+const DRAWING_PARTS = ['plate-features', 'holes', 'revolve-pattern', 'shell-box', 'sheet-metal', 'sweep-loft'];
+async function drawingResult(doc) {
+  const Dm = await import('/js/drawing.js');
+  const O = Dm.ORIENTATIONS;
+  const views = ['front', 'top', 'right', 'iso'].map((k) => ({ id: k, dir: O[k].dir, up: O[k].up, section: null }));
+  if (doc.features.some((f) => f.type?.startsWith('sm'))) views.push({ id: 'flat', flat: true, body: null, dir: [0, 0, 1], up: [0, 1, 0] });
+  const t0 = performance.now();
+  const res = await window.app.kernel.request('drawingViews', { doc: JSON.stringify(doc), views });
+  const out = {};
+  for (const r of res) {
+    if (r.error) { out[r.id] = { error: r.error }; continue; }
+    const counts = {};
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    const pt = (p) => { if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0]; if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1]; };
+    for (const { k, g } of r.edges || []) {
+      const key = `${k}:${g.t}`;
+      counts[key] = (counts[key] || 0) + 1;
+      if (k !== 'v' && k !== 't') continue;
+      if (g.t === 'l') { pt(g.a); pt(g.b); } else if (g.t === 'c' || g.t === 'a') { pt([g.c[0] - g.r, g.c[1] - g.r]); pt([g.c[0] + g.r, g.c[1] + g.r]); } else if (g.pts) g.pts.forEach(pt);
+    }
+    out[r.id] = { counts: Object.fromEntries(Object.entries(counts).sort()), size: Number.isFinite(x0) ? [r6(x1 - x0), r6(y1 - y0)] : null };
+  }
+  out.ms = Math.round(performance.now() - t0);
+  return out;
+}
+
 export async function run(parts, only = null) {
-  const out = { parts: {}, ui: {} };
+  const out = { parts: {}, ui: {}, drawings: {} };
   closeModals();
   for (const p of parts) {
     if (only && !only.includes(p.name)) continue;
     try { out.parts[p.name] = await partResult(JSON.parse(p.json)); } catch (e) { out.parts[p.name] = { crash: String(e?.message || e) }; }
+  }
+  for (const p of parts) {
+    if (!DRAWING_PARTS.includes(p.name) || (only && !only.includes(p.name) && !only.includes('drawings'))) continue;
+    try { out.drawings[p.name] = await drawingResult(JSON.parse(p.json)); } catch (e) { out.drawings[p.name] = { crash: String(e?.message || e) }; }
   }
   for (const [name, fn] of Object.entries(UI)) {
     if (only && !only.includes(name)) continue;

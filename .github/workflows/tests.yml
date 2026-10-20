@@ -1,0 +1,25 @@
+# The regression tests (tests/run_tests.py) on every push and pull request: the test parts rebuilt with the real
+# geometry kernel, the drawings compared with the stored ones, and the UI checks, in headless Microsoft Edge on
+# Windows (the runner has Edge installed, so Playwright needs no browser download).
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Playwright
+        run: python -m pip install --upgrade pip playwright
+      - name: Run the regression tests
+        run: python tests/run_tests.py
+        env:
+          CI: 'true'
