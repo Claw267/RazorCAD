@@ -57,11 +57,11 @@
       <article class="prose">
         <h1>Evaluate and Tools</h1>
 <h2 id="measure">Measure</h2>
-<p><strong>Evaluate ▸ Measure</strong>, <strong>Tools ▸ Measure…</strong> or the view's right-click menu. Click vertices, edges, faces, planes or sketch lines; with two items picked it shows the distance between them plus dX, dY and dZ. Use the body filter (<kbd>B</kbd>) to pick whole bodies.</p>
+<p><strong>Evaluate ▸ Measure</strong>, <strong>Tools ▸ Measure…</strong> or the view's right-click menu. Click vertices, edges, faces, planes or sketch lines; with two items picked it shows the distance between them plus dX, dY and dZ. Use the body filter (<kbd>B</kbd>) to pick whole bodies. Sizes are in the document's units.</p>
 <h2 id="mass-properties">Mass Properties</h2>
 <p><strong>Evaluate ▸ Mass Properties</strong> shows mass, volume, surface area and centre of mass. It adds up every body with its own density and lists the bodies. A body with no material uses 1.00 g/cm³.</p>
 <h2 id="interference-check">Interference Check</h2>
-<p><strong>Evaluate ▸ Interference Check</strong> finds where the solid bodies of a part overlap. It lists each pair with its overlap volume and shows the overlaps in red.</p>
+<p><strong>Evaluate ▸ Interference Check</strong> finds where the solid bodies of a part overlap. It lists each pair with its overlap volume and shows the overlaps in red. Assemblies have their own (see the Assemblies chapter).</p>
 <h2 id="surface-analysis">Surface analysis</h2>
 <p>These displays colour the model to show the quality of its faces. Click the button again to turn its display off.</p>
 <div class="table-wrap"><table><thead><tr><th>Command</th><th>Shows</th></tr></thead><tbody><tr><td><strong>Zebra Stripes</strong></td><td>Reflected stripes on every body. Across a smooth join the stripes run on without a kink.</td></tr><tr><td><strong>Curvature</strong></td><td>Bodies coloured from blue (flat) through green and yellow to red (tightest). The status bar gives the radius red stands for.</td></tr><tr><td><strong>Draft Analysis</strong></td><td>Choose a pull direction (an axis or a selected face's normal) and the draft needed. Faces turn green with enough draft, yellow where they need more, and red with draft the other way.</td></tr></tbody></table></div>
@@ -70,7 +70,7 @@
 <h2 id="equations-and-global-variables">Equations and global variables</h2>
 <p><strong>Tools ▸ Equations…</strong> holds global variables that can be used in any dimension or feature value. Example: <code>width = 120</code>, then set a depth to <code>width/4</code>. Each row shows the value it evaluates to; invalid or duplicate names are flagged.</p>
 <p>Every value field accepts:</p>
-<div class="table-wrap"><table><thead><tr><th>Item</th><th>Examples</th></tr></thead><tbody><tr><td>Operators</td><td><code>+ - * / ^ %</code> and parentheses</td></tr><tr><td>Variables</td><td>Any name from Equations</td></tr><tr><td>Trigonometry (degrees)</td><td><code>sin cos tan asin acos atan</code></td></tr><tr><td>Other functions</td><td><code>sqrt abs min max round floor ceil pow</code></td></tr><tr><td>Constants</td><td><code>pi</code></td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Item</th><th>Examples</th></tr></thead><tbody><tr><td>Operators</td><td><code>+ - * / ^ %</code> and parentheses</td></tr><tr><td>Variables</td><td>Any name from Equations</td></tr><tr><td>Trigonometry (degrees)</td><td><code>sin cos tan asin acos atan</code></td></tr><tr><td>Other functions</td><td><code>sqrt abs min max round floor ceil pow</code></td></tr><tr><td>Constants</td><td><code>pi</code></td></tr><tr><td>Units of length</td><td><code>2in</code>, <code>30 mm</code>, <code>1.5cm</code>, <code>2ft</code>, <code>(w/2)*in</code> (see Units)</td></tr></tbody></table></div>
 <p>A value may start with <code>=</code>. Variable names start with a letter or underscore and can't be a function name.</p>
 <h2 id="edit-material">Edit Material</h2>
 <p><strong>Tools ▸ Edit Material…</strong> (or the Material item in the tree) sets the part material. See Appendix B for the list.</p>
@@ -81,7 +81,7 @@
   <footer class="titleblock" aria-label="About this page">
     <div class="tb-cell tb-logo"><img src="/favicon.svg" alt="" width="44" height="44"></div>
     <div class="tb-cell tb-title"><span class="tb-label">Title</span><span class="tb-value tb-big">RazorCAD user manual</span></div>
-    <div class="tb-cell"><span class="tb-label">Rev</span><span class="tb-value">0.12.0-beta</span></div>
+    <div class="tb-cell"><span class="tb-label">Rev</span><span class="tb-value">0.13.0-beta</span></div>
     <div class="tb-cell"><span class="tb-label">Licence</span><span class="tb-value"><a href="https://github.com/Labs9119/RazorCAD/blob/main/LICENSE">GPL-3.0</a></span></div>
     <div class="tb-cell"><span class="tb-label">Source</span><span class="tb-value"><a href="https://github.com/Labs9119/RazorCAD">Labs9119/RazorCAD</a></span></div>
     <div class="tb-cell"><span class="tb-label">Kernel</span><span class="tb-value">OpenCascade</span></div>

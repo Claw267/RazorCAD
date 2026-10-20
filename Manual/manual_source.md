@@ -20,8 +20,9 @@ Main capabilities:
 - Surface modelling: extruded, revolved, planar, lofted, swept, filled, boundary and ruled surfaces, trim, extend, knit, thicken and more
 - Sheet metal: flanges, hems, miter flanges, sketched bends, jogs, forming tools, tab and slot, lofted bends, transitions, flat patterns and DXF export
 - **Fast Structure** (weldments): structural members from standard profiles, end caps, gussets, weld beads and a cut list
-- Assemblies with mates, sub-assemblies, configurations, exploded views and a bill of materials
-- 2D drawings of parts and assemblies, with projected, section, detail, auxiliary, broken and flat pattern views, dimensions, GD&T and PDF and DXF export
+- Assemblies with mates (including gear and rack-pinion mates), sub-assemblies, configurations, exploded views, an interference check and a bill of materials
+- 2D drawings of parts and assemblies, with projected, section, detail, auxiliary, broken, exploded and flat pattern views, dimensions, GD&T, cosmetic threads, balloons, bill-of-materials tables and PDF and DXF export
+- Millimetres or inches, chosen for each document
 - STEP, STL, OBJ and 3MF import and export; DXF import into sketches and DXF export of faces and flat patterns
 - An **Ask Claude** panel that builds features from a plain-language description
 
@@ -42,7 +43,7 @@ The **Contents** and the **Index** are clickable. The footer of every page has a
 | **Command ribbon** | The tabbed toolbar across the top (Features, Sketch, Surfaces …) |
 | `width/2` | Text you type, such as a value or an equation |
 
-> Note: RazorCAD works in **millimetres**. Angles are in **degrees**.
+> Note: Lengths are in **millimetres** or **inches**, chosen for each document (see Units). Angles are in **degrees**.
 
 # Installing and Starting RazorCAD
 
@@ -59,6 +60,7 @@ Testers can be given **RazorCAD-Setup.exe**, a single setup program with RazorCA
 - It creates Start-menu and desktop shortcuts and registers RazorCAD under Windows **Installed apps** with an uninstaller.
 - The uninstaller asks before removing settings and crash reports. Part files are never touched.
 - Running setup again updates an existing installation.
+- Until RazorCAD is code-signed, Windows may show "Windows protected your PC" for the setup: click **More info**, then **Run anyway**. The *Read me first* file that comes with the setup says what to expect for that version.
 
 Silent install and uninstall:
 
@@ -70,11 +72,18 @@ Silent install and uninstall:
 | `/NODESKTOP`, `/NOSTARTMENU` | Skip the desktop or Start-menu shortcut |
 | `uninstall.exe /S` | Silent uninstall |
 
+## Updates
+
+A little after it starts (at most once a day), RazorCAD asks GitHub for the newest RazorCAD release. When there is a newer one, a notice in the corner offers **Download** (the release page), **Later** or **Skip this version**. Nothing is shown when you are up to date or offline. Only GitHub is asked; nothing about you or your parts is sent. {idx:updates}{idx:Check for Updates}
+
+**Help ▸ Check for Updates…** checks at once and says what it found. Its window also turns the check at start on or off. **Help ▸ About RazorCAD** shows the version you have.
+
 ## The start window
 
 At launch RazorCAD shows a start window with: {idx:start window}
 
-- **New Part** and **New Drawing**
+- **New to RazorCAD? Take the one-minute tour** (until you have taken it; see Getting Started Tour)
+- **New Part**, **New Assembly** and **New Drawing**
 - **Open…**
 - **Sample Part**, a ready-made part to explore
 - **Recent Parts**: name, folder and date. Missing files are greyed out and can be removed with ✕. Parts that have an auto-save waiting are marked.
@@ -87,7 +96,7 @@ Reopen it any time with **File ▸ Recent Parts / Start…**.
 
 | Area | What it does |
 |---|---|
-| **Menu bar** | File, Edit, View, Insert, Tools, Help. Next to the menus are quick buttons for **Save**, **Save As** and **Rebuild**. |
+| **Menu bar** | File, Edit, View, Insert, Tools, Help. Next to the menus are quick buttons for **Save**, **Save As**, **Rebuild** and **Search commands** (the magnifier). |
 | **Document tabs** | Each open part or drawing has its own tab. ✕ closes a tab and asks to save. |
 | **Command ribbon** | Tabs of tool buttons: **Features**, **Sketch**, **Surfaces**, **Sheet Metal**, **Fast Structure**, **Evaluate** and **Claude**. Buttons with a shortcut show the key in their bottom-right corner. |
 | **Feature tree** | The part's history, with folders for Solid Bodies, Sheet Metal Bodies and Surface Bodies, the material, the planes and every feature. An eye column on the right shows or hides each item. |
@@ -95,7 +104,8 @@ Reopen it any time with **File ▸ Recent Parts / Start…**.
 | **Property panel** | Opens in place of the tree while you create or edit a feature. ✔ accepts ([[Enter]]), ✕ cancels ([[Esc]]). |
 | **Heads-up toolbar** | Above the 3D view: view orientation, display style, selection filters, visibility (eye button) and section view |
 | **Confirm corner** | The top-right corner of the view holds ✔ / ✕ for the active feature or sketch |
-| **Status line and progress bar** | Bottom left. Long operations (opening, rebuilding, importing, meshing, exporting) show progress here. |
+| **Status line and progress bar** | Bottom left. Long operations (opening, rebuilding, importing, meshing, exporting) show progress here. The rebuild time is shown at the right; when features have errors it shows their number in red: click it for Fix References. |
+| **Units** | Bottom right: **MMGS** (millimetres) or **IPS** (inches). Click it to change the document's units. |
 
 {idx:Command ribbon}{idx:Feature tree}{idx:Property panel}{idx:heads-up toolbar}
 
@@ -109,6 +119,45 @@ The ribbon shows its buttons in two rows. {idx:toolbars, customising}
 - Right-click a button on a built-in toolbar to hide it or add a separator after it. **Customize Toolbars…** shows hidden buttons again, and **Reset** puts a toolbar back as it was.
 
 The layout is kept in `prefs.json` in RazorCAD's data folder.
+
+## Getting Started Tour
+
+A one-minute tour of the window in eight short steps, each pointing at its part of the window: the ribbon, the feature tree, the view and its mouse buttons, how to make a first part, the command search and the units. It ends with **Open the Sample Part**. Use **Next** / **Back** (or [[→]] / [[←]] and [[Enter]]); [[Esc]] or **Skip the tour** ends it. {idx:Getting Started Tour}{idx:tour}
+
+The first time RazorCAD starts, the start window offers it. If you close the start window on an empty part, it starts by itself, once. Afterwards it is in **Help ▸ Getting Started Tour**.
+
+## Search commands
+
+Press [[Ctrl+K]] (or [[/]]), or click the magnifier next to Save, and type part of a command's name: "fil" finds Fillet, "circ pat" Circular Pattern. Pick a result with [[↑]] / [[↓]] and [[Enter]], or click it. {idx:command search}{idx:search commands}
+
+- It searches every command of the menus and the ribbon of the document in front: part, sketch, 3D sketch, assembly or drawing.
+- Each result shows where the command lives (its menu or ribbon tab) and its shortcut.
+- With nothing typed, the commands you used lately come first.
+
+## Your own keyboard shortcuts
+
+**Help ▸ Customize Shortcuts…** (or **Customize…** in Help ▸ Keyboard Shortcuts) gives commands keys of your own. Find a command, click **Set** and press the keys, for example [[Ctrl+Shift+F]], [[G]] or [[F6]]. {idx:keyboard shortcuts, customising}{idx:shortcuts, your own}
+
+- A shortcut works wherever its command is, in the document in front.
+- It takes the place of a key RazorCAD uses itself; the window says when it does (for example [[F]], Zoom to Fit). Giving a key to another command moves it there.
+- [[Esc]], [[Enter]], [[Tab]] and [[Backspace]] can't be used.
+- ✕ removes a shortcut; **Remove All** removes them all. Your shortcuts are listed at the top of Help ▸ Keyboard Shortcuts and shown in the command search. They are kept in `prefs.json`.
+
+## Units
+
+Each part, assembly and drawing is in **millimetres** or **inches**. Click **MMGS / IPS** at the right of the status bar, or use **Tools ▸ Units: Millimetres / Units: Inches**. Changing the units keeps every size exactly as it is; only how sizes are shown and typed changes. {idx:units}{idx:inches}{idx:millimetres}
+
+In an inch document:
+
+- Feature fields show and take inches. The arrow keys step 0.1 in ([[Shift]]: 1 in).
+- Sketch dimensions, the Modify box and the sizes shown while drawing are in inches.
+- Measure shows in, in² and in³; Mass Properties also gives the mass in pounds.
+- New features start at round sizes, to the nearest 1/8 in.
+- Equation variables used in a length count in inches: with `w = 3`, a depth of `w/2` is 1.5 in.
+
+Any value can name its unit: `2in`, `30 mm`, `1.5cm`, `2ft`, `(w/2)*in`. Values typed before a document became inch keep their size; an expression typed in millimetres shows as `(…)*mm`.
+
+Drawings have units of their own (see the Drawings chapter). A drawing made from an inch part starts in inches.
 
 # Working with Files
 
@@ -145,7 +194,7 @@ Double-clicking a .rcad, .rasm or .rdrw file opens it in RazorCAD; if RazorCAD i
 
 Saving keeps a small picture of the view in the file. Windows Explorer, the Open and Save dialogs and the start window show it as the file's thumbnail. {idx:file previews}
 
-A part that takes a while to build is stored, once built, in `%LOCALAPPDATA%\RazorCAD\modelcache` (kept under 1 GB). Opening the unchanged file again shows the model at once while the kernel rebuilds it in the background. Switching tabs also shows each part at once. {idx:model cache}
+A part that takes a while to build is stored, once built, in `%LOCALAPPDATA%\RazorCAD\modelcache` (kept under 1 GB). With it the kernel keeps the geometry after each feature. Opening the unchanged file again shows the model at once, ready to edit: the first change after opening rebuilds only from the changed feature on, as any later change does. Switching tabs also shows each part at once. {idx:model cache}
 
 ## Importing STEP, STL, OBJ and 3MF
 
@@ -575,7 +624,7 @@ Blends between two or more profile sketches, in order. A third or later profile 
 | Hole (clearance) | ISO 273 close, normal or loose fit, for M2 to M24 |
 | Counterbore | For socket head cap screws (ISO 4762) |
 | Countersink | ISO 10642, 90° |
-| Tapped hole | ISO metric or Unified (inch), drilled at the tap drill size; the thread is kept for drawing callouts |
+| Tapped hole | ISO metric or Unified (inch), drilled at the tap drill size; the thread is shown as a cosmetic thread and given in drawing callouts |
 | Custom sizes | Your own diameters and depths |
 
 - **Blind** with a 118° drill point, or **Through All**; reversible.
@@ -596,6 +645,16 @@ Click a bore (Thread Cut) or a shaft (Thread Extrude). {idx:threads}
 - The bore or shaft is resized to the thread size if needed (a bore to the minor diameter, a shaft to the major). A bore that would break out of the body is refused.
 - Threads run all the way to the ends: grooves run out into open air, otherwise the thread is cut off flush with the end.
 
+## Cosmetic Thread
+
+**Cosmetic Thread** (Features tab, **Insert ▸ Features ▸ Cosmetic Thread…**) marks a bore or shaft as threaded without modelling the thread, so it costs nothing to rebuild. Use it where the thread only needs to be shown and called out. {idx:Cosmetic Thread}{idx:threads, cosmetic}
+
+- Click the bore (internal thread) or the shaft (external thread). The thread starts at the end nearest the click; **Start from the other end** reverses it.
+- Size, pitch, left-hand and length (whole face, depth, or up to a plane or face) as for Thread Cut. The feature's note says when the face is not the size the thread expects (a bore about the minor diameter, a shaft the major).
+- In the model it shows as a thin helix on the face. Tapped holes made with the Hole feature show their threads the same way.
+- On drawings it is drawn by convention: from the side, thin lines at the thread's other diameter and a line where it ends, dashed for a hidden bore; end on, a three-quarter circle. A view's **Cosmetic threads** box turns them off.
+- **Hole Callout** on a bore with a cosmetic thread gives the thread, for example "M10×1.5 THRU ALL / TAP DRILL Ø8.5 THRU ALL".
+
 ## Wrap (Emboss / Deboss)
 
 Pick a sketch (outlines and/or text) and a face, flat or curved. The sketch is projected along its normal onto the face and raised (emboss) or sunk (deboss) by the depth. {idx:wrap}{idx:emboss}
@@ -615,7 +674,7 @@ Patterns and mirrors copy features or bodies. Any feature that changes the bodie
 
 {idx:Sketch Driven Pattern}{idx:Curve Driven Pattern}{idx:Fill Pattern}
 
-Patterns of cuts are cut out in one operation, so large patterns rebuild quickly.
+Patterns of cuts are cut out in one operation, and patterns of added features (bosses, pins, ribs) are fused into the body in one operation, so large patterns rebuild quickly. A plate with 200 bosses builds in about 2 seconds.
 
 A pattern or mirror of a sheet metal feature that makes a body (Base-Flange, SM-Extrude, Lofted-Bend, Transition) copies that body as it is at the pattern, with the flanges and cuts added to it so far. Each copy is sheet metal with its own flat pattern. A mirrored copy's flat pattern is the mirror image, with its bends going the other way. A mirrored lofted bend becomes a plain solid. {idx:pattern, sheet metal}
 
@@ -801,7 +860,23 @@ Coordinates (equations allowed), a model vertex, an arc centre or an edge midpoi
 - Select a feature and press [[Del]] (or **Edit ▸ Delete**) to delete it.
 - **Edit ▸ Undo / Redo** ([[Ctrl+Z]] / [[Ctrl+Y]]) works on the whole part history.
 - **Rebuild** ([[Ctrl+B]], or the quick button) rebuilds the part.
-- A feature that fails shows an error in the tree so you can fix or re-pick its references.
+- A feature that fails shows an error in the tree so you can fix or re-pick its references (see Fix References).
+
+## References that follow edits
+
+Features that use picked edges and faces (fillets, chamfers, shells, drafts, axes…) find them again after the model changes. An edge remembers the faces on its two sides and whether it is an outside or inside corner. When a dimension moves it so far that other edges now lie nearer its old place, the right edge is still found, and an edge of another kind is not taken for it. A face that moved is found as the face facing the same way that is clearly nearest. A reference found again this way is updated, so it keeps following the model. {idx:references}
+
+## Fix References
+
+**Tools ▸ Fix References…** lists every feature that failed to rebuild, what went wrong and which of its edges or faces are no longer in the model. Open it also by clicking the red error count in the status bar, or by right-clicking a failed feature. For each feature: {idx:Fix References}
+
+| Button | What it does |
+|---|---|
+| **Edit** | Opens the feature (or sketch) to pick its references again |
+| **Remove missing** | Keeps the references that are still found and drops the others |
+| **Suppress** | Leaves the feature out for now |
+
+Fix them from the top: a feature can fail only because one above it did. The list follows every rebuild while it is open.
 
 ## Rollback bar
 
@@ -1066,7 +1141,7 @@ An assembly places parts and other assemblies as **components** and holds them t
 
 **File ▸ New Assembly**, or **New Assembly** in the start window. Every assembly has the standard **Front, Top and Right Planes** and the **Origin** at the top of its tree. They show in the view as a part's do (the eye in the tree, **View ▸ Show Planes**), and mates can use them; they stay where they are. {idx:assembly, planes}
 
-The **Assembly** tab of the ribbon holds Insert Components, Mate, Fix, Float, Hide Component, Suppress, Open Part, Exploded View, Explode / Collapse, Bill of Materials and Zoom to Fit.
+The **Assembly** tab of the ribbon holds Insert Components, Mate, Fix, Float, Hide Component, Suppress, Open Part, Exploded View, Explode / Collapse, Bill of Materials, Interference Check and Zoom to Fit.
 
 ## Inserting components
 
@@ -1089,10 +1164,21 @@ Click **Mate** ([[M]]), then two faces, edges or vertices on different component
 | **Tangent** | A face touching a round face |
 | **Distance** / **Angle** | At a set value |
 | **Lock** | One component fixed to another |
+| **Gear** | Two gears turning together: pick their cylinders (pitch circles) |
+| **Rack Pinion** | A pinion turning as a rack slides: pick the pinion's cylinder and a straight edge or the flat face of the rack |
 
 - Flat faces count as planes; cylinders, cones and circular edges as axes; spheres and vertices as points.
 - Each mate is shown applied while you choose. **Flip** swaps Aligned / Anti-Aligned (or the side for Distance and Tangent). When the alignment chosen from how the faces sit can't be reached, the other one is used.
 - A mate that conflicts with the others is refused with a message.
+- A mate keeps its faces and edges by their geometry, not only by their number in the part. When a part gets a new feature or a dimension moves a face, the mate stays on the same face. A mate whose face or edge is gone gets a red **!** in the tree ("1 mate lost a face"). **Tools ▸ Fix Mates…** lists them with Edit, Suppress and Delete. {idx:Fix Mates}
+
+### Gear and rack-pinion mates
+
+These relate one component's motion to another's, from where they are when the mate is made, so set the teeth in mesh first. Hold each gear on its axle with the usual mates (Concentric and Coincident); the gear mate then takes one more degree of freedom. {idx:gear mate}{idx:rack and pinion mate}
+
+- **Gear**: turn one gear and the other turns the other way, in the ratio of their radii. **Ratio** is how many turns entity 2 makes per turn of entity 1; change it to the teeth ratio if the cylinders are not the pitch circles. **Reverse the direction** is for an internal gear, where both turn the same way. The tree shows it as for example "Gear1 1:2".
+- **Rack Pinion**: turning the pinion slides the rack along the edge (or face) picked, and sliding the rack turns the pinion. **Rack travel per pinion turn** starts as the pinion's circumference (π × diameter). **Reverse** changes the direction.
+- They follow turns of any size made step by step, as when you drag a gear. One jump of more than half a turn can't be told from a turn the other way.
 
 ## Moving components
 
@@ -1126,6 +1212,10 @@ An assembly can hold other assemblies as components. **Insert Components ▸ Bro
 
 The tree's **Exploded Views** folder lists them. Double-click one to explode or collapse it (animated); right-click for Explode / Collapse, Animate, Edit, Rename and Delete. The **Explode / Collapse** button on the ribbon does the same for the last one. Dragging a component, adding a mate or editing collapses the view first. Exploded views are saved with the file.
 
+## Interference Check
+
+**Interference Check** (Assembly tab, or **Tools ▸ Interference Check…**) finds where components overlap. Each overlap shows in red and is listed with its two components (inside sub-assemblies as "Sub-assembly ▸ Part") and its volume. Faces that only touch, such as mated faces, are not counted, and nor are the bodies of one multi-body part against each other. An exploded assembly is collapsed first, so the check is of where the mates put the parts. {idx:Interference Check, assembly}
+
 ## Bill of Materials
 
 **Bill of Materials** lists the parts with their quantities and materials: one row per part and configuration used, with suppressed components left out. It is indented: a sub-assembly's parts are listed under it (1.1, 1.2…), with the quantities in one of it. **Copy as CSV** or **Save CSV…** takes it to a spreadsheet. {idx:Bill of Materials}
@@ -1147,7 +1237,7 @@ Each part an assembly builds is kept in the model cache (`%LOCALAPPDATA%\RazorCA
 
 ## Not yet available
 
-Interference check of assembly components (Interference Check works on the bodies of a part) and STEP export of a whole assembly.
+STEP export of a whole assembly.
 
 # Drawings
 
@@ -1215,7 +1305,8 @@ Views are hidden-line projections computed by the geometry kernel.
 Click a view to open its panel: {idx:view properties}
 
 - Orientation, changeable after placing (also to and from Flat Pattern; projected and section views made from it are removed when it becomes a flat pattern, and [[Ctrl+Z]] brings them back).
-- Display style: hidden lines removed, hidden lines visible, or wireframe; tangent edges on or off.
+- Display style: hidden lines removed, hidden lines visible, or wireframe; tangent edges and cosmetic threads on or off.
+- **Exploded** (a view of an assembly that has exploded views): shows the view exploded as one of them. The components are where that exploded view moves them, the view keeps its place on the sheet, and its projected, section, auxiliary and detail views follow. Balloons on it pick the moved parts. {idx:exploded view, drawing}
 - Sheet scale or a custom scale; labels.
 - **Rotate View**: −90°, +90°, 180° and 0° buttons and an angle box (degrees, counter-clockwise). Section lines, detail circles and annotations turn with the view.
 
@@ -1234,7 +1325,7 @@ A flat pattern view shows a sheet metal body unfolded with its outline and holes
 | **Baseline Dimension** | Click the base edge or point, then each point or edge to dimension from it; the dimensions stack one above the other |
 | **Ordinate Dimension** | Click the origin, then where the values line up, then the points to dimension |
 | **Chamfer Dimension** | Click the chamfer edge and an edge next to it, then place the text ("3 × 45°") |
-| **Hole Callout** | Click a hole. The callout gives its size and depth from the Hole feature (counterbore, countersink, tapped thread and tap drill) and how many of the same holes the view shows, for example "4× Ø6.6 THRU ALL / CBORE Ø11 DEEP 6.5". |
+| **Hole Callout** | Click a hole. The callout gives its size and depth from the Hole feature (counterbore, countersink, tapped thread and tap drill) or its cosmetic thread, and how many of the same holes the view shows, for example "4× Ø6.6 THRU ALL / CBORE Ø11 DEEP 6.5". |
 | **Datum Feature** | A datum letter in a box, with a triangle on the feature |
 | **Geometric Tolerance** | A feature control frame: one of the 14 characteristic symbols, tolerance with Ø zone and material condition, and up to three datums |
 | **Surface Finish** | A surface finish symbol with its roughness |
@@ -1243,13 +1334,16 @@ A flat pattern view shows a sheet metal body unfolded with its outline and holes
 | **Centerline** | Click two lines (or two points); the centerline runs between them |
 | **Revision Table** | Rows edited in one dialog; the latest revision goes into the title block |
 | **Cut List Table** | The cut list of the part in the selected view (see the Fast Structure chapter); it updates when the part changes |
+| **Balloon** | Click a part in a view, then where the balloon goes. The number is that part's item in the bill of materials, found from the part under the click (in a sub-assembly, the sub-assembly's item). Keep clicking for more; [[Esc]] ends. Where the part can't be told, it asks for the number. Right-click a balloon ▸ **Item Number…** to change it. |
+| **BOM Table** | The bill of materials of the drawing's assembly: ITEM, QTY, PART and MATERIAL, at the top right of the sheet. Drag it anywhere; right-click it to show the sub-assemblies' parts (indented). It follows the assembly. |
 
-Datum features, geometric tolerances, surface finish and weld symbols can each have a leader. Right-click one ▸ **Edit…** to change it. {idx:dimensions, drawing}{idx:note}{idx:center mark}{idx:baseline dimension}{idx:ordinate dimension}{idx:Hole Callout}{idx:GD&T}{idx:geometric tolerance}{idx:datum}{idx:surface finish}{idx:weld symbol}{idx:revision table}{idx:Cut List Table}
+Datum features, geometric tolerances, surface finish and weld symbols can each have a leader. Right-click one ▸ **Edit…** to change it. {idx:dimensions, drawing}{idx:note}{idx:center mark}{idx:baseline dimension}{idx:ordinate dimension}{idx:Hole Callout}{idx:GD&T}{idx:geometric tolerance}{idx:datum}{idx:surface finish}{idx:weld symbol}{idx:revision table}{idx:Cut List Table}{idx:balloon}{idx:BOM Table}
 
 ## Sheet tab
 
 - **Sheet Properties**: size, orientation, scale, first or third angle. {idx:sheet properties}
 - **Title Block** (Drawing Properties): title block fields, text height and decimals.
+- **Units**: click **MMGS / IPS** in the status bar. An inch drawing gives lengths in inches with three decimals and its title block says "in"; angles are not converted. {idx:drawing, units}
 - **Change Template**: see Drawing templates above.
 - **Add Sheet**: drawings can have several sheets, shown as tabs under the sheet.
 - **Export PDF**: vector PDF, one page per sheet. {idx:PDF export}
@@ -1261,13 +1355,13 @@ Views and dimensions follow changes to the part or assembly, whether it is open 
 
 ## Not yet available
 
-Balloons and bill-of-materials tables. DWG export: DWG is a closed format, so drawings are exported as DXF, which practically every CAD program opens.
+DWG export: DWG is a closed format, so drawings are exported as DXF, which practically every CAD program opens.
 
 # Evaluate and Tools
 
 ## Measure
 
-**Evaluate ▸ Measure**, **Tools ▸ Measure…** or the view's right-click menu. Click vertices, edges, faces, planes or sketch lines; with two items picked it shows the distance between them plus dX, dY and dZ. Use the body filter ([[B]]) to pick whole bodies. {idx:measure}
+**Evaluate ▸ Measure**, **Tools ▸ Measure…** or the view's right-click menu. Click vertices, edges, faces, planes or sketch lines; with two items picked it shows the distance between them plus dX, dY and dZ. Use the body filter ([[B]]) to pick whole bodies. Sizes are in the document's units. {idx:measure}
 
 ## Mass Properties
 
@@ -1275,7 +1369,7 @@ Balloons and bill-of-materials tables. DWG export: DWG is a closed format, so dr
 
 ## Interference Check
 
-**Evaluate ▸ Interference Check** finds where the solid bodies of a part overlap. It lists each pair with its overlap volume and shows the overlaps in red. {idx:Interference Check}
+**Evaluate ▸ Interference Check** finds where the solid bodies of a part overlap. It lists each pair with its overlap volume and shows the overlaps in red. Assemblies have their own (see the Assemblies chapter). {idx:Interference Check}
 
 ## Surface analysis
 
@@ -1306,6 +1400,7 @@ Every value field accepts:
 | Trigonometry (degrees) | `sin cos tan asin acos atan` |
 | Other functions | `sqrt abs min max round floor ceil pow` |
 | Constants | `pi` |
+| Units of length | `2in`, `30 mm`, `1.5cm`, `2ft`, `(w/2)*in` (see Units) |
 
 A value may start with `=`. Variable names start with a letter or underscore and can't be a function name.
 
@@ -1358,7 +1453,8 @@ Kinds of report: `ui-error`, `kernel-error`, `kernel-worker-crash`, `python-exce
 
 | Problem | What to do |
 |---|---|
-| A fillet or projected edge loses its edge after a big change | Edge references are found again by geometry, not by true topological naming. Edit the feature and re-pick the edge. |
+| A fillet or projected edge loses its edge after a big change | Edges are found again by their geometry and the faces beside them (see References that follow edits). If one is still lost, **Tools ▸ Fix References** lists it: Edit to re-pick it, or Remove missing. |
+| A mate moved to the wrong face, or shows a red ! | Mates find their faces again by geometry. A face that is gone is listed in **Tools ▸ Fix Mates**: edit the mate to pick it again. |
 | A sketch on a model face doesn't follow the face | Sketches on faces are stored as fixed planes. Use a reference plane driven by an equation when that matters. |
 | Project Edges can't see a sketch | It only sees visible sketches earlier in the history. Show the sketch first. |
 | An STL body can't be filleted | STL bodies with thousands of faces can't be filleted or chamfered and don't offer pickable edges. |
@@ -1372,9 +1468,10 @@ Kinds of report: `ui-error`, `kernel-error`, `kernel-worker-crash`, `python-exce
 |---|---|
 | `%APPDATA%\RazorCAD\recent.json` | Recent files list |
 | `%APPDATA%\RazorCAD\claude.json` | Claude settings, API key and model |
-| `%APPDATA%\RazorCAD\prefs.json` | Toolbar layout, icon size and other preferences |
+| `%APPDATA%\RazorCAD\prefs.json` | Toolbar layout, icon size, your keyboard shortcuts, whether the tour was taken, and other preferences |
+| `%APPDATA%\RazorCAD\update.json` | The update check: on or off, when it last looked, a version you chose to skip |
 | `%APPDATA%\RazorCAD\crashes\` | Crash reports |
-| `%LOCALAPPDATA%\RazorCAD\modelcache\` | Built models of parts and assemblies, for fast opening (up to 1 GB; safe to delete) |
+| `%LOCALAPPDATA%\RazorCAD\modelcache\` | Built models of parts and assemblies, and the geometry after each feature, for fast opening and editing (up to 1 GB; safe to delete) |
 | `Documents\RazorCAD\Templates\` | Your drawing templates |
 | `Name.autosave.rcad` | Auto-save, next to the part file |
 
@@ -1390,6 +1487,18 @@ build.bat
 `build.bat` bundles `app/` (including the 23 MB OpenCascade WebAssembly kernel) and `razorcad.py` into `RazorCAD.exe` with PyInstaller. If RazorCAD is open, the running copy is renamed to `RazorCAD.old.exe` and the new build is used from the next launch. {idx:build.bat}
 
 `installer\build_installer.bat` builds `RazorCAD.exe` and then `RazorCAD-Setup.exe`. Set the version in `version.txt` first.
+
+## Code signing
+
+Both builds sign RazorCAD.exe, the thumbnail DLL and the setup once a code-signing certificate is set up; until then they say "Not signed" and carry on. `tools\sign.py --check` shows how signing is set up. `installer\SIGNING.md` explains how to get a certificate and set it up (a certificate on a USB token or in Windows by its thumbprint, a .pfx file, or a cloud signing service). {idx:code signing}
+
+## Regression tests
+
+```
+python tests/run_tests.py
+```
+
+This rebuilds the test parts in `tests/parts` with the real geometry kernel in headless Microsoft Edge. It compares every body's volume, area, faces and edges (and flat patterns) with `tests/expected.json`. It also runs checks done as a user does them: sketching, dimensioning and extruding, drawings, assemblies, mates, references, cosmetic threads, inch units, exploded drawing views, balloons and more. It needs Python's playwright package and exits with 1 on any difference. `--update` stores new expected results, `--only` runs some of them, and `--make-parts` makes the test parts again from `tests/make_parts.js`. See `tests/README.md`. {idx:regression tests}
 
 ## Working on the UI
 
@@ -1428,6 +1537,8 @@ Run `python serve.py` and open http://localhost:8765/ in a browser. In that mode
 | Delete feature or entity | [[Del]] |
 | Accept / cancel Property panel | [[Enter]] / [[Esc]] |
 | Edit a feature | Double-click it in the tree |
+| Search commands | [[Ctrl+K]] or [[/]] |
+| Your own shortcuts | Help ▸ Customize Shortcuts |
 
 ## View
 
@@ -1506,5 +1617,6 @@ A body or part with no material uses 1.00 g/cm³ for mass calculations.
 
 | Date | Software version | Changes |
 |---|---|---|
+| 2026-10-20 | 0.13.0-beta | New sections: Updates, Getting Started Tour, Search commands, Your own keyboard shortcuts, Units (inches), Cosmetic Thread, References that follow edits, Fix References, gear and rack-pinion mates, Fix Mates, assembly Interference Check, Code signing and Regression tests. Drawings add Balloon and BOM Table, exploded views and units; Hole callouts give cosmetic threads. Faster opening (the geometry after each feature is kept) and faster patterns of added features. |
 | 2026-10-20 | 0.12.0-beta | Brought up to date with the software. New chapters: 3D Sketches, Airfoils, Fast Structure, Configurations and Assemblies. Sheet Metal adds Sheet Metal Extrude, Lofted Bend, Transition / Reducer, Miter Flange, Hem, Sketched Bend, Jog, Cross Break, Tab and Slot, Forming Tools, Gusset, gauge tables and Sheet Metal Check. Drawings add templates, auxiliary, break and crop views, baseline, ordinate and chamfer dimensions, hole callouts, GD&T, surface finish and weld symbols, revision and cut list tables, bend tables and DXF export. Surfaces add lofted, swept, filled, boundary and ruled surfaces, trim, extend, untrim, delete and replace face, split line, projected and composite curves, flatten surface, convert to solid and repair mesh. Also: new sketch tools, Hole, Draft, Rib, Dome, Move Face, Scale, new patterns, appearances, exploded views, interference check, surface analysis, OBJ and 3MF, toolbar customising and the Claude subscription option. Feature and tool names follow the software's new names. |
 | 2026-10-13 | 0.9.0-beta | First edition. Covers parts, sketching, gears, solid features, bodies, surfaces, reference geometry, the feature tree, sheet metal (including Convert to Sheet Metal with detected thickness and bend radii), drawings, evaluate tools, Ask Claude, troubleshooting and developer notes. |

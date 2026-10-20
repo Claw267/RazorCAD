@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The Feature Tree and History | RazorCAD user manual</title>
-<meta name="description" content="The blue line at the bottom of the tree. Drag it up, or right-click a feature ▸ Roll Back / Roll to End. Features below the bar are suppressed, and…">
+<meta name="description" content="Features that use picked edges and faces (fillets, chamfers, shells, drafts, axes…) find them again after the model changes. An edge remembers the…">
 <link rel="canonical" href="https://razorcad.com/docs/the-feature-tree-and-history">
 <meta name="theme-color" content="#a81616">
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="RazorCAD">
 <meta property="og:url" content="https://razorcad.com/docs/the-feature-tree-and-history">
 <meta property="og:title" content="The Feature Tree and History | RazorCAD user manual">
-<meta property="og:description" content="The blue line at the bottom of the tree. Drag it up, or right-click a feature ▸ Roll Back / Roll to End. Features below the bar are suppressed, and…">
+<meta property="og:description" content="Features that use picked edges and faces (fillets, chamfers, shells, drafts, axes…) find them again after the model changes. An edge remembers the…">
 <meta property="og:image" content="https://razorcad.com/img/social.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="/favicon.ico" sizes="any">
@@ -49,7 +49,7 @@
   <div class="docs">
     <details class="docs-nav">
       <summary>Chapters</summary>
-      <nav aria-label="Manual chapters"><ol><li><a href="/docs/introduction">Introduction</a></li><li><a href="/docs/installing-and-starting-razorcad">Installing and Starting RazorCAD</a></li><li><a href="/docs/working-with-files">Working with Files</a></li><li><a href="/docs/navigating-the-3d-view">Navigating the 3D View</a></li><li><a href="/docs/selecting">Selecting</a></li><li><a href="/docs/sketching">Sketching</a></li><li><a href="/docs/3d-sketches">3D Sketches</a></li><li><a href="/docs/gears">Gears</a></li><li><a href="/docs/airfoils">Airfoils</a></li><li><a href="/docs/solid-features">Solid Features</a></li><li><a href="/docs/bodies-and-multi-body-parts">Bodies and Multi-Body Parts</a></li><li><a href="/docs/surfaces">Surfaces</a></li><li><a href="/docs/reference-geometry">Reference Geometry</a></li><li><a href="/docs/the-feature-tree-and-history" aria-current="page">The Feature Tree and History</a><ul><li><a href="#editing-features">Editing features</a></li><li><a href="#rollback-bar">Rollback bar</a></li><li><a href="#reordering-features">Reordering features</a></li><li><a href="#reference-arrows">Reference arrows</a></li><li><a href="#tree-symbols">Tree symbols</a></li></ul></li><li><a href="/docs/sheet-metal">Sheet Metal</a></li><li><a href="/docs/fast-structure">Fast Structure</a></li><li><a href="/docs/configurations">Configurations</a></li><li><a href="/docs/assemblies">Assemblies</a></li><li><a href="/docs/drawings">Drawings</a></li><li><a href="/docs/evaluate-and-tools">Evaluate and Tools</a></li><li><a href="/docs/modelling-with-claude">Modelling with Claude</a></li><li><a href="/docs/troubleshooting">Troubleshooting</a></li><li><a href="/docs/for-developers">For Developers</a></li><li><a href="/docs/keyboard-and-mouse-reference">Appendix A: Keyboard and Mouse Reference</a></li><li><a href="/docs/materials">Appendix B: Materials</a></li></ol></nav>
+      <nav aria-label="Manual chapters"><ol><li><a href="/docs/introduction">Introduction</a></li><li><a href="/docs/installing-and-starting-razorcad">Installing and Starting RazorCAD</a></li><li><a href="/docs/working-with-files">Working with Files</a></li><li><a href="/docs/navigating-the-3d-view">Navigating the 3D View</a></li><li><a href="/docs/selecting">Selecting</a></li><li><a href="/docs/sketching">Sketching</a></li><li><a href="/docs/3d-sketches">3D Sketches</a></li><li><a href="/docs/gears">Gears</a></li><li><a href="/docs/airfoils">Airfoils</a></li><li><a href="/docs/solid-features">Solid Features</a></li><li><a href="/docs/bodies-and-multi-body-parts">Bodies and Multi-Body Parts</a></li><li><a href="/docs/surfaces">Surfaces</a></li><li><a href="/docs/reference-geometry">Reference Geometry</a></li><li><a href="/docs/the-feature-tree-and-history" aria-current="page">The Feature Tree and History</a><ul><li><a href="#editing-features">Editing features</a></li><li><a href="#references-that-follow-edits">References that follow edits</a></li><li><a href="#fix-references">Fix References</a></li><li><a href="#rollback-bar">Rollback bar</a></li><li><a href="#reordering-features">Reordering features</a></li><li><a href="#reference-arrows">Reference arrows</a></li><li><a href="#tree-symbols">Tree symbols</a></li></ul></li><li><a href="/docs/sheet-metal">Sheet Metal</a></li><li><a href="/docs/fast-structure">Fast Structure</a></li><li><a href="/docs/configurations">Configurations</a></li><li><a href="/docs/assemblies">Assemblies</a></li><li><a href="/docs/drawings">Drawings</a></li><li><a href="/docs/evaluate-and-tools">Evaluate and Tools</a></li><li><a href="/docs/modelling-with-claude">Modelling with Claude</a></li><li><a href="/docs/troubleshooting">Troubleshooting</a></li><li><a href="/docs/for-developers">For Developers</a></li><li><a href="/docs/keyboard-and-mouse-reference">Appendix A: Keyboard and Mouse Reference</a></li><li><a href="/docs/materials">Appendix B: Materials</a></li></ol></nav>
     </details>
     <script>if (matchMedia("(min-width: 1000px)").matches) document.querySelector(".docs-nav").open = true;</script>
     <main id="main" class="docs-main">
@@ -57,7 +57,13 @@
       <article class="prose">
         <h1>The Feature Tree and History</h1>
 <h2 id="editing-features">Editing features</h2>
-<ul><li>Double-click a feature, or right-click ▸ <strong>Edit Feature</strong>, to open its Property panel.</li><li>Select a feature and press <kbd>Del</kbd> (or <strong>Edit ▸ Delete</strong>) to delete it.</li><li><strong>Edit ▸ Undo / Redo</strong> (<kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd>) works on the whole part history.</li><li><strong>Rebuild</strong> (<kbd>Ctrl+B</kbd>, or the quick button) rebuilds the part.</li><li>A feature that fails shows an error in the tree so you can fix or re-pick its references.</li></ul>
+<ul><li>Double-click a feature, or right-click ▸ <strong>Edit Feature</strong>, to open its Property panel.</li><li>Select a feature and press <kbd>Del</kbd> (or <strong>Edit ▸ Delete</strong>) to delete it.</li><li><strong>Edit ▸ Undo / Redo</strong> (<kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd>) works on the whole part history.</li><li><strong>Rebuild</strong> (<kbd>Ctrl+B</kbd>, or the quick button) rebuilds the part.</li><li>A feature that fails shows an error in the tree so you can fix or re-pick its references (see Fix References).</li></ul>
+<h2 id="references-that-follow-edits">References that follow edits</h2>
+<p>Features that use picked edges and faces (fillets, chamfers, shells, drafts, axes…) find them again after the model changes. An edge remembers the faces on its two sides and whether it is an outside or inside corner. When a dimension moves it so far that other edges now lie nearer its old place, the right edge is still found, and an edge of another kind is not taken for it. A face that moved is found as the face facing the same way that is clearly nearest. A reference found again this way is updated, so it keeps following the model.</p>
+<h2 id="fix-references">Fix References</h2>
+<p><strong>Tools ▸ Fix References…</strong> lists every feature that failed to rebuild, what went wrong and which of its edges or faces are no longer in the model. Open it also by clicking the red error count in the status bar, or by right-clicking a failed feature. For each feature:</p>
+<div class="table-wrap"><table><thead><tr><th>Button</th><th>What it does</th></tr></thead><tbody><tr><td><strong>Edit</strong></td><td>Opens the feature (or sketch) to pick its references again</td></tr><tr><td><strong>Remove missing</strong></td><td>Keeps the references that are still found and drops the others</td></tr><tr><td><strong>Suppress</strong></td><td>Leaves the feature out for now</td></tr></tbody></table></div>
+<p>Fix them from the top: a feature can fail only because one above it did. The list follows every rebuild while it is open.</p>
 <h2 id="rollback-bar">Rollback bar</h2>
 <p>The blue line at the bottom of the tree. Drag it up, or right-click a feature ▸ <strong>Roll Back</strong> / <strong>Roll to End</strong>. Features below the bar are suppressed, and new features are inserted above it.</p>
 <h2 id="reordering-features">Reordering features</h2>
@@ -73,7 +79,7 @@
   <footer class="titleblock" aria-label="About this page">
     <div class="tb-cell tb-logo"><img src="/favicon.svg" alt="" width="44" height="44"></div>
     <div class="tb-cell tb-title"><span class="tb-label">Title</span><span class="tb-value tb-big">RazorCAD user manual</span></div>
-    <div class="tb-cell"><span class="tb-label">Rev</span><span class="tb-value">0.12.0-beta</span></div>
+    <div class="tb-cell"><span class="tb-label">Rev</span><span class="tb-value">0.13.0-beta</span></div>
     <div class="tb-cell"><span class="tb-label">Licence</span><span class="tb-value"><a href="https://github.com/Labs9119/RazorCAD/blob/main/LICENSE">GPL-3.0</a></span></div>
     <div class="tb-cell"><span class="tb-label">Source</span><span class="tb-value"><a href="https://github.com/Labs9119/RazorCAD">Labs9119/RazorCAD</a></span></div>
     <div class="tb-cell"><span class="tb-label">Kernel</span><span class="tb-value">OpenCascade</span></div>
