@@ -541,7 +541,8 @@ In this order; each item tested (regression suite + preview / exe), logged in CH
 - [x] 1f BOM mass and cost columns with totals; columns editable everywhere (the assembly's Bill of Materials window and the drawing table): add, remove, and change what a column shows, right on the table.
   - Done: bom.js meshVolume / massOf / costValue; rows carry mass (p.mass[cfg], set by AssemblyEditor.loadParts from the built mesh × density; sub-assemblies summed) and cost (Cost property; sub-assemblies summed); fields mass / totalMass / cost / totalCost, bomTotals (TOTAL row), bomSources, bomHeading, bomColumnMenu (shows ▸ …, insert left / right, move, rename, remove). Assembly BOM window from doc.bomCols (header click → menu, typed values edited in place, totals row, CSV from the columns, Default Columns, undo snapshot keeps bomCols). Drawing table: totals row, D.bomHit, right-click column menu, double-click typed value (editBomValue). #ctxmenu above dialogs. Test bom-mass-cost; full suite passes.
 2. Files
-- [ ] 2b Compare two versions of a part (features and geometry differences).
+- [x] 2b Compare two versions of a part (features and geometry differences).
+  - Done: app/js/compare.js (compareDocs: added / removed / changed with keys / moved / settings; showCompare window with feature list, geometry summary, viewport.setPreview overlay add = yellow, remove = red, cleared on close; compareWith: last saved (readText), a file (openText), an open tab); kernel compareParts (builtPart both, each body less the other version's bodies it reaches, volumes, meshData). File menu item, icon compare, CSS. Test compare-versions; full suite passes.
 - [ ] 2c More imports: IGES; DXF / DWG into drawings (DWG only if a usable reader exists).
 3. Modelling
 - [ ] 3a Variable-radius fillets; setback (blended) corners where fillets meet.

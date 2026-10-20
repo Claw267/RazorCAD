@@ -6,6 +6,16 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 06:45 — Compare two versions of a part
+- **File ▸ Compare With…** compares the part in front with its last saved version, another part file, or another open part.
+- **Features and settings:**
+  - features added or removed;
+  - features changed, with which settings (depth, sketch points, end condition, renamed from …);
+  - features moved in the tree;
+  - the part's own settings (material, equations, units, configurations, properties).
+- **Shapes:** both versions' volumes, and the material this version **adds** (shown yellow on the model) and **removes** (red), with their volumes.
+- Regression test: compare-versions (a plate made 2 mm thicker with a Ø10 hole: added 4642.92 mm³ and removed 785.40 mm³, both exactly as worked out by hand).
+
 ## 2026-10-21 06:41 — BOM mass, cost and totals; columns edited on the table
 - **Mass and cost in bills of materials:** new column kinds Mass, Total mass, Cost and Total cost, with a **TOTAL** row (quantity, total mass, total cost).
   - Mass comes from each part's material and volume, worked out when the assembly builds the part; a sub-assembly adds up its parts.

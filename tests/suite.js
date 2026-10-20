@@ -1241,6 +1241,27 @@ await rc.cut(h, 10);`, 'plate');
       : { ok: false, detail: `mass ${massOk} (${rows.map((r) => r.mass)}), totals ${JSON.stringify(totals)}, window ${win.slice(0, 160)}, changed ${changed}, undone ${undone}, hit ${JSON.stringify({ col: hit.col, row: hit.row })}, texts ${texts.join('|')}` };
   },
 
+  // Compare With: a 60 × 40 × 10 plate against the same plate 2 mm thicker with a Ø10 hole through it and its
+  // extrude renamed → 2 features added, the extrude changed (depth, name); added 4800 − π·25·2, removed π·25·10
+  async 'compare-versions'() {
+    const a = window.app, C = await import('/js/compare.js');
+    if (a.mode === 'drawing') { const i = a.tabs.findIndex((t) => t.kind !== 'drawing'); if (i >= 0) await a.activateTab(i); }
+    a.newDocument(); await wait(200);
+    await a.macros.run(`const p = await rc.sketch('top', (s) => s.centerRect(0, 0, 60, 40)); await rc.extrude(p, 10);`, 'v1');
+    const v1 = JSON.parse(JSON.stringify(a.doc));
+    await a.macros.run(`await rc.set('Extrude1', { depth: 12, name: 'Plate' }); const h = await rc.sketch('top', (s) => s.circle(0, 0, 5)); await rc.cut(h, 12, { end: 'through2' });`, 'v2');
+    const d = C.compareDocs(v1, a.doc);
+    const r = await C.showCompare(a, v1, 'version 1');
+    const text = document.querySelector('.compare')?.innerText || '';
+    closeModals(); a.viewport.setPreview(null);
+    const near = (x, y) => Math.abs(x - y) < 1e-3 * Math.max(1, y);
+    const ok = d.added.length === 2 && d.removed.length === 0 && d.changed.length === 1 && d.changed[0].keys.sort().join() === 'depth,name'
+      && !!r && near(r.added, 4800 - Math.PI * 25 * 2) && near(r.removed, Math.PI * 25 * 10) && near(r.volumeA, 24000) && !!r.mesh.add && !!r.mesh.remove
+      && text.includes('renamed from Extrude1') && text.includes('added');
+    return ok ? { ok: true, detail: `2 added, Plate changed (depth, name); added ${r.added.toFixed(2)} mm³, removed ${r.removed.toFixed(2)} mm³` }
+      : { ok: false, detail: `diff ${JSON.stringify({ add: d.added.length, rem: d.removed.length, ch: d.changed.map((x) => x.keys) })}, kernel ${JSON.stringify(r && { added: r.added, removed: r.removed, a: r.volumeA, b: r.volumeB })}, text ${text.slice(0, 200)}` };
+  },
+
   // the browser version's notice: above the window, as wide as it (the text wraps), gone with ✕
   async 'web-notice'() {
     const a = window.app, root = document.getElementById('app');

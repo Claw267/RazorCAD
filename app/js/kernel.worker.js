@@ -5335,6 +5335,35 @@ async function builtPart(key, name, why = 'the drawing') {
   while (asmPartsBuilt.size > 60) asmPartsBuilt.delete(asmPartsBuilt.keys().next().value);
   return b;
 }
+// Two versions of a part compared: the material this version (b) has that the other one (a) doesn't (added), and
+// the other way round (removed): their volumes and meshes (to show on the model), and both versions' volumes.
+async function compareParts(aJson, bJson) {
+  const A = await builtPart(aJson, 'the other version', 'the comparison'), B = await builtPart(bJson, 'this version', 'the comparison');
+  progress(null, 'Comparing the two versions…');
+  const solidList = (b) => b.solids.filter((r) => r.shape && solidsOf(r.shape).length).map((r) => r.shape);
+  const sa = solidList(A), sb = solidList(B);
+  const vol = (list) => list.reduce((t, s) => t + solidsOf(s).reduce((u, x) => u + R.measureVolume(x), 0), 0);
+  const va = vol(sa), vb = vol(sb), tiny = Math.max(1e-6, Math.max(va, vb) * 1e-7);
+  // (each body less every body of the other version it reaches)
+  const less = (from, minus) => {
+    const out = [];
+    for (const s of from) {
+      let cur = s;
+      for (const m of minus) {
+        if (!boxesTouch(bbox(cur), bbox(m), 1e-6)) continue;
+        try { cur = cur.cut(m); } catch (e) { if (isFatal(e)) throw e; }
+      }
+      for (const x of solidsOf(cur)) if (R.measureVolume(x) > tiny) out.push(x);
+    }
+    return out;
+  };
+  const added = less(sb, sa), removed = less(sa, sb);
+  const all = [...sa, ...sb], boxes = all.map((x) => bbox(x));
+  const diag = boxes.length ? Math.hypot(...[0, 1, 2].map((k) => Math.max(...boxes.map((b) => b.max[k])) - Math.min(...boxes.map((b) => b.min[k])))) : 1;
+  return { volumeA: va, volumeB: vb, added: vol(added), removed: vol(removed), addedPieces: added.length, removedPieces: removed.length,
+    mesh: { add: added.length ? meshData(added, diag) : null, remove: removed.length ? meshData(removed, diag) : null } };
+}
+
 async function assemblySolids(asm) {
   const oc = R.getOC();
   const built = asmPartsBuilt;
@@ -6924,6 +6953,8 @@ async function handleMessage(e) {
       let list = lastSolids;
       if (data.doc) { await ensureDrawingCache(data.doc); list = drawingCache.solids; }
       result = list.filter((r) => r.member).map((r) => ({ id: r.id, ...r.member, axis: undefined, volume: R.measureVolume(r.shape) }));
+    } else if (type === 'compareParts') {
+      result = await compareParts(data.a, data.b);
     } else if (type === 'interference') {
       result = interference();
       if (result.mesh) transfer = [result.mesh.vertices.buffer, result.mesh.normals.buffer, result.mesh.triangles.buffer];

@@ -23,6 +23,7 @@ export const ICONS = {
   customProps: svg(`<path d="M5 6 H17 L27 16 L17 26 H5 Z" fill="#e8f1fd" stroke="#2f5f99"/><circle cx="10" cy="16" r="2" stroke="#2f5f99"/><path d="M15 12.5 H21 M15 16 H22.5 M15 19.5 H21" stroke="#596273" stroke-width="1"/>`),
   theme: svg(`<circle cx="16" cy="16" r="10" fill="#f3f5f8" stroke="#596273"/><path d="M16 6 A10 10 0 0 1 16 26 Z" fill="#26303c"/>`),
   language: svg(`<circle cx="16" cy="16" r="11" fill="#e8f1fd" stroke="#2f5f99"/><path d="M5 16 H27 M16 5 C10 10 10 22 16 27 M16 5 C22 10 22 22 16 27 M7.5 10 H24.5 M7.5 22 H24.5" stroke="#2f5f99" stroke-width="1"/>`),
+  compare: svg(`<rect x="3" y="7" width="12" height="18" rx="1" fill="#e8f1fd" stroke="#2f5f99"/><rect x="17" y="7" width="12" height="18" rx="1" fill="#fff4d6" stroke="#b26a00"/><path d="M6 12 H12 M6 16 H12 M6 20 H10 M20 12 H26 M20 16 H24 M20 20 H26" stroke="#596273" stroke-width="1"/>`),
   macro: svg(`<rect x="4" y="5" width="24" height="22" rx="2" fill="#f3f5f8" stroke="#596273"/><path d="M4 10 H28" stroke="#596273"/><path d="M10 15 L7 18 L10 21 M15 22 L18 14 M22 15 L25 18 L22 21" stroke="#2f5f99" stroke-width="1.6"/>`),
   macroRec: svg(`<rect x="4" y="5" width="24" height="22" rx="2" fill="#f3f5f8" stroke="#596273"/><path d="M4 10 H28" stroke="#596273"/><circle cx="16" cy="18.5" r="5" fill="#d23c3c"/>`),
   macroStop: svg(`<rect x="4" y="5" width="24" height="22" rx="2" fill="#f3f5f8" stroke="#596273"/><path d="M4 10 H28" stroke="#596273"/><rect x="11.5" y="14" width="9" height="9" rx="1" fill="#596273"/>`),

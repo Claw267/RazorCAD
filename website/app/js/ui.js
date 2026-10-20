@@ -2,6 +2,7 @@
 // context menus, heads-up view toolbar and dialogs.
 import { icon } from './icons.js';
 import { editCustomProps } from './custprops.js';
+import { compareWith } from './compare.js';
 import { setThemePref, themePref, isDark } from './theme.js';
 import { t as tr, LANGUAGES, language, setLanguage } from './i18n.js';
 import { iconFor, MATERIALS, planeName, findFeature, TYPE_INFO, bodySettings, materialById, rollbackIndex, referencesOf, dependentsOf, absorbedSketches, moveProblem, bodyOwner, folderOfBody, sketchesUsedBy } from './model.js';
@@ -1233,6 +1234,7 @@ export class UI {
         { label: 'Export ▸ Face as DXF…', icon: 'dxf', action: () => a.exportFaceDXF(), disabled: !a.flatView && !(a.selection?.kind === 'face' && a.selection.face.planar) },
         'sep',
         { label: 'Properties…', icon: 'customProps', action: () => editCustomProps(this, a.doc, (ch) => { if (ch) { a.commit(); a.status('Part properties changed.'); } }) },
+        { label: 'Compare With…', icon: 'compare', action: () => compareWith(a) },
       ],
       Edit: [
         { label: 'Undo', icon: 'undo', key: 'Ctrl+Z', action: () => a.undo(), disabled: !a.history.canUndo() || a.mode === 'sketch' },

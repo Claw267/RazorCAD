@@ -825,3 +825,15 @@ svg.ref-arrows { position: absolute; left: 0; top: 0; pointer-events: none; z-in
 .ad-kinds { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; }
 .dw-form .ad-kinds label, .dw-form .ad-check { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .dw-form input[type=checkbox] { width: auto; flex: none; margin: 0; }
+
+/* Compare With */
+.compare { width: min(640px, 86vw); }
+.compare .cmp-list { max-height: 46vh; overflow: auto; border: 1px solid var(--border); border-radius: 3px; margin-top: 4px; }
+.compare .cmp-row { display: flex; align-items: center; gap: 6px; padding: 3px 8px; border-bottom: 1px solid var(--border-soft); }
+.compare .cmp-row svg { width: 16px; height: 16px; flex: none; }
+.compare .cmp-n { font-weight: 600; }
+.compare .cmp-w { color: var(--muted); }
+.compare .cmp-row.add .cmp-w { color: #2e7d32; }
+.compare .cmp-row.rem .cmp-w { color: #c62828; }
+.compare .cmp-add { color: #f5c518; }
+.compare .cmp-rem { color: #e53935; }
