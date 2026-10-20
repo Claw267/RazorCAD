@@ -228,7 +228,9 @@ export function createFeature(doc, type, props = {}) {
     fillPattern: { feature: null, face: null, spacing: 15, layout: 'square', angle: 0, margin: 3 },
     // filletType 'constant' | 'variable' (radius at the start → radius2 at the end of each edge) | 'face'
     // (the edges where the picked faces meet)
-    fillet: { radius: 2, edges: [], filletType: 'constant', radius2: 4, flipRadii: false, faces: [] },
+    // radiusMode (variable): 'ends' (start → end of each edge) | 'vertices' (vertexRadii: [{ p, r }], the others: radius);
+    // setback: corners where three or more fillets meet blended from this distance (0: the kernel's own corner)
+    fillet: { radius: 2, edges: [], filletType: 'constant', radius2: 4, flipRadii: false, faces: [], radiusMode: 'ends', vertexRadii: [], setback: 0 },
     // Draft: face (neutral plane, flat) + faces to tilt by angle; reverse: pull the other way
     draft: { face: null, faces: [], angle: 3, reverse: false },
     // Rib: an open sketch, thickness, ribDir 'parallel' (in the sketch plane) | 'normal'; flip: the other side

@@ -607,9 +607,11 @@ class App {
       if (f) sketches.set(fid, { frame: G.frameFromJSON(s.frame), sketch: f, textPolys: s.textPolys || null });
     }
     for (const [fid, fr] of Object.entries(r.planes)) planes.set(fid, G.frameFromJSON(fr));
+    const info = r.info || {}; // (what features report for their Property panel, e.g. a fillet's vertices)
     const axes = new Map(Object.entries(r.axes || {}).map(([k, a]) => [k, { o: new THREE.Vector3(...a.o), d: new THREE.Vector3(...a.d) }]));
     const points = new Map(Object.entries(r.points || {}).map(([k, p]) => [k, new THREE.Vector3(...p)]));
     this.result = {
+      info,
       vars, ev: (x) => evaluate(x, vars), eqErrors, errors: new Map(r.errors), missing: new Map(Object.entries(r.missing || {})), sketches, planes, axes, points,
       consumed: new Set(doc.features.filter((f) => f.type !== 'sketch').flatMap((f) => M.sketchesUsedBy(f))), body: r.body, time: r.time,
       preview: r.preview, previewOf: this.previewId(),

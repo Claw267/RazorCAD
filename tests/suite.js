@@ -1325,6 +1325,44 @@ await rc.cut(h, 10);`, 'plate');
       : { ok: false, detail: `scale ${a1?.scale}, kinds ${JSON.stringify(kinds)}, width ${width}, big scale ${a2?.scale}` };
   },
 
+  // fillets: radius set at each vertex (R2 at one end of a cube's top edge, R6 at the other: the top face stops
+  // about r short of the edge at each end); setback corners (three R4 fillets meeting, blended from 8 mm: one solid,
+  // a new corner, about the same volume)
+  async 'fillet-vertex-setback'() {
+    const k = window.app.kernel;
+    const cube = () => {
+      const d = M.newDoc();
+      const s = M.createFeature(d, 'sketch', { plane: { ref: 'top' } });
+      const pts = [[-20, -20], [20, -20], [20, 20], [-20, 20]];
+      Object.assign(s, { points: pts.map(([x, y], i) => ({ id: 'p' + (i + 1), x, y })), curves: pts.map((_, i) => ({ id: 'c' + (i + 1), type: 'line', p1: 'p' + (i + 1), p2: 'p' + ((i + 1) % 4 + 1), construction: false })), constraints: [] });
+      d.features.push(s, M.createFeature(d, 'extrude', { sketch: s.id, depth: 40 }));
+      return d;
+    };
+    const volOf = async (r) => { const m = await k.request('measure', { refs: [{ kind: 'body', id: r.body.bodies[0].id }] }); return (m.items?.[0] || m).volume; };
+    // 1. radius at each vertex
+    const d1 = cube();
+    d1.features.push(M.createFeature(d1, 'fillet', { filletType: 'variable', radiusMode: 'vertices', radius: 3, edges: [{ p: [0, 40, 20] }], vertexRadii: [{ p: [-20, 40, 20], r: 2 }, { p: [20, 40, 20], r: 6 }] }));
+    const r1 = await k.rebuild(d1, null, null);
+    const fid = d1.features[2].id, vs = r1.info?.[fid]?.vertices || [];
+    const V = r1.body?.vertices || [];
+    // (the top face's edge near each end: the largest z of the top face's points there)
+    const topZ = (x0) => { let z = -Infinity; for (let i = 0; i < V.length; i += 3) if (Math.abs(V[i + 1] - 40) < 1e-4 && Math.abs(V[i] - x0) < 1e-3 && V[i + 2] < 19.999) z = Math.max(z, V[i + 2]); return z; };
+    const zl = topZ(-20), zr = topZ(20);
+    const v1 = r1.body?.bodies?.length ? await volOf(r1) : 0, want = 64000 - (1 - Math.PI / 4) * 40 * (4 + 12 + 36) / 3;
+    const vertexOk = !r1.errors.length && vs.length === 2 && Math.abs(v1 - want) < 0.02 * (64000 - want) + 2 && Math.abs(zl - 18) < 0.05 && Math.abs(zr - 14) < 0.05;
+    // 2. setback corners
+    const corner = [{ p: [0, 40, 20] }, { p: [20, 40, 0] }, { p: [20, 20, 20] }];
+    const d2 = cube(); d2.features.push(M.createFeature(d2, 'fillet', { radius: 4, edges: corner }));
+    const d3 = cube(); d3.features.push(M.createFeature(d3, 'fillet', { radius: 4, edges: corner, setback: 8 }));
+    // (measured straight after each build: the kernel measures what it built last)
+    const r2 = await k.rebuild(d2, null, null), v2 = await volOf(r2);
+    const r3 = await k.rebuild(d3, null, null), v3 = r3.body?.bodies?.length ? await volOf(r3) : 0;
+    const b2 = r2.body.bodies[0], b3 = r3.body?.bodies?.[0];
+    const setbackOk = !r3.errors.length && r3.body.bodies.length === 1 && b3.kind === 'solid' && Math.abs(v3 - v2) < 0.01 * v2 && Math.abs(v3 - v2) > 0.01 && /1 corner/.test(r3.notes?.[d3.features[2].id] || '');
+    return vertexOk && setbackOk ? { ok: true, detail: `vertex radii: ${vs.length} vertices, volume ${v1.toFixed(1)} (≈ ${want.toFixed(1)}), top face ends at z ${zl.toFixed(2)} / ${zr.toFixed(2)}; setback: ${b2.faceCount} → ${b3.faceCount} faces, volume ${v2.toFixed(1)} → ${v3.toFixed(1)}` }
+      : { ok: false, detail: `vertex: errors ${JSON.stringify(r1.errors)}, vertices ${JSON.stringify(vs)}, vol ${v1} vs ${want}, z ${zl} / ${zr}; setback: note ${JSON.stringify(r3.notes)}, errors ${JSON.stringify(r3.errors)}, bodies ${r3.body?.bodies?.length}, kind ${b3?.kind}, faces ${b2.faceCount}/${b3?.faceCount}, vol ${v2} / ${v3}` };
+  },
+
   // the browser version's notice: above the window, as wide as it (the text wraps), gone with ✕
   async 'web-notice'() {
     const a = window.app, root = document.getElementById('app');

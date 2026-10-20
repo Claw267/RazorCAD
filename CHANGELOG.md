@@ -6,6 +6,14 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 07:45 — Fillets: radius at each vertex, setback corners
+- **Variable size fillets: Radius ▸ Set at each vertex.**
+  - The Property panel lists the vertices of the selected edges (the ends of each run of edges) with a radius for each; ones left empty use the fillet's radius.
+  - Along each edge the radius changes from the one at its start to the one at its end, so a run of edges can grow and shrink vertex by vertex.
+  - The older "from the start to the end of each edge" stays.
+- **Setback at corners** (constant and variable fillets): where three or more fillets meet, a distance blends the corner smoothly from that far out, instead of the usual small corner patch. It works by taking a ball of that radius out at the corner and filling it with a surface tangent to the faces round it; a little more than the radius works well. 0 keeps the usual corner. The fillet's note says how many corners were blended.
+- Regression test: fillet-vertex-setback (R2 → R6 along a cube edge: the top face ends exactly 2 and 6 mm short of each end; three R4 fillets with an 8 mm setback: one solid with a blended corner).
+
 ## 2026-10-21 06:59 — IGES import, DXF into drawings, exact volumes of NURBS bodies
 - **IGES files** (.igs, .iges) open and import like STEP files (File ▸ Open, Import).
   - Read: trimmed and bounded surfaces, B-rep solids, B-spline / plane / revolved / extruded / cylinder / cone / sphere / torus surfaces, lines, arcs, B-spline curves, composite curves, polylines, and the file's units and transformations.

@@ -808,10 +808,14 @@ const PM_SCHEMAS = {
   fillet: [
     { title: 'Fillet Type', fields: [{ key: 'filletType', type: 'select', label: 'Type', options: [['constant', 'Constant size'], ['variable', 'Variable size'], ['face', 'Face fillet']] }] },
     { title: 'Fillet Parameters', fields: [
-      { key: 'radius', type: 'expr', label: (f) => (f.filletType === 'variable' ? 'Radius at the start' : 'Radius'), unit: 'mm' },
-      { key: 'radius2', type: 'expr', label: 'Radius at the end', unit: 'mm', show: (f) => f.filletType === 'variable' },
-      { key: 'flipRadii', type: 'check', label: 'Swap the ends', show: (f) => f.filletType === 'variable' },
-      { key: 'vHint', type: 'hint', show: (f) => f.filletType === 'variable', text: 'The radius changes smoothly from the start to the end of each edge (the ends follow the edge direction: Swap the ends turns it round).' },
+      { key: 'radiusMode', type: 'select', label: 'Radius', show: (f) => f.filletType === 'variable', options: [['ends', 'From the start to the end of each edge'], ['vertices', 'Set at each vertex']] },
+      { key: 'radius', type: 'expr', label: (f) => (f.filletType === 'variable' ? (f.radiusMode === 'vertices' ? 'Radius (vertices not set)' : 'Radius at the start') : 'Radius'), unit: 'mm' },
+      { key: 'radius2', type: 'expr', label: 'Radius at the end', unit: 'mm', show: (f) => f.filletType === 'variable' && f.radiusMode !== 'vertices' },
+      { key: 'flipRadii', type: 'check', label: 'Swap the ends', show: (f) => f.filletType === 'variable' && f.radiusMode !== 'vertices' },
+      { key: 'vHint', type: 'hint', show: (f) => f.filletType === 'variable' && f.radiusMode !== 'vertices', text: 'The radius changes smoothly from the start to the end of each edge (the ends follow the edge direction: Swap the ends turns it round).' },
+      { key: 'vertexRadii', type: 'vertexRadii', show: (f) => f.filletType === 'variable' && f.radiusMode === 'vertices' },
+      { key: 'setback', type: 'expr', label: 'Setback at corners', unit: 'mm', show: (f) => f.filletType !== 'face' },
+      { key: 'sHint', type: 'hint', show: (f) => f.filletType !== 'face', text: 'Where three or more fillets meet: 0 keeps the usual corner; a distance blends the corner smoothly from that far out (a little more than the radius).' },
     ] },
     { title: 'Items To Fillet', fields: [
       { key: 'edges', type: 'edges', show: (f) => f.filletType !== 'face' },
@@ -3096,6 +3100,26 @@ export class UI {
     root.appendChild(act);
   }
 
+  // A variable fillet's radius at each vertex of its runs of edges (the vertices as the last build found them); empty:
+  // the fillet's radius.
+  renderVertexRadii(body, f) {
+    const a = this.app, vs = a.result?.info?.[f.id]?.vertices || [];
+    if (!vs.length) { body.appendChild(el('div', { class: 'pm-hint' }, tr('Select the edges first: their vertices are listed here.'))); return; }
+    const L = a.units, fmtP = (q) => q.map((x) => (L === 'in' ? +(x / 25.4).toFixed(3) : +x.toFixed(2))).join(', ');
+    const same = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]) < 1e-4;
+    vs.forEach((q, i) => {
+      const cur = (f.vertexRadii || []).find((x) => same(x.p, q));
+      const inp = this.exprInput(cur ? cur.r : '', 'mm', (v) => {
+        const list = (f.vertexRadii || []).filter((x) => !same(x.p, q));
+        if (v !== '' && v != null) list.push({ p: q, r: v });
+        f.vertexRadii = list;
+        a.preview();
+      }, { optional: true });
+      inp.querySelector('input').placeholder = String(f.radius);
+      body.appendChild(this.row(`${tr('Vertex')} ${i + 1} (${fmtP(q)})`, inp));
+    });
+  }
+
   pmGroup(root, title, id) {
     const key = id || title;
     const g = el('div', { class: 'pm-group' + (this.groupCollapsed.has(key) ? ' collapsed' : '') });
@@ -3196,6 +3220,8 @@ export class UI {
           body.appendChild(el('div', { class: 'pm-hint' }, esc(fd.text)));
         } else if (fd.type === 'sketchList') {
           this.renderSketchList(body, f, before, fd);
+        } else if (fd.type === 'vertexRadii') {
+          this.renderVertexRadii(body, f);
         } else if (fd.type === 'edges') {
           this.renderEdgeList(body, f);
         } else if (fd.type === 'points3d') {

@@ -1468,6 +1468,72 @@ function importedLooks(app, shapes) {
   return out;
 }
 
+// The corners where three or more of the given edges meet (their shared end points).
+function cornersOf(edges, tol = 1e-5) {
+  const ends = [];
+  for (const e of edges) for (const q of [vec(e.startPoint), vec(e.endPoint)]) ends.push(q);
+  const out = [];
+  for (const q of ends) {
+    if (out.some((c) => len(sub(c, q)) < tol)) continue;
+    if (ends.filter((x) => len(sub(x, q)) < tol).length >= 3) out.push(q);
+  }
+  return out;
+}
+// Setback corners: round each corner where fillets meet, a ball of radius s is taken out of the filleted solid and
+// the opening filled with a patch tangent to the faces round it, so the fillets run into the corner smoothly from
+// that distance on. The solid (or an error when an opening could not be closed).
+function setbackCorners(shape, corners, s) {
+  if (!corners.length || !(s > 0)) return shape;
+  let cut = shape;
+  for (const c of corners) cut = cut.cut(R.makeSphere(s).translate(c));
+  const tol = 1e-4 * Math.max(1, s);
+  const onBall = (fc) => fc.geomType === 'SPHERE' && corners.some((c) => fc.edges.every((e) => [0, 0.5, 1].every((u) => Math.abs(len(sub(vec(e.pointAt(u)), c)) - s) < tol)));
+  const keep = cut.faces.filter((fc) => !onBall(fc));
+  if (keep.length === cut.faces.length) return shape; // (the balls did not reach the solid: nothing to blend)
+  let sewn = sewShapes(keep, 1e-6);
+  const { loops } = holeLoops(sewn), oc = R.getOC(), patches = [];
+  for (const loop of loops) {
+    const mk = new oc.BRepOffsetAPI_MakeFilling(3, 15, 2, false, 1e-5, 1e-4, 0.01, 0.1, 8, 9);
+    try {
+      for (const e of loop.edges) {
+        const sup = sewn.faces.find((fc) => fc.edges.some((x) => x.isSame(e)));
+        if (sup) mk.Add(e.wrapped, sup.wrapped, oc.GeomAbs_Shape.GeomAbs_G1, true); else mk.Add(e.wrapped, oc.GeomAbs_Shape.GeomAbs_C0, true);
+      }
+      mk.Build();
+      patches.push(R.cast(mk.Shape()));
+    } catch (e) { if (isFatal(e)) throw e; throw new Error('A setback corner could not be filled (try a smaller or larger setback)'); } finally { mk.delete(); }
+  }
+  sewn = sewShapes([sewn, ...patches], 1e-4);
+  const sol = holeLoops(sewn).freeEdges === 0 ? solidFromSewn(sewn) : null;
+  if (!sol) throw new Error('The setback corners could not be closed (try another setback)');
+  return unify(sol);
+}
+// A fillet with its radius set at the vertices: each edge (in its run of edges) from the radius at its start to the
+// one at its end. radAt(point) → the radius there. The filleted shape and the vertices of the runs.
+function filletByVertex(shape, edges, radAt) {
+  const oc = R.getOC();
+  const mf = new oc.BRepFilletAPI_MakeFillet(shape.wrapped, oc.ChFi3d_FilletShape.ChFi3d_Rational);
+  const vertices = [];
+  const P = (v) => { const g = oc.BRep_Tool.Pnt(v); const q = [g.X(), g.Y(), g.Z()]; g.delete?.(); return q; };
+  const note = (q) => { if (!vertices.some((x) => len(sub(x, q)) < 1e-6)) vertices.push(q); };
+  try {
+    for (const e of edges) mf.Add(radAt(vec(e.startPoint)), e.wrapped);
+    for (let ic = 1; ic <= mf.NbContours(); ic++) {
+      let cur = P(mf.FirstVertex(ic));
+      for (let k = 1; k <= mf.NbEdges(ic); k++) {
+        const E = R.cast(mf.Edge(ic, k)), a = vec(E.startPoint), b = vec(E.endPoint);
+        const [p0, p1] = len(sub(a, cur)) <= len(sub(b, cur)) ? [a, b] : [b, a];
+        mf.SetRadius(radAt(p0), radAt(p1), ic, k);
+        note(p0); note(p1);
+        cur = p1;
+      }
+    }
+    mf.Build(new oc.Message_ProgressRange());
+    if (!mf.IsDone()) throw new Error('The fillet could not be computed with these radii');
+    return { shape: R.cast(mf.Shape()), vertices };
+  } finally { mf.delete(); }
+}
+
 // Faces sewn into shells (edges closer than tol joined); when nothing is left open, each shell made a solid. The
 // sewn shape (the solid, or a compound of them).
 function sewFaces(shape, tol = 0.01) {
@@ -2452,7 +2518,16 @@ async function rebuild(doc, previewId = null, opts = {}) {
             const input = rec ? rec.shape : body;
             const rad = f.filletType === 'variable' ? (f.flipRadii ? [r2, r1] : [r1, r2]) : r1;
             let out = null;
-            for (const shrink of [0, 2e-5, 2e-4]) {
+            if (f.filletType === 'variable' && f.radiusMode === 'vertices') {
+              // (a radius at each vertex of the runs of edges; the ones not given: the fillet's radius)
+              const vr = (f.vertexRadii || []).map((x) => ({ p: x.p, r: ev(x.r) }));
+              if (vr.some((x) => !(x.r > 0))) throw new Error('The radii must be greater than zero');
+              const radAt = (q) => vr.find((x) => len(sub(x.p, q)) < 1e-4)?.r ?? r1;
+              const r = filletByVertex(input, picked, radAt);
+              out = r.shape;
+              (res.info ||= {})[f.id] = { vertices: r.vertices.map((q) => q.map((x) => +x.toFixed(6))) };
+            }
+            if (!out) for (const shrink of [0, 2e-5, 2e-4]) {
               try {
                 const k = 1 - shrink;
                 out = input.fillet((e) => (picked.some((x) => x.isSame(e)) ? (Array.isArray(rad) ? [rad[0] * k, rad[1] * k] : rad * k) : null));
@@ -2461,6 +2536,9 @@ async function rebuild(doc, previewId = null, opts = {}) {
               } catch (e) { if (isFatal(e)) throw e; out = null; }
             }
             if (!out) throw new Error('The fillet could not be computed (radius too large for the edges?)');
+            // (the edges' end points, for the Property panel's radius at each vertex)
+            if (!res.info?.[f.id]) (res.info ||= {})[f.id] = { vertices: [...new Map(picked.flatMap((e) => [vec(e.startPoint), vec(e.endPoint)]).map((q) => [q.map((x) => x.toFixed(4)).join(), q.map((x) => +x.toFixed(6))])).values()] };
+            if (ev(f.setback ?? 0) > 0) out = setbackCorners(unify(out), cornersOf(picked), ev(f.setback));
             if (rec) replaceSolid(rec, unify(out), f.id);
             else remapSolids(unify(out), picked.map((e) => e.pointAt(0.5)));
             blendChain = null;
@@ -2533,6 +2611,11 @@ async function rebuild(doc, previewId = null, opts = {}) {
           }
           if (!result) throw new Error(`The ${f.type} could not be computed (value too large for the selected edges?)`);
           result = unify(result);
+          if (f.type === 'fillet' && ev(f.setback ?? 0) > 0) {
+            const cs = cornersOf(edgeShapes);
+            result = setbackCorners(result, cs, ev(f.setback));
+            res.notes[f.id] = `${cs.length} corner${cs.length === 1 ? '' : 's'} blended from ${+ev(f.setback).toFixed(3)} mm`;
+          }
           applyBlend(result, whole);
           blendChain = chain || { type: f.type, base: input, items: [item] };
           blendChain.type = f.type;
