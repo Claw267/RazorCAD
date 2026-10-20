@@ -6,6 +6,7 @@
 //    and extrude; a drawing from the part; an assembly; the mouse buttons on the view.
 import * as M from '/js/model.js';
 import { BUILTIN_TEMPLATES } from '/js/drawtemplates.js';
+import * as D2 from '/js/drawing.js';
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 async function until(fn, ms = 60000, step = 100) {
@@ -1095,6 +1096,54 @@ rc.log(b.bodies, b.errors.length);`, 'text');
     const ok = !bad.length && stackOk && own && moved;
     return ok ? { ok: true, detail: `${S.STD_TYPES.length} types build; 4 holes × (washer, M8×${L}, washer, nut), 32 mates; bar hole end ${before} → ${after}` }
       : { ok: false, detail: `bad ${bad.join(' | ')}; others ${others}, L ${L}, bolts ${count(/^Hex Bolt/)}, washers ${count(/^Washer/)}, nuts ${count(/^Hex Nut/)}, mates ${asm.doc.mates.length}, solved ${asm.solveOk}, y bolt ${y(/^Hex Bolt/)} nut ${y(/^Hex Nut/)} washer ${y(/^Washer/)}; own end ${own}; ${before} → ${after}` };
+  },
+
+  // macros in assemblies and drawings: a recording of a part inserted twice and mated plays back into a new
+  // assembly as the same (2 components, 1 mate, solved); a note added to a drawing plays back into another drawing
+  async 'macros-editors'() {
+    const a = window.app, mc = a.macros;
+    const part = M.newDoc(); part.name = 'Block';
+    const s = M.createFeature(part, 'sketch', { plane: { ref: 'top' } });
+    const pts = [[-10, -10], [10, -10], [10, 10], [-10, 10]];
+    Object.assign(s, { points: pts.map(([x, y], i) => ({ id: 'p' + (i + 1), x, y })), curves: pts.map((_, i) => ({ id: 'c' + (i + 1), type: 'line', p1: 'p' + (i + 1), p2: 'p' + ((i + 1) % 4 + 1), construction: false })), constraints: [] });
+    part.features.push(s, M.createFeature(part, 'extrude', { sketch: s.id, depth: 15 }));
+    a.newAssembly(); await wait(300); closeModals();
+    let asm = a.drawing;
+    mc.startRecording();
+    const pid = asm.addPart(part, null, null);
+    await asm.addComponent(pid); await asm.addComponent(pid);
+    const [c1, c2] = asm.doc.components;
+    await until(() => asm.geo(c2)?.mesh, 30000);
+    asm.begin();
+    asm.doc.mates.push({ id: asm.uid('m'), name: 'Coincident1', type: 'coincident', align: -1, side: 1, value: null, a: { comp: c1.id, kind: 'plane', p: [0, 15, 0], n: [0, 1, 0], what: 'Face' }, b: { comp: c2.id, kind: 'plane', p: [0, 0, 0], n: [0, -1, 0], what: 'Face' } });
+    asm.solve(); asm.change('Mate added');
+    const code = mc.stopRecording();
+    closeModals();
+    a.newAssembly(); await wait(300); closeModals();
+    asm = a.drawing;
+    const r = await mc.run(code, 'asm');
+    await until(() => asm.doc.components.every((c) => asm.geo(c)?.mesh), 30000);
+    const top = asm.doc.components[1];
+    const asmOk = r.ok && asm.doc.parts.length === 1 && asm.doc.components.length === 2 && asm.doc.mates.length === 1 && asm.solveOk && Math.abs(top.pos[1] - 15) < 1e-6
+      && asm.doc.mates[0].a.comp === asm.doc.components[0].id && asm.undoStack.length === 1;
+    // a drawing: a note added
+    const keep = a.ui.newDrawingSetup;
+    a.ui.newDrawingSetup = async () => ({ template: BUILTIN_TEMPLATES.find((t) => t.id === 'builtin:A3L'), name: 'D1', props: {}, sheet: null });
+    let ed;
+    try { await a.newDrawing(); ed = a.drawing; } finally { a.ui.newDrawingSetup = keep; }
+    mc.startRecording();
+    ed.doc.anns.push({ id: D2.newId(ed.doc, 'a'), type: 'note', sheet: ed.sheetId, pos: [50, 50], text: 'Deburr all edges' });
+    ed.changed();
+    const code2 = mc.stopRecording();
+    closeModals();
+    a.ui.newDrawingSetup = async () => ({ template: BUILTIN_TEMPLATES.find((t) => t.id === 'builtin:A3L'), name: 'D2', props: {}, sheet: null });
+    try { await a.newDrawing(); } finally { a.ui.newDrawingSetup = keep; }
+    const ed2 = a.drawing;
+    const r2 = await mc.run(code2, 'dwg');
+    const note = ed2.doc.anns.find((x) => x.type === 'note');
+    const dwgOk = r2.ok && note?.text === 'Deburr all edges' && note.sheet === ed2.sheetId;
+    return asmOk && dwgOk ? { ok: true, detail: `assembly: ${code.split('\n').length - 2} lines → 2 components, 1 mate, solved, one undo step; drawing: the note` }
+      : { ok: false, detail: `asm ${JSON.stringify(r)} parts ${asm.doc.parts.length} comps ${asm.doc.components.length} mates ${asm.doc.mates.length} solved ${asm.solveOk} y ${top?.pos} undo ${asm.undoStack.length}; dwg ${JSON.stringify(r2)} note ${JSON.stringify(note)}; code:\n${code.slice(0, 600)}\n${code2.slice(0, 400)}` };
   },
 
   // the browser version's notice: above the window, as wide as it (the text wraps), gone with ✕

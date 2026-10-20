@@ -124,6 +124,7 @@ export class DrawingEditor {
     this.app.updateTitle();
     if (render) { this.renderLeft(); this.render(); }
     this.updateGeometry();
+    this.app.macros?.syncEditor(this);
   }
   undo() {
     if (!this.undoStack.length) return;
@@ -145,6 +146,7 @@ export class DrawingEditor {
     this.app.updateTitle();
     this.renderAll();
     this.updateGeometry();
+    this.app.macros?.syncEditor(this);
   }
 
   // ------------------------------------------------------------ models (the parts drawn)

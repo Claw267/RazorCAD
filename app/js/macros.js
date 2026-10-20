@@ -1,6 +1,7 @@
 // Macros: JavaScript that drives RazorCAD — written in Tools ▸ Macros, or recorded (Tools ▸ Record Macro) from what
-// you do: the features added, changed and deleted in parts, and the commands run from the menus, toolbars, command
-// search and your own shortcuts. Saved with the preferences (and as .js files, to share them).
+// you do: the features added, changed and deleted in parts; the components, mates, parts, views, annotations and
+// sheets of assemblies and drawings; and the commands run from the menus, toolbars, command search and your own
+// shortcuts. Saved with the preferences (and as .js files, to share them).
 //
 // A macro is the body of an async function given `rc` (below) and `app`. Its changes to a part are one undo step,
 // rebuilt when it ends (or at rc.rebuild()). Macros can do anything RazorCAD can: run only the ones you trust.
@@ -9,6 +10,7 @@ import * as S from './sketchmodel.js';
 import { applyPlan } from './claudespec.js';
 import { platform } from './platform.js';
 import { icon } from './icons.js';
+import * as D from './drawing.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const el = (tag, attrs = {}, html = '') => {
@@ -75,6 +77,53 @@ export function diffCode(a, b, vars) {
   return out;
 }
 
+// An assembly's or drawing's change as code: its lists of items with ids (components, mates, parts, views,
+// annotations, sheets…) item by item, the rest with rc.setDoc. vars: item id → the variable holding it (items the
+// recording made); other items are found by name (rc.ref), or by id when they have none. What is inside a part or
+// model copy (`doc`) is written as it is.
+export function diffEditorCode(a, b, vars) {
+  const isList = (v) => Array.isArray(v) && v.length > 0 && v.every((x) => x && typeof x === 'object' && typeof x.id === 'string');
+  const lists = [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => isList(a[k]) || isList(b[k]));
+  const where = new Map(), names = new Map();
+  for (const doc of [a, b]) for (const k of lists) for (const x of doc[k] || []) { where.set(x.id, k); if (x.name) names.set(x.id, x.name); }
+  const idx = (id) => (vars.has(id) ? vars.get(id) : names.has(id) ? `rc.ref(${JSON.stringify(where.get(id))}, ${JSON.stringify(names.get(id))})` : JSON.stringify(id));
+  const lit = (v, key = '') => {
+    if (key === 'doc') return JSON.stringify(v); // (a part or model copy: as it is)
+    if (typeof v === 'string') return where.has(v) ? idx(v) : JSON.stringify(v);
+    if (Array.isArray(v)) return `[${v.map((x) => lit(x)).join(', ')}]`;
+    if (v && typeof v === 'object') { const e = Object.entries(v); return e.length ? `{ ${e.map(([k, x]) => `${IDENT.test(k) ? k : JSON.stringify(k)}: ${lit(x, k)}`).join(', ')} }` : '{}'; }
+    return v === undefined ? 'null' : JSON.stringify(v);
+  };
+  const out = [];
+  for (const k of lists) {
+    const before = new Map((a[k] || []).map((x) => [x.id, x])), after = new Map((b[k] || []).map((x) => [x.id, x]));
+    for (const x of a[k] || []) if (!after.has(x.id)) out.push(`await rc.removeItem(${JSON.stringify(k)}, ${idx(x.id)});`);
+    for (const x of b[k] || []) {
+      const old = before.get(x.id);
+      if (!old) {
+        let v = IDENT.test(x.id) ? x.id : 'x' + vars.size;
+        while ([...vars.values()].includes(v)) v += '_';
+        const { id, ...item } = x;
+        // (its own id only tells what kind of id the new one gets)
+        const rest = lit(item);
+        out.push(`const ${v} = await rc.addItem(${JSON.stringify(k)}, { id: ${JSON.stringify(id)}${rest === '{}' ? ' }' : ', ' + rest.slice(2)});`);
+        vars.set(x.id, v);
+        continue;
+      }
+      const ch = {};
+      for (const key of new Set([...Object.keys(old), ...Object.keys(x)])) if (key !== 'id' && JSON.stringify(old[key]) !== JSON.stringify(x[key])) ch[key] = x[key] === undefined ? null : x[key];
+      if (Object.keys(ch).length) out.push(`await rc.setItem(${JSON.stringify(k)}, ${idx(x.id)}, ${lit(ch)});`);
+    }
+  }
+  const dch = {};
+  for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    if (lists.includes(key) || ['nextId', 'version', 'kind', 'thumbnail'].includes(key)) continue;
+    if (JSON.stringify(a[key]) !== JSON.stringify(b[key])) dch[key] = b[key] === undefined ? null : b[key];
+  }
+  if (Object.keys(dch).length) out.push(`await rc.setDoc(${lit(dch)});`);
+  return out;
+}
+
 // ------------------------------------------------------------------ the macro API
 export function makeRC(app, macros, log) {
   let stale = false, changed = false;
@@ -90,8 +139,24 @@ export function makeRC(app, macros, log) {
     return f;
   };
   const touch = () => { stale = true; changed = true; };
+  // (the assembly or drawing in front, changed by the macro: its undo step begun once, and it is brought up to date
+  // — parts built, mates solved, views drawn — when the macro ends or runs a command)
+  let edTouched = null;
+  const editor = () => {
+    if (app.mode !== 'drawing' || !app.drawing) throw new Error('This needs an assembly or drawing in front');
+    const e = app.drawing;
+    if (!edTouched) { edTouched = e; e.begin?.(); }
+    return e;
+  };
+  const flushEditor = async () => {
+    const e = edTouched;
+    if (!e) return;
+    edTouched = null;
+    if (e.loadParts) { await e.loadParts(); e.solve(); e.change('Macro done.'); } else e.changed();
+  };
+  const findItem = (e, list, ref) => (e.doc[list] || []).find((x) => x.id === ref) || (e.doc[list] || []).find((x) => x.name === ref);
   const commit = () => { if (changed) { changed = false; app.commit(); app.ui.renderTree(); } };
-  const build = async () => { if (stale) { stale = false; await app.rebuild(); } };
+  const build = async () => { if (stale) { stale = false; await app.rebuild(); } await flushEditor(); };
   const rc = {
     app, M, S,
     // ---- parts: features
@@ -128,7 +193,40 @@ export function makeRC(app, macros, log) {
       slots.forEach((s, i) => { d.features[s] = fs[i]; });
       touch();
     },
+    // ---- assemblies and drawings: their lists of items (components, mates, parts, explodes, motions; models,
+    // sheets, views, anns…), as the documents store them
+    async addItem(list, item) {
+      const e = editor(), arr = (e.doc[list] ||= []);
+      const prefix = String(item?.id || list[0]).replace(/\d+$/, '') || list[0];
+      const id = e.uid ? e.uid(prefix) : D.newId(e.doc, prefix);
+      arr.push({ ...JSON.parse(JSON.stringify(item || {})), id });
+      return id;
+    },
+    async setItem(list, ref, props) {
+      const e = editor(), x = findItem(e, list, ref);
+      if (!x) throw new Error(`There is no "${ref}" in ${list}`);
+      for (const [k, v] of Object.entries(props || {})) { if (k === 'id') continue; if (v === null) delete x[k]; else x[k] = JSON.parse(JSON.stringify(v)); }
+      return x.id;
+    },
+    async removeItem(list, ref) {
+      const e = editor(), x = findItem(e, list, ref);
+      if (!x) return false;
+      e.doc[list] = e.doc[list].filter((y) => y !== x);
+      return true;
+    },
+    ref(list, name) {
+      if (app.mode !== 'drawing' || !app.drawing) throw new Error('This needs an assembly or drawing in front');
+      const x = findItem(app.drawing, list, name);
+      if (!x) throw new Error(`There is no "${name}" in ${list}`);
+      return x.id;
+    },
+    items: (list) => (app.mode === 'drawing' && app.drawing ? (app.drawing.doc[list] || []).map((x) => ({ id: x.id, name: x.name, type: x.type })) : []),
     async setDoc(props) {
+      if (app.mode === 'drawing') {
+        const e = editor();
+        for (const [k, v] of Object.entries(props || {})) { if (v === null) delete e.doc[k]; else e.doc[k] = JSON.parse(JSON.stringify(v)); }
+        return;
+      }
       const d = partDoc();
       for (const [k, v] of Object.entries(props || {})) { if (k === 'features') continue; if (v === null) delete d[k]; else d[k] = JSON.parse(JSON.stringify(v)); }
       touch();
@@ -261,6 +359,8 @@ export class Macros {
     if (this.rec) return;
     this.rec = { lines: [], vars: new Map(), key: null, last: null, pending: null, t0: new Date() };
     if (this.app.mode !== 'drawing') { this.rec.key = this.app.history; this.rec.last = JSON.stringify(this.app.doc); }
+    // (each open assembly and drawing as it is now, for its first change)
+    for (const t of this.app.tabs) if (t.kind === 'drawing' && t.drawing) t.drawing._macroBase = JSON.stringify(t.drawing.doc);
     this.showRecording(true);
     this.app.status('Recording a macro: the features you add, change or delete, and the commands you run. Tools ▸ Stop Recording Macro ends it.');
   }
@@ -287,10 +387,22 @@ export class Macros {
     try { r.lines.push(...diffCode(JSON.parse(r.last), JSON.parse(now), r.vars)); } catch (e) { r.lines.push(`// (not recorded: ${String(e.message).replace(/\n/g, ' ')})`); }
     r.last = now;
   }
+  // an assembly or drawing changed (a change, undo or redo)
+  syncEditor(ed) {
+    const r = this.rec;
+    if (!r || !ed?.doc) return;
+    const now = JSON.stringify(ed.doc);
+    if (r.key !== ed) { r.key = ed; r.last = ed._macroBase ?? now; }
+    ed._macroBase = now;
+    if (r.last === now) return;
+    r.pending = null;
+    try { r.lines.push(...diffEditorCode(JSON.parse(r.last), JSON.parse(now), r.vars)); } catch (e) { r.lines.push(`// (not recorded: ${String(e.message).replace(/\n/g, ' ')})`); }
+    r.last = now;
+  }
   stopRecording() {
     const r = this.rec;
     if (!r) return null;
-    this.sync();
+    if (this.app.mode === 'drawing') this.syncEditor(this.app.drawing); else this.sync();
     this.flushPending();
     this.rec = null;
     this.showRecording(false);
@@ -424,6 +536,12 @@ Parts (the part in front):
   rc.id(name)  rc.feature(name)  rc.features()
   await rc.rebuild()  → { bodies, errors }   (a macro's changes are rebuilt when it ends anyway)
   await rc.newPart(name)
+Assemblies and drawings (the one in front):
+  await rc.addItem(list, item)      add to a list of the document: 'parts', 'components', 'mates', 'explodes'…;
+                                    'models', 'sheets', 'views', 'anns'… (as the file stores them); its new id
+  await rc.setItem(list, item, props)   await rc.removeItem(list, item)   (an item by id or name)
+  rc.ref(list, name) → its id      rc.items(list)      await rc.setDoc({ … })   (parts are built, mates solved,
+                                    views drawn when the macro ends or runs a command)
 Any document:
   await rc.command('Zoom to Fit')  a command, by its name in the command search    rc.commands()
   await rc.run('Other macro')     await rc.ask(question, value) → text or null    await rc.wait(ms)

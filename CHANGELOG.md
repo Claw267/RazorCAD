@@ -6,6 +6,14 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 06:31 — Macros in assemblies and drawings
+- **Record Macro** now records what you change in **assemblies and drawings** too, not only their commands:
+  - in assemblies: parts inserted, components placed or moved, mates, explode steps, motion studies, configurations;
+  - in drawings: views, annotations, sheets, models and the drawing's properties.
+- Items made during the recording are kept in variables. Ones that were already there are found by name, so a recording plays back into another assembly or drawing.
+- In macros: `rc.addItem`, `rc.setItem`, `rc.removeItem`, `rc.ref`, `rc.items` and `rc.setDoc` work on the assembly or drawing in front (see the API button). When the macro ends, parts are built, mates solved and views drawn, and its changes are one undo step there too.
+- Regression test: macros-editors.
+
 ## 2026-10-21 06:27 — Standard parts: fastener sets, all holes, more types
 - **Fastener sets:** a bolt or screw can take a **washer under its head** and a **washer and nut on the other side** of the hole. All of them are mated, and the bolt length is picked to suit (e.g. a 10 mm plate: M8 × 25).
 - **Into all matching holes:** the same part (or set) goes into every hole of the same size, parallel to the selected one, in one go.

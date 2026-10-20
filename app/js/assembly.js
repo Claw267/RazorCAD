@@ -647,12 +647,13 @@ export class AssemblyEditor {
     this.updateGeometry();
     this.renderAll();
     if (msg) this.app.status(msg);
+    this.app.macros?.syncEditor(this);
   }
   restore(json) {
     const s = JSON.parse(json);
     s.parts = s.parts.map((p) => ({ ...p, doc: this._docs.get(p.doc) }));
     Object.assign(this.doc, s); if (!s.customProps) delete this.doc.customProps;
-    this.dirty = true; this.loadParts(); this.updateGeometry(); this.renderAll(); }
+    this.dirty = true; this.loadParts(); this.updateGeometry(); this.renderAll(); this.app.macros?.syncEditor(this); }
   undo() { const s = this.undoStack.pop(); if (!s) return; this.redoStack.push(this.snapshot()); this.restore(s); }
   redo() { const s = this.redoStack.pop(); if (!s) return; this.undoStack.push(this.snapshot()); this.restore(s); }
 

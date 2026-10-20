@@ -1426,6 +1426,7 @@ class App {
   // A drawing opens in a tab of its own; while it is active the 3D view is hidden.
   openDrawingTab(doc, filePath = null, editor = null) {
     const ed = editor || new DrawingEditor(this, doc, filePath);
+    if (this.macros?.rec) ed._macroBase = JSON.stringify(ed.doc); // (a macro being recorded: its first change)
     const cur = this.tabs[this.tabIndex];
     const blankPart = this.mode !== 'drawing' && cur && cur.kind !== 'drawing' && this.doc && !this.doc.features.length && !this.dirty && !this.filePath;
     if (this.mode === 'drawing') { this.storeTab(); this.exitDrawing(); }
