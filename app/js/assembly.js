@@ -29,6 +29,7 @@ import { AssemblyView } from './asmview.js';
 import { bomRows, bomPropNames } from './bom.js';
 import { editCustomProps } from './custprops.js';
 import { MotionTool } from './motion.js';
+import { t as tr } from './i18n.js';
 import { volWithUnit, lenWithUnit, unitOf } from './units.js';
 import * as G from './geometry.js';
 
@@ -1817,13 +1818,13 @@ export class AssemblyEditor {
     btns.innerHTML = '';
     for (const d of defs[this.cmTab]) {
       if (d === 'sep') { btns.appendChild(el('div', { class: 'cm-sep' })); continue; }
-      const b = el('button', { class: 'cm-btn' + (d.active ? ' active' : ''), title: d.label + (d.key ? ` (${d.key})` : ''), disabled: d.disabled }, `<span class="cm-ic">${icon(d.icon)}${d.key ? `<span class="cm-key">${esc(d.key)}</span>` : ''}</span><span>${esc(d.label)}</span>`);
+      const b = el('button', { class: 'cm-btn' + (d.active ? ' active' : ''), title: tr(d.label) + (d.key ? ` (${d.key})` : ''), disabled: d.disabled }, `<span class="cm-ic">${icon(d.icon)}${d.key ? `<span class="cm-key">${esc(d.key)}</span>` : ''}</span><span>${esc(tr(d.label))}</span>`);
       b.addEventListener('click', () => { this.app.macros?.note(d.label); d.action(); });
       btns.appendChild(b);
     }
     const tabs = $('#cm-tabs');
     tabs.innerHTML = '';
-    const t = el('button', { class: 'active' }, 'Assembly');
+    const t = el('button', { class: 'active' }, esc(tr('Assembly')));
     tabs.appendChild(t);
   }
   menuDefs() {

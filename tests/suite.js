@@ -922,6 +922,30 @@ await rc.cut(h, 10);`, 'plate');
     return ok ? { ok: true, detail: `window ${light} → ${dark} → ${back}` } : { ok: false, detail: `bg ${light} / ${dark} / ${back}, viewport ${vp.slice(0, 80)}, kept ${kept}, sketch ${sk.toString(16)}, menu ${!!menu}` };
   },
 
+  // languages: View ▸ Language ▸ Deutsch shows the menus, ribbon and dialogs in German (labels in parts too);
+  // commands keep their English names for macros; English again afterwards
+  async 'languages'() {
+    const a = window.app, I = await import('/js/i18n.js');
+    if (a.mode === 'drawing') { const i = a.tabs.findIndex((t) => t.kind !== 'drawing'); if (i >= 0) await a.activateTab(i); }
+    const before = I.language();
+    await a.ui.setLang('de');
+    await wait(50);
+    const menubar = [...document.querySelectorAll('#menubar > button[data-menu]')].map((b) => b.textContent).join(',');
+    const ribbon = document.getElementById('cm-buttons').innerText.replace(/\u00ad/g, '');
+    const parts = I.t('Features ▸ Fillet…'), counted = I.t('Mates (2)'), kept = I.t('Some text nobody wrote');
+    a.ui.modal('Bill of Materials', 'bom', '<p>x</p>', [{ label: 'Close' }]);
+    const modal = document.querySelector('.modal-back:last-child .modal-h span')?.textContent.replace(/\u00ad/g, '') + '|' + document.querySelector('.modal-back:last-child .modal-f button')?.textContent;
+    closeModals();
+    const r = await a.macros.run(`await rc.command('Zoom to Fit');`, 'cmd');
+    await a.ui.setLang(before === 'en' ? 'en' : before);
+    await wait(50);
+    const back = document.querySelector('#menubar > button[data-menu]')?.textContent;
+    const ok = menubar === 'Datei,Bearbeiten,Ansicht,Einfügen,Extras,Hilfe' && ribbon.includes('Verrundung') && ribbon.includes('Extrusion') && parts === 'Features ▸ Verrundung…'
+      && counted === 'Verknüpfungen (2)' && kept === 'Some text nobody wrote' && modal === 'Stückliste|Schließen' && r.ok && back === 'File';
+    return ok ? { ok: true, detail: `${menubar}; ${parts}; ${modal}; macro command ok; back to ${back}` }
+      : { ok: false, detail: `menubar ${menubar}; ribbon has Verrundung ${ribbon.includes('Verrundung')}; ${parts}; ${counted}; ${modal}; macro ${JSON.stringify(r)}; back ${back}` };
+  },
+
   // the browser version's notice: above the window, as wide as it (the text wraps), gone with ✕
   async 'web-notice'() {
     const a = window.app, root = document.getElementById('app');

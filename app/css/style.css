@@ -803,3 +803,6 @@ svg.ref-arrows { position: absolute; left: 0; top: 0; pointer-events: none; z-in
 [data-theme="dark"] .macros .mc-out.err { color: #f4a3a3; }
 [data-theme="dark"] .dxf-sw { border-color: #8a94a6; }
 [data-theme="dark"] a { color: #8fbdf5; }
+
+/* Translated labels: long words break at their soft hyphens (the dictionaries put them in) */
+.cm-btn > span:last-child, .pm-gt, .pm-row > label, .start-btn small { hyphens: manual; }

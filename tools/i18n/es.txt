@@ -1,0 +1,979 @@
+1|Todos los sólidos
+2|Operación lámina (una pared a lo largo de las curvas del croquis)
+3|Espesor
+4|Dirección
+5|Sólido
+6|Radio de pliegue (interior)
+7|Factor K
+8|Forma
+9|Diámetro
+10|Medida tomada
+11|Ancho (X)
+12|Profundidad (Y)
+13|Croquis (cerrado)
+14|Invertir dirección (material al otro lado)
+15|Primer perfil (abierto)
+16|Segundo perfil (abierto)
+17|Método
+18|Radio de pliegue (para las notas de las líneas)
+19|Material al otro lado
+20|Croquis (líneas o texto sobre una cara)
+21|Croquis (líneas sobre una cara)
+22|Ángulo
+23|Posición del pliegue
+24|Plegar al revés (alejándose de la cara del croquis)
+25|Mantener fijo el otro lado
+26|Usar el radio de pliegue de la pieza
+27|Segmentos
+28|Longitud del segmento 1
+29|Ángulo del segmento 1
+30|Longitud del segmento 2
+31|Ángulo del segmento 2 (− : de vuelta al otro lado)
+32|Longitud del segmento 3
+33|Ángulo del segmento 3 (− : de vuelta al otro lado)
+34|Longitud del segmento 4
+35|Ángulo del segmento 4 (− : de vuelta al otro lado)
+36|Primer pliegue
+37|Invertir dirección
+38|Donde se encuentran las aristas
+39|Separación
+40|Desahogo
+41|Tipo
+42|Profundidad
+43|Ancho (detrás de la ranura)
+44|Altura (abertura)
+45|Capucha al otro lado de la línea
+46|Diámetro del agujero (dentro del cuello)
+47|Altura del cuello (total)
+48|Prensado al revés
+49|Tamaño (cada lado, desde la esquina interior)
+50|Ancho (a través del pliegue)
+51|Arista de la pestaña
+52|Cara de la ranura
+53|Número de pestañas
+54|Longitud de la pestaña
+55|Altura de la pestaña (vacío: a través de la otra pieza)
+56|Margen en cada extremo (vacío: repartidas por igual)
+57|Holgura (alrededor)
+58|Prensado hacia abajo (al revés)
+59|Croquis (una línea sobre una cara)
+60|Altura
+61|Medido
+62|Desplazamiento al revés
+63|Croquis (abierto, o un círculo)
+64|Material
+65|Radio de pliegue (interior, en esquinas vivas)
+66|Separación de la costura
+67|Croquis (una línea)
+68|Intercambiar los extremos inferior y superior
+69|Desfase superior transversal (X)
+70|Desfase superior fuera del croquis (Y)
+71|Rotación alrededor del eje
+72|Número de partes iguales
+73|Costuras en
+74|Mover las costuras un lado
+75|Primera costura en (desde X)
+76|Separación en cada costura
+77|Las medidas son
+78|Longitud (desde el exterior del doblez)
+79|Separación entre capas
+80|Radio interior
+81|Ángulo (181°–269°)
+82|Ángulo (90°–340°)
+83|Posición
+84|Ancho (× espesor)
+85|Longitud
+86|Medido hasta
+87|Desfase (mueve la brida hacia fuera)
+88|Donde se encuentran estas bridas
+89|Zona de pliegue
+90|Cambiar qué brida cubre a la otra
+91|Tamaño
+92|Cara fija
+93|Sólido (vacío: todos los no plegados)
+94|Usar el espesor del sólido
+95|Recortar donde la chapa chocaría consigo misma
+96|Tolerancia de ajuste de arcos
+97|Usar los radios de pliegue del sólido
+98|Perfil
+99|Croquis del perfil
+100|Trayecto
+101|Combinar resultado (desactivado: un sólido aparte)
+102|Lados rectos (reglados) entre perfiles
+103|Norma
+104|Rosca
+105|Profundidad de rosca (para la anotación; vacío: el agujero)
+106|Tamaño de tornillo
+107|Ajuste (ISO 273)
+108|Diámetro del agujero
+109|Diámetro del refrentado
+110|Profundidad del refrentado
+111|Diámetro del avellanado
+112|Ángulo del avellanado
+113|Final
+114|Punta de broca (118°)
+115|Invertir dirección
+116|Croquis (puntos / centros de círculos)
+117|Unir los puntos con
+118|Radio de pliegue en las esquinas
+119|Bucle cerrado (vuelta al primer punto)
+120|Croquis con un círculo
+121|Definido por
+122|Paso
+123|Revoluciones
+124|Ángulo inicial
+125|Sentido horario (a izquierdas)
+126|Cilindro
+127|Diámetro nominal
+128|Rosca a izquierdas
+129|Ajustar el agujero / eje al tamaño de la rosca (queda dentro del sólido)
+130|Condición final
+131|Hasta
+132|Empezar por el otro extremo
+133|Croquis (contornos o texto)
+134|Cara
+135|Croquis
+136|Vértice
+137|Superficie
+138|Desfase
+139|Invertir desfase (más allá de la superficie)
+140|Eje
+141|Distancia
+142|Cambiar de lado
+143|Invertir sentido del ángulo
+144|Posición en la arista
+145|Usar la otra bisectriz (caras inclinadas)
+146|Operación
+147|Espaciado
+148|Instancias
+149|Espaciado igual (el ángulo es total)
+150|Plano
+151|Croquis de referencia
+152|Curva
+153|Instancias (incluida la operación)
+154|Alineación
+155|Disposición
+156|Margen desde los bordes
+157|Radio en el extremo
+158|Intercambiar los extremos
+159|Cara neutra
+160|Croquis (líneas abiertas)
+161|Dirección de extrusión
+162|Cambiar lado del material
+163|Elíptico (caras redondeadas)
+164|Invertir (hundido)
+165|Factor de escala
+166|Escalar respecto a
+167|Distancia (hacia fuera +, hacia dentro −)
+168|Arista de bisagra
+169|Tipo de chaflán
+170|Distancia 2
+171|Vaciado hacia fuera
+172|Dividir con
+173|Conservar
+174|Copiar (conservar los sólidos originales)
+175|Copias
+176|Mover
+177|Alrededor de
+178|Recto (reglado) entre perfiles
+179|Tangente a las caras alrededor del agujero
+180|Coser a la superficie (cuando todas las aristas están en un sólido de superficie)
+181|Crear un sólido cuando eso lo cierra
+182|Recortar con
+183|Mutuo (recortar también la superficie herramienta)
+184|Selección
+185|Después
+186|Relleno tangente a las caras alrededor del agujero
+187|Ángulo de inclinación
+188|Ambos lados
+189|Sólido de superficie
+190|Deshacer recorte
+191|Tamaño de soldadura
+192|Recortar hasta
+193|Alargar los miembros que no llegan
+194|Corte
+195|Tapa
+196|Cateto 1 (a lo largo de la primera cara)
+197|Cateto 2 (a lo largo de la segunda cara)
+198|Chaflán de esquina (holgura de soldadura)
+199|Placa
+200|Desfase a lo largo de la esquina
+201|Croquis / croquis 3D
+202|Tratamiento de esquinas
+203|Extremos recortados
+204|La línea del croquis pasa por
+205|Girar el perfil
+206|Simetrizar el perfil
+207|Pasadas de relajación (caras de doble curvatura)
+208|Unir las copias que se tocan en un sólido de superficie
+209|Intentar formar un sólido (cuando las superficies están cerradas)
+210|Combinar el sólido con los sólidos que toca
+211|Tolerancia de separación
+212|Tolerancia de separación (las aristas más cercanas se unen)
+213|Mayor agujero a cerrar (0: cualquier tamaño)
+214|Crear un sólido cuando esté cerrado
+215|Lado
+216|Combinar resultado
+217|Combinar los sólidos que se tocan en uno
+218|Simplificar mallas a partir de (triángulos; 0: nunca)
+219|Plano 1
+220|Plano 2
+221|Punto 1
+222|Punto 2
+223|Arista
+224|Línea
+225|Nueva pieza
+226|Nuevo ensamblaje
+227|Nuevo dibujo
+228|Crear dibujo de la pieza
+229|Abrir
+230|Abrir pieza de ejemplo
+231|Piezas recientes / Inicio
+232|Guardar
+233|Guardar como
+234|Importar STEP / STL
+235|Exportar
+236|STEP
+237|STL
+238|Desarrollo como DXF
+239|Cara como DXF
+240|Propiedades
+241|Deshacer
+242|Rehacer
+243|Reconstruir
+244|Eliminar
+245|Zoom para ajustar
+246|Normal a
+247|Visibilidad
+248|Salir de aislar
+249|Vista explosionada… (pieza multicuerpo)
+250|Extruir
+251|Revolución
+252|Barrido
+253|Recubrir
+254|Hélice
+255|Croquis 3D
+256|Operaciones
+257|Taladro
+258|Rosca por corte
+259|Rosca por extrusión
+260|Rosca cosmética
+261|Envolver (relieve / grabado)
+262|Matriz/Simetría
+263|Matriz lineal
+264|Matriz circular
+265|Simetría
+266|Redondeo
+267|Chaflán
+268|Vaciado
+269|Combinar
+270|Restar sólidos
+271|Eliminar sólido
+272|Dividir
+273|Mover/copiar sólidos
+274|Sólido importado (STEP / STL)
+275|Extruida
+276|De revolución
+277|Plana
+278|Copiar
+279|Coser
+280|Convertir en sólido
+281|Reparar malla
+282|Engrosar
+283|Mover/copiar superficies
+284|Eliminar superficie
+285|Geometría de referencia
+286|Punto
+287|Medir
+288|Ecuaciones
+289|Propiedades físicas
+290|Vista de sección
+291|Editar material
+292|Reparar referencias
+293|Unidades: milímetros
+294|Unidades: pulgadas
+295|Preguntar a Claude
+296|Ajustes de Claude
+297|Recorrido de introducción
+298|Buscar comandos
+299|Personalizar atajos
+300|Atajos de teclado
+301|Abrir la carpeta de informes de fallos
+302|Abrir archivos con RazorCAD (.rcad .rasm .rdrw)
+303|Buscar actualizaciones
+304|Acerca de RazorCAD
+305|Corte extruido
+306|Corte de revolución
+307|Corte barrido
+308|Corte recubierto
+309|Matriz conducida por croquis
+310|Matriz conducida por curva
+311|Matriz de relleno
+312|Ángulo de salida
+313|Nervio
+314|Domo
+315|Mover cara
+316|Escalar
+317|Plano de referencia
+318|Eje de referencia
+319|Punto de referencia
+320|Salir del croquis
+321|Salir del croquis 3D
+322|Importar DXF
+323|Matriz lineal de croquis
+324|Matriz circular de croquis
+325|Crear bloque
+326|Insertar bloque
+327|Engranajes
+328|Perfil aerodinámico
+329|Curva de intersección
+330|Geometría constructiva
+331|Mostrar relaciones
+332|Superficie extruida
+333|Superficie de revolución
+334|Superficie plana
+335|Superficie recubierta
+336|Superficie barrida
+337|Superficie de relleno
+338|Superficie límite
+339|Superficie equidistante
+340|Copiar superficie
+341|Recortar superficie
+342|Extender superficie
+343|Deshacer recorte de superficie
+344|Línea de partición
+345|Curva proyectada
+346|Curva compuesta
+347|Superficie reglada
+348|Coser superficies
+349|Eliminar cara
+350|Reemplazar cara
+351|Aplanar superficie
+352|Dividir (con una superficie)
+353|Miembro estructural
+354|Recortar/extender
+355|Tapa de extremo
+356|Cartela
+357|Cordón de soldadura
+358|Lista de cortes
+359|Brida base
+360|Extruir chapa
+361|Pliegue recubierto
+362|Transición / reductor
+363|Brida de arista
+364|Brida a inglete
+365|Dobladillo
+366|Pliegue croquizado
+367|Doblez escalonado
+368|Cruz de rigidez
+369|Líneas de grabado
+370|Pestaña y ranura
+371|Herramientas de conformar
+372|Desahogo de esquina
+373|Esquina cerrada
+374|Desdoblar
+375|Doblar
+376|Desplegar
+377|Convertir en chapa metálica
+378|Comprobación de chapa
+379|Exportar DXF (desarrollo)
+380|Exportar todo como DXF
+381|Ajustes de DXF
+382|Nueva conversación
+383|Detección de interferencias
+384|Rayas de cebra
+385|Curvatura
+386|Análisis de ángulo de salida
+387|Configuraciones
+388|Exportar STEP
+389|Exportar STL
+390|Exportar OBJ
+391|Exportar 3MF
+392|Importar STEP / STL / OBJ / 3MF
+393|Personalizar barras de herramientas
+394|Claude
+395|Añadir a una barra de herramientas nueva
+396|Quitar de esta barra de herramientas
+397|Ocultar en esta barra de herramientas
+398|Añadir un separador después
+399|Cambiar nombre
+400|Eliminar barra de herramientas
+401|Restablecer esta barra de herramientas
+402|Nueva barra de herramientas
+403|Hecho
+404|Mostrar configuración
+405|Copiar configuración
+406|Propiedades (tabla de diseño)
+407|Añadir configuración
+408|Exportar todos los desarrollos como DXF
+409|Exportar todos los sólidos como STEP
+410|Vista explosionada
+411|Carpeta nueva
+412|Cambiar nombre de la carpeta
+413|Eliminar carpeta (conservar los sólidos)
+414|Mover a una carpeta nueva
+415|Contraer
+416|Explosionar
+417|Editar vista explosionada
+418|Ocultar
+419|Mostrar
+420|Origen
+421|Propiedades del sólido
+422|Aislar
+423|Convertir en sólido (coser)
+424|Ver desarrollo
+425|Exportar desarrollo como DXF
+426|Añadir a carpeta nueva
+427|Quitar de la carpeta
+428|Exportar como STEP
+429|Cancelar la exportación
+430|Saltar este
+431|Cancelar
+432|Restablecer valores predeterminados
+433|Quitar clave
+434|Aceptar
+435|Editar croquis
+436|Cambiar plano del croquis
+437|Editar croquis 3D
+438|Editar operación
+439|Retroceder (justo antes de esta)
+440|Avanzar hasta el final
+441|Dirección de desmoldeo
+442|Ángulo de salida necesario (°)
+443|Color predeterminado
+444|Cerrar
+445|Aplicar
+446|Quitar todo
+447|Personalizar
+448|Actualizar ahora
+449|Abrir la página de descarga
+450|Alcance de la operación
+451|Operación lámina
+452|Sólido de chapa metálica
+453|Parámetros de chapa metálica
+454|Perfiles
+455|Método de fabricación
+456|Líneas de pliegue
+457|Aristas
+458|Esquinas
+459|Forma
+460|Ubicación
+461|Pliegues
+462|Piezas
+463|Pestañas
+464|Ranuras
+465|Caras
+466|Línea de doblez escalonado
+467|Aristas de dobladillo
+468|Desahogo automático
+469|Aristas de brida
+470|Longitud de brida
+471|Ángulo y posición
+472|Esquinas a cerrar
+473|Tipo de esquina
+474|Cara fija
+475|Perfil y trayecto
+476|Opciones
+477|Tipo de taladro
+478|Condición final
+479|Posiciones
+480|Puntos
+481|Definido por
+482|Parámetros
+483|Ubicación de la rosca
+484|Especificación
+485|Desde
+486|Dirección 1
+487|Eje de revolución
+488|Referencias
+489|Operaciones para la matriz
+490|Dirección 2
+491|Cara/plano de simetría
+492|Operaciones para simetría
+493|Selecciones
+494|Contorno de relleno
+495|Disposición de la matriz
+496|Tipo de redondeo
+497|Parámetros de redondeo
+498|Elementos a redondear
+499|Ángulo de salida
+500|Plano neutro
+501|Caras con ángulo de salida
+502|Parámetros de chaflán
+503|Elementos a achaflanar
+504|Caras a eliminar
+505|Tipo de operación
+506|Sólidos
+507|Sólidos a eliminar
+508|Superficies a eliminar
+509|Herramienta de recorte
+510|Sólidos destino
+511|Sólidos a mover/copiar
+512|Trasladar
+513|Girar
+514|Relaciones de posición
+515|Entidades delimitadoras
+516|Contorno de relleno
+517|Piezas
+518|Aristas a extender
+519|Caras a eliminar
+520|Caras a reemplazar
+521|Superficie de reemplazo
+522|Sólidos a recortar
+523|Contorno de recorte
+524|Caras de apoyo
+525|Ubicación
+526|Caras a aplanar
+527|Proyección
+528|Dividir con
+529|Caras a desplazar
+530|Caras a copiar
+531|Superficies a coser
+532|Superficies
+533|Malla / superficies
+534|Archivo importado
+535|RazorCAD
+536|Configuraciones / tabla de diseño
+537|Ecuaciones, variables globales
+538|Material de la pieza
+539|Atajos de teclado: personalizar
+540|Teclado y ratón
+541|Abrir archivos con RazorCAD
+542|Actualizar RazorCAD
+543|Opciones de desfase
+544|Polígono
+545|Añadir relaciones
+546|Orientación
+547|Visualización
+548|Dientes y relaciones
+549|Ajuste (impresión 3D / tolerancias)
+550|Parámetros de forma
+551|Cuerda y opciones
+552|Texto
+553|Planos
+554|Sección 1
+555|Resultados
+556|Lados
+557|Valor
+558|Módulo
+559|Ángulo de presión
+560|Juego entre dientes
+561|Holgura de cabeza / pie
+562|Diámetro del agujero
+563|Girar el primer engranaje
+564|Código NACA
+565|Serie
+566|Curvatura máx.
+567|Posición de la curvatura
+568|Coef. de sustentación de diseño
+569|Longitud de cuerda
+570|Fuente
+571|Área
+572|Volumen
+573|Área de superficie
+574|Distancia entre centros
+575|Calibre
+576|Hasta profundidad
+577|Plano medio
+578|Por todo
+579|Por todo - ambos lados
+580|Eje X
+581|Eje Y
+582|Eje Z
+583|Hasta vértice
+584|Hasta superficie
+585|Equidistante de la superficie
+586|Un lado
+587|Otro lado
+588|Plano medio (mitad a cada lado)
+589|Fuera del perfil
+590|Dentro del perfil
+591|Redondo
+592|Cuadrado
+593|Rectángulo
+594|Triángulo
+595|Pentágono
+596|Hexágono
+597|Plegado (facetas planas, pliegues de plegadora)
+598|Conformado (liso, curvado / prensado)
+599|Pliegue centrado en la línea
+600|El pliegue empieza en la línea
+601|El pliegue termina en la línea
+602|Material dentro (cara exterior en la arista)
+603|Material fuera (cara interior en la arista)
+604|A inglete (cerrado, con la separación)
+605|Rectangular
+606|Oblongo
+607|Rasgado
+608|Embutido
+609|Rejilla
+610|Agujero con cuello (pestañado)
+611|Cara a cara (el escalón de una cara)
+612|Total (exterior a exterior)
+613|Interior (interior a interior)
+614|Empieza en la línea
+615|Centrado en la línea
+616|Termina en la línea
+617|Una dirección
+618|Plano medio (mitad en cada sentido)
+619|Dentro del círculo
+620|Fuera del círculo
+621|Ambos lados (el círculo en medio)
+622|Un lado del croquis
+623|Otro lado del croquis
+624|Ambos lados (el croquis en medio)
+625|El centro de los lados planos
+626|Las esquinas
+627|Conformado (curvado liso)
+628|Plegado (pliegues de plegadora)
+629|Medidas interiores (material hacia fuera)
+630|Medidas exteriores (material hacia dentro)
+631|Media (mitad del espesor)
+632|Cerrado (aplastado)
+633|Abierto (con separación)
+634|En lágrima
+635|Enrollado (rizo)
+636|Dentro (el doblez en la arista)
+637|Fuera (añadido más allá de la arista)
+638|Intersección virtual exterior
+639|Intersección virtual interior
+640|Tangente (final del pliegue)
+641|Cerrado — a tope (inglete)
+642|Esquina abierta
+643|Cerrado (los pliegues se encuentran en la diagonal)
+644|Circular
+645|Rasgado (sin quitar material)
+646|Solape inferior (pasa bajo la otra brida)
+647|A tope (inglete, los extremos se encuentran en la diagonal)
+648|Detrás de la superficie
+649|Delante de la superficie
+650|Ambos lados (simétrico)
+651|Un croquis
+652|Circular (introducir el diámetro)
+653|Agujero (pasante)
+654|Refrentado
+655|Avellanado
+656|Agujero roscado
+657|ISO métrica
+658|Unificada (pulgadas)
+659|Tamaños personalizados
+660|Normal
+661|Holgado
+662|Por todo
+663|Tramos rectos (un recorrido)
+664|Una spline suave
+665|Paso y revoluciones
+666|Paso y altura
+667|Altura y revoluciones
+668|Métrica (ISO)
+669|Pulgadas (UNC / UNF)
+670|Toda la longitud de la cara
+671|Hasta un plano o cara
+672|Relieve (en resalte)
+673|Grabado (hundido)
+674|Inicio
+675|Punto medio
+676|Igual, hasta el final de la curva
+677|Distancia a lo largo de la curva
+678|Trasladado (misma orientación)
+679|Girado con la curva
+680|Al tresbolillo (perforado)
+681|Tamaño constante
+682|Tamaño variable
+683|Redondeo de caras
+684|Paralelo al croquis
+685|Normal al croquis
+686|El origen
+687|El centro de los sólidos
+688|Desfase (empujar / tirar)
+689|Girar alrededor de una arista
+690|Distancias iguales
+691|Distancia y ángulo
+692|Dos distancias
+693|Añadir (unión)
+694|Restar
+695|Común (conservar la intersección)
+696|Todas las piezas
+697|La pieza del lado de la normal
+698|La pieza del otro lado
+699|Trasladar / girar (coordenadas)
+700|El eje (por el origen para X/Y/Z)
+701|El centro de los sólidos
+702|Un croquis (abierto o cerrado)
+703|Conservar las piezas pulsadas
+704|Quitar las piezas pulsadas
+705|Tapar cada agujero (el sólido sigue siendo sólido)
+706|Normal a la superficie
+707|A lo largo de una dirección (inclinada un ángulo)
+708|Rellenar sus agujeros
+709|A su extensión natural (agujeros y contorno)
+710|A escuadra, en la cara del límite
+711|Ajustado al sólido límite
+712|En el extremo (fuera)
+713|Dentro del extremo (enrasado)
+714|Centrado
+715|A un lado
+716|Al otro lado
+717|Inglete
+718|A tope (primer miembro recortado)
+719|A tope (segundo miembro recortado)
+720|Ninguno (los miembros se encuentran en los puntos del croquis)
+721|Ajustado al exterior del otro miembro
+722|Ambos lados (centro)
+723|Dos planos
+724|Dos puntos
+725|Arista del modelo (recta o circular)
+726|Línea del croquis
+727|Coordenadas
+728|Vértice del modelo
+729|Centro de arco / círculo
+730|Punto medio de arista
+731|Chapa metálica
+732|Estructura rápida
+733|Evaluar
+734|Eje vertical del croquis
+735|Eje horizontal del croquis
+736|Ninguno
+737|Automático (el tamaño que encaja en la cara)
+738|Personalizado
+739|NACA de 4 dígitos
+740|NACA de 5 dígitos
+741|Clark Y
+742|Negrita
+743|Cursiva
+744|Y (arriba)
+745|Normal de la cara seleccionada
+746|Exportar CSV
+747|Coincidente
+748|Paralela
+749|Perpendicular
+750|Concéntrica
+751|Mayús + arrastrar derecho, o Ctrl + arrastrar central
+752|Alt + arrastrar central, o Alt + ←/→
+753|Ctrl+B
+754|Exportar DXF
+755|Salir del desarrollo
+756|Descartar cambios
+757|Añadir relación:
+758|Apariencia del sólido
+759|Exportar sólido como STEP
+760|Apariencia
+761|Exportar cara como DXF
+762|Cerrar pieza
+763|Cambios sin guardar
+764|Abrir un ensamblaje STEP
+765|Abrir un archivo 3D
+766|Abrir croquis
+767|Recuperar el guardado automático
+768|Cerrar sin guardar
+769|Abrir como una pieza
+770|Insertar (en su sitio)
+771|Insertar y situar con relaciones de posición
+772|Ignorar
+773|Abrir la última versión guardada
+774|Tangente
+775|Bloquear
+776|Engranaje
+777|Piñón y cremallera
+778|Relación de posición
+779|Insertar componentes
+780|Buscar una pieza o un ensamblaje
+781|Insertar
+782|Flotar
+783|Fijar
+784|Desactivar supresión
+785|Suprimir
+786|Insertar otra instancia
+787|Copiar como CSV
+788|Guardar CSV
+789|Piezas normalizadas
+790|Abrir pieza
+791|Estudio de movimiento
+792|Lista de materiales
+793|Crear dibujo del ensamblaje
+794|Archivos recientes / Inicio
+795|Isométrica
+796|Frontal
+797|Superior
+798|Componentes
+799|Reparar relaciones de posición
+800|Editar relación de posición
+801|Reproducir
+802|Editar estudio de movimiento
+803|Configuración de la pieza
+804|Guardar el ensamblaje
+805|Reemplazar archivos
+806|Entidades a relacionar
+807|Tipo de relación
+808|Longitud (mm)
+809|Guardar como un archivo
+810|Edición
+811|Número de elemento
+812|Columnas
+813|Propiedades de la vista
+814|Vista proyectada
+815|Vista de detalle
+816|Eliminar vista
+817|Propiedades de la hoja
+818|Propiedades del dibujo (cuadro de rotulación)
+819|Zoom a la hoja
+820|Columnas predeterminadas
+821|Añadir hoja
+822|Eliminar hoja
+823|Cambiar plantilla
+824|Desarrollo
+825|Vista del modelo
+826|Vistas estándar
+827|Vista auxiliar
+828|Rotura
+829|Recortar vista
+830|Actualizar vistas
+831|Cota
+832|Acotación automática
+833|Nota
+834|Cotas de línea base
+835|Cotas de coordenadas
+836|Cota de chaflán
+837|Anotación de taladro
+838|Referencia
+839|Tolerancia geométrica
+840|Acabado superficial
+841|Símbolo de soldadura
+842|Marca de centro
+843|Línea de centro
+844|Tabla de revisiones
+845|Tabla de lista de cortes
+846|Globo
+847|Tabla de lista de materiales
+848|Cuadro de rotulación
+849|Exportar PDF
+850|Guardar como plantilla
+851|PDF
+852|DXF (esta hoja)
+853|Vista de dibujo
+854|Anotaciones
+855|Hoja
+856|Acerca de los dibujos
+857|Columnas de la lista de materiales
+858|Propiedades del dibujo
+859|Dibujos
+860|Básico (cualquier proceso)
+861|Mecanizado obligatorio
+862|Mecanizado no permitido
+863|A tope recto
+864|En V
+865|En bisel
+866|De tapón / de ranura
+867|Lado de la flecha
+868|Escrito en la tabla
+869|Vista partida
+870|Líneas ocultas eliminadas
+871|Líneas ocultas visibles
+872|Alámbrico
+873|Automático (rápido en ensamblajes grandes)
+874|Exacto
+875|Rápido (a partir de las mallas de visualización)
+876|Distancias horizontales
+877|Distancias verticales
+878|Vertical (acorta a lo ancho)
+879|Horizontal (acorta a lo alto)
+880|Disposición de vistas
+881|Anotación
+882|Macros
+883|Detener la grabación de macro
+884|Grabar macro
+885|Macro
+886|Eliminar macro
+887|Seleccionar
+888|Spline
+889|Rectángulo de esquina
+890|Rectángulo de centro
+891|Círculo
+892|Arco por centro
+893|Arco por 3 puntos
+894|Arco tangente
+895|Elipse
+896|Ranura recta
+897|Recortar
+898|Extender
+899|Proyectar aristas
+900|Redondeo de croquis
+901|Chaflán de croquis
+902|Crear engranajes
+903|Copias en la dirección 1 (incluido el original)
+904|Espaciado 1 (mm)
+905|Ángulo de la dirección 1 (°)
+906|Copias en la dirección 2
+907|Espaciado 2 (mm)
+908|Ángulo de la dirección 2 (°)
+909|Número de instancias (incluido el original)
+910|Ángulo total (°; 360 las reparte por igual)
+911|Centro X (mm)
+912|Centro Y (mm)
+913|Colocar
+914|Bloque
+915|Eliminar este bloque de la biblioteca en su lugar
+916|Centrado en el origen del croquis
+917|Su esquina inferior izquierda en el origen
+918|Centro
+919|Mín
+920|Máx
+921|Cambiar valor
+922|Eliminar cota
+923|Terminar línea
+924|Mover / copiar / girar
+925|Plano de dibujo
+926|Totalmente definido
+927|Una spline suave por los puntos
+928|Impulsor
+929|Reproducción
+930|Nombre
+931|Impulsar con
+932|Hasta
+933|Componente
+934|Pasos
+935|Duración
+936|Girar un componente
+937|Deslizar un componente
+938|Archivo
+939|Ver
+940|Herramientas
+941|Ayuda
+942|Ensamblaje
+943|Plano alzado
+944|Plano planta
+945|Plano vista lateral
+946|Sólidos
+947|Sólidos de superficie
+948|Vistas explosionadas
+949|Estudios de movimiento
+950|Sí
+951|No
+952|Empezar una pieza vacía
+953|Piezas unidas y sujetas por relaciones de posición
+954|Un dibujo 2D de una pieza, a partir de una plantilla
+955|Abrir un archivo de pieza o de dibujo
+956|Pieza de ejemplo
+957|Una placa de montaje para explorar
+958|Las piezas se guardan automáticamente junto a su archivo una vez guardadas por primera vez.
+959|Archivos recientes
+960|Todavía no hay piezas recientes. Las piezas que abra o guarde aparecerán aquí.
+961|Recuperar la sesión anterior
+962|Idioma
+963|Tema
+964|Claro
+965|Oscuro
+966|Como Windows
+967|Sombreado con aristas
+968|Sombreado
+969|Líneas ocultas eliminadas
+970|Mostrar planos
+971|Iconos de barra de herramientas: pequeños
+972|Iconos de barra de herramientas: medianos
+973|Iconos de barra de herramientas: grandes
+974|Mostrar sólidos ocultos
+975|Posterior
+976|Izquierda
+977|Derecha
+978|Inferior
+979|Trimétrica

@@ -18,6 +18,7 @@ import { bomRows, bomItemOf, BOM_FIELDS, bomPropNames, bomCell } from './bom.js'
 import { propOf } from './custprops.js';
 import { explodeOffsets } from './explode.js';
 import { autoDims } from './autodim.js';
+import { t as tr } from './i18n.js';
 
 // Assemblies this big (solids, or display triangles) are drawn with fast hidden-line removal unless a view asks
 // for exact (exact on thousands of solids takes many minutes a view)
@@ -2293,14 +2294,14 @@ export class DrawingEditor {
     btns.innerHTML = '';
     for (const d of defs[this.cmTab]) {
       if (d === 'sep') { btns.appendChild(el('div', { class: 'cm-sep' })); continue; }
-      const b = el('button', { class: 'cm-btn' + (d.active ? ' active' : ''), title: d.label }, `<span class="cm-ic">${icon(d.icon)}</span><span>${esc(d.label)}</span>`);
+      const b = el('button', { class: 'cm-btn' + (d.active ? ' active' : ''), title: tr(d.label) }, `<span class="cm-ic">${icon(d.icon)}</span><span>${esc(tr(d.label))}</span>`);
       b.addEventListener('click', () => { this.app.macros?.note(d.label); d.action(); });
       btns.appendChild(b);
     }
     const tabs = $('#cm-tabs');
     tabs.innerHTML = '';
     for (const [id, label] of [['layout', 'View Layout'], ['annotation', 'Annotation'], ['sheet', 'Sheet']]) {
-      const t = el('button', { class: this.cmTab === id ? 'active' : '' }, label);
+      const t = el('button', { class: this.cmTab === id ? 'active' : '' }, esc(tr(label)));
       t.onclick = () => { this.cmTab = id; this.renderCommandManager(); };
       tabs.appendChild(t);
     }

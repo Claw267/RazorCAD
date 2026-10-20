@@ -3,6 +3,7 @@
 import { icon } from './icons.js';
 import { editCustomProps } from './custprops.js';
 import { setThemePref, themePref, isDark } from './theme.js';
+import { t as tr, LANGUAGES, language, setLanguage } from './i18n.js';
 import { iconFor, MATERIALS, planeName, findFeature, TYPE_INFO, bodySettings, materialById, rollbackIndex, referencesOf, dependentsOf, absorbedSketches, moveProblem, bodyOwner, folderOfBody, sketchesUsedBy } from './model.js';
 import { STD_PLANES } from './geometry.js';
 import { evaluate, evalEquations, fmt, isNumeric, isValidName, normalizeValue } from './expr.js';
@@ -1151,7 +1152,14 @@ export class UI {
     this.prefs = {};
     this.renderCommandManager();
     // the user's own toolbar layout (and other preferences), once the desktop app answers
-    platform.ready.then(() => platform.getPrefs()).then((p) => { this.prefs = p || {}; setThemePref(this.prefs.theme); this.applyIconSize(); this.renderCommandManager(); }).catch(() => {});
+    platform.ready.then(() => platform.getPrefs()).then((p) => { this.prefs = p || {}; setThemePref(this.prefs.theme); if (this.prefs.lang && this.prefs.lang !== 'en') setLanguage(this.prefs.lang); this.applyIconSize(); this.renderCommandManager(); }).catch(() => {});
+    // another language: everything drawn again in it
+    window.addEventListener('razorcad-lang', () => {
+      document.querySelectorAll('#menubar > button[data-menu]').forEach((b) => { b.textContent = tr(b.dataset.menu); });
+      const a = this.app;
+      if (a.mode === 'drawing' && a.drawing) a.drawing.renderAll?.();
+      else { this.renderCommandManager(); this.renderTree?.(); this.renderPM?.(); }
+    });
     // A tree row's hover highlight ends when the pointer is anywhere else. The row's own
     // pointerleave is not enough: when the tree is redrawn under the pointer (after a click,
     // hide, rebuild or drag) the old row is removed without one, and the highlight stuck.
@@ -1173,16 +1181,27 @@ export class UI {
   }
 
   // ------------------------------------------------------------ menus
-  // the menus of the document in front, with the theme in View and the macros in Tools
+  // the menus of the document in front, with the theme and language in View and the macros in Tools
   menuDefs() {
     const defs = this.baseMenuDefs();
-    if (defs) defs.View = [...(defs.View || []), 'sep', ...this.themeItems()];
+    if (defs) defs.View = [...(defs.View || []), 'sep', ...this.themeItems(), 'sep', ...this.languageItems()];
     if (defs && this.app.macros) defs.Tools = [...(defs.Tools || []), 'sep', ...this.app.macros.menuItems()];
     return defs;
   }
   themeItems() {
     const cur = themePref();
     return [['Light', 'light'], ['Dark', 'dark'], ['Follow Windows', 'system']].map(([l, v]) => ({ label: `Theme ▸ ${cur === v ? '● ' : ''}${l}`, icon: 'theme', action: () => this.setTheme(v) }));
+  }
+  languageItems() {
+    const cur = language();
+    return LANGUAGES.map(([code, name]) => ({ label: `Language ▸ ${cur === code ? '● ' : ''}${name}`, icon: 'language', action: () => this.setLang(code) }));
+  }
+  async setLang(code) {
+    this.prefs ||= {};
+    this.prefs.lang = code;
+    this.savePrefs();
+    await setLanguage(code);
+    this.app.status(LANGUAGES.find(([c]) => c === code)?.[1] || code);
   }
   setTheme(v) {
     this.prefs ||= {};
@@ -1324,7 +1343,7 @@ export class UI {
     const bar = $('#menubar');
     bar.innerHTML = '';
     for (const name of ['File', 'Edit', 'View', 'Insert', 'Tools', 'Help']) {
-      const b = el('button', {}, name);
+      const b = el('button', { 'data-menu': name }, esc(tr(name)));
       b.addEventListener('pointerdown', (e) => {
         e.stopPropagation();
         if (b.classList.contains('open')) return this.closeDropdown();
@@ -1366,7 +1385,7 @@ export class UI {
     for (const it of items) {
       if (it === 'sep') { root.appendChild(el('div', { class: 'msep' })); continue; }
       const row = el('div', { class: 'mi' + (it.disabled ? ' disabled' : '') },
-        `<span class="mi-icon">${icon(it.icon)}</span><span class="mi-label">${esc(it.label)}</span>${it.key ? `<span class="mi-key">${it.key}</span>` : ''}`);
+        `<span class="mi-icon">${icon(it.icon)}</span><span class="mi-label">${esc(tr(it.label))}</span>${it.key ? `<span class="mi-key">${it.key}</span>` : ''}`);
       row.addEventListener('click', () => { close(); this.app.macros?.note(it.label); it.action(); });
       root.appendChild(row);
     }
@@ -1610,8 +1629,8 @@ export class UI {
     }
     for (const d of this.toolbarItems(this.cmTab, defs)) {
       if (d === 'sep') { const s = el('div', { class: 'cm-sep' }); s.dataset.key = 'sep'; this.toolbarDraggable(s); btns.appendChild(s); continue; }
-      const b = el('button', { class: 'cm-btn' + (d.active ? ' active' : ''), title: d.label + (d.key ? ` (${d.key})` : ''), disabled: d.disabled },
-        `<span class="cm-ic">${icon(d.icon)}${d.key ? `<span class="cm-key">${esc(d.key)}</span>` : ''}</span><span>${esc(d.label)}</span>`);
+      const b = el('button', { class: 'cm-btn' + (d.active ? ' active' : ''), title: tr(d.label) + (d.key ? ` (${d.key})` : ''), disabled: d.disabled },
+        `<span class="cm-ic">${icon(d.icon)}${d.key ? `<span class="cm-key">${esc(d.key)}</span>` : ''}</span><span>${esc(tr(d.label))}</span>`);
       b.dataset.key = cmdKey(d);
       // (the click that ends a drag is not a press)
       b.addEventListener('click', (e) => { if (this._tbJustDragged) { e.preventDefault(); return; } this.app.macros?.note(d.label); d.action(); });
@@ -1624,7 +1643,7 @@ export class UI {
     const tabs = $('#cm-tabs');
     tabs.innerHTML = '';
     for (const t of tabsList) {
-      const b = el('button', { class: (this.cmTab === t.id ? 'active' : '') + (t.id === 'claude' ? ' cm-tab-claude' : '') + (t.custom ? ' cm-tab-custom' : ''), title: t.id === 'claude' ? 'Model with Claude: describe a part or a change' : t.custom ? 'Your own toolbar (right-click to rename or delete it)' : '' }, t.html || esc(t.label));
+      const b = el('button', { class: (this.cmTab === t.id ? 'active' : '') + (t.id === 'claude' ? ' cm-tab-claude' : '') + (t.custom ? ' cm-tab-custom' : ''), title: t.id === 'claude' ? 'Model with Claude: describe a part or a change' : t.custom ? 'Your own toolbar (right-click to rename or delete it)' : '' }, t.html || esc(t.custom ? t.label : tr(t.label)));
       b.dataset.tab = t.id;
       if (t.custom) b.dataset.custom = '1';
       b.onclick = () => { this.cmTab = t.id; this.renderCommandManager(); };
@@ -2067,7 +2086,7 @@ export class UI {
       });
       n.style.paddingLeft = 6 + (opts.depth || 0) * 16 + 'px';
       if (opts.fid) n.dataset.fid = opts.fid;
-      n.innerHTML = `<span class="tw">${opts.twisty ?? ''}</span><span class="ti">${icon(opts.icon)}</span><span class="tl">${esc(opts.label)}</span>${opts.sub ? `<span class="tsub">${esc(opts.sub)}</span>` : ''}${opts.error ? `<span class="terr" title="${esc(opts.error)}">!</span>` : ''}<span class="tvis"></span>`;
+      n.innerHTML = `<span class="tw">${opts.twisty ?? ''}</span><span class="ti">${icon(opts.icon)}</span><span class="tl">${esc(tr(opts.label))}</span>${opts.sub ? `<span class="tsub">${esc(opts.sub)}</span>` : ''}${opts.error ? `<span class="terr" title="${esc(opts.error)}">!</span>` : ''}<span class="tvis"></span>`;
       // the visibility column: an eye to show or hide the item
       if (opts.vis && opts.vis.on !== null && opts.vis.on !== undefined) {
         const v = n.querySelector('.tvis');
@@ -3067,7 +3086,7 @@ export class UI {
   }
 
   pmHeader(root, iconName, title, { ok = true, cancel = true } = {}) {
-    root.appendChild(el('div', { class: 'pm-head' }, `<span class="ti">${icon(iconName)}</span><span>${esc(title)}</span>`));
+    root.appendChild(el('div', { class: 'pm-head' }, `<span class="ti">${icon(iconName)}</span><span>${esc(tr(title))}</span>`));
     const act = el('div', { class: 'pm-actions' });
     if (ok) act.appendChild(el('button', { title: 'OK (Enter)', onclick: () => this.app.okPM() }, icon('ok')));
     if (cancel) act.appendChild(el('button', { title: 'Cancel (Esc)', onclick: () => this.app.cancelPM() }, icon('cancel')));
@@ -3077,7 +3096,7 @@ export class UI {
   pmGroup(root, title, id) {
     const key = id || title;
     const g = el('div', { class: 'pm-group' + (this.groupCollapsed.has(key) ? ' collapsed' : '') });
-    const t = el('div', { class: 'pm-gt' }, `<span class="caret">${this.groupCollapsed.has(key) ? '▶' : '▼'}</span>${esc(title)}`);
+    const t = el('div', { class: 'pm-gt' }, `<span class="caret">${this.groupCollapsed.has(key) ? '▶' : '▼'}</span>${esc(tr(title))}`);
     t.onclick = () => {
       g.classList.toggle('collapsed');
       this.groupCollapsed[g.classList.contains('collapsed') ? 'add' : 'delete'](key);
@@ -3142,7 +3161,7 @@ export class UI {
 
   row(label, control, cls = '') {
     const r = el('div', { class: 'pm-row ' + cls });
-    if (label !== null) r.appendChild(el('label', {}, esc(label)));
+    if (label !== null) r.appendChild(el('label', {}, esc(tr(label))));
     r.appendChild(control);
     return r;
   }
@@ -3276,7 +3295,7 @@ export class UI {
           cb.checked = !!(f[fd.key] ?? fd.default);
           cb.onchange = () => { f[fd.key] = cb.checked; fd.onChange?.(f, a); if (fd.onChange) this.renderPM(); a.preview(true); a.updateEdgeHighlights(); };
           const lab = el('label');
-          lab.append(cb, document.createTextNode(fd.label));
+          lab.append(cb, document.createTextNode(tr(fd.label)));
           body.appendChild(this.row(null, lab, 'check'));
         } else {
           let options = fd.options;
@@ -3307,7 +3326,7 @@ export class UI {
 
           const s = el('select');
           for (const [v, l] of options) {
-            const o = el('option', { value: v }, esc(l));
+            const o = el('option', { value: v }, esc(tr(l)));
             if ((f[fd.key] ?? '') === v) o.selected = true;
             s.appendChild(o);
           }
@@ -3925,7 +3944,7 @@ export class UI {
   modal(title, ic, body, buttons) {
     const back = el('div', { class: 'modal-back' });
     const m = el('div', { class: 'modal' });
-    const h = el('div', { class: 'modal-h' }, `${icon(ic)}<span>${esc(title)}</span>`);
+    const h = el('div', { class: 'modal-h' }, `${icon(ic)}<span>${esc(tr(title))}</span>`);
     const x = el('button', { class: 'x', title: 'Close' }, '✕');
     h.appendChild(x);
     const b = el('div', { class: 'modal-b' });
@@ -3937,7 +3956,7 @@ export class UI {
     };
     document.addEventListener('keydown', onKey, true);
     for (const btn of buttons) {
-      const bb = el('button', { class: btn.primary ? 'primary' : '' }, esc(btn.label));
+      const bb = el('button', { class: btn.primary ? 'primary' : '' }, esc(tr(btn.label)));
       bb.onclick = () => { if (btn.action?.() !== false) close(); };
       f.appendChild(bb);
     }
@@ -4032,7 +4051,7 @@ export class UI {
       if (ok === false && a.doc && !a.doc.features.length && !a.filePath && !a.dirty) a.showStart();
     };
     const big = (ic, label, sub, fn, cls = '') => {
-      const b = el('button', { class: 'start-btn ' + cls }, `${icon(ic)}<span><b>${esc(label)}</b><small>${esc(sub)}</small></span>`);
+      const b = el('button', { class: 'start-btn ' + cls }, `${icon(ic)}<span><b>${esc(tr(label))}</b><small>${esc(tr(sub))}</small></span>`);
       b.onclick = act(fn);
       left.appendChild(b);
     };
@@ -4045,7 +4064,7 @@ export class UI {
       const when = info.legacy.modified ? new Date(info.legacy.modified).toLocaleString() : 'an earlier version';
       big('rebuild', 'Recover Previous Session', `Unsaved work kept by RazorCAD (${when})`, () => a.recoverLegacySession(), 'warn');
     }
-    left.appendChild(el('div', { class: 'pm-hint start-note' }, 'Parts are auto-saved next to their file once they have been saved for the first time.'));
+    left.appendChild(el('div', { class: 'pm-hint start-note' }, tr('Parts are auto-saved next to their file once they have been saved for the first time.')));
     // new here: a short tour of the window
     const firstRun = !this.prefs?.tourDone;
     if (firstRun) {
@@ -4085,9 +4104,9 @@ export class UI {
       }
       right.appendChild(box);
     }
-    right.appendChild(el('div', { class: 'start-h' }, 'Recent Files'));
+    right.appendChild(el('div', { class: 'start-h' }, esc(tr('Recent Files'))));
     const list = el('div', { class: 'start-list' });
-    if (!info.recent.length) list.appendChild(el('div', { class: 'pm-hint', style: 'padding:14px' }, 'No recent parts yet. Parts you open or save appear here.'));
+    if (!info.recent.length) list.appendChild(el('div', { class: 'pm-hint', style: 'padding:14px' }, esc(tr('No recent parts yet. Parts you open or save appear here.'))));
     for (const r of info.recent) {
       const when = r.modified ? new Date(r.modified).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'file not found';
       const isDwg = /\.rdrw$/i.test(r.name), isAsm = /\.rasm$/i.test(r.name);
@@ -4877,7 +4896,7 @@ export class UI {
       if (!words.length) return [...recent.map((k) => all.find((c) => c.k === k)).filter(Boolean), ...all.filter((c) => !recent.includes(c.k))].slice(0, 12);
       const scored = [];
       for (const c of all) {
-        const name = c.label.toLowerCase(), text = name + ' ' + c.where.toLowerCase();
+        const name = tr(c.label).replace(/\u00ad/g, '').toLowerCase(), text = name + ' ' + c.label.toLowerCase() + ' ' + c.where.toLowerCase();
         if (!words.every((w) => text.includes(w))) continue;
         const q0 = words.join(' '), last = c.k;
         let s = last.startsWith(q0) ? 0 : name.startsWith(q0) ? 1 : words.every((w) => new RegExp(`(^|[^a-z])${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).test(name)) ? 2 : 3;
@@ -4892,7 +4911,7 @@ export class UI {
       list.innerHTML = '';
       if (!shown.length) list.appendChild(el('div', { class: 'cs-none' }, 'No command found'));
       shown.forEach((c, i) => {
-        const row = el('div', { class: 'cs-row' + (i === at ? ' on' : '') }, `<span class="cs-ic">${icon(c.icon)}</span><span class="cs-l">${esc(c.label)}</span><span class="cs-w">${esc(c.where)}${c.key ? ` · ${esc(c.key)}` : ''}</span>`);
+        const row = el('div', { class: 'cs-row' + (i === at ? ' on' : '') }, `<span class="cs-ic">${icon(c.icon)}</span><span class="cs-l">${esc(tr(c.label))}</span><span class="cs-w">${esc(c.where)}${c.key ? ` · ${esc(c.key)}` : ''}</span>`);
         row.onpointerdown = (e) => { e.preventDefault(); run(c); };
         row.onpointerenter = () => { at = i; list.querySelectorAll('.cs-row').forEach((r, j) => r.classList.toggle('on', j === at)); };
         list.appendChild(row);

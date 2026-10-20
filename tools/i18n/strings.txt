@@ -1,0 +1,979 @@
+All bodies
+Thin feature (a wall along the sketch curves)
+Thickness
+Direction
+Body
+Bend radius (inside)
+K-factor
+Shape
+Diameter
+Size measured
+Width (X)
+Depth (Y)
+Sketch (closed)
+Reverse direction (material on the other side)
+First profile (open)
+Second profile (open)
+Method
+Bend radius (for the line notes)
+Material on the other side
+Sketch (lines or text on a face)
+Sketch (lines on a face)
+Angle
+Bend position
+Fold the other way (away from the sketch face)
+Keep the other side fixed
+Use the part's bend radius
+Segments
+Segment 1 length
+Segment 1 angle
+Segment 2 length
+Segment 2 angle (− : back the other way)
+Segment 3 length
+Segment 3 angle (− : back the other way)
+Segment 4 length
+Segment 4 angle (− : back the other way)
+First bend
+Flip direction
+Where the edges meet
+Gap
+Relief
+Type
+Depth
+Width (back from the slit)
+Height (opening)
+Hood on the other side of the line
+Hole diameter (inside the collar)
+Collar height (overall)
+Pressed the other way
+Size (each leg, from the inside corner)
+Width (across the bend)
+Tab edge
+Slot face
+Number of tabs
+Tab length
+Tab height (empty: through the other part)
+Margin at each end (empty: evenly spread)
+Clearance (all round)
+Pressed down (the other way)
+Sketch (one line on a face)
+Height
+Measured
+Jog the other way
+Sketch (open, or a circle)
+Material
+Bend radius (inside, at sharp corners)
+Seam gap
+Sketch (one line)
+Swap the bottom and top ends
+Top offset across (X)
+Top offset out of the sketch (Y)
+Rotation about the axis
+Number of equal parts
+Seams at
+Move the seams on by one side
+First seam at (from X)
+Gap at each seam
+Sizes are
+Length (from the outside of the fold)
+Gap between the layers
+Inside radius
+Angle (181°–269°)
+Angle (90°–340°)
+Position
+Width (× thickness)
+Length
+Measured to
+Offset (moves the flange outward)
+Where these flanges meet
+Bend region
+Swap which flange covers the other
+Size
+Fixed face
+Body (empty: every unbent one)
+Use the body's thickness
+Trim where the sheet would run into itself
+Arc fit tolerance
+Use the body's bend radii
+Profile
+Profile sketch
+Path
+Merge result (off: make a separate body)
+Straight (ruled) sides between profiles
+Standard
+Thread
+Thread depth (for the callout; empty: the hole)
+Screw size
+Fit (ISO 273)
+Hole diameter
+Counterbore diameter
+Counterbore depth
+Countersink diameter
+Countersink angle
+End
+Drill point (118°)
+Reverse direction
+Sketch (points / circle centres)
+Join the points with
+Bend radius at the corners
+Closed loop (back to the first point)
+Sketch with a circle
+Defined by
+Pitch
+Revolutions
+Start angle
+Clockwise (left-hand)
+Cylinder
+Major diameter
+Left-hand thread
+Resize the bore / shaft to the thread size (stays inside the body)
+End condition
+Up to
+Start from the other end
+Sketch (outlines or text)
+Face
+Sketch
+Vertex
+Surface
+Offset
+Reverse offset (past the surface)
+Axis
+Distance
+Flip side
+Flip angle direction
+Position on edge
+Use the other bisector (angled faces)
+Feature
+Spacing
+Instances
+Equal spacing (angle is total)
+Plane
+Reference sketch
+Curve
+Instances (including the feature)
+Alignment
+Layout
+Margin from the edges
+Radius at the end
+Swap the ends
+Neutral face
+Sketch (open lines)
+Extrusion direction
+Flip material side
+Elliptical (round faces)
+Reverse (pressed in)
+Scale factor
+Scale about
+Distance (out +, in −)
+Hinge edge
+Chamfer type
+Distance 2
+Shell outward
+Split with
+Keep
+Copy (keep the original bodies)
+Copies
+Move by
+About
+Straight (ruled) between profiles
+Tangent to the faces round the hole
+Knit into the surface (when the edges are all on one surface body)
+Make a solid when that closes it
+Trim with
+Mutual (trim the tool surface too)
+Selection
+Then
+Patch tangent to the faces round the hole
+Taper angle
+Both sides
+Surface body
+Untrim
+Weld size
+Trim to
+Extend members that stop short of it
+Cut
+Cap
+Leg 1 (along the first face)
+Leg 2 (along the second face)
+Corner chamfer (weld clearance)
+Plate
+Offset along the corner
+Sketch / 3D sketch
+Corner treatment
+Trimmed ends
+Sketch line runs through
+Rotate profile
+Mirror profile
+Relaxing passes (doubly curved faces)
+Join copies that touch into one surface body
+Try to form a solid (when the surfaces are closed)
+Merge the solid with bodies it touches
+Gap tolerance
+Gap tolerance (edges closer than this join)
+Largest hole to close (0: any size)
+Make a solid when it is closed
+Side
+Merge result
+Merge touching bodies into one body
+Simplify meshes above (triangles; 0: never)
+Plane 1
+Plane 2
+Point 1
+Point 2
+Edge
+Line
+New Part
+New Assembly
+New Drawing
+Make Drawing from Part
+Open
+Open Sample Part
+Recent Parts / Start
+Save
+Save As
+Import STEP / STL
+Export
+STEP
+STL
+Flat Pattern as DXF
+Face as DXF
+Properties
+Undo
+Redo
+Rebuild
+Delete
+Zoom to Fit
+Normal To
+Visibility
+Exit Isolate
+Exploded View… (multi-body part)
+Extrude
+Revolve
+Sweep
+Loft
+Helix
+3D Sketch
+Features
+Hole
+Thread Cut
+Thread Extrude
+Cosmetic Thread
+Wrap (Emboss / Deboss)
+Pattern/Mirror
+Linear Pattern
+Circular Pattern
+Mirror
+Fillet
+Chamfer
+Shell
+Combine
+Subtract Bodies
+Delete Body
+Split
+Move/Copy Bodies
+Imported Body (STEP / STL)
+Extruded
+Revolved
+Planar
+Copy
+Knit
+Convert to Solid
+Repair Mesh
+Thicken
+Move/Copy Surfaces
+Delete Surface
+Reference Geometry
+Point
+Measure
+Equations
+Mass Properties
+Section View
+Edit Material
+Fix References
+Units: Millimetres
+Units: Inches
+Ask Claude
+Claude Settings
+Getting Started Tour
+Search Commands
+Customize Shortcuts
+Keyboard Shortcuts
+Open Crash Reports Folder
+Open Files With RazorCAD (.rcad .rasm .rdrw)
+Check for Updates
+About RazorCAD
+Extrude Cut
+Revolve Cut
+Sweep Cut
+Loft Cut
+Sketch Driven Pattern
+Curve Driven Pattern
+Fill Pattern
+Draft
+Rib
+Dome
+Move Face
+Scale
+Reference Plane
+Reference Axis
+Reference Point
+Exit Sketch
+Exit 3D Sketch
+Import DXF
+Linear Sketch Pattern
+Circular Sketch Pattern
+Make Block
+Insert Block
+Gears
+Airfoil
+Intersection Curve
+Construction Geometry
+Display Relations
+Extruded Surface
+Revolved Surface
+Planar Surface
+Lofted Surface
+Swept Surface
+Filled Surface
+Boundary Surface
+Offset Surface
+Copy Surface
+Trim Surface
+Extend Surface
+Untrim Surface
+Split Line
+Projected Curve
+Composite Curve
+Ruled Surface
+Knit Surface
+Delete Face
+Replace Face
+Flatten Surface
+Split (with a surface)
+Structural Member
+Trim/Extend
+End Cap
+Gusset
+Weld Bead
+Cut List
+Base Flange
+Sheet Metal Extrude
+Lofted Bend
+Transition / Reducer
+Edge Flange
+Miter Flange
+Hem
+Sketched Bend
+Jog
+Cross Break
+Etch Lines
+Tab and Slot
+Forming Tools
+Corner Relief
+Closed Corner
+Unbend
+Bend
+Flatten
+Convert to Sheet Metal
+Sheet Metal Check
+Export DXF (flat pattern)
+Export All DXF
+DXF Settings
+New Conversation
+Interference Check
+Zebra Stripes
+Curvature
+Draft Analysis
+Configurations
+Export STEP
+Export STL
+Export OBJ
+Export 3MF
+Import STEP / STL / OBJ / 3MF
+Customize Toolbars
+Claude
+Add to a New Toolbar
+Remove from This Toolbar
+Hide from This Toolbar
+Add a Separator After
+Rename
+Delete Toolbar
+Reset This Toolbar
+New Toolbar
+Done
+Show Configuration
+Copy Configuration
+Properties (Design Table)
+Add Configuration
+Export All Flat Patterns as DXF
+Export All Bodies as STEP
+Exploded View
+New Folder
+Rename Folder
+Delete Folder (keep the bodies)
+Move to a New Folder
+Collapse
+Explode
+Edit Exploded View
+Hide
+Show
+Origin
+Body Properties
+Isolate
+Convert to Solid (Knit)
+View Flat Pattern
+Export Flat Pattern as DXF
+Add to New Folder
+Remove from Folder
+Export as STEP
+Abort Export
+Skip This One
+Cancel
+Reset to Defaults
+Remove Key
+OK
+Edit Sketch
+Change Sketch Plane
+Edit 3D Sketch
+Edit Feature
+Roll Back (to just before this)
+Roll to End
+Pull direction
+Draft needed (°)
+Default colour
+Close
+Apply
+Remove All
+Customize
+Update Now
+Open the Download Page
+Feature Scope
+Thin Feature
+Sheet Metal Body
+Sheet Metal Parameters
+Profiles
+Manufacturing Method
+Bend Lines
+Edges
+Corners
+Form
+Placement
+Bends
+Parts
+Tabs
+Slots
+Faces
+Jog Line
+Hem Edges
+Auto Relief
+Flange Edges
+Flange Length
+Angle and Position
+Corners to Close
+Corner Type
+Fixed Face
+Profile and Path
+Options
+Hole Type
+End Condition
+Positions
+Points
+Defined By
+Parameters
+Thread Location
+Specification
+From
+Direction 1
+Axis of Revolution
+References
+Features to Pattern
+Direction 2
+Mirror Face/Plane
+Features to Mirror
+Selections
+Fill Boundary
+Pattern Layout
+Fillet Type
+Fillet Parameters
+Items To Fillet
+Draft Angle
+Neutral Plane
+Faces to Draft
+Chamfer Parameters
+Items To Chamfer
+Faces to Remove
+Operation Type
+Bodies
+Bodies to Delete
+Surfaces to Delete
+Trim Tool
+Target Bodies
+Bodies to Move/Copy
+Translate
+Rotate
+Mates
+Bounding Entities
+Patch Boundary
+Pieces
+Edges to Extend
+Faces to Delete
+Faces to Replace
+Replacement Surface
+Bodies to Trim
+Trimming Boundary
+Supporting Faces
+Location
+Faces to Flatten
+Projection
+Split With
+Faces to Offset
+Faces to Copy
+Surfaces to Knit
+Surfaces
+Mesh / Surfaces
+Imported File
+RazorCAD
+Configurations / Design Table
+Equations, Global Variables
+Part Material
+Keyboard Shortcuts: Customize
+Keyboard & Mouse
+Open Files With RazorCAD
+Update RazorCAD
+Offset Options
+Polygon
+Add Relations
+Orientation
+Display
+Teeth and Ratios
+Fit (3D printing / tolerances)
+Shape Parameters
+Chord and Options
+Text
+Planes
+Section 1
+Results
+Sides
+Value
+Module
+Pressure angle
+Backlash
+Tip / root clearance
+Bore diameter
+Turn first gear
+NACA code
+Series
+Max camber
+Camber position
+Design lift coeff.
+Chord length
+Font
+Area
+Volume
+Surface area
+Centre to centre
+Gauge
+Blind
+Mid Plane
+Through All
+Through All - Both
+X axis
+Y axis
+Z axis
+Up To Vertex
+Up To Surface
+Offset From Surface
+One side
+Other side
+Mid-plane (half each side)
+Outside the profile
+Inside the profile
+Round
+Square
+Rectangle
+Triangle
+Pentagon
+Hexagon
+Bent (flat facets, press-brake bends)
+Formed (smooth, rolled / pressed)
+Bend centred on the line
+Bend starts at the line
+Bend ends at the line
+Material inside (outer face on the edge)
+Material outside (inner face on the edge)
+Mitred (closed, with the gap)
+Rectangular
+Obround
+Tear
+Dimple
+Louver
+Extruded (flanged) hole
+Face to face (the step of one face)
+Overall (outside to outside)
+Inside (inside to inside)
+Starts at the line
+Centred on the line
+Ends at the line
+One direction
+Mid-plane (half each way)
+Inside the circle
+Outside the circle
+Both sides (the circle in the middle)
+One side of the sketch
+Other side of the sketch
+Both sides (the sketch in the middle)
+The middle of the flat sides
+The corners
+Formed (rolled smooth)
+Bent (bump formed: press-brake bends)
+Inside sizes (material outward)
+Outside sizes (material inward)
+Mean (middle of the thickness)
+Closed (pressed flat)
+Open (with a gap)
+Teardrop
+Rolled (curl)
+Inside (the fold at the edge)
+Outside (added beyond the edge)
+Outer virtual sharp
+Inner virtual sharp
+Tangent (end of the bend)
+Closed — butt (mitred)
+Open corner
+Closed (the bends meet on the diagonal)
+Circular
+Tear (no material removed)
+Underlap (tucks under the other flange)
+Butt (mitred, ends meet on the diagonal)
+Behind the surface
+In front of the surface
+Both sides (symmetric)
+A sketch
+Circular (enter the diameter)
+Hole (clearance)
+Counterbore
+Countersink
+Tapped hole
+ISO metric
+Unified (inch)
+Custom sizes
+Normal
+Loose
+Through all
+Straight runs (a route)
+A smooth spline
+Pitch and revolutions
+Pitch and height
+Height and revolutions
+Metric (ISO)
+Inch (UNC / UNF)
+Whole length of the face
+Up to a plane or face
+Emboss (raise)
+Deboss (sink in)
+Start
+Midpoint
+Equal, to the end of the curve
+Distance along the curve
+Moved (same orientation)
+Turned with the curve
+Staggered (perforation)
+Constant size
+Variable size
+Face fillet
+Parallel to the sketch
+Normal to the sketch
+The origin
+The centre of the bodies
+Offset (push / pull)
+Rotate about an edge
+Equal distances
+Distance and angle
+Two distances
+Add (union)
+Subtract
+Common (keep the overlap)
+All pieces
+The piece on the normal side
+The piece on the other side
+Translate / Rotate (coordinates)
+The axis (through the origin for X/Y/Z)
+The center of the bodies
+A sketch (open or closed)
+Keep the clicked pieces
+Remove the clicked pieces
+Patch each hole (the solid stays a solid)
+Normal to the surface
+Along a direction (tapered by an angle)
+Fill its holes
+To its natural extent (holes and outline)
+Square, on the boundary’s face
+Coped to the boundary body
+On the end (outside)
+In the end (flush)
+Centred
+To one side
+To the other side
+Mitre
+Butt (first member trimmed)
+Butt (second member trimmed)
+None (members meet at the sketch points)
+Coped to the other member’s outside
+Both sides (mid)
+Two planes
+Two points
+Model edge (straight or circular)
+Sketch line
+Coordinates
+Model vertex
+Arc / circle center
+Edge midpoint
+Sheet Metal
+Fast Structure
+Evaluate
+Sketch vertical axis
+Sketch horizontal axis
+None
+Automatic (the size that fits the face)
+Custom
+NACA 4-digit
+NACA 5-digit
+Clark Y
+Bold
+Italic
+Y (up)
+Normal of the selected face
+Export CSV
+Coincident
+Parallel
+Perpendicular
+Concentric
+Shift + right-drag, or Ctrl + middle-drag
+Alt + middle-drag, or Alt + ←/→
+Ctrl+B
+Export DXF
+Exit Flatten
+Discard Changes
+Add Relation:
+Body Appearance
+Export Body as STEP
+Appearance
+Export Face as DXF
+Close Part
+Unsaved Changes
+Open a STEP Assembly
+Open a 3D File
+Open Sketch
+Recover Auto-Save
+Close Without Saving
+Open as One Part
+Insert (drop in place)
+Insert and Locate with Mates
+Ignore
+Open the last saved version
+Tangent
+Lock
+Gear
+Rack Pinion
+Mate
+Insert Components
+Browse for a Part or Assembly
+Insert
+Float
+Fix
+Unsuppress
+Suppress
+Insert Another Instance
+Copy as CSV
+Save CSV
+Standard Parts
+Open Part
+Motion Study
+Bill of Materials
+Make Drawing from Assembly
+Recent Files / Start
+Isometric
+Front
+Top
+Components
+Fix Mates
+Edit Mate
+Play
+Edit Motion Study
+Part Configuration
+Save the Assembly
+Replace Files
+Entities to Mate
+Mate Type
+Length (mm)
+Save as One File
+Edit
+Item Number
+Columns
+View Properties
+Projected View
+Detail View
+Delete View
+Sheet Properties
+Drawing Properties (Title Block)
+Zoom to Sheet
+Default Columns
+Add Sheet
+Delete Sheet
+Change Template
+Flat Pattern
+Model View
+Standard Views
+Auxiliary View
+Break
+Crop View
+Update Views
+Dimension
+Auto Dimension
+Note
+Baseline Dimension
+Ordinate Dimension
+Chamfer Dimension
+Hole Callout
+Datum Feature
+Geometric Tolerance
+Surface Finish
+Weld Symbol
+Center Mark
+Centerline
+Revision Table
+Cut List Table
+Balloon
+BOM Table
+Title Block
+Export PDF
+Save as Template
+PDF
+DXF (this sheet)
+Drawing View
+Annotations
+Sheet
+About Drawings
+BOM Table Columns
+Drawing Properties
+Drawings
+Basic (any process)
+Machining required
+Machining not allowed
+Square butt
+V butt
+Bevel butt
+Plug / slot
+Arrow side
+Typed in the table
+Break View
+Hidden lines removed
+Hidden lines visible
+Wireframe
+Automatic (fast for big assemblies)
+Exact
+Fast (from the display meshes)
+Horizontal distances
+Vertical distances
+Vertical (shortens across)
+Horizontal (shortens up / down)
+View Layout
+Annotation
+Macros
+Stop Recording Macro
+Record Macro
+Macro
+Delete Macro
+Select
+Spline
+Corner Rectangle
+Center Rectangle
+Circle
+Centerpoint Arc
+3 Point Arc
+Tangent Arc
+Ellipse
+Straight Slot
+Trim
+Extend
+Project Edges
+Sketch Fillet
+Sketch Chamfer
+Make Gears
+Copies along direction 1 (including the original)
+Spacing 1 (mm)
+Angle of direction 1 (°)
+Copies along direction 2
+Spacing 2 (mm)
+Angle of direction 2 (°)
+Number of instances (including the original)
+Total angle (°; 360 spreads them evenly round)
+Centre X (mm)
+Centre Y (mm)
+Place
+Block
+Delete this block from the library instead
+Centred on the sketch origin
+Its lower left corner on the origin
+Center
+Min
+Max
+Change Value
+Delete Dimension
+End Line
+Move / Copy / Rotate
+Drawing Plane
+Fully defined
+A smooth spline through the points
+Driver
+Playback
+Name
+Drive by
+To
+Component
+Steps
+Duration
+Turning a component
+Sliding a component
+File
+View
+Tools
+Help
+Assembly
+Front Plane
+Top Plane
+Right Plane
+Solid Bodies
+Surface Bodies
+Exploded Views
+Motion Studies
+Yes
+No
+Start an empty part
+Parts put together and held by mates
+A 2D drawing of a part, from a template
+Open a part or drawing file
+Sample Part
+A mounting plate to explore
+Parts are auto-saved next to their file once they have been saved for the first time.
+Recent Files
+No recent parts yet. Parts you open or save appear here.
+Recover Previous Session
+Language
+Theme
+Light
+Dark
+Follow Windows
+Shaded With Edges
+Shaded
+Hidden Lines Removed
+Show Planes
+Toolbar Icons: Small
+Toolbar Icons: Medium
+Toolbar Icons: Large
+Show Hidden Bodies
+Back
+Left
+Right
+Bottom
+Trimetric

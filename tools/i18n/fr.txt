@@ -1,0 +1,979 @@
+1|Tous les corps
+2|Fonction mince (une paroi le long des courbes de l'esquisse)
+3|Épaisseur
+4|Direction
+5|Corps
+6|Rayon de pliage (intérieur)
+7|Facteur K
+8|Forme
+9|Diamètre
+10|Dimension mesurée
+11|Largeur (X)
+12|Profondeur (Y)
+13|Esquisse (fermée)
+14|Inverser la direction (matière de l'autre côté)
+15|Premier profil (ouvert)
+16|Second profil (ouvert)
+17|Méthode
+18|Rayon de pliage (pour les notes des lignes)
+19|Matière de l'autre côté
+20|Esquisse (lignes ou texte sur une face)
+21|Esquisse (lignes sur une face)
+22|Angle
+23|Position du pli
+24|Plier dans l'autre sens (à l'opposé de la face d'esquisse)
+25|Garder l'autre côté fixe
+26|Utiliser le rayon de pliage de la pièce
+27|Segments
+28|Longueur du segment 1
+29|Angle du segment 1
+30|Longueur du segment 2
+31|Angle du segment 2 (− : retour dans l'autre sens)
+32|Longueur du segment 3
+33|Angle du segment 3 (− : retour dans l'autre sens)
+34|Longueur du segment 4
+35|Angle du segment 4 (− : retour dans l'autre sens)
+36|Premier pli
+37|Inverser la direction
+38|Là où les arêtes se rejoignent
+39|Jeu
+40|Dégagement
+41|Type
+42|Profondeur
+43|Largeur (en arrière de la fente)
+44|Hauteur (ouverture)
+45|Capot de l'autre côté de la ligne
+46|Diamètre du trou (dans le collet)
+47|Hauteur du collet (totale)
+48|Embouti dans l'autre sens
+49|Taille (chaque côté, depuis le coin intérieur)
+50|Largeur (en travers du pli)
+51|Arête de la languette
+52|Face de la fente
+53|Nombre de languettes
+54|Longueur de la languette
+55|Hauteur de la languette (vide : à travers l'autre pièce)
+56|Marge à chaque extrémité (vide : réparties également)
+57|Jeu (tout autour)
+58|Embouti vers le bas (dans l'autre sens)
+59|Esquisse (une ligne sur une face)
+60|Hauteur
+61|Mesuré
+62|Pli décalé dans l'autre sens
+63|Esquisse (ouverte, ou un cercle)
+64|Matériau
+65|Rayon de pliage (intérieur, aux angles vifs)
+66|Jeu de jointure
+67|Esquisse (une ligne)
+68|Échanger les extrémités inférieure et supérieure
+69|Décalage du haut en travers (X)
+70|Décalage du haut hors de l'esquisse (Y)
+71|Rotation autour de l'axe
+72|Nombre de parties égales
+73|Jointures à
+74|Décaler les jointures d'un côté
+75|Première jointure à (depuis X)
+76|Jeu à chaque jointure
+77|Les dimensions sont
+78|Longueur (depuis l'extérieur du pli)
+79|Jeu entre les couches
+80|Rayon intérieur
+81|Angle (181°–269°)
+82|Angle (90°–340°)
+83|Position
+84|Largeur (× épaisseur)
+85|Longueur
+86|Mesuré jusqu'à
+87|Décalage (déplace le bord vers l'extérieur)
+88|Là où ces bords se rejoignent
+89|Zone de pliage
+90|Inverser le bord qui recouvre l'autre
+91|Taille
+92|Face fixe
+93|Corps (vide : tous ceux non pliés)
+94|Utiliser l'épaisseur du corps
+95|Raccourcir là où la tôle se chevaucherait
+96|Tolérance d'ajustement des arcs
+97|Utiliser les rayons de pliage du corps
+98|Profil
+99|Esquisse du profil
+100|Trajectoire
+101|Fusionner le résultat (désactivé : un corps séparé)
+102|Côtés droits (réglés) entre les profils
+103|Norme
+104|Filetage
+105|Profondeur du filetage (pour l'annotation ; vide : le trou)
+106|Taille de vis
+107|Ajustement (ISO 273)
+108|Diamètre du trou
+109|Diamètre du lamage
+110|Profondeur du lamage
+111|Diamètre du fraisage
+112|Angle du fraisage
+113|Fin
+114|Pointe de foret (118°)
+115|Inverser la direction
+116|Esquisse (points / centres de cercles)
+117|Relier les points par
+118|Rayon de pliage aux angles
+119|Boucle fermée (retour au premier point)
+120|Esquisse avec un cercle
+121|Défini par
+122|Pas
+123|Tours
+124|Angle de départ
+125|Sens horaire (à gauche)
+126|Cylindre
+127|Diamètre nominal
+128|Filetage à gauche
+129|Ajuster l'alésage / l'arbre à la taille du filetage (reste dans le corps)
+130|Condition de fin
+131|Jusqu'à
+132|Partir de l'autre extrémité
+133|Esquisse (contours ou texte)
+134|Face
+135|Esquisse
+136|Sommet
+137|Surface
+138|Décalage
+139|Inverser le décalage (au-delà de la surface)
+140|Axe
+141|Distance
+142|Changer de côté
+143|Inverser le sens de l'angle
+144|Position sur l'arête
+145|Utiliser l'autre bissectrice (faces inclinées)
+146|Fonction
+147|Espacement
+148|Occurrences
+149|Espacement égal (l'angle est total)
+150|Plan
+151|Esquisse de référence
+152|Courbe
+153|Occurrences (fonction comprise)
+154|Alignement
+155|Disposition
+156|Marge depuis les bords
+157|Rayon à l'extrémité
+158|Échanger les extrémités
+159|Face neutre
+160|Esquisse (lignes ouvertes)
+161|Direction d'extrusion
+162|Changer le côté de la matière
+163|Elliptique (faces arrondies)
+164|Inverser (enfoncé)
+165|Facteur d'échelle
+166|Mettre à l'échelle par rapport à
+167|Distance (vers l'extérieur +, vers l'intérieur −)
+168|Arête de charnière
+169|Type de chanfrein
+170|Distance 2
+171|Coque vers l'extérieur
+172|Diviser avec
+173|Conserver
+174|Copier (garder les corps d'origine)
+175|Copies
+176|Déplacer de
+177|Autour de
+178|Droit (réglé) entre les profils
+179|Tangent aux faces autour du trou
+180|Coudre à la surface (quand toutes les arêtes sont sur un corps surfacique)
+181|Créer un volume quand cela le ferme
+182|Ajuster avec
+183|Mutuel (ajuster aussi la surface outil)
+184|Sélection
+185|Puis
+186|Remplissage tangent aux faces autour du trou
+187|Angle de dépouille
+188|Des deux côtés
+189|Corps surfacique
+190|Annuler l'ajustement
+191|Taille de soudure
+192|Ajuster jusqu'à
+193|Prolonger les profilés trop courts
+194|Coupe
+195|Bouchon
+196|Côté 1 (le long de la première face)
+197|Côté 2 (le long de la seconde face)
+198|Chanfrein d'angle (dégagement de soudure)
+199|Plaque
+200|Décalage le long de l'angle
+201|Esquisse / esquisse 3D
+202|Traitement des angles
+203|Extrémités ajustées
+204|La ligne d'esquisse passe par
+205|Faire pivoter le profil
+206|Symétriser le profil
+207|Passes de relaxation (faces à double courbure)
+208|Réunir les copies qui se touchent en un corps surfacique
+209|Essayer de former un volume (quand les surfaces sont fermées)
+210|Fusionner le volume avec les corps qu'il touche
+211|Tolérance d'écart
+212|Tolérance d'écart (les arêtes plus proches se joignent)
+213|Plus grand trou à fermer (0 : toute taille)
+214|Créer un volume quand il est fermé
+215|Côté
+216|Fusionner le résultat
+217|Fusionner les corps qui se touchent en un seul corps
+218|Simplifier les maillages au-delà de (triangles ; 0 : jamais)
+219|Plan 1
+220|Plan 2
+221|Point 1
+222|Point 2
+223|Arête
+224|Ligne
+225|Nouvelle pièce
+226|Nouvel assemblage
+227|Nouvelle mise en plan
+228|Créer une mise en plan de la pièce
+229|Ouvrir
+230|Ouvrir la pièce exemple
+231|Pièces récentes / Accueil
+232|Enregistrer
+233|Enregistrer sous
+234|Importer STEP / STL
+235|Exporter
+236|STEP
+237|STL
+238|Mise à plat en DXF
+239|Face en DXF
+240|Propriétés
+241|Annuler
+242|Rétablir
+243|Reconstruire
+244|Supprimer
+245|Zoom au mieux
+246|Normal à
+247|Visibilité
+248|Quitter l'isolement
+249|Vue éclatée… (pièce multicorps)
+250|Extrusion
+251|Révolution
+252|Balayage
+253|Lissage
+254|Hélice
+255|Esquisse 3D
+256|Fonctions
+257|Perçage
+258|Filetage par enlèvement
+259|Filetage par ajout
+260|Filetage cosmétique
+261|Enroulement (relief / creux)
+262|Répétition/Symétrie
+263|Répétition linéaire
+264|Répétition circulaire
+265|Symétrie
+266|Congé
+267|Chanfrein
+268|Coque
+269|Combiner
+270|Soustraire des corps
+271|Supprimer le corps
+272|Diviser
+273|Déplacer/copier des corps
+274|Corps importé (STEP / STL)
+275|Extrudée
+276|Révolution
+277|Plane
+278|Copier
+279|Coudre
+280|Convertir en volume
+281|Réparer le maillage
+282|Épaissir
+283|Déplacer/copier des surfaces
+284|Supprimer la surface
+285|Géométrie de référence
+286|Point
+287|Mesurer
+288|Équations
+289|Propriétés de masse
+290|Vue en coupe
+291|Modifier le matériau
+292|Réparer les références
+293|Unités : millimètres
+294|Unités : pouces
+295|Demander à Claude
+296|Réglages de Claude
+297|Visite guidée
+298|Rechercher une commande
+299|Personnaliser les raccourcis
+300|Raccourcis clavier
+301|Ouvrir le dossier des rapports de plantage
+302|Ouvrir les fichiers avec RazorCAD (.rcad .rasm .rdrw)
+303|Rechercher les mises à jour
+304|À propos de RazorCAD
+305|Enlèvement de matière extrudé
+306|Enlèvement de matière par révolution
+307|Enlèvement de matière balayé
+308|Enlèvement de matière lissé
+309|Répétition pilotée par esquisse
+310|Répétition pilotée par courbe
+311|Répétition de remplissage
+312|Dépouille
+313|Nervure
+314|Dôme
+315|Déplacer la face
+316|Mettre à l'échelle
+317|Plan de référence
+318|Axe de référence
+319|Point de référence
+320|Quitter l'esquisse
+321|Quitter l'esquisse 3D
+322|Importer un DXF
+323|Répétition linéaire d'esquisse
+324|Répétition circulaire d'esquisse
+325|Créer un bloc
+326|Insérer un bloc
+327|Engrenages
+328|Profil aérodynamique
+329|Courbe d'intersection
+330|Géométrie de construction
+331|Afficher les relations
+332|Surface extrudée
+333|Surface de révolution
+334|Surface plane
+335|Surface lissée
+336|Surface balayée
+337|Surface de remplissage
+338|Surface frontière
+339|Surface décalée
+340|Copier la surface
+341|Ajuster la surface
+342|Prolonger la surface
+343|Annuler l'ajustement de la surface
+344|Ligne de séparation
+345|Courbe projetée
+346|Courbe composite
+347|Surface réglée
+348|Coudre les surfaces
+349|Supprimer la face
+350|Remplacer la face
+351|Mettre la surface à plat
+352|Diviser (avec une surface)
+353|Profilé
+354|Ajuster/prolonger
+355|Bouchon d'extrémité
+356|Gousset
+357|Cordon de soudure
+358|Liste de débit
+359|Tôle de base
+360|Extrusion de tôle
+361|Pli lissé
+362|Transition / réduction
+363|Tôle sur arête
+364|Tôle à onglet
+365|Ourlet
+366|Pli esquissé
+367|Pli décalé
+368|Croix de rigidité
+369|Lignes de gravure
+370|Languette et fente
+371|Outils de formage
+372|Dégagement d'angle
+373|Coin fermé
+374|Déplier
+375|Plier
+376|Mise à plat
+377|Convertir en tôlerie
+378|Vérification de tôlerie
+379|Exporter en DXF (mise à plat)
+380|Tout exporter en DXF
+381|Réglages DXF
+382|Nouvelle conversation
+383|Détection d'interférences
+384|Bandes zébrées
+385|Courbure
+386|Analyse de dépouille
+387|Configurations
+388|Exporter en STEP
+389|Exporter en STL
+390|Exporter en OBJ
+391|Exporter en 3MF
+392|Importer STEP / STL / OBJ / 3MF
+393|Personnaliser les barres d'outils
+394|Claude
+395|Ajouter à une nouvelle barre d'outils
+396|Retirer de cette barre d'outils
+397|Masquer dans cette barre d'outils
+398|Ajouter un séparateur après
+399|Renommer
+400|Supprimer la barre d'outils
+401|Réinitialiser cette barre d'outils
+402|Nouvelle barre d'outils
+403|Terminé
+404|Afficher la configuration
+405|Copier la configuration
+406|Propriétés (table de paramétrage)
+407|Ajouter une configuration
+408|Exporter toutes les mises à plat en DXF
+409|Exporter tous les corps en STEP
+410|Vue éclatée
+411|Nouveau dossier
+412|Renommer le dossier
+413|Supprimer le dossier (garder les corps)
+414|Déplacer dans un nouveau dossier
+415|Rassembler
+416|Éclater
+417|Modifier la vue éclatée
+418|Masquer
+419|Afficher
+420|Origine
+421|Propriétés du corps
+422|Isoler
+423|Convertir en volume (coudre)
+424|Afficher la mise à plat
+425|Exporter la mise à plat en DXF
+426|Ajouter à un nouveau dossier
+427|Retirer du dossier
+428|Exporter en STEP
+429|Interrompre l'export
+430|Passer celui-ci
+431|Annuler
+432|Rétablir les valeurs par défaut
+433|Supprimer la clé
+434|OK
+435|Modifier l'esquisse
+436|Changer le plan d'esquisse
+437|Modifier l'esquisse 3D
+438|Modifier la fonction
+439|Revenir en arrière (juste avant celle-ci)
+440|Aller à la fin
+441|Direction de démoulage
+442|Dépouille nécessaire (°)
+443|Couleur par défaut
+444|Fermer
+445|Appliquer
+446|Tout retirer
+447|Personnaliser
+448|Mettre à jour maintenant
+449|Ouvrir la page de téléchargement
+450|Portée de la fonction
+451|Fonction mince
+452|Corps de tôlerie
+453|Paramètres de tôlerie
+454|Profils
+455|Procédé de fabrication
+456|Lignes de pliage
+457|Arêtes
+458|Angles
+459|Forme
+460|Placement
+461|Plis
+462|Pièces
+463|Languettes
+464|Fentes
+465|Faces
+466|Ligne de pli décalé
+467|Arêtes d'ourlet
+468|Dégagement automatique
+469|Arêtes des bords
+470|Longueur du bord
+471|Angle et position
+472|Angles à fermer
+473|Type d'angle
+474|Face fixe
+475|Profil et trajectoire
+476|Options
+477|Type de perçage
+478|Condition de fin
+479|Positions
+480|Points
+481|Défini par
+482|Paramètres
+483|Emplacement du filetage
+484|Spécification
+485|Depuis
+486|Direction 1
+487|Axe de révolution
+488|Références
+489|Fonctions à répéter
+490|Direction 2
+491|Face/plan de symétrie
+492|Fonctions à symétriser
+493|Sélections
+494|Contour de remplissage
+495|Disposition de la répétition
+496|Type de congé
+497|Paramètres du congé
+498|Éléments à arrondir
+499|Angle de dépouille
+500|Plan neutre
+501|Faces à dépouiller
+502|Paramètres du chanfrein
+503|Éléments à chanfreiner
+504|Faces à supprimer
+505|Type d'opération
+506|Corps
+507|Corps à supprimer
+508|Surfaces à supprimer
+509|Outil d'ajustement
+510|Corps cibles
+511|Corps à déplacer/copier
+512|Translation
+513|Rotation
+514|Contraintes
+515|Entités de délimitation
+516|Contour de remplissage
+517|Morceaux
+518|Arêtes à prolonger
+519|Faces à supprimer
+520|Faces à remplacer
+521|Surface de remplacement
+522|Corps à ajuster
+523|Contour d'ajustement
+524|Faces d'appui
+525|Emplacement
+526|Faces à mettre à plat
+527|Projection
+528|Diviser avec
+529|Faces à décaler
+530|Faces à copier
+531|Surfaces à coudre
+532|Surfaces
+533|Maillage / surfaces
+534|Fichier importé
+535|RazorCAD
+536|Configurations / table de paramétrage
+537|Équations, variables globales
+538|Matériau de la pièce
+539|Raccourcis clavier : personnaliser
+540|Clavier et souris
+541|Ouvrir les fichiers avec RazorCAD
+542|Mettre à jour RazorCAD
+543|Options de décalage
+544|Polygone
+545|Ajouter des relations
+546|Orientation
+547|Affichage
+548|Dents et rapports
+549|Ajustement (impression 3D / tolérances)
+550|Paramètres de forme
+551|Corde et options
+552|Texte
+553|Plans
+554|Section 1
+555|Résultats
+556|Côtés
+557|Valeur
+558|Module
+559|Angle de pression
+560|Jeu de denture
+561|Jeu en tête / en pied
+562|Diamètre de l'alésage
+563|Tourner le premier engrenage
+564|Code NACA
+565|Série
+566|Cambrure max.
+567|Position de la cambrure
+568|Coeff. de portance de calcul
+569|Longueur de corde
+570|Police
+571|Aire
+572|Volume
+573|Aire de la surface
+574|Entraxe
+575|Calibre
+576|Borgne
+577|Plan milieu
+578|À travers tout
+579|À travers tout - des deux côtés
+580|Axe X
+581|Axe Y
+582|Axe Z
+583|Jusqu'au sommet
+584|Jusqu'à la surface
+585|Décalé de la surface
+586|Un côté
+587|Autre côté
+588|Plan milieu (moitié de chaque côté)
+589|À l'extérieur du profil
+590|À l'intérieur du profil
+591|Rond
+592|Carré
+593|Rectangle
+594|Triangle
+595|Pentagone
+596|Hexagone
+597|Plié (facettes planes, plis à la presse plieuse)
+598|Formé (lisse, roulé / embouti)
+599|Pli centré sur la ligne
+600|Le pli commence à la ligne
+601|Le pli finit à la ligne
+602|Matière à l'intérieur (face extérieure sur l'arête)
+603|Matière à l'extérieur (face intérieure sur l'arête)
+604|À onglet (fermé, avec le jeu)
+605|Rectangulaire
+606|Oblong
+607|Déchirure
+608|Embossage
+609|Ouïe
+610|Trou à collet (tombé de bord)
+611|Face à face (le décalage d'une face)
+612|Hors tout (extérieur à extérieur)
+613|Intérieur (intérieur à intérieur)
+614|Commence à la ligne
+615|Centré sur la ligne
+616|Finit à la ligne
+617|Une direction
+618|Plan milieu (moitié dans chaque sens)
+619|À l'intérieur du cercle
+620|À l'extérieur du cercle
+621|Des deux côtés (le cercle au milieu)
+622|Un côté de l'esquisse
+623|Autre côté de l'esquisse
+624|Des deux côtés (l'esquisse au milieu)
+625|Le milieu des côtés plats
+626|Les angles
+627|Formé (roulé lisse)
+628|Plié (plis à la presse plieuse)
+629|Cotes intérieures (matière vers l'extérieur)
+630|Cotes extérieures (matière vers l'intérieur)
+631|Moyenne (milieu de l'épaisseur)
+632|Fermé (écrasé à plat)
+633|Ouvert (avec un jeu)
+634|En goutte d'eau
+635|Roulé (boucle)
+636|Intérieur (le pli à l'arête)
+637|Extérieur (ajouté au-delà de l'arête)
+638|Arête vive virtuelle extérieure
+639|Arête vive virtuelle intérieure
+640|Tangente (fin du pli)
+641|Fermé — bout à bout (onglet)
+642|Coin ouvert
+643|Fermé (les plis se rejoignent sur la diagonale)
+644|Circulaire
+645|Déchirure (sans enlèvement de matière)
+646|Recouvrement inférieur (passe sous l'autre bord)
+647|Bout à bout (onglet, les extrémités se rejoignent sur la diagonale)
+648|Derrière la surface
+649|Devant la surface
+650|Des deux côtés (symétrique)
+651|Une esquisse
+652|Circulaire (saisir le diamètre)
+653|Trou (de passage)
+654|Lamage
+655|Fraisage
+656|Trou taraudé
+657|ISO métrique
+658|Unifié (pouces)
+659|Tailles personnalisées
+660|Normal
+661|Large
+662|À travers tout
+663|Segments droits (un tracé)
+664|Une spline lisse
+665|Pas et tours
+666|Pas et hauteur
+667|Hauteur et tours
+668|Métrique (ISO)
+669|Pouces (UNC / UNF)
+670|Toute la longueur de la face
+671|Jusqu'à un plan ou une face
+672|Relief (en saillie)
+673|Creux (enfoncé)
+674|Début
+675|Milieu
+676|Égal, jusqu'à la fin de la courbe
+677|Distance le long de la courbe
+678|Déplacé (même orientation)
+679|Tourné avec la courbe
+680|En quinconce (perforation)
+681|Taille constante
+682|Taille variable
+683|Congé de face
+684|Parallèle à l'esquisse
+685|Normal à l'esquisse
+686|L'origine
+687|Le centre des corps
+688|Décalage (pousser / tirer)
+689|Pivoter autour d'une arête
+690|Distances égales
+691|Distance et angle
+692|Deux distances
+693|Ajouter (union)
+694|Soustraire
+695|Commun (garder le recouvrement)
+696|Tous les morceaux
+697|Le morceau du côté de la normale
+698|Le morceau de l'autre côté
+699|Translation / rotation (coordonnées)
+700|L'axe (passant par l'origine pour X/Y/Z)
+701|Le centre des corps
+702|Une esquisse (ouverte ou fermée)
+703|Garder les morceaux cliqués
+704|Retirer les morceaux cliqués
+705|Boucher chaque trou (le volume reste un volume)
+706|Normal à la surface
+707|Selon une direction (dépouillé d'un angle)
+708|Boucher ses trous
+709|À son étendue naturelle (trous et contour)
+710|D'équerre, sur la face de la limite
+711|Ajusté au corps limite
+712|Sur l'extrémité (extérieur)
+713|Dans l'extrémité (affleurant)
+714|Centré
+715|D'un côté
+716|De l'autre côté
+717|Onglet
+718|Bout à bout (premier profilé ajusté)
+719|Bout à bout (second profilé ajusté)
+720|Aucun (les profilés se rejoignent aux points d'esquisse)
+721|Ajusté à l'extérieur de l'autre profilé
+722|Des deux côtés (milieu)
+723|Deux plans
+724|Deux points
+725|Arête du modèle (droite ou circulaire)
+726|Ligne d'esquisse
+727|Coordonnées
+728|Sommet du modèle
+729|Centre d'arc / de cercle
+730|Milieu d'arête
+731|Tôlerie
+732|Structure rapide
+733|Évaluer
+734|Axe vertical de l'esquisse
+735|Axe horizontal de l'esquisse
+736|Aucun
+737|Automatique (la taille adaptée à la face)
+738|Personnalisé
+739|NACA 4 chiffres
+740|NACA 5 chiffres
+741|Clark Y
+742|Gras
+743|Italique
+744|Y (vers le haut)
+745|Normale de la face sélectionnée
+746|Exporter en CSV
+747|Coïncidente
+748|Parallèle
+749|Perpendiculaire
+750|Concentrique
+751|Maj + glisser droit, ou Ctrl + glisser milieu
+752|Alt + glisser milieu, ou Alt + ←/→
+753|Ctrl+B
+754|Exporter en DXF
+755|Quitter la mise à plat
+756|Abandonner les modifications
+757|Ajouter une relation :
+758|Apparence du corps
+759|Exporter le corps en STEP
+760|Apparence
+761|Exporter la face en DXF
+762|Fermer la pièce
+763|Modifications non enregistrées
+764|Ouvrir un assemblage STEP
+765|Ouvrir un fichier 3D
+766|Ouvrir l'esquisse
+767|Récupérer l'enregistrement automatique
+768|Fermer sans enregistrer
+769|Ouvrir en une seule pièce
+770|Insérer (sur place)
+771|Insérer et positionner avec des contraintes
+772|Ignorer
+773|Ouvrir la dernière version enregistrée
+774|Tangente
+775|Bloquer
+776|Engrenage
+777|Pignon-crémaillère
+778|Contrainte
+779|Insérer des composants
+780|Parcourir pour une pièce ou un assemblage
+781|Insérer
+782|Libérer
+783|Fixer
+784|Réactiver
+785|Supprimer (désactiver)
+786|Insérer une autre occurrence
+787|Copier en CSV
+788|Enregistrer en CSV
+789|Pièces standard
+790|Ouvrir la pièce
+791|Étude de mouvement
+792|Nomenclature
+793|Créer une mise en plan de l'assemblage
+794|Fichiers récents / Accueil
+795|Isométrique
+796|Face
+797|Dessus
+798|Composants
+799|Réparer les contraintes
+800|Modifier la contrainte
+801|Lecture
+802|Modifier l'étude de mouvement
+803|Configuration de la pièce
+804|Enregistrer l'assemblage
+805|Remplacer les fichiers
+806|Entités à contraindre
+807|Type de contrainte
+808|Longueur (mm)
+809|Enregistrer en un seul fichier
+810|Édition
+811|Numéro de repère
+812|Colonnes
+813|Propriétés de la vue
+814|Vue projetée
+815|Vue de détail
+816|Supprimer la vue
+817|Propriétés de la feuille
+818|Propriétés de la mise en plan (cartouche)
+819|Zoom sur la feuille
+820|Colonnes par défaut
+821|Ajouter une feuille
+822|Supprimer la feuille
+823|Changer de modèle
+824|Mise à plat
+825|Vue du modèle
+826|Vues standard
+827|Vue auxiliaire
+828|Interruption
+829|Recadrer la vue
+830|Mettre à jour les vues
+831|Cotation
+832|Cotation automatique
+833|Note
+834|Cotation en série depuis une base
+835|Cotation ordonnée
+836|Cotation de chanfrein
+837|Annotation de perçage
+838|Élément de référence
+839|Tolérance géométrique
+840|État de surface
+841|Symbole de soudure
+842|Marque de centre
+843|Ligne d'axe
+844|Tableau des révisions
+845|Tableau de liste de débit
+846|Bulle
+847|Tableau de nomenclature
+848|Cartouche
+849|Exporter en PDF
+850|Enregistrer comme modèle
+851|PDF
+852|DXF (cette feuille)
+853|Vue de mise en plan
+854|Annotations
+855|Feuille
+856|À propos des mises en plan
+857|Colonnes du tableau de nomenclature
+858|Propriétés de la mise en plan
+859|Mises en plan
+860|De base (tout procédé)
+861|Usinage exigé
+862|Usinage interdit
+863|Bout à bout droit
+864|En V
+865|En demi-V
+866|En bouchon / en fente
+867|Côté flèche
+868|Saisi dans le tableau
+869|Vue interrompue
+870|Arêtes cachées supprimées
+871|Arêtes cachées visibles
+872|Filaire
+873|Automatique (rapide pour les grands assemblages)
+874|Exact
+875|Rapide (à partir des maillages d'affichage)
+876|Distances horizontales
+877|Distances verticales
+878|Verticale (raccourcit en travers)
+879|Horizontale (raccourcit en hauteur)
+880|Disposition des vues
+881|Annotation
+882|Macros
+883|Arrêter l'enregistrement de la macro
+884|Enregistrer une macro
+885|Macro
+886|Supprimer la macro
+887|Sélectionner
+888|Spline
+889|Rectangle par coins
+890|Rectangle par centre
+891|Cercle
+892|Arc par centre
+893|Arc par 3 points
+894|Arc tangent
+895|Ellipse
+896|Rainure droite
+897|Ajuster
+898|Prolonger
+899|Projeter les arêtes
+900|Congé d'esquisse
+901|Chanfrein d'esquisse
+902|Créer des engrenages
+903|Copies selon la direction 1 (original compris)
+904|Espacement 1 (mm)
+905|Angle de la direction 1 (°)
+906|Copies selon la direction 2
+907|Espacement 2 (mm)
+908|Angle de la direction 2 (°)
+909|Nombre d'occurrences (original compris)
+910|Angle total (° ; 360 les répartit régulièrement)
+911|Centre X (mm)
+912|Centre Y (mm)
+913|Placer
+914|Bloc
+915|Supprimer plutôt ce bloc de la bibliothèque
+916|Centré sur l'origine de l'esquisse
+917|Son coin inférieur gauche sur l'origine
+918|Centre
+919|Min
+920|Max
+921|Modifier la valeur
+922|Supprimer la cote
+923|Terminer la ligne
+924|Déplacer / copier / faire pivoter
+925|Plan de dessin
+926|Totalement contrainte
+927|Une spline lisse passant par les points
+928|Pilote
+929|Lecture
+930|Nom
+931|Piloter par
+932|Vers
+933|Composant
+934|Pas
+935|Durée
+936|Faire tourner un composant
+937|Faire glisser un composant
+938|Fichier
+939|Affichage
+940|Outils
+941|Aide
+942|Assemblage
+943|Plan de face
+944|Plan de dessus
+945|Plan de droite
+946|Corps volumiques
+947|Corps surfaciques
+948|Vues éclatées
+949|Études de mouvement
+950|Oui
+951|Non
+952|Commencer une pièce vide
+953|Des pièces assemblées et tenues par des contraintes
+954|Une mise en plan 2D d'une pièce, à partir d'un modèle
+955|Ouvrir un fichier de pièce ou de mise en plan
+956|Pièce exemple
+957|Une plaque de fixation à explorer
+958|Les pièces sont enregistrées automatiquement à côté de leur fichier dès leur premier enregistrement.
+959|Fichiers récents
+960|Aucune pièce récente pour le moment. Les pièces que vous ouvrez ou enregistrez apparaissent ici.
+961|Récupérer la session précédente
+962|Langue
+963|Thème
+964|Clair
+965|Sombre
+966|Comme Windows
+967|Ombré avec arêtes
+968|Ombré
+969|Arêtes cachées supprimées
+970|Afficher les plans
+971|Icônes de barre d'outils : petites
+972|Icônes de barre d'outils : moyennes
+973|Icônes de barre d'outils : grandes
+974|Afficher les corps masqués
+975|Arrière
+976|Gauche
+977|Droite
+978|Dessous
+979|Trimétrique

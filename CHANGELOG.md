@@ -6,6 +6,19 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 00:10 — Other languages
+- **View ▸ Language**: English, Deutsch, Français or Español, in parts, assemblies and drawings, kept with your preferences.
+- Translated:
+  - the menus, ribbons and their tabs;
+  - the Property panels (headings, labels, choices);
+  - dialog titles and buttons, the feature tree's fixed items and the start window;
+  - the command search, which finds a command by its translated name or its English one.
+- The common CAD terms are used for each language. Long German words break cleanly in the narrow toolbar buttons.
+- Longer help texts and messages are still in English for now.
+- Commands keep their English names inside, so macros, recorded macros and your keyboard shortcuts work in every language. Files are the same in every language.
+- The dictionaries are built from tools/i18n (one numbered line per text) by tools/i18n/build_dicts.py.
+- Regression test: languages.
+
 ## 2026-10-20 23:57 — Dark theme
 - **View ▸ Theme**: Light, Dark, or Follow Windows (switches when Windows does). It is in the View menu of parts, assemblies and drawings, and kept with your preferences.
 - In the dark theme:

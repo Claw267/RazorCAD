@@ -1,0 +1,979 @@
+1|Alle Körper
+2|Dünnwandiges Feature (eine Wand entlang der Skizzenkurven)
+3|Dicke
+4|Richtung
+5|Körper
+6|Biegeradius (innen)
+7|K-Faktor
+8|Form
+9|Durchmesser
+10|Gemessene Größe
+11|Breite (X)
+12|Tiefe (Y)
+13|Skizze (geschlossen)
+14|Richtung umkehren (Material auf der anderen Seite)
+15|Erstes Profil (offen)
+16|Zweites Profil (offen)
+17|Methode
+18|Biegeradius (für die Linienhinweise)
+19|Material auf der anderen Seite
+20|Skizze (Linien oder Text auf einer Fläche)
+21|Skizze (Linien auf einer Fläche)
+22|Winkel
+23|Biegeposition
+24|Andersherum biegen (weg von der Skizzenfläche)
+25|Andere Seite fest lassen
+26|Biegeradius des Teils verwenden
+27|Segmente
+28|Länge Segment 1
+29|Winkel Segment 1
+30|Länge Segment 2
+31|Winkel Segment 2 (− : zurück in die andere Richtung)
+32|Länge Segment 3
+33|Winkel Segment 3 (− : zurück in die andere Richtung)
+34|Länge Segment 4
+35|Winkel Segment 4 (− : zurück in die andere Richtung)
+36|Erste Biegung
+37|Richtung umkehren
+38|Wo die Kanten zusammentreffen
+39|Spalt
+40|Freistich
+41|Typ
+42|Tiefe
+43|Breite (hinter dem Schlitz)
+44|Höhe (Öffnung)
+45|Haube auf der anderen Seite der Linie
+46|Bohrungsdurchmesser (im Kragen)
+47|Kragenhöhe (gesamt)
+48|Andersherum gedrückt
+49|Größe (jeder Schenkel, ab der Innenecke)
+50|Breite (quer zur Biegung)
+51|Laschenkante
+52|Schlitzfläche
+53|Anzahl Laschen
+54|Laschenlänge
+55|Laschenhöhe (leer: durch das andere Teil)
+56|Rand an jedem Ende (leer: gleichmäßig verteilt)
+57|Spiel (rundum)
+58|Nach unten gedrückt (andersherum)
+59|Skizze (eine Linie auf einer Fläche)
+60|Höhe
+61|Gemessen
+62|Versatz andersherum
+63|Skizze (offen, oder ein Kreis)
+64|Material
+65|Biegeradius (innen, an scharfen Ecken)
+66|Nahtspalt
+67|Skizze (eine Linie)
+68|Unteres und oberes Ende tauschen
+69|Versatz oben quer (X)
+70|Versatz oben aus der Skizze (Y)
+71|Drehung um die Achse
+72|Anzahl gleicher Teile
+73|Nähte bei
+74|Nähte eine Seite weiter
+75|Erste Naht bei (ab X)
+76|Spalt an jeder Naht
+77|Maße sind
+78|Länge (ab der Außenseite der Falte)
+79|Spalt zwischen den Lagen
+80|Innenradius
+81|Winkel (181°–269°)
+82|Winkel (90°–340°)
+83|Position
+84|Breite (× Dicke)
+85|Länge
+86|Gemessen bis
+87|Versatz (verschiebt die Lasche nach außen)
+88|Wo diese Laschen zusammentreffen
+89|Biegebereich
+90|Tauschen, welche Lasche die andere überdeckt
+91|Größe
+92|Feste Fläche
+93|Körper (leer: alle nicht gebogenen)
+94|Dicke des Körpers verwenden
+95|Kürzen, wo das Blech in sich selbst laufen würde
+96|Toleranz der Bogenanpassung
+97|Biegeradien des Körpers verwenden
+98|Profil
+99|Profilskizze
+100|Pfad
+101|Ergebnis verschmelzen (aus: eigener Körper)
+102|Gerade (Regel-)Seiten zwischen den Profilen
+103|Norm
+104|Gewinde
+105|Gewindetiefe (für die Beschriftung; leer: die Bohrung)
+106|Schraubengröße
+107|Passung (ISO 273)
+108|Bohrungsdurchmesser
+109|Senkungsdurchmesser (zylindrisch)
+110|Senkungstiefe
+111|Senkungsdurchmesser (kegelig)
+112|Senkwinkel
+113|Ende
+114|Bohrspitze (118°)
+115|Richtung umkehren
+116|Skizze (Punkte / Kreismittelpunkte)
+117|Punkte verbinden mit
+118|Biegeradius an den Ecken
+119|Geschlossene Schleife (zurück zum ersten Punkt)
+120|Skizze mit einem Kreis
+121|Definiert durch
+122|Steigung
+123|Umdrehungen
+124|Startwinkel
+125|Im Uhrzeigersinn (linksgängig)
+126|Zylinder
+127|Nenndurchmesser
+128|Linksgewinde
+129|Bohrung / Welle auf die Gewindegröße bringen (bleibt im Körper)
+130|Endbedingung
+131|Bis
+132|Am anderen Ende beginnen
+133|Skizze (Umrisse oder Text)
+134|Fläche
+135|Skizze
+136|Eckpunkt
+137|Fläche
+138|Versatz
+139|Versatz umkehren (über die Fläche hinaus)
+140|Achse
+141|Abstand
+142|Seite wechseln
+143|Winkelrichtung umkehren
+144|Position auf der Kante
+145|Die andere Winkelhalbierende verwenden (schräge Flächen)
+146|Feature
+147|Abstand
+148|Exemplare
+149|Gleicher Abstand (Winkel ist gesamt)
+150|Ebene
+151|Referenzskizze
+152|Kurve
+153|Exemplare (mit dem Feature)
+154|Ausrichtung
+155|Anordnung
+156|Randabstand
+157|Radius am Ende
+158|Enden tauschen
+159|Neutrale Fläche
+160|Skizze (offene Linien)
+161|Extrusionsrichtung
+162|Materialseite wechseln
+163|Elliptisch (runde Flächen)
+164|Umkehren (eingedrückt)
+165|Skalierfaktor
+166|Skalieren um
+167|Abstand (außen +, innen −)
+168|Scharnierkante
+169|Fasentyp
+170|Abstand 2
+171|Wandung nach außen
+172|Trennen mit
+173|Behalten
+174|Kopieren (die ursprünglichen Körper behalten)
+175|Kopien
+176|Verschieben um
+177|Um
+178|Gerade (Regelfläche) zwischen den Profilen
+179|Tangential zu den Flächen um das Loch
+180|In die Fläche einfügen (wenn alle Kanten auf einem Flächenkörper liegen)
+181|Volumenkörper bilden, wenn das ihn schließt
+182|Trimmen mit
+183|Gegenseitig (auch das Werkzeug trimmen)
+184|Auswahl
+185|Dann
+186|Füllfläche tangential zu den Flächen um das Loch
+187|Verjüngungswinkel
+188|Beide Seiten
+189|Flächenkörper
+190|Trimmung aufheben
+191|Nahtgröße
+192|Trimmen bis
+193|Zu kurze Profile verlängern
+194|Schnitt
+195|Kappe
+196|Schenkel 1 (entlang der ersten Fläche)
+197|Schenkel 2 (entlang der zweiten Fläche)
+198|Eckfase (Schweißfreiraum)
+199|Platte
+200|Versatz entlang der Ecke
+201|Skizze / 3D-Skizze
+202|Eckenbehandlung
+203|Getrimmte Enden
+204|Skizzenlinie verläuft durch
+205|Profil drehen
+206|Profil spiegeln
+207|Entspannungsdurchgänge (doppelt gekrümmte Flächen)
+208|Sich berührende Kopien zu einem Flächenkörper verbinden
+209|Volumenkörper bilden (wenn die Flächen geschlossen sind)
+210|Volumenkörper mit berührenden Körpern verschmelzen
+211|Spalttoleranz
+212|Spalttoleranz (näher liegende Kanten werden verbunden)
+213|Größtes zu schließendes Loch (0: jede Größe)
+214|Volumenkörper bilden, wenn geschlossen
+215|Seite
+216|Ergebnis verschmelzen
+217|Sich berührende Körper zu einem Körper verschmelzen
+218|Netze vereinfachen ab (Dreiecke; 0: nie)
+219|Ebene 1
+220|Ebene 2
+221|Punkt 1
+222|Punkt 2
+223|Kante
+224|Linie
+225|Neues Teil
+226|Neue Baugruppe
+227|Neue Zeichnung
+228|Zeichnung aus Teil erstellen
+229|Öffnen
+230|Beispielteil öffnen
+231|Zuletzt verwendete Teile / Start
+232|Speichern
+233|Speichern unter
+234|STEP / STL importieren
+235|Exportieren
+236|STEP
+237|STL
+238|Abwicklung als DXF
+239|Fläche als DXF
+240|Eigenschaften
+241|Rückgängig
+242|Wiederholen
+243|Neu aufbauen
+244|Löschen
+245|Zoom auf alles
+246|Normal zu
+247|Sichtbarkeit
+248|Isolieren beenden
+249|Explosionsansicht… (Mehrkörperteil)
+250|Extrusion
+251|Rotation
+252|Sweep
+253|Loft
+254|Helix
+255|3D-Skizze
+256|Features
+257|Bohrung
+258|Gewinde schneiden
+259|Gewinde aufsetzen
+260|Kosmetisches Gewinde
+261|Umwickeln (Prägen / Gravieren)
+262|Muster/Spiegeln
+263|Lineares Muster
+264|Kreismuster
+265|Spiegeln
+266|Verrundung
+267|Fase
+268|Wandung
+269|Kombinieren
+270|Körper subtrahieren
+271|Körper löschen
+272|Trennen
+273|Körper verschieben/kopieren
+274|Importierter Körper (STEP / STL)
+275|Extrudiert
+276|Rotiert
+277|Eben
+278|Kopieren
+279|Zusammenfügen
+280|In Volumenkörper umwandeln
+281|Netz reparieren
+282|Aufdicken
+283|Flächen verschieben/kopieren
+284|Fläche löschen
+285|Referenzgeometrie
+286|Punkt
+287|Messen
+288|Gleichungen
+289|Masseneigenschaften
+290|Schnittansicht
+291|Material bearbeiten
+292|Referenzen reparieren
+293|Einheiten: Millimeter
+294|Einheiten: Zoll
+295|Claude fragen
+296|Claude-Einstellungen
+297|Einführungstour
+298|Befehle suchen
+299|Tastenkürzel anpassen
+300|Tastenkürzel
+301|Ordner mit Absturzberichten öffnen
+302|Dateien mit RazorCAD öffnen (.rcad .rasm .rdrw)
+303|Nach Updates suchen
+304|Über RazorCAD
+305|Extrusionsschnitt
+306|Rotationsschnitt
+307|Sweep-Schnitt
+308|Loft-Schnitt
+309|Skizzengesteuertes Muster
+310|Kurvengesteuertes Muster
+311|Füllmuster
+312|Formschräge
+313|Rippe
+314|Kuppel
+315|Fläche verschieben
+316|Skalieren
+317|Referenzebene
+318|Referenzachse
+319|Referenzpunkt
+320|Skizze beenden
+321|3D-Skizze beenden
+322|DXF importieren
+323|Lineares Skizzenmuster
+324|Kreisförmiges Skizzenmuster
+325|Block erstellen
+326|Block einfügen
+327|Zahnräder
+328|Tragflächenprofil
+329|Schnittkurve
+330|Konstruktionsgeometrie
+331|Beziehungen anzeigen
+332|Extrudierte Fläche
+333|Rotationsfläche
+334|Ebene Fläche
+335|Loft-Fläche
+336|Sweep-Fläche
+337|Füllfläche
+338|Begrenzungsfläche
+339|Offsetfläche
+340|Fläche kopieren
+341|Fläche trimmen
+342|Fläche verlängern
+343|Trimmung der Fläche aufheben
+344|Trennlinie
+345|Projizierte Kurve
+346|Zusammengesetzte Kurve
+347|Regelfläche
+348|Flächen zusammenfügen
+349|Fläche löschen
+350|Fläche ersetzen
+351|Fläche abwickeln
+352|Trennen (mit einer Fläche)
+353|Strukturbauteil
+354|Trimmen/Verlängern
+355|Endkappe
+356|Knotenblech
+357|Schweißnaht
+358|Zuschnittsliste
+359|Basislasche
+360|Blech extrudieren
+361|Loft-Biegung
+362|Übergang / Reduzierstück
+363|Kantenlasche
+364|Gehrungslasche
+365|Saum
+366|Skizzierte Biegung
+367|Versatz
+368|Kreuzbruch
+369|Ätzlinien
+370|Lasche und Schlitz
+371|Umformwerkzeuge
+372|Eckfreistich
+373|Geschlossene Ecke
+374|Zurückbiegen
+375|Biegen
+376|Abwickeln
+377|In Blech umwandeln
+378|Blechprüfung
+379|DXF exportieren (Abwicklung)
+380|Alle als DXF exportieren
+381|DXF-Einstellungen
+382|Neues Gespräch
+383|Kollisionsprüfung
+384|Zebrastreifen
+385|Krümmung
+386|Formschräge-Analyse
+387|Konfigurationen
+388|STEP exportieren
+389|STL exportieren
+390|OBJ exportieren
+391|3MF exportieren
+392|STEP / STL / OBJ / 3MF importieren
+393|Symbolleisten anpassen
+394|Claude
+395|Zu einer neuen Symbolleiste hinzufügen
+396|Aus dieser Symbolleiste entfernen
+397|In dieser Symbolleiste ausblenden
+398|Trennlinie danach einfügen
+399|Umbenennen
+400|Symbolleiste löschen
+401|Diese Symbolleiste zurücksetzen
+402|Neue Symbolleiste
+403|Fertig
+404|Konfiguration anzeigen
+405|Konfiguration kopieren
+406|Eigenschaften (Konstruktionstabelle)
+407|Konfiguration hinzufügen
+408|Alle Abwicklungen als DXF exportieren
+409|Alle Körper als STEP exportieren
+410|Explosionsansicht
+411|Neuer Ordner
+412|Ordner umbenennen
+413|Ordner löschen (Körper behalten)
+414|In einen neuen Ordner verschieben
+415|Zusammenklappen
+416|Explodieren
+417|Explosionsansicht bearbeiten
+418|Ausblenden
+419|Einblenden
+420|Ursprung
+421|Körpereigenschaften
+422|Isolieren
+423|In Volumenkörper umwandeln (Zusammenfügen)
+424|Abwicklung anzeigen
+425|Abwicklung als DXF exportieren
+426|Zu neuem Ordner hinzufügen
+427|Aus dem Ordner entfernen
+428|Als STEP exportieren
+429|Export abbrechen
+430|Diesen überspringen
+431|Abbrechen
+432|Auf Standard zurücksetzen
+433|Schlüssel entfernen
+434|OK
+435|Skizze bearbeiten
+436|Skizzenebene ändern
+437|3D-Skizze bearbeiten
+438|Feature bearbeiten
+439|Zurücksetzen (bis direkt davor)
+440|Bis zum Ende vorrollen
+441|Entformungsrichtung
+442|Benötigte Formschräge (°)
+443|Standardfarbe
+444|Schließen
+445|Übernehmen
+446|Alle entfernen
+447|Anpassen
+448|Jetzt aktualisieren
+449|Download-Seite öffnen
+450|Feature-Bereich
+451|Dünnwandiges Feature
+452|Blechkörper
+453|Blechparameter
+454|Profile
+455|Fertigungsverfahren
+456|Biegelinien
+457|Kanten
+458|Ecken
+459|Form
+460|Platzierung
+461|Biegungen
+462|Teile
+463|Laschen
+464|Schlitze
+465|Flächen
+466|Versatzlinie
+467|Saumkanten
+468|Automatischer Freistich
+469|Laschenkanten
+470|Laschenlänge
+471|Winkel und Position
+472|Zu schließende Ecken
+473|Eckentyp
+474|Feste Fläche
+475|Profil und Pfad
+476|Optionen
+477|Bohrungsart
+478|Endbedingung
+479|Positionen
+480|Punkte
+481|Definiert durch
+482|Parameter
+483|Gewindeposition
+484|Spezifikation
+485|Von
+486|Richtung 1
+487|Rotationsachse
+488|Referenzen
+489|Zu musternde Features
+490|Richtung 2
+491|Spiegelfläche/-ebene
+492|Zu spiegelnde Features
+493|Auswahl
+494|Füllbegrenzung
+495|Musteranordnung
+496|Verrundungsart
+497|Verrundungsparameter
+498|Zu verrundende Elemente
+499|Formschrägenwinkel
+500|Neutrale Ebene
+501|Flächen mit Formschräge
+502|Fasenparameter
+503|Zu fasende Elemente
+504|Zu entfernende Flächen
+505|Operationstyp
+506|Körper
+507|Zu löschende Körper
+508|Zu löschende Flächen
+509|Trimmwerkzeug
+510|Zielkörper
+511|Zu verschiebende/kopierende Körper
+512|Verschieben
+513|Drehen
+514|Verknüpfungen
+515|Begrenzende Elemente
+516|Füllbegrenzung
+517|Teilstücke
+518|Zu verlängernde Kanten
+519|Zu löschende Flächen
+520|Zu ersetzende Flächen
+521|Ersatzfläche
+522|Zu trimmende Körper
+523|Trimmbegrenzung
+524|Stützflächen
+525|Ort
+526|Abzuwickelnde Flächen
+527|Projektion
+528|Trennen mit
+529|Zu versetzende Flächen
+530|Zu kopierende Flächen
+531|Zusammenzufügende Flächen
+532|Flächen
+533|Netz / Flächen
+534|Importierte Datei
+535|RazorCAD
+536|Konfigurationen / Konstruktionstabelle
+537|Gleichungen, globale Variablen
+538|Material des Teils
+539|Tastenkürzel: Anpassen
+540|Tastatur & Maus
+541|Dateien mit RazorCAD öffnen
+542|RazorCAD aktualisieren
+543|Versatzoptionen
+544|Polygon
+545|Beziehungen hinzufügen
+546|Ausrichtung
+547|Anzeige
+548|Zähne und Übersetzungen
+549|Passung (3D-Druck / Toleranzen)
+550|Formparameter
+551|Profilsehne und Optionen
+552|Text
+553|Ebenen
+554|Schnitt 1
+555|Ergebnisse
+556|Seiten
+557|Wert
+558|Modul
+559|Eingriffswinkel
+560|Flankenspiel
+561|Kopf- / Fußspiel
+562|Bohrungsdurchmesser
+563|Erstes Zahnrad drehen
+564|NACA-Code
+565|Serie
+566|Max. Wölbung
+567|Wölbungsrücklage
+568|Auslegungsauftriebsbeiwert
+569|Sehnenlänge
+570|Schriftart
+571|Fläche
+572|Volumen
+573|Oberfläche
+574|Mitte zu Mitte
+575|Blechstärke
+576|Blind
+577|Mittelebene
+578|Durch alles
+579|Durch alles – beidseitig
+580|X-Achse
+581|Y-Achse
+582|Z-Achse
+583|Bis Eckpunkt
+584|Bis Fläche
+585|Versatz von Fläche
+586|Eine Seite
+587|Andere Seite
+588|Mittelebene (je zur Hälfte)
+589|Außerhalb des Profils
+590|Innerhalb des Profils
+591|Rund
+592|Quadratisch
+593|Rechteck
+594|Dreieck
+595|Fünfeck
+596|Sechseck
+597|Gekantet (ebene Facetten, Abkantbiegungen)
+598|Umgeformt (glatt, gerollt / gepresst)
+599|Biegung mittig auf der Linie
+600|Biegung beginnt an der Linie
+601|Biegung endet an der Linie
+602|Material innen (Außenfläche an der Kante)
+603|Material außen (Innenfläche an der Kante)
+604|Gehrung (geschlossen, mit Spalt)
+605|Rechteckig
+606|Langloch
+607|Riss
+608|Sicke
+609|Kieme
+610|Gezogenes Loch (Kragen)
+611|Fläche zu Fläche (Stufe einer Fläche)
+612|Gesamt (außen zu außen)
+613|Innen (innen zu innen)
+614|Beginnt an der Linie
+615|Mittig auf der Linie
+616|Endet an der Linie
+617|Eine Richtung
+618|Mittelebene (je zur Hälfte)
+619|Innerhalb des Kreises
+620|Außerhalb des Kreises
+621|Beide Seiten (Kreis in der Mitte)
+622|Eine Seite der Skizze
+623|Andere Seite der Skizze
+624|Beide Seiten (Skizze in der Mitte)
+625|Mitte der flachen Seiten
+626|Die Ecken
+627|Umgeformt (glatt gerollt)
+628|Gekantet (Abkantbiegungen)
+629|Innenmaße (Material nach außen)
+630|Außenmaße (Material nach innen)
+631|Mittel (Mitte der Dicke)
+632|Geschlossen (flach gedrückt)
+633|Offen (mit Spalt)
+634|Tropfenform
+635|Gerollt (Rolle)
+636|Innen (Falte an der Kante)
+637|Außen (über die Kante hinaus)
+638|Äußerer virtueller Schnittpunkt
+639|Innerer virtueller Schnittpunkt
+640|Tangential (Ende der Biegung)
+641|Geschlossen – stumpf (Gehrung)
+642|Offene Ecke
+643|Geschlossen (Biegungen treffen sich auf der Diagonale)
+644|Kreisförmig
+645|Riss (kein Material entfernt)
+646|Unterlappung (unter die andere Lasche)
+647|Stumpf (Gehrung, Enden treffen sich auf der Diagonale)
+648|Hinter der Fläche
+649|Vor der Fläche
+650|Beide Seiten (symmetrisch)
+651|Eine Skizze
+652|Kreisförmig (Durchmesser eingeben)
+653|Bohrung (Durchgang)
+654|Zylindrische Senkung
+655|Kegelsenkung
+656|Gewindebohrung
+657|ISO metrisch
+658|Unified (Zoll)
+659|Eigene Größen
+660|Normal
+661|Grob
+662|Durch alles
+663|Gerade Strecken (ein Verlauf)
+664|Ein glatter Spline
+665|Steigung und Umdrehungen
+666|Steigung und Höhe
+667|Höhe und Umdrehungen
+668|Metrisch (ISO)
+669|Zoll (UNC / UNF)
+670|Ganze Länge der Fläche
+671|Bis zu einer Ebene oder Fläche
+672|Prägen (erhaben)
+673|Gravieren (vertieft)
+674|Start
+675|Mittelpunkt
+676|Gleichmäßig, bis zum Kurvenende
+677|Abstand entlang der Kurve
+678|Verschoben (gleiche Ausrichtung)
+679|Mit der Kurve gedreht
+680|Versetzt (Lochung)
+681|Konstante Größe
+682|Variable Größe
+683|Flächenverrundung
+684|Parallel zur Skizze
+685|Senkrecht zur Skizze
+686|Der Ursprung
+687|Die Mitte der Körper
+688|Versatz (drücken / ziehen)
+689|Um eine Kante drehen
+690|Gleiche Abstände
+691|Abstand und Winkel
+692|Zwei Abstände
+693|Hinzufügen (Vereinigung)
+694|Subtrahieren
+695|Gemeinsam (Überlappung behalten)
+696|Alle Teilstücke
+697|Das Teilstück auf der Normalenseite
+698|Das Teilstück auf der anderen Seite
+699|Verschieben / Drehen (Koordinaten)
+700|Die Achse (durch den Ursprung für X/Y/Z)
+701|Die Mitte der Körper
+702|Eine Skizze (offen oder geschlossen)
+703|Angeklickte Teilstücke behalten
+704|Angeklickte Teilstücke entfernen
+705|Jedes Loch füllen (der Volumenkörper bleibt einer)
+706|Senkrecht zur Fläche
+707|Entlang einer Richtung (um einen Winkel verjüngt)
+708|Seine Löcher füllen
+709|Auf seine natürliche Ausdehnung (Löcher und Umriss)
+710|Rechtwinklig, an der Fläche der Begrenzung
+711|An den Begrenzungskörper angepasst
+712|Am Ende (außen)
+713|Im Ende (bündig)
+714|Mittig
+715|Zu einer Seite
+716|Zur anderen Seite
+717|Gehrung
+718|Stumpf (erstes Profil getrimmt)
+719|Stumpf (zweites Profil getrimmt)
+720|Keine (Profile treffen sich an den Skizzenpunkten)
+721|An die Außenseite des anderen Profils angepasst
+722|Beide Seiten (Mitte)
+723|Zwei Ebenen
+724|Zwei Punkte
+725|Modellkante (gerade oder kreisförmig)
+726|Skizzenlinie
+727|Koordinaten
+728|Modelleckpunkt
+729|Bogen- / Kreismittelpunkt
+730|Kantenmittelpunkt
+731|Blech
+732|Schnellstruktur
+733|Auswerten
+734|Vertikale Skizzenachse
+735|Horizontale Skizzenachse
+736|Keine
+737|Automatisch (die Größe, die zur Fläche passt)
+738|Benutzerdefiniert
+739|NACA 4-stellig
+740|NACA 5-stellig
+741|Clark Y
+742|Fett
+743|Kursiv
+744|Y (oben)
+745|Normale der gewählten Fläche
+746|CSV exportieren
+747|Deckungsgleich
+748|Parallel
+749|Senkrecht
+750|Konzentrisch
+751|Umschalt + rechts ziehen, oder Strg + Mitte ziehen
+752|Alt + Mitte ziehen, oder Alt + ←/→
+753|Strg+B
+754|DXF exportieren
+755|Abwicklung beenden
+756|Änderungen verwerfen
+757|Beziehung hinzufügen:
+758|Körperdarstellung
+759|Körper als STEP exportieren
+760|Darstellung
+761|Fläche als DXF exportieren
+762|Teil schließen
+763|Ungespeicherte Änderungen
+764|Eine STEP-Baugruppe öffnen
+765|Eine 3D-Datei öffnen
+766|Skizze öffnen
+767|Automatische Sicherung wiederherstellen
+768|Ohne Speichern schließen
+769|Als ein Teil öffnen
+770|Einfügen (an Ort und Stelle)
+771|Einfügen und mit Verknüpfungen platzieren
+772|Ignorieren
+773|Zuletzt gespeicherte Version öffnen
+774|Tangential
+775|Sperren
+776|Zahnrad
+777|Zahnstange und Ritzel
+778|Verknüpfung
+779|Komponenten einfügen
+780|Nach einem Teil oder einer Baugruppe suchen
+781|Einfügen
+782|Lösen
+783|Fixieren
+784|Unterdrückung aufheben
+785|Unterdrücken
+786|Weiteres Exemplar einfügen
+787|Als CSV kopieren
+788|CSV speichern
+789|Normteile
+790|Teil öffnen
+791|Bewegungsstudie
+792|Stückliste
+793|Zeichnung aus Baugruppe erstellen
+794|Zuletzt verwendete Dateien / Start
+795|Isometrisch
+796|Vorne
+797|Oben
+798|Komponenten
+799|Verknüpfungen reparieren
+800|Verknüpfung bearbeiten
+801|Abspielen
+802|Bewegungsstudie bearbeiten
+803|Teilkonfiguration
+804|Baugruppe speichern
+805|Dateien ersetzen
+806|Zu verknüpfende Elemente
+807|Verknüpfungsart
+808|Länge (mm)
+809|Als eine Datei speichern
+810|Bearbeiten
+811|Positionsnummer
+812|Spalten
+813|Ansichtseigenschaften
+814|Projizierte Ansicht
+815|Detailansicht
+816|Ansicht löschen
+817|Blatteigenschaften
+818|Zeichnungseigenschaften (Schriftfeld)
+819|Zoom auf Blatt
+820|Standardspalten
+821|Blatt hinzufügen
+822|Blatt löschen
+823|Vorlage ändern
+824|Abwicklung
+825|Modellansicht
+826|Standardansichten
+827|Hilfsansicht
+828|Unterbrechung
+829|Ansicht zuschneiden
+830|Ansichten aktualisieren
+831|Bemaßung
+832|Automatisch bemaßen
+833|Notiz
+834|Bezugsmaß
+835|Koordinatenmaß
+836|Fasenbemaßung
+837|Bohrungsbeschriftung
+838|Bezugselement
+839|Form- und Lagetoleranz
+840|Oberflächenbeschaffenheit
+841|Schweißsymbol
+842|Mittelpunktmarkierung
+843|Mittellinie
+844|Änderungstabelle
+845|Zuschnittslistentabelle
+846|Positionsnummer
+847|Stücklistentabelle
+848|Schriftfeld
+849|PDF exportieren
+850|Als Vorlage speichern
+851|PDF
+852|DXF (dieses Blatt)
+853|Zeichnungsansicht
+854|Beschriftungen
+855|Blatt
+856|Über Zeichnungen
+857|Spalten der Stücklistentabelle
+858|Zeichnungseigenschaften
+859|Zeichnungen
+860|Grundsymbol (jedes Verfahren)
+861|Materialabtrag gefordert
+862|Materialabtrag unzulässig
+863|I-Naht
+864|V-Naht
+865|HV-Naht
+866|Loch- / Schlitznaht
+867|Pfeilseite
+868|In die Tabelle eingetragen
+869|Unterbrochene Ansicht
+870|Verdeckte Kanten entfernt
+871|Verdeckte Kanten sichtbar
+872|Drahtmodell
+873|Automatisch (schnell bei großen Baugruppen)
+874|Exakt
+875|Schnell (aus den Anzeigenetzen)
+876|Horizontale Abstände
+877|Vertikale Abstände
+878|Vertikal (verkürzt quer)
+879|Horizontal (verkürzt nach oben / unten)
+880|Ansichtslayout
+881|Beschriftung
+882|Makros
+883|Makroaufzeichnung beenden
+884|Makro aufzeichnen
+885|Makro
+886|Makro löschen
+887|Auswählen
+888|Spline
+889|Eckrechteck
+890|Mittelpunktrechteck
+891|Kreis
+892|Mittelpunktbogen
+893|3-Punkt-Bogen
+894|Tangentenbogen
+895|Ellipse
+896|Gerades Langloch
+897|Trimmen
+898|Verlängern
+899|Kanten projizieren
+900|Skizzenverrundung
+901|Skizzenfase
+902|Zahnräder erstellen
+903|Kopien in Richtung 1 (mit dem Original)
+904|Abstand 1 (mm)
+905|Winkel der Richtung 1 (°)
+906|Kopien in Richtung 2
+907|Abstand 2 (mm)
+908|Winkel der Richtung 2 (°)
+909|Anzahl Exemplare (mit dem Original)
+910|Gesamtwinkel (°; 360 verteilt sie gleichmäßig)
+911|Mitte X (mm)
+912|Mitte Y (mm)
+913|Platzieren
+914|Block
+915|Diesen Block stattdessen aus der Bibliothek löschen
+916|Mittig auf dem Skizzenursprung
+917|Linke untere Ecke auf dem Ursprung
+918|Mitte
+919|Min
+920|Max
+921|Wert ändern
+922|Bemaßung löschen
+923|Linie beenden
+924|Verschieben / Kopieren / Drehen
+925|Zeichenebene
+926|Vollständig bestimmt
+927|Ein glatter Spline durch die Punkte
+928|Antrieb
+929|Wiedergabe
+930|Name
+931|Antreiben durch
+932|Bis
+933|Komponente
+934|Schritte
+935|Dauer
+936|Eine Komponente drehen
+937|Eine Komponente schieben
+938|Datei
+939|Ansicht
+940|Extras
+941|Hilfe
+942|Baugruppe
+943|Vordere Ebene
+944|Obere Ebene
+945|Rechte Ebene
+946|Volumenkörper
+947|Flächenkörper
+948|Explosionsansichten
+949|Bewegungsstudien
+950|Ja
+951|Nein
+952|Ein leeres Teil beginnen
+953|Teile, zusammengesetzt und durch Verknüpfungen gehalten
+954|Eine 2D-Zeichnung eines Teils, aus einer Vorlage
+955|Eine Teil- oder Zeichnungsdatei öffnen
+956|Beispielteil
+957|Eine Montageplatte zum Erkunden
+958|Teile werden neben ihrer Datei automatisch gesichert, sobald sie einmal gespeichert wurden.
+959|Zuletzt verwendete Dateien
+960|Noch keine zuletzt verwendeten Teile. Teile, die Sie öffnen oder speichern, erscheinen hier.
+961|Vorherige Sitzung wiederherstellen
+962|Sprache
+963|Design
+964|Hell
+965|Dunkel
+966|Wie Windows
+967|Schattiert mit Kanten
+968|Schattiert
+969|Verdeckte Kanten entfernt
+970|Ebenen anzeigen
+971|Symbolleisten-Symbole: klein
+972|Symbolleisten-Symbole: mittel
+973|Symbolleisten-Symbole: groß
+974|Ausgeblendete Körper anzeigen
+975|Hinten
+976|Links
+977|Rechts
+978|Unten
+979|Trimetrisch
