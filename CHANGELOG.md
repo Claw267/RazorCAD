@@ -6,6 +6,14 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 08:29 — Speed mode for very large assemblies
+- **Speed Mode** (Assembly ribbon, View menu): the parts are shown from simplified display meshes, made coarser by the kernel, with far fewer triangles to draw and keep in memory (a test assembly of round parts: 2096 → 600). The faces and edges stay the same, so mates, measuring, picking and collision detection work as before.
+- A component you select is loaded in full. Turning speed mode off shows everything in full again.
+- Saved with the assembly. The simplified meshes are cached like the full ones, so the assembly opens quickly next time.
+- A large assembly (3 million triangles or 300 components) suggests speed mode in the status bar, once.
+- Drawings, exports and Interference Check always use the exact geometry.
+- Regression test: speed-mode (fewer triangles with the same faces, the selected component in full, back to full when off).
+
 ## 2026-10-21 08:25 — Check Drawing
 - **Check Drawing** (Annotation ribbon, Tools menu) lists what a drawing still lacks before it goes out, most important first, grouped:
   - **Title block**: fields left empty (the sheet format's own fields, else the standard ones). Title, drawing number, drawn by, date, revision and material are to fix; checked and approved are noted, to be filled in at sign-off.

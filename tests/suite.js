@@ -1271,6 +1271,41 @@ rc.log(b.bodies, b.errors.length);`, 'text');
       : { ok: false, detail: `roles ${roles}; holes ${holes} (${cyl(top)} / ${cyl(bot)}, vol ${vol(top)}); untouched ${untouched}; fast ${fast} (${asm.doc.components.map((c) => c.name).join(', ')}, clashes ${JSON.stringify(asm.collisions())}); kernel ${kernelOk} ${JSON.stringify(r.pairs)}; tap ${tapOk}; cut ${cutOk} ${vCut}; undo ${undoOk}; xs ${xs}` };
   },
 
+  // speed mode: an assembly of a round boss and a ring (curved faces), each twice, is shown from simplified meshes —
+  // far fewer triangles, the same faces (so mates and picking hold); a component selected gets its part in full;
+  // speed mode off shows everything in full again.
+  async 'speed-mode'() {
+    const a = window.app;
+    const round = (name, R, r, h) => {
+      const p = M.newDoc(); p.name = name;
+      const s = M.createFeature(p, 'sketch', { plane: { ref: 'top' } });
+      Object.assign(s, { points: [{ id: 'p1', x: 0, y: 0 }], curves: [{ id: 'c1', type: 'circle', c: 'p1', r: R, construction: false }, ...(r ? [{ id: 'c2', type: 'circle', c: 'p1', r, construction: false }] : [])], constraints: [] });
+      p.features.push(s, M.createFeature(p, 'extrude', { sketch: s.id, depth: h }));
+      return p;
+    };
+    a.newAssembly(); await wait(300); closeModals();
+    const asm = a.drawing;
+    const ps = [asm.addPart(round('Boss', 40, 0, 30), null, null), asm.addPart(round('Ring', 60, 45, 10), null, null)];
+    for (const p of [...ps, ...ps]) await asm.addComponent(p);
+    await until(() => asm.doc.components.every((c) => asm.geo(c)?.mesh), 30000);
+    asm.flushGeometry();
+    const tris = () => { asm.flushGeometry(); return asm.display.stats().triangles; };
+    const faces = (c) => asm.geo(c).mesh.faceGroups.length;
+    const full = tris(), f0 = asm.doc.components.map(faces).join(',');
+    const after = await asm.setSpeedMode(true);
+    const f1 = asm.doc.components.map(faces).join(',');
+    const coarse = asm.doc.components.every((c) => asm.geo(c).coarse);
+    // the ring selected: its part in full, the boss still simplified
+    const ring = asm.doc.components[1];
+    asm.select({ kind: 'comp', id: ring.id });
+    await until(() => !asm.geo(ring).coarse, 30000);
+    const mixed = !!asm.geo(asm.doc.components[0]).coarse;
+    const back = await asm.setSpeedMode(false);
+    const ok = after < full * 0.5 && f1 === f0 && coarse && mixed && !asm.geo(ring).coarse && back === full && !asm.doc.speedMode;
+    return ok ? { ok: true, detail: `${full} → ${after} triangles shown (faces ${f0} kept); the selected ring in full; off: ${back}` }
+      : { ok: false, detail: `full ${full}, speed ${after}, faces ${f0} / ${f1}, coarse ${coarse}, mixed ${mixed}, back ${back}` };
+  },
+
   // macros in assemblies and drawings: a recording of a part inserted twice and mated plays back into a new
   // assembly as the same (2 components, 1 mate, solved); a note added to a drawing plays back into another drawing
   async 'macros-editors'() {

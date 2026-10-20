@@ -770,16 +770,18 @@ export class AssemblyEditor {
     for (const l of this.leaves()) if (!want.has(l.gk)) want.set(l.gk, [l.p, l.cfg, l.cut]);
     const jobs = [];
     for (const [gk, [p, cfgId, cut]] of want) {
+      // (speed mode: a simplified display mesh, unless this one is wanted in full)
+      const coarse = !!this.doc.speedMode && !this._full?.has(gk), g0 = this.parts.get(gk);
       // (the same part copy as last time: built already, without writing out and hashing it again)
-      if (this.parts.get(gk)?.from === p.doc) continue;
+      if (g0?.from === p.doc && !!g0.coarse === coarse) continue;
       const doc = { ...p.doc, activeConfig: cfgId && (p.doc.configs || []).some((x) => x.id === cfgId) ? cfgId : null, ...(cut ? { features: [...p.doc.features, ...cut] } : {}) };
-      const json = JSON.stringify(doc), key = json.length + ':' + hash(json);
-      if (this.parts.get(gk)?.key === key) { this.parts.get(gk).from = p.doc; continue; }
-      jobs.push({ gk, p, cfgId, json, key, cut: !!cut });
+      const json = JSON.stringify(doc), key = (coarse ? 'c' : '') + json.length + ':' + hash(json);
+      if (g0?.key === key) { g0.from = p.doc; continue; }
+      jobs.push({ gk, p, cfgId, json, key, cut: !!cut, coarse });
     }
     // (colour: the part's material's, for bodies without one of their own; p.color: an older STEP import's part colour)
     const done = (j, mesh, error = null) => {
-      this.parts.set(j.gk, error ? { key: j.key, from: j.p.doc, mesh: null, error } : { key: j.key, from: j.p.doc, mesh: mesh && withPartLooks(mesh, j.p.doc), color: materialById(j.p.doc.material)?.color ?? j.p.color ?? DEFAULT_BODY_COLOR, box: mesh ? meshBox(mesh) : null });
+      this.parts.set(j.gk, error ? { key: j.key, from: j.p.doc, mesh: null, error, coarse: j.coarse } : { key: j.key, from: j.p.doc, coarse: j.coarse, mesh: mesh && withPartLooks(mesh, j.p.doc), color: materialById(j.p.doc.material)?.color ?? j.p.color ?? DEFAULT_BODY_COLOR, box: mesh ? meshBox(mesh) : null });
       // (its mass, for the bill of materials: the mesh's volume and the part's material)
       if (mesh && !isAssembly(j.p.doc) && !j.cut) {
         const kg = massOf(meshVolume(mesh), j.p.doc.material), k = j.cfgId ?? '';
@@ -791,7 +793,7 @@ export class AssemblyEditor {
       this.app.status(`Reading ${jobs.length === 1 ? jobs[0].p.name : `${jobs.length} parts`}…`);
       await Promise.all(jobs.map(async (j) => {
         try {
-          j.cacheKey = await hashText(MESH_CACHE + j.json);
+          j.cacheKey = await hashText(MESH_CACHE + (j.coarse ? 'coarse|' : '') + j.json);
           const b64 = j.cacheKey && await platform.readModelCache(j.cacheKey);
           const r = b64 ? await unpackResult(b64) : null;
           if (r?.body?.vertices && r.body.edgePts) { done(j, unpackMesh(r.body)); j.cached = true; }
@@ -814,7 +816,7 @@ export class AssemblyEditor {
     await pool.each(todo, async (j) => {
       this.app.status(left > 1 ? `Building ${left} parts…` : `Building ${j.p.name}${j.cfgId ? ` (${this.configName(j.p, j.cfgId)})` : ''}…`);
       try {
-        const r = await pool.request('partMesh', { doc: j.json });
+        const r = await pool.request('partMesh', { doc: j.json, coarse: !!j.coarse });
         const mesh = r.body && r.body.vertices ? r.body : null;
         for (const x of built.get(j.key)) done(x, mesh);
         // stored for next time, unless it had errors (its rebuild may come out differently)
@@ -831,6 +833,43 @@ export class AssemblyEditor {
     // mates on faces / edges follow the part (the same face or edge, by its number) in the configuration used
     this.resyncRefs();
     if (any) { this.solve(); this.updateGeometry(); this.renderAll(); this.app.status('Ready'); }
+    if (any) this.suggestSpeedMode();
+  }
+  // ---------------------------------------------------------------- speed mode (very large assemblies)
+  // The parts shown from simplified display meshes (the kernel meshes them coarser: the same faces and edges, so
+  // mates, measuring and picking work as before, with far fewer triangles to draw and keep); a component selected
+  // gets its full mesh (this._full: the part keys wanted in full). Saved with the assembly.
+  setSpeedMode(on) {
+    const before = this.display?.stats?.().triangles || 0;
+    this.doc.speedMode = !!on || undefined;
+    if (!on) delete this.doc.speedMode;
+    this._full = new Set();
+    this.dirty = true;
+    this.renderCommandManager();
+    this.app.status(on ? 'Speed mode: simplifying the parts shown…' : 'Speed mode off: loading the parts in full…');
+    return this.loadParts().then(() => {
+      this.updateGeometry(); this.flushGeometry?.();
+      const after = this.display?.stats?.().triangles || 0;
+      this.app.status(on ? `Speed mode: the parts are shown simplified (${fmtCount(before)} → ${fmtCount(after)} triangles); a component selected is loaded in full.` : `Speed mode off: the parts are shown in full (${fmtCount(after)} triangles).`);
+      this.app.updateTitle?.();
+      return after;
+    });
+  }
+  // the parts of these components wanted in full (in speed mode)
+  ensureFull(ids) {
+    if (!this.doc.speedMode || !ids.length) return;
+    this._full ||= new Set();
+    let more = false;
+    for (const l of this.leaves()) if (ids.includes(l.comp.id) && !this._full.has(l.gk)) { this._full.add(l.gk); more = true; }
+    if (more) this.loadParts();
+  }
+  // (a large assembly: speed mode suggested, once)
+  suggestSpeedMode() {
+    if (this.doc.speedMode || this._speedHint) return;
+    const st = this.display?.stats?.();
+    if (!st || (st.triangles < 3e6 && this.doc.components.length < 300)) return;
+    this._speedHint = true;
+    this.app.status(`A large assembly (${fmtCount(st.triangles)} triangles): View ▸ Speed Mode shows it faster.`);
   }
 
   resyncRefs() {
@@ -1226,6 +1265,7 @@ export class AssemblyEditor {
 
   select(s) {
     this.sel = s;
+    if (this.doc.speedMode) this.ensureFull(s?.kind === 'comp' ? [s.id] : s?.kind === 'refs' ? s.refs.map((r) => r.comp) : []);
     this.highlight();
     this.renderTree();
     this.renderPM();
@@ -2229,6 +2269,7 @@ export class AssemblyEditor {
         { icon: 'bom', label: 'Bill of Materials', action: () => this.showBOM() },
         { icon: 'interference', label: 'Interference Check', action: () => this.checkInterference() },
         { icon: 'collide', label: 'Collision Detection', action: () => this.setCollideMode(this.collideMode === 'off' ? 'stop' : 'off'), active: this.collideMode !== 'off' },
+        { icon: 'speed', label: 'Speed Mode', action: () => this.setSpeedMode(!this.doc.speedMode), active: !!this.doc.speedMode },
         { icon: 'zoomfit', label: 'Zoom to Fit', key: 'F', action: () => this.vp.zoomToFit() },
       ],
     };
@@ -2275,6 +2316,7 @@ export class AssemblyEditor {
       ],
       View: [
         { label: 'Zoom to Fit', icon: 'zoomfit', key: 'F', action: () => this.vp.zoomToFit() },
+        { label: (this.doc.speedMode ? '✓ ' : '') + 'Speed Mode (large assemblies)', icon: 'speed', action: () => this.setSpeedMode(!this.doc.speedMode) },
         { label: 'Isometric', icon: 'views', key: 'Ctrl+7', action: () => this.vp.setStandardView('iso') },
         { label: 'Front', icon: 'views', key: 'Ctrl+1', action: () => this.vp.setStandardView('front') },
         { label: 'Top', icon: 'views', key: 'Ctrl+5', action: () => this.vp.setStandardView('top') },
@@ -2529,6 +2571,8 @@ function meshBox(m) {
   for (let i = 0; i < m.vertices.length; i += 3) for (let k = 0; k < 3; k++) { const v = m.vertices[i + k]; if (v < min[k]) min[k] = v; if (v > max[k]) max[k] = v; }
   return { min, max };
 }
+// a count, short (1.2M, 340k)
+function fmtCount(n) { return n >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : n >= 1e4 ? `${Math.round(n / 1e3)}k` : String(n); }
 // a component's pose the same as a stored one
 function samePose(c, o) { return !!o && c.pos.every((x, k) => Math.abs(x - o.pos[k]) < 1e-9) && c.rot.every((x, k) => Math.abs(x - o.rot[k]) < 1e-12); }
 // a part shown, by its component's name (inside a sub-assembly: "Sub-assembly ▸ Component")

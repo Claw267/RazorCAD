@@ -579,11 +579,12 @@ function surfOf(face) {
   } catch { return { t: 'OTHER' }; } finally { ad?.delete(); }
 }
 
-function meshPart(s, tol, diagQ, onWork) {
+// (ang: the angular tolerance: 0.2 rad, or coarser for an assembly's speed mode)
+function meshPart(s, tol, diagQ, onWork, ang = 0.2) {
   const c = meshCache.get(s.shape);
-  if (c && c.tol === tol && c.diagQ === diagQ && c.kind === s.kind && c.look === (s.look || null)) return c;
+  if (c && c.tol === tol && c.ang === ang && c.diagQ === diagQ && c.kind === s.kind && c.look === (s.look || null)) return c;
   onWork?.();
-  const m = (faceCount(s.shape) > 2500 && triangleFacesMesh(s.shape)) || s.shape.mesh({ tolerance: tol, angularTolerance: 0.2 });
+  const m = (faceCount(s.shape) > 2500 && triangleFacesMesh(s.shape)) || s.shape.mesh({ tolerance: tol, angularTolerance: ang });
   const dense = m.faceGroups.length > 2500;
   const gs = m.faceGroups.reduce((n, g) => n + g.count, 0) === m.triangles.length ? 1 : 3;
   // a few points spread over each face (triangle centroids), for finding which feature made it
@@ -628,7 +629,7 @@ function meshPart(s, tol, diagQ, onWork) {
       return e ? { c: e.c ?? null, t: e.t || 0 } : null;
     });
   }
-  const out = { tol, diagQ, kind: s.kind, look: s.look || null, m, gs, dense, facePts, edges, surfs, faceLooks };
+  const out = { tol, ang, diagQ, kind: s.kind, look: s.look || null, m, gs, dense, facePts, edges, surfs, faceLooks };
   meshCache.set(s.shape, out);
   return out;
 }
@@ -5245,13 +5246,14 @@ async function rebuild(doc, previewId = null, opts = {}) {
     const parts = [...(solids.length ? solids : body ? [{ id: 'body', shape: body, last: null }] : []).map((x) => ({ ...x, kind: 'solid' })), ...surfaces.map((x) => ({ ...x, kind: 'surface' }))];
     const b = bboxOfAll(parts.map((s) => s.shape));
     // tolerances in steps of 2x, so they (and the cached meshes) only change when the model size really does
-    const tol = 2 ** Math.round(Math.log2(Math.max(0.005, b.diag * 0.0004)));
+    // (opts.coarse: a simplified display mesh, for an assembly's speed mode: the same faces and edges, fewer triangles)
+    const tol = 2 ** Math.round(Math.log2(Math.max(0.005, b.diag * (opts.coarse ? 0.005 : 0.0004)))), ang = opts.coarse ? 0.7 : 0.2;
     const diagQ = 2 ** Math.round(Math.log2(Math.max(1e-3, b.diag)));
     // each body is meshed on its own (so every face and edge knows its body), and only when it changed
     timing.meshStart = performance.now();
     progressFeature = null; // (meshing: no one feature to blame)
-    const meshes = parts.map((s, i) => meshPart(s, tol, diagQ, () => progress(0.8 + (0.2 * i) / parts.length, parts.length > 1 ? `Meshing body ${i + 1} of ${parts.length}…` : 'Meshing…')));
-    const key = `${KERNEL_SESSION}|${tol}|` + parts.map((s) => `${shapeId(s.shape)}:${s.id}:${s.kind}:${s.last}`).join('|');
+    const meshes = parts.map((s, i) => meshPart(s, tol, diagQ, () => progress(0.8 + (0.2 * i) / parts.length, parts.length > 1 ? `Meshing body ${i + 1} of ${parts.length}…` : 'Meshing…'), ang));
+    const key = `${KERNEL_SESSION}|${tol}|${ang}|` + parts.map((s) => `${shapeId(s.shape)}:${s.id}:${s.kind}:${s.last}`).join('|');
     const dense = meshes.some((m) => m.dense);
     const bodies = [];
     let nv = 0, nt = 0, nf = 0, ne = 0;
@@ -7105,7 +7107,7 @@ async function handleMessage(e) {
     } else if (type === 'partMesh') {
       const doc = JSON.parse(data.doc);
       doc.rollbackAt = null;
-      const out = await rebuild(doc, null, {});
+      const out = await rebuild(doc, null, { coarse: !!data.coarse });
       const r = out.res;
       result = { body: r.body, errors: [...(r.errors instanceof Map ? r.errors : Object.entries(r.errors || {}))].length };
       transfer = out.transfer;
