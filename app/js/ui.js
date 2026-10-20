@@ -4944,11 +4944,74 @@ export class UI {
     void dlg;
   }
 
+  // ---- Keyboard in the tree (feature tree, assembly tree, drawing tree): once the tree has been clicked, ↑ / ↓
+  // move from row to row (selecting it, as a click does), ← closes a folder (or goes to the row it is in),
+  // → opens it, Enter opens the item (as a double-click), Home / End go to the first / last row.
+  initTreeKeys() {
+    const root = $('#tree');
+    if (!root || root.dataset.keys) return;
+    root.dataset.keys = '1';
+    root.tabIndex = 0;
+    root.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('input, textarea, select')) return;
+      const row = e.target.closest('.tn');
+      if (row) {
+        this._treeCursor = this.treeRows().indexOf(row);
+        root.querySelectorAll('.tree-cursor').forEach((x) => x.classList.remove('tree-cursor'));
+        row.classList.add('tree-cursor');
+      }
+      root.focus({ preventScroll: true });
+    });
+  }
+  treeRows() { return [...$('#tree').querySelectorAll('.tn')].filter((r) => r.offsetParent !== null); }
+  treeKey(e) {
+    const rows = this.treeRows();
+    if (!rows.length) return false;
+    let i = rows.findIndex((r) => r.classList.contains('tree-cursor'));
+    if (i < 0) i = rows.findIndex((r) => r.classList.contains('selected'));
+    if (i < 0) i = Math.min(this._treeCursor ?? -1, rows.length - 1);
+    const go = (j) => {
+      j = Math.max(0, Math.min(rows.length - 1, j));
+      this._treeCursor = j;
+      rows[j].click();
+      // (the click may draw the tree again: mark the row of that place in the new one)
+      const now = this.treeRows(), r = now[Math.min(j, now.length - 1)];
+      now.forEach((x) => x.classList.remove('tree-cursor'));
+      r?.classList.add('tree-cursor');
+      r?.scrollIntoView({ block: 'nearest' });
+      // (and again if the tree is drawn once more just after)
+      setTimeout(() => { const n2 = this.treeRows(); if (!n2.some((x) => x.classList.contains('tree-cursor'))) n2[Math.min(j, n2.length - 1)]?.classList.add('tree-cursor'); }, 40);
+    };
+    const twisty = (r) => r?.querySelector('.tw')?.textContent.trim();
+    const indent = (r) => parseFloat(r.style.paddingLeft) || 0;
+    switch (e.key) {
+      case 'ArrowDown': go(i < 0 ? 0 : i + 1); return true;
+      case 'ArrowUp': go(i < 0 ? rows.length - 1 : i - 1); return true;
+      case 'Home': go(0); return true;
+      case 'End': go(rows.length - 1); return true;
+      case 'ArrowLeft': {
+        if (i < 0) return true;
+        if (twisty(rows[i]) === '▼') { rows[i].querySelector('.tw').click(); this.treeRows()[i]?.classList.add('tree-cursor'); return true; }
+        for (let j = i - 1; j >= 0; j--) if (indent(rows[j]) < indent(rows[i])) { go(j); break; }
+        return true;
+      }
+      case 'ArrowRight': {
+        if (i < 0) return true;
+        if (twisty(rows[i]) === '▶') { rows[i].querySelector('.tw').click(); this.treeRows()[i]?.classList.add('tree-cursor'); }
+        else if (rows[i + 1] && indent(rows[i + 1]) > indent(rows[i])) go(i + 1);
+        return true;
+      }
+      case 'Enter': if (i >= 0) rows[i].dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); return true;
+      default: return false;
+    }
+  }
+
   showShortcuts() {
     const own = Object.entries(this.prefs?.shortcuts || {});
     const rows = [
       ...own.map(([combo, b]) => [`${esc(b.label)} <small>(yours)</small>`, esc(combo)]),
       ['Search commands', 'Ctrl+K or /'],
+      ['Move through the tree', 'Click the tree, then ↑ / ↓ · ← / → close / open folders · Enter opens · Home / End'],
       ['Rotate view (free, about the model center)', 'Middle-drag (or left-drag outside sketches)'], ['Pan', 'Shift + right-drag, or Ctrl + middle-drag'],
       ['Zoom', 'Mouse wheel (toward the cursor), or Shift + middle-drag'], ['Roll', 'Alt + middle-drag, or Alt + ←/→'],
       ['Rotate in steps', 'Arrow keys 15° · Shift + arrows 90°'], ['Pan in steps', 'Ctrl + arrow keys'],

@@ -84,6 +84,7 @@ class App {
 
   async init() {
     this.status('Starting…');
+    this.ui.initTreeKeys();
     await platform.ready;
     // which graphics card draws the view, and the machine (in the session log, for crash reports)
     try {
@@ -3807,6 +3808,9 @@ class App {
       const ctrl = e.ctrlKey || e.metaKey;
       const k = e.key.toLowerCase();
       // command search, everywhere
+      // the tree, once clicked: the arrow keys move through it (not the view)
+      if (document.activeElement?.id === 'tree' && e.target === document.activeElement && !ctrl && !e.altKey && !document.querySelector('.modal-back')
+        && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'Enter'].includes(e.key) && this.ui.treeKey(e)) { e.preventDefault(); return; }
       // the user's own shortcuts (Help ▸ Customize Shortcuts) come first
       if (!typing && !document.querySelector('.modal-back') && !document.querySelector('#cmd-search') && this.ui.runShortcut(e)) { e.preventDefault(); return; }
       if (((ctrl && k === 'k' && !e.shiftKey && !e.altKey) || (e.key === '/' && !ctrl && !typing)) && !document.querySelector('.modal-back') && !document.querySelector('#cmd-search')) {

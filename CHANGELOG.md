@@ -6,6 +6,15 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 23:03 — Arrow keys in the trees
+- **The feature tree, the assembly tree and the drawing tree can be used from the keyboard.** Click the tree, then:
+  - **↑ / ↓** move from row to row, selecting each as a click does;
+  - **←** closes a folder (or goes up to the folder a row is in), **→** opens it (or goes into it);
+  - **Enter** opens the item, as a double-click does (edit a feature, open a part);
+  - **Home / End** go to the first / last row.
+- While the tree has the keyboard, the arrow keys no longer turn the view; click the view to give them back.
+- Help ▸ Keyboard Shortcuts lists it.
+
 ## 2026-10-20 23:00 — Etch lines on sheet metal
 - **Sheet Metal ▸ Etch Lines:** pick a sketch drawn on the top or bottom face of a flat part of the sheet. Its lines, arcs, circles, splines and text are marked in the flat pattern, for etching, scribing or marking part numbers and bend marks. They go on the DXF's **ETCH** layer (DXF Settings can leave them out) and show in drawing flat-pattern views (View Properties ▸ Etch lines). They are clipped to the face they are on.
 - The folded part is not changed and keeps its name; the etch lines show on the model as thin lines.
