@@ -992,6 +992,27 @@ await rc.cut(h, 10);`, 'plate');
       : { ok: false, detail: `built ${built}, BOM ${JSON.stringify(rows.map((x) => [x.name, x.qty]))}, STEP ${JSON.stringify({ parts: r.parts, comps: r.components })}` };
   },
 
+  // Report a Problem: the text shown first (editable); Open GitHub Issue opens the new-issue page filled in with
+  // it (here caught instead of opened); nothing else is sent
+  async 'report-problem'() {
+    const a = window.app, P = (await import('/js/platform.js')).platform;
+    const keep = P.openUrl;
+    let opened = null;
+    P.openUrl = async (u) => { opened = u; return true; };
+    try {
+      await a.ui.reportProblem('');
+      const ti = document.querySelector('.report-issue .ri-title'), tb = document.querySelector('.report-issue .ri-body');
+      ti.value = 'Problem: the fillet fails';
+      tb.value += '\nIt happens with a 0.1 mm edge.';
+      [...document.querySelectorAll('.modal-f button')].find((b) => b.textContent === 'Open GitHub Issue').click();
+      await wait(20);
+    } finally { P.openUrl = keep; closeModals(); }
+    const u = opened ? new URL(opened) : null;
+    const ok = !!u && u.origin + u.pathname === 'https://github.com/Labs9119/RazorCAD/issues/new' && u.searchParams.get('title') === 'Problem: the fillet fails'
+      && u.searchParams.get('body').includes('It happens with a 0.1 mm edge.') && u.searchParams.get('body').includes('**Report**');
+    return ok ? { ok: true, detail: `${opened.length} characters: ${u.searchParams.get('title')}` } : { ok: false, detail: `opened ${opened}` };
+  },
+
   // the browser version's notice: above the window, as wide as it (the text wraps), gone with ✕
   async 'web-notice'() {
     const a = window.app, root = document.getElementById('app');

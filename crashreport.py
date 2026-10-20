@@ -18,6 +18,7 @@ import faulthandler
 import json
 import os
 import platform
+import re
 import shutil
 import sys
 import threading
@@ -70,6 +71,61 @@ def system_info():
         'python': sys.version.split()[0], 'platform': platform.platform(), 'machine': platform.machine(),
         'pid': os.getpid(),
     }
+
+
+def scrub(text):
+    """Personal details taken out of report text: the user's home folder and name (in paths and on their own)."""
+    text = str(text or '')
+    home = os.path.expanduser('~')
+    user = os.path.basename(home.rstrip('\\/'))
+    for h in {home, home.replace('\\', '/'), home.replace('\\', '\\\\')}:
+        if h and len(h) > 3:
+            text = re.sub(re.escape(h), '~', text, flags=re.I)
+    text = re.sub(r'([A-Za-z]:[\\/]+Users[\\/]+)[^\\/\s"\']+', lambda m: m.group(1) + '<user>', text, flags=re.I)
+    if user and len(user) > 2 and user.lower() not in ('user', 'users', 'admin', 'public'):
+        text = re.sub(r'\b' + re.escape(user) + r'\b', '<user>', text, flags=re.I)
+    return text
+
+
+def issue_text(folder, max_body=5500):
+    """A crash report as a GitHub issue: (title, body), markdown, with personal details taken out (see scrub). The
+    part the user was working on is not included."""
+    report = {}
+    try:
+        with open(os.path.join(folder, 'report.json'), encoding='utf-8') as f:
+            report = json.load(f)
+    except (OSError, ValueError):
+        pass
+    kind = report.get('kind') or 'error'
+    message = scrub(report.get('message') or '').strip()
+    system = report.get('system') or {}
+    title = f'Crash report: {kind}' + (f' - {message.splitlines()[0][:80]}' if message else '')
+    lines = [
+        '**What happened** (please add what you were doing when it happened):', '', '', '',
+        '**Report**', '',
+        f'- RazorCAD: {system.get("version") or app_version() or "?"}' + (' (installed build)' if system.get('frozen') else ''),
+        f'- Windows: {scrub(system.get("platform") or platform.platform())}',
+        f'- Kind: {kind}',
+        f'- Time: {report.get("time") or "?"}',
+    ]
+    if message:
+        lines += ['', '**Message**', '', '```', message[:1500], '```']
+    extra = {k: v for k, v in report.items() if k not in ('kind', 'time', 'message', 'system')}
+    if extra:
+        lines += ['', '**Details**', '', '```', scrub(json.dumps(extra, indent=1, ensure_ascii=False))[:2500], '```']
+    log = ''
+    try:
+        with open(os.path.join(folder, 'session.log'), encoding='utf-8', errors='replace') as f:
+            log = scrub(''.join(f.readlines()[-40:]))
+    except OSError:
+        pass
+    body = '\n'.join(lines)
+    if log:
+        room = max_body - len(body) - 60
+        if room > 200:
+            body += '\n\n**Last lines of the session log**\n\n```\n' + log[-room:] + '\n```'
+    body += '\n\n(Sent from RazorCAD\'s crash report. The part being edited is not included: attach it if you can share it.)'
+    return title[:120], body
 
 
 class CrashReporter:
@@ -248,6 +304,24 @@ class CrashReporter:
             except (OSError, ValueError):
                 pass
             out.append({'name': d, 'kind': kind, 'message': msg})
+        return out
+
+    def all_reports(self, limit=12):
+        """The reports kept (newest first): [{ name, kind, message, time }]."""
+        out = []
+        for d in sorted(os.listdir(self.dir), reverse=True):
+            path = os.path.join(self.dir, d)
+            if not os.path.isdir(path):
+                continue
+            r = {}
+            try:
+                with open(os.path.join(path, 'report.json'), encoding='utf-8') as f:
+                    r = json.load(f)
+            except (OSError, ValueError):
+                pass
+            out.append({'name': d, 'kind': r.get('kind', ''), 'message': scrub(r.get('message', ''))[:200], 'time': r.get('time', '')})
+            if len(out) >= limit:
+                break
         return out
 
     def mark_seen(self):

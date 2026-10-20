@@ -1325,6 +1325,7 @@ export class UI {
         { label: 'Search Commands…', icon: 'search', key: 'Ctrl+K', action: () => this.commandSearch() },
         { label: 'Customize Shortcuts…', icon: 'select', action: () => this.showShortcutEditor() },
         { label: 'Keyboard Shortcuts', icon: '', action: () => this.showShortcuts() },
+        { label: 'Report a Problem…', icon: 'error', action: () => this.reportProblemMenu() },
         { label: 'Open Crash Reports Folder', icon: 'open', action: () => a.openCrashFolder() },
         { label: 'Open Files With RazorCAD (.rcad .rasm .rdrw)…', icon: 'open', action: () => this.showFileTypes() },
         { label: 'Check for Updates…', icon: 'rebuild', action: () => this.checkForUpdates(true) },
@@ -4084,7 +4085,9 @@ export class UI {
       open.onclick = () => { a.openCrashFolder(crashes.length === 1 ? crashes[0].name : ''); platform.markCrashesSeen(); box.remove(); };
       const ok = el('button', { class: 'pm-btn' }, 'Dismiss');
       ok.onclick = () => { platform.markCrashesSeen(); box.remove(); };
-      row.append(open, ok);
+      const rep = el('button', { class: 'pm-btn primary' }, 'Report on GitHub…');
+      rep.onclick = () => { this.reportProblem(crashes[0].name); };
+      row.append(rep, open, ok);
       box.appendChild(row);
       right.appendChild(box);
     }
@@ -5316,6 +5319,41 @@ export class UI {
     if (!res?.ok) { a.toast(`${res?.error || 'The update could not start'}`, true); return; }
     a.status(`Installing RazorCAD ${r.latest}… It starts again by itself in a few seconds${res.allUsers ? ' (Windows asks for permission first)' : ''}.`);
     setTimeout(() => platform.closeApp(), 600);
+  }
+
+  // ---- Reporting a problem (opt-in): a crash report, or none, as a GitHub issue. The text is shown (and can be
+  // edited) first, with personal details already taken out; the issue page then opens in the browser, filled in,
+  // and nothing is sent unless it is submitted there.
+  async reportProblemMenu() {
+    const list = await platform.crashReports().catch(() => []);
+    if (!list.length) return this.reportProblem('');
+    const pick = await this.choose('Report a Problem', 'error', '<p>Report one of the crash reports RazorCAD kept, or a problem without one.</p>',
+      [...list.slice(0, 6).map((r, i) => [r.name, `${(r.time || r.name).replace('T', ' ').slice(0, 16)} · ${r.kind}${r.message ? ': ' + r.message.slice(0, 50) : ''}`, i === 0]), ['', 'Without a crash report']]);
+    if (pick === null) return;
+    return this.reportProblem(pick);
+  }
+  async reportProblem(name = '') {
+    const r = await platform.crashIssue(name).catch((e) => ({ error: e.message }));
+    if (!r || r.error) { this.app.toast(r?.error || 'The report could not be read', true); return; }
+    const box = el('div', { class: 'report-issue' });
+    box.innerHTML = `<p class="pm-hint" style="margin-top:0">This opens a new issue on RazorCAD's GitHub page in your browser, filled in with the text below. Nothing is sent until you submit it there (with a GitHub account). Your user name and folders are taken out, and your part is not included. Read it, and add what you were doing.</p>
+      <label class="pm-label">Title</label><input type="text" class="ri-title">
+      <label class="pm-label" style="margin-top:6px">Text</label><textarea class="ri-body" spellcheck="false" data-own-escape></textarea>`;
+    const ti = box.querySelector('.ri-title'), tb = box.querySelector('.ri-body');
+    ti.value = r.title; tb.value = r.body;
+    for (const x of [ti, tb]) x.addEventListener('keydown', (e) => e.stopPropagation());
+    const url = () => {
+      let body = tb.value;
+      const make = () => 'https://github.com/Labs9119/RazorCAD/issues/new?' + new URLSearchParams({ title: ti.value.slice(0, 200), body }).toString();
+      let u = make();
+      while (u.length > 7000 && body.length > 500) { body = body.slice(0, Math.floor(body.length * 0.85)) + '\n\n(shortened)'; u = make(); }
+      return u;
+    };
+    this.modal('Report a Problem', 'error', box, [
+      { label: 'Open GitHub Issue', primary: true, action: () => { platform.openUrl(url()); platform.markCrashesSeen?.(); this.app.status('The issue page opened in your browser: submit it there to send the report.'); } },
+      { label: 'Copy Text', action: () => { navigator.clipboard?.writeText(`${ti.value}\n\n${tb.value}`); this.app.status('Report copied.'); return false; } },
+      { label: 'Cancel' },
+    ]);
   }
 
   async showAbout() {

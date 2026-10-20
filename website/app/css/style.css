@@ -806,3 +806,8 @@ svg.ref-arrows { position: absolute; left: 0; top: 0; pointer-events: none; z-in
 
 /* Translated labels: long words break at their soft hyphens (the dictionaries put them in) */
 .cm-btn > span:last-child, .pm-gt, .pm-row > label, .start-btn small { hyphens: manual; }
+
+/* Report a Problem */
+.report-issue { display: flex; flex-direction: column; width: min(720px, 86vw); }
+.report-issue .ri-title { width: 100%; }
+.report-issue .ri-body { width: 100%; height: min(420px, 50vh); resize: vertical; font: 12px/1.4 Consolas, 'Cascadia Mono', monospace; padding: 6px; border: 1px solid var(--border); border-radius: 3px; }

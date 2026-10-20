@@ -6,6 +6,13 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 00:21 — Report a problem on GitHub
+- **Help ▸ Report a Problem…** and **Report on GitHub…** in the start window's crash notice turn a crash report into a GitHub issue in one click. Help ▸ Report a Problem can also send a plain report, without a crash.
+- The report contains RazorCAD's version, Windows, what went wrong with its details, and the last lines of the session log. You see the whole text first and can edit it.
+- Your user name and your folders are taken out, and the part you were working on is not included.
+- **Open GitHub Issue** opens RazorCAD's new-issue page in your browser with the text filled in. Nothing is sent until you submit it there (with a GitHub account), so reporting stays your choice. **Copy Text** copies it instead.
+- Regression test: report-problem.
+
 ## 2026-10-21 00:17 — More regression tests, and tests on GitHub
 - **Tests on GitHub:** the regression tests now run on GitHub for every push and pull request (Windows, Microsoft Edge, the software renderer for the 3D view). The README shows whether they pass. They start running from the next push.
 - **More tests:**

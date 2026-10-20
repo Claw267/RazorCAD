@@ -152,6 +152,15 @@ export const platform = {
   // Update now (desktop, installed with the setup): { ok } once the setup is downloaded and started, else { error }
   async startUpdate(setup) { return desktop ? api().start_update(setup.url, setup.size, setup.digest) : { error: 'The browser version updates by itself' }; },
   // a RazorCAD page (on GitHub) in the web browser
+  // crash reports as GitHub issues (desktop): the reports kept, and one (or none: a plain problem report) as
+  // { title, body, url } with personal details taken out
+  async crashReports() { return desktop ? api().crash_reports() : []; },
+  async crashIssue(name = '') {
+    if (desktop) return api().crash_issue(name);
+    const body = `**What happened** (and what you expected):\n\n\n\n**Steps to repeat it**\n\n1. \n\n**Report**\n\n- RazorCAD in the browser${window.RAZORCAD_WEB?.version ? ' ' + window.RAZORCAD_WEB.version : ''}\n- Browser: ${navigator.userAgent}\n`;
+    return { title: 'Problem: ', body, url: 'https://github.com/Labs9119/RazorCAD/issues/new' };
+  },
+
   async openUrl(url) {
     if (desktop) return api().open_url(url);
     window.open(url, '_blank', 'noopener');

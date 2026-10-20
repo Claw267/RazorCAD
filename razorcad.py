@@ -182,6 +182,17 @@ def update_script(setup, folder, all_users, log):
             'Start-Sleep -Milliseconds 400; Start-Process -FilePath %s') % (run, q(log), q(log), q(os.path.join(folder, APP_NAME + '.exe')))
 
 
+def issue_url(title, body):
+    """A new-issue page of RazorCAD's GitHub repository with the title and text filled in (shortened to fit a URL)."""
+    import urllib.parse
+    q = lambda t, b: f'{REPO_URL}/issues/new?' + urllib.parse.urlencode({'title': t, 'body': b})
+    url = q(title, body)
+    while len(url) > 7000 and len(body) > 500:
+        body = body[:int(len(body) * 0.85)] + '\n\n(shortened)'
+        url = q(title, body)
+    return url
+
+
 def version_key(v):
     """'0.12.0-beta' → comparable tuple; a pre-release (alpha < beta < rc) comes before its release."""
     m = re.match(r'v?(\d+)\.(\d+)(?:\.(\d+))?(?:-([A-Za-z]+)\.?(\d*))?', str(v or '').strip())
@@ -1143,6 +1154,30 @@ class Api:
         if not self._crash:
             return {'folder': None, 'recent': []}
         return {'folder': self._crash.dir, 'recent': self._crash.recent()}
+
+    def crash_reports(self):
+        """The crash reports kept, newest first (for Help ▸ Report a Problem)."""
+        return self._crash.all_reports() if self._crash else []
+
+    def crash_issue(self, name=''):
+        """A crash report (by its folder name; none: a plain problem report) as the text of a GitHub issue:
+        { title, body, url }, personal details taken out. Nothing is sent: the user reads it, and the page opens
+        in their browser only when they choose to."""
+        from crashreport import issue_text, scrub, system_info
+        import urllib.parse
+        if name:
+            if not self._crash:
+                return {'error': 'No crash reports'}
+            folder = os.path.join(self._crash.dir, os.path.basename(str(name)))
+            if not os.path.isdir(folder):
+                return {'error': 'That report is no longer there'}
+            title, body = issue_text(folder)
+        else:
+            s = system_info()
+            title = 'Problem: '
+            body = ('**What happened** (and what you expected):\n\n\n\n**Steps to repeat it**\n\n1. \n\n'
+                    f'**Report**\n\n- RazorCAD: {s.get("version") or "?"}\n- Windows: {scrub(s.get("platform"))}\n')
+        return {'title': title, 'body': body, 'url': issue_url(title, body)}
 
     def mark_crashes_seen(self):
         if self._crash:
