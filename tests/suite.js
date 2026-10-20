@@ -1035,6 +1035,68 @@ rc.log(b.bodies, b.errors.length);`, 'text');
       : { ok: false, detail: `run ${JSON.stringify(r)}, bodies ${a.result.bodies.length}, volume ${v}, metrics ${!!m?.metrics}, families ${fams.join(',')}` };
   },
 
+  // standard parts, round two: every type builds as one solid; a bolt with a washer under its head and a washer and
+  // nut on the far side goes into all four holes of a plate; a hole ending on a round bar (no flat face there) keeps
+  // its seat when the hole is moved
+  async 'standard-parts-2'() {
+    const a = window.app, S = await import('/js/stdparts.js'), k = a.kernel;
+    const bad = [];
+    for (const t of S.STD_TYPES) {
+      const sp = S.makeStdPart(t.id, t.sizes[Math.floor(t.sizes.length / 2)], null, 'steel');
+      const r = await k.rebuild(sp.doc, null, null);
+      // (a bearing is two rings)
+      if (r.errors.length || (r.body?.bodies || []).length !== (t.id === 'bearing' ? 2 : 1)) bad.push(`${t.id}: ${r.errors.map(([, m]) => m).join('; ') || (r.body?.bodies || []).length + ' bodies'}`);
+    }
+    const box = (name, geo, more) => { const p = M.newDoc(); p.name = name; const s = M.createFeature(p, 'sketch', { plane: { ref: 'top' } }); Object.assign(s, geo, { constraints: [] }); p.features.push(s, M.createFeature(p, 'extrude', { sketch: s.id, depth: 10 })); more?.(p); return p; };
+    const pts = [[-30, -20], [30, -20], [30, 20], [-30, 20]];
+    const plate = box('Plate', { points: [...pts.map(([x, y], i) => ({ id: 'p' + (i + 1), x, y })), ...[[-20, -10], [20, -10], [20, 10], [-20, 10]].map(([x, y], i) => ({ id: 'h' + i, x, y }))],
+      curves: [...pts.map((_, i) => ({ id: 'c' + (i + 1), type: 'line', p1: 'p' + (i + 1), p2: 'p' + ((i + 1) % 4 + 1), construction: false })), ...[0, 1, 2, 3].map((i) => ({ id: 'k' + i, type: 'circle', c: 'h' + i, r: 4.5, construction: false }))] });
+    a.newAssembly(); await wait(300); closeModals();
+    const asm = a.drawing;
+    await asm.addComponent(asm.addPart(plate, null, null));
+    const pc = asm.doc.components[0];
+    await until(() => asm.geo(pc)?.mesh, 30000);
+    asm.vp.setStandardView('iso');
+    const mesh = asm.geo(pc).mesh, gi = mesh.faceGroups.findIndex((g) => g.surf?.t === 'CYLINDER');
+    const sf = mesh.faceGroups[gi].surf;
+    const hole = asm.holeOf({ comp: pc.id, kind: 'axis', p: sf.p, d: sf.d, r: sf.r, face: gi, gi: `0:f${gi}`, what: 'Cylindrical face' });
+    const others = asm.matchingHoles(hole).length;
+    const set = S.setParts('hexBolt', 'M8'), extra = 2 * S.heightOf(...set.washer) + S.heightOf(...set.nut);
+    const L = S.fitLength('hexBolt', 'M8', hole.depth, extra);
+    await asm.insertStdPart('hexBolt', 'M8', L, 'steel', hole, { washer: true, nut: true, all: true });
+    await until(() => asm.doc.components.every((c) => asm.geo(c)?.mesh), 30000);
+    const count = (re) => asm.doc.components.filter((c) => re.test(c.name)).length;
+    const y = (re) => [...new Set(asm.doc.components.filter((c) => re.test(c.name)).map((c) => Math.round(c.pos[1] * 1000) / 1000))].sort((p, q) => p - q).join('/');
+    const stackOk = others === 3 && L === 25 && count(/^Hex Bolt/) === 4 && count(/^Washer/) === 8 && count(/^Hex Nut/) === 4 && asm.doc.mates.length === 32 && asm.solveOk
+      && y(/^Hex Bolt/) === '11.6' && y(/^Hex Nut/) === '-1.6' && y(/^Washer/) === '0/10';
+    // a cross hole in a round bar: its end is on the curved surface, a plane of its own, kept up when the hole moves
+    const bar = M.newDoc(); bar.name = 'Bar';
+    const s1 = M.createFeature(bar, 'sketch', { plane: { ref: 'right' } }); Object.assign(s1, { points: [{ id: 'p1', x: 0, y: 0 }], curves: [{ id: 'c1', type: 'circle', c: 'p1', r: 15, construction: false }], constraints: [] });
+    const s2 = M.createFeature(bar, 'sketch', { plane: { ref: 'top' } }); Object.assign(s2, { points: [{ id: 'p1', x: 10, y: 0 }], curves: [{ id: 'c1', type: 'circle', c: 'p1', r: 4, construction: false }], constraints: [] });
+    bar.features.push(s1, M.createFeature(bar, 'extrude', { sketch: s1.id, depth: 40, end: 'midplane' }), s2, M.createFeature(bar, 'extrude', { sketch: s2.id, op: 'cut', end: 'through2' }));
+    const pb = asm.addPart(bar, null, null);
+    await asm.addComponent(pb);
+    const bc = asm.doc.components[asm.doc.components.length - 1];
+    await until(() => asm.geo(bc)?.mesh, 30000);
+    const bm = asm.geo(bc).mesh, bgi = bm.faceGroups.findIndex((g) => g.surf?.t === 'CYLINDER' && Math.abs(g.surf.r - 4) < 1e-6);
+    const bs = bm.faceGroups[bgi].surf;
+    const bh = asm.holeOf({ comp: bc.id, kind: 'axis', p: bs.p, d: bs.d, r: bs.r, face: bgi, gi: `x:f${bgi}`, what: 'Cylindrical face' });
+    const own = !!bh.face.holeEnd;
+    const pin = await asm.insertStdPart('dowelPin', 'Ø8', 20, 'steel', bh, {});
+    const seatMate = asm.doc.mates.find((m) => m.b.comp === pin.id && m.type === 'coincident');
+    const before = seatMate.a.p.map((v) => Math.round(v * 1000) / 1000).join(',');
+    // (the part changed, as when it is saved again: a new copy of it)
+    const nd = JSON.parse(JSON.stringify(asm.part(pb).doc)), hs = nd.features.find((f) => f.id === s2.id);
+    hs.points[0].x = 20; hs.rev = M.newRev();
+    asm.part(pb).doc = nd;
+    await asm.loadParts();
+    const after = seatMate.a.p.map((v) => Math.round(v * 1000) / 1000).join(',');
+    const moved = Math.abs(seatMate.a.p[0] - before.split(',').map(Number)[0]) > 9.99 || Math.abs(seatMate.a.p[2] - before.split(',').map(Number)[2]) > 9.99;
+    const ok = !bad.length && stackOk && own && moved;
+    return ok ? { ok: true, detail: `${S.STD_TYPES.length} types build; 4 holes × (washer, M8×${L}, washer, nut), 32 mates; bar hole end ${before} → ${after}` }
+      : { ok: false, detail: `bad ${bad.join(' | ')}; others ${others}, L ${L}, bolts ${count(/^Hex Bolt/)}, washers ${count(/^Washer/)}, nuts ${count(/^Hex Nut/)}, mates ${asm.doc.mates.length}, solved ${asm.solveOk}, y bolt ${y(/^Hex Bolt/)} nut ${y(/^Hex Nut/)} washer ${y(/^Washer/)}; own end ${own}; ${before} → ${after}` };
+  },
+
   // the browser version's notice: above the window, as wide as it (the text wraps), gone with ✕
   async 'web-notice'() {
     const a = window.app, root = document.getElementById('app');

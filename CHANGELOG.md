@@ -6,6 +6,18 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 06:27 — Standard parts: fastener sets, all holes, more types
+- **Fastener sets:** a bolt or screw can take a **washer under its head** and a **washer and nut on the other side** of the hole. All of them are mated, and the bolt length is picked to suit (e.g. a 10 mm plate: M8 × 25).
+- **Into all matching holes:** the same part (or set) goes into every hole of the same size, parallel to the selected one, in one go.
+- **New types:**
+  - socket set screws (ISO 4026), flush with the hole's end;
+  - circlips for shafts and for bores (DIN 471 / 472, simplified rings with their gap);
+  - parallel keys (DIN 6885 A, the size picked from the shaft);
+  - round head rivets (ISO 1051).
+- **Inch fasteners:** hex bolts (ASME B18.2.1), socket head cap screws (ASME B18.3), hex nuts (ASME B18.2.2) and SAE flat washers, 1/4" to 1", with UNC cosmetic threads and inch lengths (1-1/4" …). Fitted to clearance or tapped holes like the metric ones.
+- **Holes ending on a curved face** (e.g. a cross hole in a round bar) now get a seat plane of their own. It follows the hole when the part changes.
+- Regression test: standard-parts-2 (every type builds; four sets in a plate, 32 mates; the bar's hole end follows the hole).
+
 ## 2026-10-21 06:18 — Fonts that come with RazorCAD
 - RazorCAD now includes the **DejaVu** fonts: Sans, Sans Mono and Serif, each in regular, bold, italic and bold italic. They are free to share, and their licence is in app/fonts.
 - They are always in the font list for sketch text, and they work everywhere: in the browser version, in the tests and on PCs without the Windows fonts.
