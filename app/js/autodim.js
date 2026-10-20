@@ -8,7 +8,8 @@
 // each size once in the drawing (a size one view shows is not repeated in another of the same part), and none
 // that a dimension in the view gives already. Only views looking along the part's axes are dimensioned.
 // opts: { style, tol (added to lengths and diameters, e.g. "±0.1"), spread (texts that would overlap moved
-// apart), overall, holes, positions, radii (which kinds; all by default) }.
+// apart), overall, holes, positions, radii (which kinds; all by default), had (a Set: the sizes the views'
+// own dimensions give are added to it) }. Each new annotation's `why` (not saved): 'size' | 'd' | 'r' | 'pos'.
 import * as D from './drawing.js';
 
 const r4 = (x) => Math.round(x * 1e4) / 1e4;
@@ -35,12 +36,13 @@ export function autoDims(dwg, views, geos, done = new Set(), options = {}) {
     const mine = [];
     const add = (a, key = null) => {
       const k = keyOf(a);
-      if (have.has(k)) { if (key) done.add(key); return false; } // (shown already: done)
+      if (have.has(k)) { if (key) { done.add(key); o.had?.add(key); } return false; } // (shown already: done)
       if (key && done.has(key)) return false;
       if (a.kind === 'linear' && D.dimValue(dwg, a) < 1e-6) return false;
       if (o.tol && a.type === 'dim' && (a.kind === 'linear' || a.kind === 'diameter')) a.tol = o.tol;
       have.add(k);
       if (key) done.add(key);
+      Object.defineProperty(a, 'why', { value: key ? key.split('|')[2] : 'pos', enumerable: false });
       out.push(a); mine.push(a);
       return true;
     };

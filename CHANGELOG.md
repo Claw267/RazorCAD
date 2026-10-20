@@ -6,6 +6,14 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 08:25 — Check Drawing
+- **Check Drawing** (Annotation ribbon, Tools menu) lists what a drawing still lacks before it goes out, most important first, grouped:
+  - **Title block**: fields left empty (the sheet format's own fields, else the standard ones). Title, drawing number, drawn by, date, revision and material are to fix; checked and approved are noted, to be filled in at sign-off.
+  - **Dimensions per view**: part views with no dimensions (a view whose sizes all show in other views is only noted), crowded views, annotations whose view was deleted and dimensions that lost what they measured.
+  - **Undimensioned features**: the overall sizes, hole diameters, radii and hole positions that no dimension gives. A size given in one view is not asked for again in the part's other views, a hole callout gives a hole's diameter, and hole positions count in baseline, chain or ordinate style.
+- Click an item to show its view or annotation. **Add Missing Dimensions** puts in what Auto Dimension would; **Title Block…** opens the drawing's properties.
+- Regression test: drawing-check (a plate with three holes: the empty fields, 2 views without dimensions, the overall sizes and 3× Ø4; a hole callout covers the diameter; after chain Auto Dimension and the title block filled in, only notes are left; a note on a deleted view is reported).
+
 ## 2026-10-21 08:19 — Assembly features: holes and cuts made in the assembly, with fasteners
 - **Assembly Hole** and **Assembly Cut** (Assembly ribbon, Insert menu): click points on a flat face of a component; the hole or cut goes in square from there, through all or to a depth, through every component behind it (listed in the panel, each can be left out).
 - Holes: simple, counterbore, countersink or tapped, standard sizes (ISO 273 close / normal / loose) or custom. The first component gets the hole as chosen, the ones behind it a plain hole of the drill size; **Tap the last component** makes the last one tapped for the size (a cosmetic thread). Cuts: a rectangle, width × length, turned by an angle.

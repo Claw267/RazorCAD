@@ -7,6 +7,7 @@
 import * as M from '/js/model.js';
 import { BUILTIN_TEMPLATES } from '/js/drawtemplates.js';
 import * as D2 from '/js/drawing.js';
+import { checkDrawing } from '/js/drawcheck.js';
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 async function until(fn, ms = 60000, step = 100) {
@@ -1358,6 +1359,54 @@ await rc.cut(h, 10);`, 'plate');
     const ok = vals === '6,10,10,70,80,94,120' && tolOk && overlap === 0 && n1 === 8 && xvals === '0,10,16,110,120' && n2 > 8;
     return ok ? { ok: true, detail: `chain: ${vals} (±0.1), no overlaps; ordinate: x ${xvals}` }
       : { ok: false, detail: `chain ${n1}: ${vals}, tol ${tolOk}, overlaps ${overlap}; ordinate ${n2}: x ${xvals}` };
+  },
+
+  // Check Drawing: a new drawing of a plate with three Ø4 holes lists the empty title block fields, the views with no
+  // dimensions and the sizes not dimensioned (overall sizes, 3× Ø4); a hole callout gives the diameter; after Auto
+  // Dimension (chain style) and the title block filled in nothing is left to fix; a note whose view was deleted is
+  // reported.
+  async 'drawing-check'() {
+    const a = window.app;
+    if (a.mode === 'drawing') { const i = a.tabs.findIndex((t) => t.kind !== 'drawing'); if (i >= 0) await a.activateTab(i); }
+    a.newDocument(); await wait(200);
+    const r = await a.macros.run(`const p = await rc.sketch('top', (s) => s.centerRect(0, 0, 120, 80));
+await rc.extrude(p, 10);
+const h = await rc.sketch('top', (s) => { for (const x of [-50, -44, 50]) s.circle(x, 30, 2); });
+await rc.cut(h, 10);`, 'plate');
+    if (!r.ok) return { ok: false, detail: r.error };
+    const keep = a.ui.newDrawingSetup;
+    a.ui.newDrawingSetup = async () => ({ template: BUILTIN_TEMPLATES.find((t) => t.id === 'builtin:A3L'), name: 'Check', props: {}, sheet: null });
+    try { await a.newDrawing(true); } finally { a.ui.newDrawingSetup = keep; }
+    const ed = a.drawing;
+    await until(() => ed.doc.views.length === 3 && ed.doc.views.every((v) => (ed.geos.get(v.id)?.edges?.length || 0) > 0), 60000, 250);
+    for (const k of ['title', 'number', 'drawnBy', 'material']) ed.doc.props[k] = '';
+    const texts = (res, lv) => res.items.filter((x) => !lv || x.level === lv).map((x) => x.text);
+    const r1 = ed.checkDrawingDialog();
+    const shown = document.querySelectorAll('.modal .dc-item').length;
+    closeModals();
+    const t1 = texts(r1);
+    const tb = ['Title', 'Drawing No.', 'Drawn', 'Material'].every((l) => t1.includes(`${l} is empty`));
+    const noDims = t1.filter((t) => / has no dimensions$/.test(t)).length;
+    const hole = t1.find((t) => /hole Ø4 \(3× holes\) has no diameter/.test(t));
+    const sizes = t1.filter((t) => /the overall (width|height) \((120|80|10)\)/.test(t)).length;
+    // a hole callout for them
+    const hv = ed.doc.views.find((v) => r1.items.some((x) => x.view === v.id && /hole Ø4/.test(x.text)));
+    ed.doc.anns.push({ id: D2.newId(ed.doc, 'a'), type: 'note', sheet: hv.sheet, view: hv.id, leader: [0, 0], text: '3× Ø4 THRU ALL', h: 3.5, pos: [10, 10] });
+    const r2 = checkDrawing(ed.doc, ed.geos);
+    const calloutOk = !texts(r2).some((t) => /hole Ø4/.test(t));
+    // (chain dimensions give the hole positions as well as baseline ones)
+    ed.autoDimension({ style: 'chain' });
+    Object.assign(ed.doc.props, { title: 'Plate', number: 'P-100', drawnBy: 'Test', material: 'Steel', date: '2026-10-21', revision: 'A', company: 'Co', finish: 'None', tolerance: 'ISO 2768-m' });
+    const r3 = checkDrawing(ed.doc, ed.geos);
+    const clean = !r3.items.some((x) => x.level !== 'info');
+    ed.doc.anns.push({ id: D2.newId(ed.doc, 'a'), type: 'note', sheet: hv.sheet, view: 'gone', text: 'x', h: 3.5, pos: [0, 0] });
+    const r4 = checkDrawing(ed.doc, ed.geos);
+    const orphan = texts(r4, 'error').some((t) => /view that was deleted/.test(t));
+    ed.doc.anns.pop();
+    const covered = t1.filter((t) => / has no dimensions \(its sizes are given in other views\)$/.test(t)).length;
+    const ok = tb && noDims === 2 && covered === 1 && !!hole && sizes >= 3 && shown === r1.items.length && calloutOk && clean && orphan;
+    return ok ? { ok: true, detail: `${r1.items.length} found (${texts(r1, 'error').length} to fix); after the callout, Auto Dimension and the title block: ${r3.items.length} notes (${texts(r3).join('; ')})` }
+      : { ok: false, detail: `tb ${tb}, noDims ${noDims}, hole ${hole}, sizes ${sizes}, shown ${shown}/${r1.items.length}, callout ${calloutOk}, clean ${clean} (${texts(r3).join('; ')}), orphan ${orphan}; first: ${t1.join(' | ')}` };
   },
 
   // BOM mass and cost: a steel plate (60 × 40 × 5) and two aluminium blocks (20 × 20 × 15) with costs → masses from

@@ -18,6 +18,7 @@ import { bomRows, bomItemOf, BOM_FIELDS, bomPropNames, bomCell, bomSources, bomC
 import { propOf } from './custprops.js';
 import { explodeOffsets } from './explode.js';
 import { autoDims, AUTO_DIM_DEFAULTS } from './autodim.js';
+import { checkDrawing } from './drawcheck.js';
 import { parseDXF, dxfShapes } from './dxfimport.js';
 import { t as tr } from './i18n.js';
 
@@ -1479,6 +1480,48 @@ export class DrawingEditor {
     return anns.length;
   }
 
+  // Check Drawing: what the drawing still lacks (title block fields, views without dimensions, sizes not
+  // dimensioned), listed by importance; clicking one shows its view or annotation. Add Missing Dimensions puts in
+  // what Auto Dimension would.
+  checkDrawingDialog() {
+    if (this.doc.views.some((v) => !D.viewGeom(this.doc, v, this.geos))) { this.app.toast('The views are still being drawn: try again in a moment', true); return null; }
+    const r = checkDrawing(this.doc, this.geos);
+    const ui = this.app.ui, wrap = document.createElement('div');
+    wrap.className = 'dc-wrap';
+    const n = { error: 0, warn: 0, info: 0 };
+    for (const it of r.items) n[it.level]++;
+    const head = document.createElement('p');
+    head.innerHTML = r.items.some((x) => x.level !== 'info') ? `<b>${n.error}</b> to fix, <b>${n.warn}</b> to look at${n.info ? `, ${n.info} note${n.info === 1 ? '' : 's'}` : ''}. Click one to show it.` : '<b>Nothing to fix.</b>' + (n.info ? ` ${n.info} note${n.info === 1 ? '' : 's'}:` : ' The title block is filled in and the views are dimensioned.');
+    wrap.appendChild(head);
+    let group = null;
+    for (const it of r.items.sort((p, q) => p.group.localeCompare(q.group) || ['error', 'warn', 'info'].indexOf(p.level) - ['error', 'warn', 'info'].indexOf(q.level))) {
+      if (it.group !== group) { group = it.group; const h = document.createElement('div'); h.className = 'dc-group'; h.textContent = tr(group); wrap.appendChild(h); }
+      const row = document.createElement('button');
+      row.className = 'dc-item dc-' + it.level;
+      row.innerHTML = `<span class="dc-dot"></span><span></span>`;
+      row.lastChild.textContent = it.text;
+      row.title = it.level === 'error' ? 'To fix' : it.level === 'warn' ? 'To look at' : 'A note';
+      row.onclick = () => this.showCheckItem(it);
+      wrap.appendChild(row);
+    }
+    const missing = [...r.missing.values()].reduce((t, x) => t + x.length, 0);
+    const buttons = [];
+    if (missing) buttons.push({ label: `Add Missing Dimensions (${missing})`, action: () => { this.selected = new Set(r.missing.keys()); const sheet = this.sheetId; for (const s of new Set([...r.missing.keys()].map((id) => this.doc.views.find((v) => v.id === id)?.sheet))) { this.sheetId = s; this.autoDimension(); } this.sheetId = sheet; this.selected.clear(); this.renderAll(); } });
+    if (r.items.some((x) => x.fix === 'props')) buttons.push({ label: 'Title Block…', action: () => { setTimeout(() => this.propsDialog(), 0); } });
+    buttons.push({ label: 'Close', primary: true });
+    ui.modal('Check Drawing', 'drawCheck', wrap, buttons);
+    this.app.status(r.items.length ? `Check Drawing: ${n.error} to fix, ${n.warn} to look at.` : 'Check Drawing: nothing to fix.');
+    return r;
+  }
+  // a check's view or annotation shown (selected, on its sheet)
+  showCheckItem(it) {
+    const id = it.ann || it.view, sheet = (it.ann ? this.doc.anns.find((a) => a.id === it.ann) : this.doc.views.find((v) => v.id === it.view))?.sheet;
+    if (!id) { if (it.fix === 'props') this.propsDialog(); return; }
+    if (sheet && sheet !== this.sheetId) { this.sheetId = sheet; this.fit?.(); }
+    this.selected = new Set([id]);
+    this.renderAll();
+  }
+
   // The BOM table's columns: what each shows (a field, a custom property of the parts, or values typed in here),
   // its heading and width, in order; typed values are entered in the grid below.
   // a value typed into a BOM table cell
@@ -2349,6 +2392,7 @@ export class DrawingEditor {
       annotation: [
         { icon: 'smartdim', label: 'Dimension', action: () => this.startTool('dim'), active: this.tool?.kind === 'dim' },
         { icon: 'autoDim', label: 'Auto Dimension', action: () => this.autoDimensionDialog() },
+        { icon: 'drawCheck', label: 'Check Drawing', action: () => this.checkDrawingDialog() },
         { icon: 'note', label: 'Note', action: () => this.startTool('note'), active: this.tool?.kind === 'note' },
         'sep',
         { icon: 'baselineDim', label: 'Baseline Dimension', action: () => this.startTool('baseline'), active: this.tool?.kind === 'baseline' },
@@ -2452,6 +2496,7 @@ export class DrawingEditor {
       Tools: [
         { label: 'Sheet Properties…', icon: 'sheetProps', action: () => this.sheetPropsDialog() },
         { label: 'Drawing Properties (Title Block)…', icon: 'titleBlock', action: () => this.propsDialog() },
+        { label: 'Check Drawing…', icon: 'drawCheck', action: () => this.checkDrawingDialog() },
       ],
       Help: [
         { label: 'About Drawings', icon: '', action: () => this.app.ui.modal('Drawings', 'drawing', '<p>Place views of a part with <b>Model View</b> or <b>Standard Views</b>; make <b>Projected</b>, <b>Section</b> and <b>Detail</b> views from them; add <b>Dimensions</b>, <b>Notes</b>, <b>Center Marks</b> and <b>Centerlines</b>; fill in the title block (<b>Title Block</b>) and export a PDF.</p><p class="pm-hint">Middle or right mouse button drags the sheet, the wheel zooms, F fits the sheet. Drag views and annotations to move them; double-click to edit; Del deletes.</p>', [{ label: 'OK', primary: true }]) },
