@@ -1,0 +1,2 @@
+2. Windows may show "Windows protected your PC" (SmartScreen), because this test version is not
+   code-signed. Click "More info", then "Run anyway".

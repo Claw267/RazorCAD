@@ -8,8 +8,7 @@ Thank you for testing RazorCAD, a parametric 3D part modeler for Windows 10 and 
 
 INSTALLING
 1. Run RazorCAD-Setup-{VERSION}.exe.
-2. Windows may show "Windows protected your PC" (SmartScreen), because this test version is not
-   code-signed. Click "More info", then "Run anyway".
+{SMARTSCREEN}
 3. Choose "Just for me" (no administrator rights needed) or "For everyone on this computer", pick a
    folder if you want another one, and click Install.
 

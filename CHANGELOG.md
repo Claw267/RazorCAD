@@ -6,6 +6,12 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 21:58 — Ready for code signing
+- **The builds sign RazorCAD once a code-signing certificate is set up.** `build.bat` signs RazorCAD.exe and its thumbnail DLL; `installer\build_installer.bat` signs the DLL it installs and the setup itself. Each file gets SHA-256 with a timestamp and is checked with `signtool verify`; a failed signing stops the build. Without a certificate the builds say "Not signed" and carry on as before.
+- **`tools\sign.py`**: takes a certificate on a USB token or in the Windows certificate store (by thumbprint), a .pfx file (password only from an environment variable), or a cloud signing service. `--check` shows what is set up; `--dry-run` shows the signtool command. Settings go in environment variables or a `signing.local.json`, which git ignores (as it does .pfx files).
+- **installer\SIGNING.md**: how to get a certificate (a certificate authority, a cloud signing service, or free open-source programmes), how to install signtool, and how to set it up.
+- The installer's **"Read me first.txt"** matches the setup: signed, it says how to check the publisher; unsigned, it keeps the "More info ▸ Run anyway" steps.
+
 ## 2026-10-20 21:54 — Faster patterns of bosses and other added features
 - **Linear, circular and other patterns of an added feature** (bosses, ribs, pins…) now fuse all their copies into the body in one operation, as patterns of cuts already did. Before, each copy was fused on its own, and each fuse was slower than the last as the body grew. A plate with 200 bosses builds in 2.0 s instead of 8.8 s; 50 bosses in 0.58 s instead of 0.89 s. The result is the same.
 - Copies that reach no body still become bodies of their own. Unusual cases (a copy bridging two bodies, loose copies overlapping each other) are still done copy by copy, as before.

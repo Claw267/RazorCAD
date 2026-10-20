@@ -7,6 +7,11 @@ RazorCAD.old.exe
 *.dll
 *.pdb
 
+# Code signing: local settings and certificates never go into git (installer/SIGNING.md)
+signing.local.json
+*.pfx
+*.p12
+
 # Python
 __pycache__/
 *.pyc

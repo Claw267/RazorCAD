@@ -10,6 +10,9 @@ if errorlevel 1 (
   echo Thumbnail handler build failed.
   exit /b 1
 )
+rem code signing (tools\sign.py: only once a certificate is set up, see installer\SIGNING.md)
+python tools\sign.py build\shell\RazorCADThumbs.dll
+if errorlevel 1 exit /b 1
 python -m PyInstaller --noconfirm --clean --onefile --windowed ^
   --name RazorCAD --icon "%~dp0assets\razorcad.ico" ^
   --add-data "%~dp0app;app" ^
@@ -20,6 +23,8 @@ if errorlevel 1 (
   echo Build failed.
   exit /b 1
 )
+python tools\sign.py dist\RazorCAD.exe
+if errorlevel 1 exit /b 1
 rem remove the copy set aside by an earlier build (only possible once that RazorCAD has closed)
 if exist RazorCAD.old.exe del /q RazorCAD.old.exe 2>nul
 copy /y dist\RazorCAD.exe RazorCAD.exe >nul 2>nul

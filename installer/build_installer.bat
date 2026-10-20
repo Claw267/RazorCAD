@@ -23,6 +23,9 @@ if errorlevel 1 (
   echo Thumbnail handler build failed.
   exit /b 1
 )
+rem code signing (tools\sign.py: only once a certificate is set up, see installer\SIGNING.md)
+python "%ROOT%\tools\sign.py" "%ROOT%\build\installer\RazorCADThumbs.dll"
+if errorlevel 1 exit /b 1
 set "VER="
 for /f "usebackq delims=" %%V in (`python "%ROOT%\installer\make_version_info.py" "%ROOT%\version.txt" "%ROOT%\build\installer\version_info.txt"`) do set "VER=%%V"
 if not defined VER (
@@ -48,8 +51,13 @@ if errorlevel 1 (
   echo Installer build failed.
   exit /b 1
 )
-rem the read-me, with this version's file name in it
-powershell -NoProfile -Command "$t = Get-Content -Raw -Encoding UTF8 '%ROOT%\installer\Read me first.txt'; $t = $t.Replace('{VERSION}', '%VER%'); [IO.File]::WriteAllText('%OUT%\Read me first.txt', $t, (New-Object Text.UTF8Encoding $true))"
+python "%ROOT%\tools\sign.py" "%OUT%\RazorCAD-Setup-%VER%.exe"
+if errorlevel 1 exit /b 1
+rem the read-me, with this version's file name in it, and what Windows shows for a signed or unsigned setup
+set "SIGNED=0"
+python "%ROOT%\tools\sign.py" --configured
+if not errorlevel 1 set "SIGNED=1"
+powershell -NoProfile -Command "$t = Get-Content -Raw -Encoding UTF8 '%ROOT%\installer\Read me first.txt'; $t = $t.Replace('{VERSION}', '%VER%'); $s = if ('%SIGNED%' -eq '1') { (Get-Content -Raw -Encoding UTF8 '%ROOT%\installer\smartscreen-signed.txt').Trim() } else { (Get-Content -Raw -Encoding UTF8 '%ROOT%\installer\smartscreen-unsigned.txt').Trim() }; $t = $t.Replace('{SMARTSCREEN}', $s); [IO.File]::WriteAllText('%OUT%\Read me first.txt', $t, (New-Object Text.UTF8Encoding $true))"
 rmdir /s /q "%ROOT%\build" 2>nul
 echo.
 echo Built "%OUT%\RazorCAD-Setup-%VER%.exe"

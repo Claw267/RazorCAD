@@ -453,7 +453,9 @@ Work through in this order; each item tested, logged in CHANGELOG, RazorCAD.exe 
 - [x] 2c Add-patterns and mirrors in one operation (as cut patterns now).
   - Done: kernel addAll(copies) used by instances() for add tools with merge (each body fused with its copies in one boolean; free copies own bodies; falls back to one by one when a copy reaches two bodies, free copies overlap, or a copy stays apart). Mirror is one instance already. Test part boss-pattern (50 bosses: volume exact, 106 faces): 887 → 575 ms; 200 bosses 8.8 → 2.0 s, same result as the old kernel.
 3. Distribution and trust
-- [ ] 3a Installer signing ready (signs when a code-signing certificate is set up; the certificate itself has to be bought by the user).
+- [x] 3a Installer signing ready (signs when a code-signing certificate is set up; the certificate itself has to be bought by the user).
+  - Done: tools/sign.py (thumbprint / pfx / dlib modes, env vars or gitignored signing.local.json, finds signtool in the Windows SDK, timestamp + verify, retries, --check / --dry-run / --configured; password never printed). build.bat signs the DLL and dist\RazorCAD.exe; build_installer.bat signs the DLL, the setup, and fills {SMARTSCREEN} in Read me first from smartscreen-signed/unsigned.txt. installer/SIGNING.md. Tested: not set up (build prints "Not signed", continues), dry-run commands for thumbprint / pfx / local file, signtool missing → exit 1, read-me text both ways. No signtool on this PC and no certificate (to be bought by the user). Installer itself not built (only on command).
+  - User (2026-10-20, during this run): "run the full installer update when all the updates from this run have been implemented." → build the installer once 6c is done.
 - [ ] 3b Update check: RazorCAD says when a newer GitHub release is out.
 - [ ] 3c Loose ends: commit the right-button tool wheel change; website fallback download links and version → 0.12.0-beta.
 4. Features

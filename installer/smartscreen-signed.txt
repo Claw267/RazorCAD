@@ -1,0 +1,3 @@
+2. The setup is code-signed: its Properties ▸ Digital Signatures tab shows who published it. For a
+   brand-new release Windows may still show "Windows protected your PC" (SmartScreen) until enough
+   people have run it. Click "More info", check the publisher, then "Run anyway".
