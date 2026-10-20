@@ -4,6 +4,7 @@
 // numbers (what mates refer to). Nothing is merged into one big mesh. Bodies and faces show the colours and
 // transparency they have (from an import or their part), and the parts inside sub-assemblies are items too.
 import * as THREE from 'three';
+import { wireColor } from './theme.js';
 
 // Edge lines drawn once per instance: three.js instances only meshes, so the lines use their own small shader.
 const EDGE_VERT = `
@@ -192,7 +193,7 @@ export class AssemblyView {
     for (const m of this.mats.values()) this.styleMat(m);
     for (const b of this.batches.values()) b.lines.visible = s !== 'shaded';
     this.edgeMat.depthTest = s !== 'wireframe';
-    this.edgeMat.uniforms.color.value.set(s === 'wireframe' ? 0x22314a : 0x14181f);
+    this.edgeMat.uniforms.color.value.set(s === 'wireframe' ? wireColor() : 0x14181f);
     this.edgeMat.needsUpdate = true;
   }
 

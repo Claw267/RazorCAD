@@ -6,6 +6,16 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 23:57 — Dark theme
+- **View ▸ Theme**: Light, Dark, or Follow Windows (switches when Windows does). It is in the View menu of parts, assemblies and drawings, and kept with your preferences.
+- In the dark theme:
+  - the menus, ribbon, trees, Property panels, dialogs, messages and the start window are dark;
+  - the 3D view has a dark background;
+  - sketches draw fully defined geometry in light grey (instead of black) and the rest in a lighter blue, on a darker grid;
+  - wireframe lines are light.
+- Drawing sheets stay white paper.
+- Regression test: dark-theme.
+
 ## 2026-10-20 23:52 — RazorCAD in the browser
 - **A browser version** for the website (razorcad.com/app/, "Try it in your browser" on the home page). It is the same program running in the browser: parts, sketches, assemblies, drawings, macros, all on the same geometry kernel.
 - In the browser, Save downloads the file and Open reads one from your PC; preferences stay in that browser.

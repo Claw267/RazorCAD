@@ -5,6 +5,7 @@ import { CadControls } from './cadcontrols.js';
 import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh';
 import * as G from './geometry.js';
 import { hatchStyle } from './drawingformats.js';
+import { wireColor } from './theme.js';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
@@ -598,7 +599,7 @@ export class Viewport {
     if (this.body) this.body.visible = true;
     if (this.edges) this.edges.visible = s !== 'shaded';
     this.edgeMat.depthTest = s !== 'wireframe';
-    this.edgeMat.color.set(s === 'wireframe' ? 0x22314a : 0x14181f);
+    this.edgeMat.color.set(s === 'wireframe' ? wireColor() : 0x14181f);
     this.asmView?.applyDisplayStyle(s);
   }
 

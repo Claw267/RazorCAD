@@ -8,11 +8,16 @@ import { evaluate, fmt, isNumeric, normalizeValue } from './expr.js';
 import { fmtLen, lenText, lenValue } from './units.js';
 import { parseDXF, dxfShapes, addShapes } from './dxfimport.js';
 import { platform } from './platform.js';
+import { isDark, sketchDefined, sketchUnder } from './theme.js';
 
 const COL = {
   under: 0x1d4ed8, defined: 0x111827, selected: 0x0ea5e9, hover: 0xf59e0b, linked: 0x9333ea,
   preview: 0xf97316, dim: 0x5b6f9c, error: 0xdc2626, trim: 0xef4444, origin: 0xdc2626,
 };
+// (the dark theme: light lines for what is fully defined, a lighter blue for the rest)
+const themeCols = () => { COL.defined = sketchDefined(); COL.under = sketchUnder(); COL.dim = isDark() ? 0x93a4c8 : 0x5b6f9c; };
+themeCols();
+if (typeof window !== 'undefined') window.addEventListener('razorcad-theme', themeCols);
 const r4 = (x) => Math.round(x * 1e4) / 1e4;
 
 // Points along a 2D primitive (line / arc / circle) for drawing.
@@ -112,7 +117,7 @@ export class Sketcher {
     this.group.matrixAutoUpdate = false;
     this.group.matrix.copy(G.frameMatrix(frame));
     this.vp.overlayGroup.add(this.group);
-    const grid = new THREE.GridHelper(2000, 200, 0x9fb3d1, 0xc6d3e6);
+    const grid = isDark() ? new THREE.GridHelper(2000, 200, 0x4a5a72, 0x323c4a) : new THREE.GridHelper(2000, 200, 0x9fb3d1, 0xc6d3e6);
     grid.rotateX(Math.PI / 2);
     grid.material.transparent = true;
     grid.material.opacity = 0.45;

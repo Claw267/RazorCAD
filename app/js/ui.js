@@ -2,6 +2,7 @@
 // context menus, heads-up view toolbar and dialogs.
 import { icon } from './icons.js';
 import { editCustomProps } from './custprops.js';
+import { setThemePref, themePref, isDark } from './theme.js';
 import { iconFor, MATERIALS, planeName, findFeature, TYPE_INFO, bodySettings, materialById, rollbackIndex, referencesOf, dependentsOf, absorbedSketches, moveProblem, bodyOwner, folderOfBody, sketchesUsedBy } from './model.js';
 import { STD_PLANES } from './geometry.js';
 import { evaluate, evalEquations, fmt, isNumeric, isValidName, normalizeValue } from './expr.js';
@@ -1150,7 +1151,7 @@ export class UI {
     this.prefs = {};
     this.renderCommandManager();
     // the user's own toolbar layout (and other preferences), once the desktop app answers
-    platform.ready.then(() => platform.getPrefs()).then((p) => { this.prefs = p || {}; this.applyIconSize(); this.renderCommandManager(); }).catch(() => {});
+    platform.ready.then(() => platform.getPrefs()).then((p) => { this.prefs = p || {}; setThemePref(this.prefs.theme); this.applyIconSize(); this.renderCommandManager(); }).catch(() => {});
     // A tree row's hover highlight ends when the pointer is anywhere else. The row's own
     // pointerleave is not enough: when the tree is redrawn under the pointer (after a click,
     // hide, rebuild or drag) the old row is removed without one, and the highlight stuck.
@@ -1172,11 +1173,23 @@ export class UI {
   }
 
   // ------------------------------------------------------------ menus
-  // the menus of the document in front, with the macros in Tools
+  // the menus of the document in front, with the theme in View and the macros in Tools
   menuDefs() {
     const defs = this.baseMenuDefs();
+    if (defs) defs.View = [...(defs.View || []), 'sep', ...this.themeItems()];
     if (defs && this.app.macros) defs.Tools = [...(defs.Tools || []), 'sep', ...this.app.macros.menuItems()];
     return defs;
+  }
+  themeItems() {
+    const cur = themePref();
+    return [['Light', 'light'], ['Dark', 'dark'], ['Follow Windows', 'system']].map(([l, v]) => ({ label: `Theme ▸ ${cur === v ? '● ' : ''}${l}`, icon: 'theme', action: () => this.setTheme(v) }));
+  }
+  setTheme(v) {
+    this.prefs ||= {};
+    this.prefs.theme = v;
+    setThemePref(v);
+    this.savePrefs();
+    this.app.status(`Theme: ${{ light: 'light', dark: 'dark', system: 'as Windows is set' }[v]}.`);
   }
   baseMenuDefs() {
     const a = this.app;
@@ -3487,7 +3500,7 @@ export class UI {
       const g = this.pmGroup(root, 'Sketch', 'sk:info');
       g.appendChild(el('div', {}, `Plane: <b>${esc(planeName(a.doc, f.plane.ref))}</b>`));
       g.appendChild(el('div', { class: 'pm-hint' }, `${f.curves.filter((c) => !c.construction).length} curves, ${f.constraints.filter((k) => k.type !== 'dim').length} relations, ${f.constraints.filter((k) => k.type === 'dim').length} dimensions`));
-      if (sk.tool === 'select') g.appendChild(el('div', { class: 'pm-hint' }, 'Select entities to add relations (Ctrl+click for several). Blue geometry is under defined; black is fully defined. Centerlines only need to be positioned.'));
+      if (sk.tool === 'select') g.appendChild(el('div', { class: 'pm-hint' }, `Select entities to add relations (Ctrl+click for several). Blue geometry is under defined; ${isDark() ? 'white' : 'black'} is fully defined. Centerlines only need to be positioned.`));
       const og = this.pmGroup(root, 'Orientation', 'sk:orient');
       const row = el('div', { style: 'display:flex;gap:6px' });
       row.appendChild(el('button', { class: 'pm-btn', style: 'flex:1', title: 'Turn the sketch axes 90° counter-clockwise', onclick: () => sk.rotateAxes(1) }, '⟲ Rotate 90°'));

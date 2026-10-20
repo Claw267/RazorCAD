@@ -904,6 +904,24 @@ await rc.cut(h, 10);`, 'plate');
       : { ok: false, detail: `names ${names}; window ${win.slice(0, 120)}; table ${texts.join(' | ')}; number ${num}` };
   },
 
+  // the dark theme: View ▸ Theme ▸ Dark turns the window and the 3D view dark (fully defined sketch lines light),
+  // Light turns it back; the choice is kept in the preferences
+  async 'dark-theme'() {
+    const a = window.app, T = await import('/js/theme.js');
+    const bg = () => getComputedStyle(document.body).backgroundColor;
+    const light = bg(), before = a.ui.prefs?.theme;
+    a.ui.menuDefs().View.find((x) => /Theme ▸ .*Dark/.test(x.label)).action();
+    await wait(50);
+    const dark = bg(), vp = getComputedStyle(document.getElementById('viewport')).backgroundImage, kept = a.ui.prefs.theme;
+    const sk = T.sketchDefined(), menu = a.ui.menuDefs().View.find((x) => /● Dark/.test(x.label));
+    a.ui.setTheme(before || 'light');
+    await wait(50);
+    const back = bg();
+    const lum = (c) => { const m = c.match(/\d+/g).map(Number); return (m[0] + m[1] + m[2]) / 3; };
+    const ok = lum(dark) < 60 && lum(light) > 180 && back === light && /rgb\(4[0-9], 5[0-9], 6[0-9]\)|44, 53, 66/.test(vp) && kept === 'dark' && sk === 0xe5e7eb && !!menu;
+    return ok ? { ok: true, detail: `window ${light} → ${dark} → ${back}` } : { ok: false, detail: `bg ${light} / ${dark} / ${back}, viewport ${vp.slice(0, 80)}, kept ${kept}, sketch ${sk.toString(16)}, menu ${!!menu}` };
+  },
+
   // the browser version's notice: above the window, as wide as it (the text wraps), gone with ✕
   async 'web-notice'() {
     const a = window.app, root = document.getElementById('app');

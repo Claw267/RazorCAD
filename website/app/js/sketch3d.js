@@ -32,6 +32,7 @@ import {
   unknowns,
 } from './sketch3dmodel.js';
 import { splineGeom, splineBeziers, segEnds as segEndIds } from './sketch3dmodel.js';
+import { sketchDefined, sketchUnder } from './theme.js';
 export { REL3D, normalize3d, solve3d, freedom3d, applicableRelations, getPt, getSeg, arcGeom, circleGeom } from './sketch3dmodel.js';
 
 // the Sketch tab's tools a 3D sketch has (the rest are 2D only), and their keys
@@ -1333,7 +1334,7 @@ export class Sketcher3D {
     const fixed = new Set(f.rels.filter((r) => r.type === 'fix').map((r) => r.refs[0]));
     const picked = new Set(this.dimPicks.map((x) => x.id));
     const snapSeg = DRAW_TOOLS.has(this.tool) ? this.cand?.seg : null;
-    const segCol = (id) => (this.sel.has(id) || picked.has(id) ? 0xf97316 : this.hover === id || snapSeg === id ? 0x0ea5e9 : this.dof === 0 ? 0x111827 : 0x1d4ed8);
+    const segCol = (id) => (this.sel.has(id) || picked.has(id) ? 0xf97316 : this.hover === id || snapSeg === id ? 0x0ea5e9 : this.dof === 0 ? sketchDefined() : sketchUnder());
     const lineMat = (color, extra = {}) => new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true, ...extra });
     const polyline = (pts, color, dashed = false, order = 20, opacity = 1) => {
       const geo = new THREE.BufferGeometry().setFromPoints(pts.map((p) => new THREE.Vector3(...p)));
@@ -1366,7 +1367,7 @@ export class Sketcher3D {
     const byCol = new Map();
     const centres = new Set(f.segs.filter((s) => !isLine(s)).map((s) => s.c));
     for (const p of f.pts) {
-      const c = this.sel.has(p.id) || picked.has(p.id) ? 0xf97316 : this.hover === p.id ? 0x0ea5e9 : fixed.has(p.id) || this.dof === 0 ? 0x111827 : 0x1d4ed8;
+      const c = this.sel.has(p.id) || picked.has(p.id) ? 0xf97316 : this.hover === p.id ? 0x0ea5e9 : fixed.has(p.id) || this.dof === 0 ? sketchDefined() : sketchUnder();
       const key = c + (centres.has(p.id) ? ':c' : '');
       if (!byCol.has(key)) byCol.set(key, { c, size: centres.has(p.id) ? 5 : 7, list: [] });
       byCol.get(key).list.push(new THREE.Vector3(p.x, p.y, p.z));

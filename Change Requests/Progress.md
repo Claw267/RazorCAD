@@ -513,7 +513,8 @@ In this order; each item tested (regression suite + preview / exe), logged in CH
 6. Reach and polish
 - [x] 6a Browser version for razorcad.com ("try it online"), built into the website folder (deployed only when published).
   - Done: tools/build_web_app.py (app/ → website/app/, window.RAZORCAD_WEB + title / description in index.html, 25 MiB per-file check: wasm 22 MB; 61 files, 26 MB), run by tools/build_website_docs.py too (sitemap lists /app/). App: main.init shows ui.showWebNotice (own grid row, #app.with-notice) and a beforeunload guard for unsaved work in the web edition only. Website: "Try it in your browser" button, _headers cache for /app/vendor/*. Tested from the local website server (kernel loads, parts build, notice layout / close); test web-notice. NOT deployed: goes online with the next website publish.
-- [ ] 6b Dark theme.
+- [x] 6b Dark theme.
+  - Done: app/js/theme.js (pref light / dark / system via matchMedia, data-theme on <html>, razorcad-theme event, sketchDefined / sketchUnder / wireColor). style.css: dark variables + color-scheme: dark, overrides for the hard-coded light colours (inputs, lists, messages, tree states, viewport gradient, labels, HUD, Claude panel, start window, banners, tool wheel…). sketcher COL + grid, sketch3d, viewport / asmview wireframe colours follow the theme; main redraws on the event. ui: View ▸ Theme items in every document (menuDefs wrapper), prefs.theme applied when prefs load. Test dark-theme; full suite passes.
 - [ ] 6c Other languages (translation framework and translations).
 - [ ] 6d Code signing: nothing to build (ready since 0.13.0-beta; needs the user's certificate) — note only.
 2. Reliability (last)

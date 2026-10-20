@@ -71,6 +71,13 @@ class App {
     this.kernel = new KernelClient();
     this.kernelPool = new KernelPool(this.kernel); // (more kernels for assemblies and drawings)
     this.macros = new Macros(this); // (Tools ▸ Macros: recording and running them)
+    // the theme changed: the 3D view's and the sketch's lines in its colours
+    window.addEventListener('razorcad-theme', () => {
+      this.viewport.applyDisplayStyle();
+      if (this.mode === 'sketch') this.sketcher?.redraw?.();
+      else if (this.mode === 'sketch3d') this.sketch3d?.redraw?.();
+      this.drawing?.render?.();
+    });
     this.kernel.onCrash = (err) => reportError('kernel-worker-crash', err, this);
     // the kernel broke and is being replaced; the request is repeated on the fresh kernel
     this.kernel.onRestart = (err) => {
