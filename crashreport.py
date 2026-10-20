@@ -50,6 +50,15 @@ def _pid_alive(pid):
         k32.CloseHandle(h)
 
 
+def app_version():
+    # (version.txt: bundled next to the app's files, or in the source folder)
+    try:
+        with open(os.path.join(getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__))), 'version.txt'), encoding='utf-8') as f:
+            return f.read().strip()
+    except OSError:
+        return None
+
+
 def system_info():
     exe = sys.executable
     try:
@@ -57,7 +66,7 @@ def system_info():
     except OSError:
         build = None
     return {
-        'app': 'RazorCAD', 'executable': exe, 'frozen': bool(getattr(sys, 'frozen', False)), 'exe_built': build,
+        'app': 'RazorCAD', 'version': app_version(), 'executable': exe, 'frozen': bool(getattr(sys, 'frozen', False)), 'exe_built': build,
         'python': sys.version.split()[0], 'platform': platform.platform(), 'machine': platform.machine(),
         'pid': os.getpid(),
     }
@@ -85,7 +94,8 @@ class CrashReporter:
         faulthandler.enable(file=self._fatal_file, all_threads=True)
         sys.excepthook = self._excepthook
         threading.excepthook = lambda a: self._excepthook(a.exc_type, a.exc_value, a.exc_traceback, a.thread.name)
-        self.event('RazorCAD started (%s)' % system_info()['platform'])
+        info = system_info()
+        self.event('RazorCAD %s started (%s)' % (info['version'] or '(version unknown)', info['platform']))
 
     def stop(self):
         """Normal shutdown: the session ended cleanly, so its files are not a crash."""

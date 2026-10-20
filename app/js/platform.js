@@ -145,6 +145,16 @@ export const platform = {
     try { localStorage.setItem('razorcad.claude', JSON.stringify(s)); } catch { /* no storage */ }
     return { hasKey: !!s.key, model: s.model || '', backend: 'api', cli: '', ready: !!s.key };
   },
+  // Updates (desktop): this version, a check for a newer GitHub release (null when not due: at most once a day
+  // when automatic, never when turned off), and the settings { auto, skip }
+  async updateSettings(changes = null) { return desktop ? api().update_settings(changes) : null; },
+  async checkUpdate(force = false) { return desktop ? api().check_update(force) : null; },
+  // a RazorCAD page (on GitHub) in the web browser
+  async openUrl(url) {
+    if (desktop) return api().open_url(url);
+    window.open(url, '_blank', 'noopener');
+    return true;
+  },
   // Claude Code CLI: where it is, its version and whether it is signed in ({ cli, version, loggedIn, authMethod })
   async claudeCliCheck() {
     return desktop ? api().claude_cli_check() : { cli: '', version: '', loggedIn: false, authMethod: '' };

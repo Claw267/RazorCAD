@@ -105,6 +105,29 @@ MAX_RECENT = 12
 MODEL_CACHE_MB = 1024
 
 
+# ---- this version, and newer ones on GitHub (Help ▸ Check for Updates)
+def read_version():
+    try:
+        with open(os.path.join(resource_dir(), 'version.txt'), encoding='utf-8') as f:
+            return f.read().strip()
+    except OSError:
+        return ''
+
+
+APP_VERSION = read_version()
+RELEASES_API = 'https://api.github.com/repos/Labs9119/RazorCAD/releases?per_page=20'
+REPO_URL = 'https://github.com/Labs9119/RazorCAD'
+
+
+def version_key(v):
+    """'0.12.0-beta' → comparable tuple; a pre-release (alpha < beta < rc) comes before its release."""
+    m = re.match(r'v?(\d+)\.(\d+)(?:\.(\d+))?(?:-([A-Za-z]+)\.?(\d*))?', str(v or '').strip())
+    if not m:
+        return (-1,)
+    rank = {'alpha': 0, 'a': 0, 'beta': 1, 'b': 1, 'rc': 2}.get((m.group(4) or '').lower(), 3 if not m.group(4) else 1)
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3) or 0), rank, int(m.group(5) or 0))
+
+
 # ---- Claude Code CLI (Ask Claude on the user's own Claude subscription instead of an API key)
 NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
 
@@ -937,6 +960,51 @@ class Api:
                 user32.ShowWindow(h, 9)  # SW_RESTORE
             user32.SetForegroundWindow(h)
         return bool(found)
+
+    # --- updates: the newest RazorCAD release on GitHub (only github.com is asked; nothing is sent about you)
+    def _update_path(self):
+        return os.path.join(data_dir(), 'update.json')
+
+    def update_settings(self, changes=None):
+        try:
+            with open(self._update_path(), encoding='utf-8') as f:
+                s = json.load(f)
+        except (OSError, ValueError):
+            s = {}
+        if changes:
+            s.update({k: v for k, v in changes.items() if k in ('auto', 'skip', 'last')})
+            write_atomic(self._update_path(), json.dumps(s))
+        return {'auto': s.get('auto', True), 'skip': s.get('skip', ''), 'last': s.get('last', 0), 'version': APP_VERSION}
+
+    def check_update(self, force=False):
+        """{ current, latest, newer, skipped, url, name, published } or { error }; None when not due (at
+        most one automatic check a day, none when turned off)."""
+        s = self.update_settings()
+        if not force and (not s['auto'] or time.time() - s['last'] < 86400):
+            return None
+        req = urllib.request.Request(RELEASES_API, headers={'Accept': 'application/vnd.github+json', 'User-Agent': 'RazorCAD/' + (APP_VERSION or 'dev')})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                releases = json.loads(r.read().decode('utf-8'))
+        except Exception as e:  # (offline, GitHub busy…)
+            return {'error': str(getattr(e, 'reason', e)), 'current': APP_VERSION}
+        self.update_settings({'last': time.time()})
+        releases = [x for x in releases if isinstance(x, dict) and not x.get('draft') and x.get('tag_name')]
+        if not releases:
+            return {'current': APP_VERSION, 'latest': '', 'newer': False}
+        best = max(releases, key=lambda x: version_key(x['tag_name']))
+        latest = best['tag_name'].lstrip('vV')
+        return {'current': APP_VERSION, 'latest': latest, 'newer': version_key(latest) > version_key(APP_VERSION),
+                'skipped': latest == s['skip'], 'url': best.get('html_url') or REPO_URL + '/releases',
+                'name': best.get('name') or latest, 'published': best.get('published_at') or ''}
+
+    def open_url(self, url):
+        """Opens a RazorCAD page (its GitHub pages only) in the web browser."""
+        url = str(url or '')
+        if not (url == REPO_URL or url.startswith(REPO_URL + '/')):
+            return False
+        import webbrowser
+        return webbrowser.open(url)
 
     def file_types_info(self):
         exe = sys.executable if getattr(sys, 'frozen', False) else None

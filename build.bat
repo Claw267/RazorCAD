@@ -16,6 +16,7 @@ if errorlevel 1 exit /b 1
 python -m PyInstaller --noconfirm --clean --onefile --windowed ^
   --name RazorCAD --icon "%~dp0assets\razorcad.ico" ^
   --add-data "%~dp0app;app" ^
+  --add-data "%~dp0version.txt;." ^
   --add-data "%~dp0build\shell\RazorCADThumbs.dll;shell" ^
   --distpath dist --workpath build\pyinstaller --specpath build ^
   razorcad.py

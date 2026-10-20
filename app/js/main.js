@@ -100,6 +100,8 @@ class App {
     try { paths = await platform.takeOpenRequests(); } catch { /* none */ }
     if (paths.length) await this.openRequested(paths);
     else this.showStart();
+    // a newer version on GitHub? (once a day, a little after starting, unless turned off)
+    setTimeout(() => this.ui.checkForUpdates(false).catch(() => {}), 8000);
   }
 
   // Files Windows asked RazorCAD to open (this launch, or another one handing them over).

@@ -6,6 +6,12 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 22:01 — Update check
+- **RazorCAD says when a newer version is out.** A little after it starts (at most once a day), it asks GitHub for the newest RazorCAD release. When that is newer, a notice in the corner offers **Download** (opens the release page), **Later** or **Skip this version**. Nothing is shown when you are up to date or offline, and only GitHub is asked.
+- **Help ▸ Check for Updates…** checks now and says what it found. It also has the switch for the check at start.
+- **Help ▸ About** shows the version. The session log and crash reports record it too.
+- Pre-releases count (0.12.0-beta < 0.12.0-rc1 < 0.12.0). Only RazorCAD's own GitHub pages can be opened from the app this way.
+
 ## 2026-10-20 21:58 — Ready for code signing
 - **The builds sign RazorCAD once a code-signing certificate is set up.** `build.bat` signs RazorCAD.exe and its thumbnail DLL; `installer\build_installer.bat` signs the DLL it installs and the setup itself. Each file gets SHA-256 with a timestamp and is checked with `signtool verify`; a failed signing stops the build. Without a certificate the builds say "Not signed" and carry on as before.
 - **`tools\sign.py`**: takes a certificate on a USB token or in the Windows certificate store (by thumbprint), a .pfx file (password only from an environment variable), or a cloud signing service. `--check` shows what is set up; `--dry-run` shows the signtool command. Settings go in environment variables or a `signing.local.json`, which git ignores (as it does .pfx files).

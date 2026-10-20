@@ -1257,6 +1257,7 @@ export class UI {
         { label: 'Keyboard Shortcuts', icon: '', action: () => this.showShortcuts() },
         { label: 'Open Crash Reports Folder', icon: 'open', action: () => a.openCrashFolder() },
         { label: 'Open Files With RazorCAD (.rcad .rasm .rdrw)…', icon: 'open', action: () => this.showFileTypes() },
+        { label: 'Check for Updates…', icon: 'rebuild', action: () => this.checkForUpdates(true) },
         { label: 'About RazorCAD', icon: 'part', action: () => this.showAbout() },
       ],
     };
@@ -4859,10 +4860,43 @@ export class UI {
     });
   }
 
-  showAbout() {
+  // Updates: Help ▸ Check for Updates (manual: says what it found), and once a day at start (only when a newer
+  // version is out, and not one the user chose to skip: a notice with Download / Later / Skip this version).
+  async checkForUpdates(manual = false) {
+    const a = this.app;
+    let r = null;
+    try { r = await platform.checkUpdate(manual); } catch (e) { r = { error: e.message }; }
+    if (!manual) {
+      if (!r?.newer || r.skipped) return;
+      document.querySelector('#update-banner')?.remove();
+      const b = el('div', { id: 'update-banner' }, `${icon('rebuild')}<span>RazorCAD <b>${esc(r.latest)}</b> is out (you have ${esc(r.current)}).</span>`);
+      const btn = (label, fn, primary = false) => { const x = el('button', { class: primary ? 'primary' : '' }, esc(label)); x.onclick = () => { fn(); b.remove(); }; b.appendChild(x); };
+      btn('Download', () => platform.openUrl(r.url), true);
+      btn('Later', () => {});
+      btn('Skip this version', () => platform.updateSettings({ skip: r.latest }));
+      document.body.appendChild(b);
+      return;
+    }
+    if (!platform.desktop) { a.toast('The update check is part of the desktop app (RazorCAD.exe)'); return; }
+    const st = (await platform.updateSettings()) || { auto: true };
+    const body = el('div');
+    body.innerHTML = r?.error ? `<p>Could not reach GitHub to check: ${esc(r.error)}</p><p class="pm-hint">You have RazorCAD ${esc(r.current || '?')}.</p>`
+      : r?.newer ? `<p><b>RazorCAD ${esc(r.latest)}</b> is out. You have ${esc(r.current)}.</p><p class="pm-hint">${esc(r.name || '')}${r.published ? ` — released ${esc(new Date(r.published).toLocaleDateString())}` : ''}. The download page lists what changed; run the new setup to update (your parts and settings stay).</p>`
+      : `<p>You have the newest version: RazorCAD ${esc(r?.current || '?')}.</p>`;
+    const auto = el('label', {}, `<input type="checkbox" ${st.auto !== false ? 'checked' : ''}> Check for updates when RazorCAD starts (once a day; only GitHub is asked)`);
+    auto.querySelector('input').onchange = (e) => platform.updateSettings({ auto: e.target.checked });
+    body.appendChild(auto);
+    this.modal('Check for Updates', 'rebuild', body, [
+      ...(r?.newer ? [{ label: 'Open the Download Page', primary: true, action: () => { platform.openUrl(r.url); } }] : []),
+      { label: 'Close', primary: !r?.newer },
+    ]);
+  }
+
+  async showAbout() {
+    const ver = (await platform.updateSettings().catch(() => null))?.version || '';
     this.modal('About RazorCAD', 'part', `
       <img class="about-mark" src="razorcad.svg" alt="">
-      <p style="margin-top:0"><b>RazorCAD</b> — a parametric 3D part, assembly and drawing modeler.</p>
+      <p style="margin-top:0"><b>RazorCAD${ver ? ` ${esc(ver)}` : ''}</b> — a parametric 3D part, assembly and drawing modeler.</p>
       <p>History-based features, sketches with relations and equations, sheet metal, assemblies and 2D drawings, with STEP, STL and DXF import and export.</p>
       <p>RazorCAD is free software under the GNU General Public License v3.0 or later and comes with no warranty. Source code, the license and bug reports: github.com/Labs9119/RazorCAD</p>
       <p class="pm-hint">Geometry kernel: OpenCascade (via replicad, LGPL-2.1) · Display: three.js (MIT). See THIRD-PARTY-NOTICES.md.</p>`, [{ label: 'Close', primary: true }]);
