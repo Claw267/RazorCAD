@@ -6,6 +6,17 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 23:42 — Auto Dimension
+- **Annotation ▸ Auto Dimension** (also Insert ▸ Annotations) dimensions the selected views, or every view on the sheet:
+  - the overall sizes of each view, outermost;
+  - hole diameters, one per size ("4× Ø9" for four holes of one size), with the leader pointing into the view;
+  - arc radii;
+  - hole positions from the view's left and bottom edges, one dimension per position.
+- Each size is given once in the drawing: the front view's width and height, then the depth from the view below or beside it. Nothing is added that a view's own dimensions already give, so running it again adds nothing new.
+- Only views looking along the part's axes are dimensioned (not isometric ones). A part with a round outline gets its diameter rather than its width and height.
+- Everything it adds is one undo step; drag the dimensions to tidy them up.
+- Regression test: auto-dimension (a 120 × 80 × 10 plate with four holes: 120, 80, 10, 4× Ø9 and the holes' positions; a second run adds nothing).
+
 ## 2026-10-20 23:36 — Macros
 - **Tools ▸ Macros…**: write, run and save JavaScript macros that drive RazorCAD.
   - In parts they can sketch (lines, rectangles, circles, arcs, polygons), extrude, cut, revolve, add any feature, change or delete features, set equations and the material, and rebuild.

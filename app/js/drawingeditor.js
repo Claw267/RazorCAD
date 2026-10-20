@@ -16,6 +16,7 @@ import { TEMPLATE_EXT, templateFromDrawing, applyTemplate } from './drawtemplate
 import { partMesh, assemblyParts } from './partmeshes.js';
 import { bomRows, bomItemOf } from './bom.js';
 import { explodeOffsets } from './explode.js';
+import { autoDims } from './autodim.js';
 
 // Assemblies this big (solids, or display triangles) are drawn with fast hidden-line removal unless a view asks
 // for exact (exact on thousands of solids takes many minutes a view)
@@ -1414,6 +1415,23 @@ export class DrawingEditor {
 
   // A bill of materials table of the drawing's assembly (of the selected view, else the first assembly), at
   // the top right of the sheet's frame.
+  // Auto Dimension: the dimensions the selected views (or all of the sheet's) need, placed round them; each size
+  // once (the front view's first), none that a view's own dimensions give already. One undo step.
+  autoDimension() {
+    const sel = this.doc.views.filter((v) => this.selected.has(v.id) && v.sheet === this.sheetId);
+    const views = sel.length ? sel : this.doc.views.filter((v) => v.sheet === this.sheetId);
+    if (!views.length) { this.app.toast('Place a view of a part first', true); return 0; }
+    if (views.some((v) => !D.viewGeom(this.doc, v, this.geos))) { this.app.toast('The views are still being drawn: try again in a moment', true); return 0; }
+    // (models in the order of their first view; a model view before the views projected from it)
+    const order = (v) => (v.type === 'model' || v.type === 'flat' ? 0 : 1);
+    const list = [...views].sort((p, q) => order(p) - order(q));
+    const anns = autoDims(this.doc, list, this.geos);
+    for (const a of anns) { a.id = D.newId(this.doc, 'a'); this.doc.anns.push(a); }
+    if (anns.length) this.changed();
+    this.app.status(anns.length ? `${anns.length} dimension${anns.length === 1 ? '' : 's'} added${sel.length ? ' to the selected view' + (sel.length > 1 ? 's' : '') : ''}. Drag them to tidy up; Ctrl+Z takes them all away.` : 'Nothing more to dimension: the views have the sizes already.');
+    return anns.length;
+  }
+
   addBOM() {
     if (this.tool) this.cancelTool(false);
     const v = [...this.selected].map((id) => D.findView(this.doc, id)).find(Boolean);
@@ -2173,6 +2191,7 @@ export class DrawingEditor {
       ],
       annotation: [
         { icon: 'smartdim', label: 'Dimension', action: () => this.startTool('dim'), active: this.tool?.kind === 'dim' },
+        { icon: 'autoDim', label: 'Auto Dimension', action: () => this.autoDimension() },
         { icon: 'note', label: 'Note', action: () => this.startTool('note'), active: this.tool?.kind === 'note' },
         'sep',
         { icon: 'baselineDim', label: 'Baseline Dimension', action: () => this.startTool('baseline'), active: this.tool?.kind === 'baseline' },
@@ -2265,6 +2284,7 @@ export class DrawingEditor {
         { label: 'Drawing View ▸ Detail View', icon: 'detailView', action: () => this.startTool('detail') },
         'sep',
         { label: 'Annotations ▸ Dimension', icon: 'smartdim', action: () => this.startTool('dim') },
+        { label: 'Annotations ▸ Auto Dimension', icon: 'autoDim', action: () => this.autoDimension() },
         { label: 'Annotations ▸ Note', icon: 'note', action: () => this.startTool('note') },
         { label: 'Annotations ▸ Center Mark', icon: 'centerMark', action: () => this.startTool('cmark') },
         { label: 'Annotations ▸ Centerline', icon: 'centerline', action: () => this.startTool('cline') },

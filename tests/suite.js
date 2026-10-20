@@ -828,6 +828,33 @@ rc.log(b.bodies, b.errors.length);`, 'test');
       : { ok: false, detail: `run ${JSON.stringify(r)}, ${a.history.idx - idx0} steps, vol ${v1} vs ${want}; playback ${JSON.stringify(r2)} types ${types}, vol ${v3} vs ${v2}; code:\n${code}` };
   },
 
+  // auto dimensions: a 120 × 80 × 10 plate with four Ø9 holes in three standard views → each overall size once,
+  // one "4× Ø9", the holes' positions from the edges; a second run adds nothing
+  async 'auto-dimension'() {
+    const a = window.app;
+    if (a.mode === 'drawing') { const i = a.tabs.findIndex((t) => t.kind !== 'drawing'); if (i >= 0) await a.activateTab(i); }
+    a.newDocument(); await wait(200);
+    const r = await a.macros.run(`const p = await rc.sketch('top', (s) => s.centerRect(0, 0, 120, 80));
+await rc.extrude(p, 10);
+const h = await rc.sketch('top', (s) => { for (const x of [-1, 1]) for (const y of [-1, 1]) s.circle(x * 50, y * 30, 4.5); });
+await rc.cut(h, 10);`, 'plate');
+    if (!r.ok) return { ok: false, detail: 'plate: ' + r.error };
+    const keep = a.ui.newDrawingSetup;
+    a.ui.newDrawingSetup = async () => ({ template: BUILTIN_TEMPLATES.find((t) => t.id === 'builtin:A3L'), name: 'Auto dims', props: {}, sheet: null });
+    try { await a.newDrawing(true); } finally { a.ui.newDrawingSetup = keep; }
+    const ed = a.drawing;
+    await until(() => ed.doc.views.length === 3 && ed.doc.views.every((v) => (ed.geos.get(v.id)?.edges?.length || 0) > 0), 60000, 250);
+    const Dm = await import('/js/drawing.js');
+    const n1 = ed.autoDimension();
+    const dims = ed.doc.anns.filter((x) => x.type === 'dim');
+    const lin = dims.filter((x) => x.kind === 'linear').map((x) => Math.round(Dm.dimValue(ed.doc, x) * 1000) / 1000).sort((p, q) => p - q);
+    const dia = dims.filter((x) => x.kind === 'diameter').map((x) => Dm.dimText(ed.doc, x));
+    const n2 = ed.autoDimension();
+    const ok = JSON.stringify(lin) === JSON.stringify([10, 10, 10, 70, 80, 110, 120]) && JSON.stringify(dia) === JSON.stringify(['4× Ø9']) && n1 === 8 && n2 === 0;
+    return ok ? { ok: true, detail: `${n1} dimensions: ${lin.join(', ')} and ${dia.join(', ')}; again: ${n2}` }
+      : { ok: false, detail: `added ${n1} (${lin.join(', ')} | ${dia.join(', ')}), again ${n2}` };
+  },
+
   // the view's mouse buttons: Shift + right-drag pans, middle-drag turns, a plain right-drag changes nothing
   async 'view-mouse-buttons'() {
     const a = window.app;
