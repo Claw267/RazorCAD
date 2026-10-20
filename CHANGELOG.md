@@ -6,6 +6,12 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 22:22 — Gear and rack-and-pinion mates
+- **Gear mate:** pick the cylinders of two gears (their pitch circles). Turn one and the other turns the other way, in the ratio of their radii; you can change the ratio. **Reverse** is for an internal gear (both turn the same way). In the tree it shows as e.g. "Gear1 1:2".
+- **Rack-pinion mate:** pick the pinion's cylinder and a straight edge (or the flat face) of the rack. Turning the pinion slides the rack along it, by the pinion's circumference per turn (π × diameter, which you can change), and sliding the rack turns the pinion. **Reverse** changes the direction.
+- Both relate the motion from where the parts are when the mate is made, so set the gears' teeth in mesh first. They follow turns of any size made step by step (dragging); one jump of more than half a turn can't be told from a turn the other way. Each removes one degree of freedom. The other mates still hold the gears on their axles (concentric and coincident mates).
+- Regression test: gear-rack-mates.
+
 ## 2026-10-20 22:18 — Interference check for assemblies
 - **Assembly ▸ Interference Check** (toolbar and Tools menu) finds where components overlap. Each overlap shows in red on the model and is listed with the two components (inside sub-assemblies too, as "Sub-assembly ▸ Part") and the overlap volume in the assembly's units. Faces that only touch, such as mated faces, are not counted, and nor are the bodies of one multi-body part against each other. An exploded assembly is collapsed first, so the check is of where the mates put the parts.
 - Regression test: assembly-interference.

@@ -59,7 +59,33 @@ export const MATE_TYPES = {
   distance: { label: 'Distance', icon: 'mateDistance', value: 'mm' },
   angle: { label: 'Angle', icon: 'mateAngle', value: '°' },
   lock: { label: 'Lock', icon: 'mateLock' },
+  // mechanical: how one component turns (or slides) as another turns, from where they are now
+  gear: { label: 'Gear', icon: 'mateGear', value: 'ratio' },
+  rack: { label: 'Rack Pinion', icon: 'mateRack', value: 'mm/rev' },
 };
+
+// A component's turn about a direction d since orientation q0 (radians, between −π and π).
+function twistOf(q, q0, d) {
+  const dq = q.clone().multiply(new THREE.Quaternion(...q0).invert());
+  const s = dq.w < 0 ? -1 : 1;
+  return 2 * Math.atan2(s * (dq.x * d[0] + dq.y * d[1] + dq.z * d[2]), s * dq.w);
+}
+// The reference a gear / rack-pinion mate keeps (the poses it relates its motion to): taken when it is made,
+// and again after every solve, so turns of any size add up. pin: which of a / b is the pinion (rack mates).
+export function mechRef(m, poseOf, worldRef) {
+  const pa = poseOf(m.a.comp), pb = poseOf(m.b.comp), A = worldRef(m.a), B = worldRef(m.b);
+  if (!pa || !pb || !A || !B) return null;
+  const qa = [pa.q.x, pa.q.y, pa.q.z, pa.q.w], qb = [pb.q.x, pb.q.y, pb.q.z, pb.q.w];
+  if (m.type === 'gear') {
+    // (both axes taken the same way round, so the ratio's sign means the same whichever way they were picked)
+    const da = unit(A.d), db = dot(A.d, B.d) < 0 ? mul(unit(B.d), -1) : unit(B.d);
+    return { qa, qb, da, db };
+  }
+  const pin = A.kind === 'axis' && A.r > 0 ? 'a' : 'b', P = pin === 'a' ? A : B, Rk = pin === 'a' ? B : A;
+  const dp = unit(P.d), dr = Rk.kind === 'plane' ? unit(cross(dp, Rk.n)) : unit(Rk.d);
+  const rk = pin === 'a' ? pb : pa;
+  return { pin, qp: pin === 'a' ? qa : qb, dp, dr, pr: rk.p.slice() };
+}
 
 // ------------------------------------------------------------------ vectors
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
@@ -164,8 +190,8 @@ export function mateChoices(A, B) {
   const cyl = (o) => o.kind === 'axis' && o.r > 0;
   switch (k) {
     case 'plane,plane': return ['coincident', 'parallel', 'perpendicular', 'distance', 'angle', 'lock'];
-    case 'axis,axis': return [cyl(A) && cyl(B) && !A.circle && !B.circle ? 'concentric' : 'concentric', 'coincident', 'parallel', 'perpendicular', 'distance', 'angle', ...(cyl(A) && cyl(B) ? ['tangent'] : []), 'lock'];
-    case 'axis,plane': return [...((A.kind === 'axis' ? cyl(A) : cyl(B)) ? ['tangent'] : []), 'coincident', 'parallel', 'perpendicular', 'distance', 'angle', 'lock'];
+    case 'axis,axis': return [cyl(A) && cyl(B) && !A.circle && !B.circle ? 'concentric' : 'concentric', 'coincident', 'parallel', 'perpendicular', 'distance', 'angle', ...(cyl(A) && cyl(B) ? ['tangent', 'gear'] : []), ...(cyl(A) !== cyl(B) ? ['rack'] : []), 'lock'];
+    case 'axis,plane': return [...((A.kind === 'axis' ? cyl(A) : cyl(B)) ? ['tangent', 'rack'] : []), 'coincident', 'parallel', 'perpendicular', 'distance', 'angle', 'lock'];
     case 'axis,point': return ['coincident', 'distance', 'lock'];
     case 'plane,point': return ['coincident', 'distance', ...((A.kind === 'point' ? A.r : B.r) ? ['tangent'] : []), 'lock'];
     case 'point,point': return ['coincident', 'distance', 'lock'];
@@ -221,6 +247,16 @@ export function solveAssembly(doc, { pinned = new Set(), only = null } = {}) {
       for (let k = 0; k < 6; k++) eqs.push(lockEq(k));
       continue;
     }
+    if ((m.type === 'gear' || m.type === 'rack') && m.ref) {
+      // turns (and a rack's slide) since the reference poses, in the ratio the mate asks for
+      const R = m.ref, sgn = (m.side || 1) > 0 ? 1 : -1, v = Number(m.value) || 0;
+      if (m.type === 'gear') eqs.push(() => twistOf(poseAt(m.a.comp, cur).q, R.qa, R.da) * v + sgn * twistOf(poseAt(m.b.comp, cur).q, R.qb, R.db));
+      else {
+        const pin = R.pin === 'a' ? m.a.comp : m.b.comp, rack = R.pin === 'a' ? m.b.comp : m.a.comp;
+        eqs.push(() => dot(sub(poseAt(rack, cur).p, R.pr), R.dr) - sgn * (v / (2 * Math.PI)) * twistOf(poseAt(pin, cur).q, R.qp, R.dp));
+      }
+      continue;
+    }
     for (const f of mateEquations(m, world(m.a), world(m.b))) eqs.push(f);
   }
   const M = eqs.length;
@@ -268,6 +304,12 @@ export function solveAssembly(doc, { pinned = new Set(), only = null } = {}) {
   }
   const ok = res < 1e-6 * scale;
   if (ok) for (const c of free) { const ps = base.get(c.id); c.pos = ps.p.map(r6); c.rot = [ps.q.x, ps.q.y, ps.q.z, ps.q.w].map((x) => Math.round(x * 1e9) / 1e9); }
+  // gear / rack-pinion mates relate the next motion to where things are now
+  if (ok) {
+    const poseNow = (id) => (id === ORIGIN ? ORIGIN_POSE : byId.get(id) ? poseOf(byId.get(id)) : null);
+    const worldNow = (r) => { const ps = poseNow(r.comp); return ps && { kind: r.kind, p: toWorld(ps, r.p), n: r.n && dirWorld(ps, r.n), d: r.d && dirWorld(ps, r.d), r: r.r }; };
+    for (const m of mates) if ((m.type === 'gear' || m.type === 'rack') && m.ref) { const r = mechRef(m, poseNow, worldNow); if (r) m.ref = r; }
+  }
   // degrees of freedom left: per free component 6 less the rank of its columns (others held)
   const dofs = new Map();
   if (ok) {
@@ -1302,6 +1344,11 @@ export class AssemblyEditor {
       else pm.value ??= r6(len(sub(A.p, B.p)));
     }
     if (pm.type === 'angle') { const x = A.n || A.d, y = B.n || B.d; pm.value ??= r6((Math.atan2(len(cross(x, y)), dot(x, y)) * 180) / Math.PI); }
+    // a gear pair turns in the ratio of the cylinders picked (their pitch circles); a rack moves a pitch
+    // circumference per turn of its pinion
+    if (pm.type === 'gear') pm.value ??= A.r > 0 && B.r > 0 ? r6(A.r / B.r) : 1;
+    if (pm.type === 'rack') { const r = A.kind === 'axis' && A.r > 0 ? A.r : B.r; pm.value ??= r6(2 * Math.PI * (r || 10)); }
+    if (pm.type === 'gear' || pm.type === 'rack') pm.side ??= 1;
     if (pm.type === 'tangent') {
       const plane = A.kind === 'plane' ? A : B.kind === 'plane' ? B : null, other = plane === A ? B : A;
       if (plane) pm.side = dot(plane.n, sub(other.p, plane.p)) >= 0 ? 1 : -1;
@@ -1312,6 +1359,13 @@ export class AssemblyEditor {
     const pm = this.pm;
     if (!pm || pm.picks.length < 2 || !pm.type) return null;
     const m = { id: pm.edit || '__new', name: '', type: pm.type, a: pm.picks[0], b: pm.picks[1], align: pm.align, side: pm.side, value: pm.value };
+    if (pm.type === 'gear' || pm.type === 'rack') {
+      // (the poses before this mate was shown applied)
+      const now = JSON.stringify(this.doc.components);
+      if (this.pmBefore) Object.assign(this.doc.components, JSON.parse(this.pmBefore).map((x, i) => Object.assign(this.doc.components[i], x)));
+      m.ref = mechRef(m, (id) => this.poseOfId(id), (r) => this.worldRef(r));
+      Object.assign(this.doc.components, JSON.parse(now).map((x, i) => Object.assign(this.doc.components[i], x)));
+    }
     if (pm.type === 'lock') {
       const pa = this.poseOfId(m.a.comp), pb = this.poseOfId(m.b.comp), inv = pa.q.clone().invert();
       const relQ = inv.clone().multiply(pb.q);
@@ -1381,7 +1435,7 @@ export class AssemblyEditor {
     const m = this.doc.mates.find((x) => x.id === id);
     if (!m) return;
     this.begin();
-    if (m.type === 'distance' || m.type === 'tangent') m.side = -(m.side || 1); else m.align = -(m.align || -1);
+    if (m.type === 'distance' || m.type === 'tangent' || m.type === 'gear' || m.type === 'rack') m.side = -(m.side || 1); else m.align = -(m.align || -1);
     if (!this.solve().ok) { this.restore(this._before); this.app.toast('Flipped, the mates can\'t all be met: left as it was', true); return; }
     this.change();
   }
@@ -1735,7 +1789,7 @@ export class AssemblyEditor {
     if (open) for (const m0 of this.doc.mates) {
       const m = this.effMate(m0);
       const info = MATE_TYPES[m.type];
-      const val = info.value ? ` ${fmt(Number(m.value))}${info.value === '°' ? '°' : ' mm'}` : '';
+      const val = info.value ? (info.value === 'ratio' ? ` 1:${fmt(1 / (Number(m.value) || 1), 4)}` : ` ${fmt(Number(m.value))}${info.value === '°' ? '°' : info.value === 'mm/rev' ? ' mm/turn' : ' mm'}`) : '';
       row({
         ic: info.icon, label: `${m.name}${val}`, depth: 2, cls: m.suppressed ? 'suppressed' : '',
         error: this.brokenMates?.has(m.id) ? 'A face or edge of this mate is no longer in its part: edit the mate to pick it again (Tools ▸ Fix Mates)' : '',
@@ -1745,7 +1799,7 @@ export class AssemblyEditor {
         onDbl: () => this.startMate(m.id),
         menu: () => [
           { label: 'Edit Mate', icon: 'edit', action: () => this.startMate(m.id) },
-          ...(['coincident', 'parallel', 'distance', 'tangent'].includes(m.type) ? [{ label: 'Flip Alignment', icon: 'flip', action: () => this.flipMate(m.id) }] : []),
+          ...(['coincident', 'parallel', 'distance', 'tangent', 'gear', 'rack'].includes(m.type) ? [{ label: m.type === 'gear' || m.type === 'rack' ? 'Reverse Direction' : 'Flip Alignment', icon: 'flip', action: () => this.flipMate(m.id) }] : []),
           { label: m.suppressed ? 'Unsuppress' : 'Suppress', icon: 'suppress', action: () => this.toggleMate(m.id) },
           'sep',
           { label: 'Delete', icon: 'trash', key: 'Del', action: () => this.deleteMate(m.id) },
@@ -1810,13 +1864,17 @@ export class AssemblyEditor {
       g2.appendChild(bar);
       const info = MATE_TYPES[pm.type];
       if (info?.value) {
-        g2.appendChild(el('label', { class: 'pm-label' }, pm.type === 'angle' ? 'Angle' : 'Distance'));
-        g2.appendChild(ui.exprInput(pm.value ?? 0, info.value === '°' ? '°' : 'mm', (v) => { if (Number.isFinite(+v)) { pm.value = +v; this.previewMate(); } }, { min: 0 }));
+        g2.appendChild(el('label', { class: 'pm-label' }, { angle: 'Angle', gear: 'Ratio (turns of entity 2 per turn of entity 1)', rack: 'Rack travel per pinion turn' }[pm.type] || 'Distance'));
+        const vu = info.value === '°' ? '°' : info.value === 'ratio' ? '' : 'mm';
+        g2.appendChild(ui.exprInput(pm.value ?? 0, vu, (v) => { const x = Number(v); if (Number.isFinite(x) && x > 0 || (vu !== '' && Number.isFinite(x))) { pm.value = x; this.previewMate(); } }, { min: 0 }));
+        if (pm.type === 'gear') g2.appendChild(el('div', { class: 'pm-hint' }, 'Pick the two gears\' cylinders (their pitch circles): the ratio starts as their radii\'s. Turn one gear and the other follows. Use Reverse for an internal gear (both turn the same way).'));
+        if (pm.type === 'rack') g2.appendChild(el('div', { class: 'pm-hint' }, 'Pick the pinion\'s cylinder and a straight edge (or the flat face) of the rack along which it runs: the travel starts as the pinion\'s circumference (π × diameter).'));
       }
-      const flippable = ['coincident', 'parallel', 'distance', 'tangent'].includes(pm.type) && (pm.type === 'distance' || pm.type === 'tangent' || (A.n || A.d) && (B.n || B.d));
+      const mech = pm.type === 'gear' || pm.type === 'rack';
+      const flippable = mech || ['coincident', 'parallel', 'distance', 'tangent'].includes(pm.type) && (pm.type === 'distance' || pm.type === 'tangent' || (A.n || A.d) && (B.n || B.d));
       if (flippable) {
-        const fb = el('button', { class: 'pm-btn' }, pm.type === 'distance' || pm.type === 'tangent' ? 'Flip Side' : pm.align > 0 ? 'Aligned — click for Anti-Aligned' : 'Anti-Aligned — click for Aligned');
-        fb.onclick = () => { if (pm.type === 'distance' || pm.type === 'tangent') pm.side = -(pm.side || 1); else pm.align = -(pm.align || -1); pm.flipped = true; this.previewMate(); };
+        const fb = el('button', { class: 'pm-btn' }, mech ? ((pm.side || 1) > 0 ? 'Reverse the direction' : 'Reversed — click for the usual direction') : pm.type === 'distance' || pm.type === 'tangent' ? 'Flip Side' : pm.align > 0 ? 'Aligned — click for Anti-Aligned' : 'Anti-Aligned — click for Aligned');
+        fb.onclick = () => { if (mech || pm.type === 'distance' || pm.type === 'tangent') pm.side = -(pm.side || 1); else pm.align = -(pm.align || -1); pm.flipped = true; this.previewMate(); };
         g2.appendChild(fb);
       }
       g2.appendChild(el('div', { class: 'pm-hint' }, 'The mate is shown applied. ✔ keeps it and starts the next one; Esc closes.'));

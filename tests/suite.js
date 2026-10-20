@@ -522,6 +522,49 @@ const UI = {
     return ok ? { ok: true, detail: `1 interference, ${r6(r.pairs[0].volume)} mm³ (${c1.name} / ${c2.name}); touching cube not counted` } : { ok: false, detail: `${JSON.stringify(r.pairs)} | ${html.replace(/<[^>]+>/g, ' ').slice(0, 200)}` };
   },
 
+  // gear and rack-pinion mates, through the assembly solver: gear A (R10) turned 30° turns gear B (R20) −15°,
+  // the rack slides 2π·10 · 30/360 = 5.236 mm; then 200° more in four steps (turns past half a turn add up)
+  async 'gear-rack-mates'() {
+    const A = await import('/js/assembly.js');
+    const THREE = await import('three');
+    const ax = (p, d, r) => ({ kind: 'axis', p, d, r });
+    const pl = (p, n) => ({ kind: 'plane', p, n });
+    const comp = (id, fixed = false, pos = [0, 0, 0]) => ({ id, part: 'p', name: id, pos, rot: [0, 0, 0, 1], fixed });
+    const doc = {
+      components: [comp('base', true), comp('ga'), comp('gb', false, [30, 0, 0]), comp('rack', false, [0, -10, 0])],
+      mates: [
+        { id: 'm1', type: 'concentric', a: { comp: 'base', ...ax([0, 0, 0], [0, 0, 1]) }, b: { comp: 'ga', ...ax([0, 0, 0], [0, 0, 1], 10) } },
+        { id: 'm2', type: 'coincident', align: 1, a: { comp: 'base', ...pl([0, 0, 0], [0, 0, 1]) }, b: { comp: 'ga', ...pl([0, 0, 0], [0, 0, 1]) } },
+        { id: 'm3', type: 'concentric', a: { comp: 'base', ...ax([30, 0, 0], [0, 0, 1]) }, b: { comp: 'gb', ...ax([0, 0, 0], [0, 0, 1], 20) } },
+        { id: 'm4', type: 'coincident', align: 1, a: { comp: 'base', ...pl([0, 0, 0], [0, 0, 1]) }, b: { comp: 'gb', ...pl([0, 0, 0], [0, 0, 1]) } },
+        // the rack: on the base plane, against a wall (y), free to slide along x
+        { id: 'm5', type: 'coincident', align: 1, a: { comp: 'base', ...pl([0, 0, 0], [0, 0, 1]) }, b: { comp: 'rack', ...pl([0, 0, 0], [0, 0, 1]) } },
+        { id: 'm6', type: 'coincident', align: 1, a: { comp: 'base', ...pl([0, -10, 0], [0, 1, 0]) }, b: { comp: 'rack', ...pl([0, 0, 0], [0, 1, 0]) } },
+      ],
+    };
+    const byId = (id) => doc.components.find((c) => c.id === id);
+    const poseOf = (id) => { const c = byId(id); return { p: c.pos.slice(), q: new THREE.Quaternion(...c.rot) }; };
+    const worldRef = (r) => { const ps = poseOf(r.comp); const v = (x) => new THREE.Vector3(...x).applyQuaternion(ps.q).toArray(); return { kind: r.kind, p: v(r.p).map((x, i) => x + ps.p[i]), n: r.n && v(r.n), d: r.d && v(r.d), r: r.r }; };
+    const gear = { id: 'g', type: 'gear', side: 1, value: 0.5, a: doc.mates[0].b, b: doc.mates[2].b };
+    const rack = { id: 'r', type: 'rack', side: 1, value: 2 * Math.PI * 10, a: doc.mates[0].b, b: { comp: 'rack', ...ax([0, 0, 0], [1, 0, 0]) } };
+    gear.ref = A.mechRef(gear, poseOf, worldRef);
+    rack.ref = A.mechRef(rack, poseOf, worldRef);
+    doc.mates.push(gear, rack);
+    let r0 = A.solveAssembly(doc);
+    const turnA = (deg) => { const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), (deg * Math.PI) / 180).multiply(new THREE.Quaternion(...byId('ga').rot)); byId('ga').rot = [q.x, q.y, q.z, q.w]; };
+    const angleOf = (id) => { const q = byId(id).rot; return (2 * Math.atan2(q[2], q[3]) * 180) / Math.PI; };
+    turnA(30);
+    const r1 = A.solveAssembly(doc, { pinned: new Set(['ga']) });
+    const b1 = angleOf('gb'), x1 = byId('rack').pos[0];
+    // (in steps, as a drag turns it: one jump of more than half a turn can't be told from a turn the other way)
+    let r2 = null;
+    for (let k = 0; k < 4; k++) { turnA(50); r2 = A.solveAssembly(doc, { pinned: new Set(['ga']) }); if (!r2.ok) break; }
+    // (B has now turned −115° in all; the rack has slid 2π·10·230/360)
+    const b2 = angleOf('gb'), x2 = byId('rack').pos[0];
+    const ok = r0.ok && r1.ok && r2.ok && Math.abs(b1 + 15) < 1e-4 && Math.abs(x1 - (2 * Math.PI * 10 * 30) / 360) < 1e-4 && Math.abs(b2 + 115) < 1e-3 && Math.abs(x2 - (2 * Math.PI * 10 * 230) / 360) < 1e-3;
+    return ok ? { ok: true, detail: `A +30° → B ${r6(b1)}°, rack ${r6(x1)} mm; +200° more → B ${r6(b2)}°, rack ${r6(x2)} mm` } : { ok: false, detail: `ok ${r0.ok}/${r1.ok}/${r2.ok}; B ${b1}, rack ${x1}; then B ${b2}, rack ${x2}` };
+  },
+
   // the view's mouse buttons: Shift + right-drag pans, middle-drag turns, a plain right-drag changes nothing
   async 'view-mouse-buttons'() {
     const a = window.app;
