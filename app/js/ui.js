@@ -1257,6 +1257,7 @@ export class UI {
         { label: 'Claude Settings…', icon: 'gear', action: () => this.showClaudeSettings() },
       ],
       Help: [
+        { label: 'Search Commands…', icon: 'search', key: 'Ctrl+K', action: () => this.commandSearch() },
         { label: 'Keyboard Shortcuts', icon: '', action: () => this.showShortcuts() },
         { label: 'Open Crash Reports Folder', icon: 'open', action: () => a.openCrashFolder() },
         { label: 'Open Files With RazorCAD (.rcad .rasm .rdrw)…', icon: 'open', action: () => this.showFileTypes() },
@@ -1289,7 +1290,7 @@ export class UI {
     }
     // quick buttons next to the menus
     const quick = el('div', { class: 'mb-quick' });
-    for (const [ic, title, fn] of [['save', 'Save (Ctrl+S)', () => this.app.saveFile()], ['saveAs', 'Save As… (Ctrl+Shift+S)', () => this.app.saveFile(true)], ['rebuild', 'Rebuild (Ctrl+B)', () => this.app.refresh()]]) {
+    for (const [ic, title, fn] of [['save', 'Save (Ctrl+S)', () => this.app.saveFile()], ['saveAs', 'Save As… (Ctrl+Shift+S)', () => this.app.saveFile(true)], ['rebuild', 'Rebuild (Ctrl+B)', () => this.app.refresh()], ['search', 'Search commands (Ctrl+K or /)', () => this.commandSearch()]]) {
       const q = el('button', { title }, icon(ic));
       q.onclick = fn;
       quick.appendChild(q);
@@ -4674,8 +4675,89 @@ export class UI {
     const dlg = this.modal('Part Material', 'material', wrap, [{ label: 'Apply', primary: true, action: apply }, { label: 'Cancel' }]);
   }
 
+  // ---- Command search (Ctrl+K or /): type part of a command's name, Enter runs it. Every command of the menus
+  // and toolbars of the document in front (part, sketch, assembly or drawing); the ones used lately first.
+  commandList() {
+    const a = this.app, out = [], seen = new Set();
+    const add = (d, where) => {
+      if (!d || d === 'sep' || typeof d.action !== 'function' || d.disabled) return;
+      const label = String(d.label || '').replace(/…/g, '').replace(/^[●\u3000\s]+/, '').trim();
+      if (!label) return;
+      // (a menu's "Features ▸ Fillet" and the toolbar's "Fillet" are one command)
+      const k = label.split('▸').pop().trim().toLowerCase();
+      if (seen.has(k)) return;
+      seen.add(k);
+      out.push({ label, where, icon: d.icon || '', key: d.key || '', action: d.action, k });
+    };
+    for (const [name, items] of Object.entries(this.menuDefs() || {})) for (const d of items || []) add(d, name + ' menu');
+    let defs = {};
+    try { defs = a.mode === 'drawing' && a.drawing ? a.drawing.commandDefs?.() || {} : this.commandDefs(); } catch { defs = {}; }
+    const tabName = (t) => t.charAt(0).toUpperCase() + t.slice(1).replace(/([A-Z])/g, ' $1');
+    for (const [tab, list] of Object.entries(defs)) for (const d of list || []) add(d, `${tabName(tab)} toolbar`);
+    return out;
+  }
+  commandSearch() {
+    document.querySelector('#cmd-search')?.remove();
+    this.closeDropdown?.(); this.closeContext?.();
+    const all = this.commandList();
+    let recent = [];
+    try { recent = JSON.parse(localStorage.getItem('razorcad.recentCommands') || '[]'); } catch { recent = []; }
+    const back = el('div', { id: 'cmd-search' });
+    const box = el('div', { class: 'cs-box' });
+    const input = el('input', { type: 'text', spellcheck: 'false', placeholder: `Search ${all.length} commands…` });
+    const list = el('div', { class: 'cs-list' });
+    box.append(input, list);
+    back.appendChild(box);
+    document.body.appendChild(back);
+    let shown = [], at = 0;
+    const close = () => back.remove();
+    const run = (c) => {
+      close();
+      try { localStorage.setItem('razorcad.recentCommands', JSON.stringify([c.k, ...recent.filter((x) => x !== c.k)].slice(0, 8))); } catch { /* no storage */ }
+      setTimeout(() => c.action(), 0);
+    };
+    const find = (q) => {
+      const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+      if (!words.length) return [...recent.map((k) => all.find((c) => c.k === k)).filter(Boolean), ...all.filter((c) => !recent.includes(c.k))].slice(0, 12);
+      const scored = [];
+      for (const c of all) {
+        const name = c.label.toLowerCase(), text = name + ' ' + c.where.toLowerCase();
+        if (!words.every((w) => text.includes(w))) continue;
+        const q0 = words.join(' '), last = c.k;
+        let s = last.startsWith(q0) ? 0 : name.startsWith(q0) ? 1 : words.every((w) => new RegExp(`(^|[^a-z])${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).test(name)) ? 2 : 3;
+        s += (recent.includes(c.k) ? -0.5 : 0) + name.length / 1000;
+        scored.push([s, c]);
+      }
+      return scored.sort((x, y) => x[0] - y[0]).slice(0, 12).map((x) => x[1]);
+    };
+    const render = () => {
+      shown = find(input.value);
+      at = Math.min(at, Math.max(0, shown.length - 1));
+      list.innerHTML = '';
+      if (!shown.length) list.appendChild(el('div', { class: 'cs-none' }, 'No command found'));
+      shown.forEach((c, i) => {
+        const row = el('div', { class: 'cs-row' + (i === at ? ' on' : '') }, `<span class="cs-ic">${icon(c.icon)}</span><span class="cs-l">${esc(c.label)}</span><span class="cs-w">${esc(c.where)}${c.key ? ` · ${esc(c.key)}` : ''}</span>`);
+        row.onpointerdown = (e) => { e.preventDefault(); run(c); };
+        row.onpointerenter = () => { at = i; list.querySelectorAll('.cs-row').forEach((r, j) => r.classList.toggle('on', j === at)); };
+        list.appendChild(row);
+      });
+    };
+    input.addEventListener('input', () => { at = 0; render(); });
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Escape') { e.preventDefault(); close(); }
+      else if (e.key === 'ArrowDown') { e.preventDefault(); at = Math.min(shown.length - 1, at + 1); render(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); at = Math.max(0, at - 1); render(); }
+      else if (e.key === 'Enter') { e.preventDefault(); if (shown[at]) run(shown[at]); }
+    });
+    back.addEventListener('pointerdown', (e) => { if (e.target === back) close(); });
+    render();
+    input.focus();
+  }
+
   showShortcuts() {
     const rows = [
+      ['Search commands', 'Ctrl+K or /'],
       ['Rotate view (free, about the model center)', 'Middle-drag (or left-drag outside sketches)'], ['Pan', 'Shift + right-drag, or Ctrl + middle-drag'],
       ['Zoom', 'Mouse wheel (toward the cursor), or Shift + middle-drag'], ['Roll', 'Alt + middle-drag, or Alt + ←/→'],
       ['Rotate in steps', 'Arrow keys 15° · Shift + arrows 90°'], ['Pan in steps', 'Ctrl + arrow keys'],

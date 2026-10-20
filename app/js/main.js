@@ -3806,6 +3806,12 @@ class App {
       const typing = e.target.closest?.('input, select, textarea');
       const ctrl = e.ctrlKey || e.metaKey;
       const k = e.key.toLowerCase();
+      // command search, everywhere
+      if (((ctrl && k === 'k' && !e.shiftKey && !e.altKey) || (e.key === '/' && !ctrl && !typing)) && !document.querySelector('.modal-back') && !document.querySelector('#cmd-search')) {
+        e.preventDefault();
+        this.ui.commandSearch();
+        return;
+      }
       if (this.mode === 'drawing') {
         if (this.drawing.handleKey(e)) return;
         if (ctrl && !typing) {

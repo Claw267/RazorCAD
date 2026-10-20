@@ -474,7 +474,8 @@ Work through in this order; each item tested, logged in CHANGELOG, RazorCAD.exe 
 - [x] 4f Assemblies: gear and rack-and-pinion mates.
   - Done: MATE_TYPES gear / rack, twistOf, mechRef (reference poses, axes aligned; rack travel from an edge or cross(pinion axis, face normal)); solveAssembly equations θa·ratio + s·θb = 0 and slide − s·(travel/2π)·θp = 0, reference re-taken after every successful solve; mateChoices, default ratio rA/rB and travel 2πr, panel labels + hints + Reverse, tree label 1:n, flipMate. Test gear-rack-mates (B −15° / rack 5.236 mm, then −115° / 40.143 mm in steps); preview: Gear offered, ratio 0.5, A 20° → B −10°.
 6. Ease of use
-- [ ] 6a Command search (a key, type a command name, Enter).
+- [x] 6a Command search (a key, type a command name, Enter).
+  - Done: ui.commandList (menuDefs of the editor in front + its commandDefs toolbars, enabled only, menu / toolbar duplicates joined) and commandSearch overlay (word matching, ranking, recent commands in localStorage, arrows / Enter / Esc / click); main Ctrl+K and / (not over a dialog); Help menu item, quick button, search icon, shortcuts row. Checked in the preview: 192 part commands, "fil" / "circ pat" / "units inch", Enter runs (Equations opened), recent first, drawing mode finds Balloon, Esc closes.
 - [ ] 6b Customisable keyboard shortcuts.
 - [ ] 6c Short first-run tutorial.
 

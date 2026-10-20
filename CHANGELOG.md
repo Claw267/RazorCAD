@@ -6,6 +6,10 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 22:25 — Command search
+- **Ctrl+K** (or **/**) opens a search box. Type part of a command's name, such as "fil" for Fillet or "circ pat" for Circular Pattern, then pick with ↑/↓ and Enter or click. It searches every command of the menus and toolbars of what is in front: part, sketch, 3D sketch, assembly or drawing. Each result shows where the command lives and its shortcut. The commands used lately come first. Also in Help ▸ Search Commands and as the magnifier next to Save.
+- Help ▸ Keyboard Shortcuts lists it.
+
 ## 2026-10-20 22:22 — Gear and rack-and-pinion mates
 - **Gear mate:** pick the cylinders of two gears (their pitch circles). Turn one and the other turns the other way, in the ratio of their radii; you can change the ratio. **Reverse** is for an internal gear (both turn the same way). In the tree it shows as e.g. "Gear1 1:2".
 - **Rack-pinion mate:** pick the pinion's cylinder and a straight edge (or the flat face) of the rack. Turning the pinion slides the rack along it, by the pinion's circumference per turn (π × diameter, which you can change), and sliding the rack turns the pinion. **Reverse** changes the direction.
