@@ -6,6 +6,17 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 06:41 — BOM mass, cost and totals; columns edited on the table
+- **Mass and cost in bills of materials:** new column kinds Mass, Total mass, Cost and Total cost, with a **TOTAL** row (quantity, total mass, total cost).
+  - Mass comes from each part's material and volume, worked out when the assembly builds the part; a sub-assembly adds up its parts.
+  - Cost comes from a part's **Cost** property (e.g. 12.50, $3 or R12,50).
+- **Columns edited right on the table:**
+  - **Assembly ▸ Bill of Materials:** click a column heading. You can change what it shows (any field, property, mass, cost, or values typed in), insert a column left or right, move, rename or remove it. Typed values are edited in the table itself.
+  - **Drawing BOM table:** right-click a column for the same menu; double-click a typed value to edit it. Columns… still has everything in one dialog.
+  - The window's columns are kept with the assembly (Default Columns goes back to the usual ones), are part of undo, and are what Copy / Save CSV write.
+- Context menus now also open over dialogs.
+- Regression test: bom-mass-cost.
+
 ## 2026-10-21 06:35 — Auto Dimension options
 - **Auto Dimension** now asks how to dimension. Your choices are kept for next time.
   - **Positions:** baseline (each hole from the edge, as before), chain (edge → hole → hole, on one row), or ordinate (values from the view's bottom left corner, on a row above and a column to the right).

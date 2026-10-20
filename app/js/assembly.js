@@ -26,7 +26,7 @@ import { ExplodeTool, explodeOffsets, drawExplodeLines, animateExplode } from '.
 import { hashText, packResult, unpackResult } from './modelcache.js';
 import { packMesh, unpackMesh, MESH_CACHE } from './partmeshes.js';
 import { AssemblyView } from './asmview.js';
-import { bomRows, bomPropNames } from './bom.js';
+import { bomRows, bomPropNames, bomCell, bomTotals, bomSources, bomColumnMenu, meshVolume, massOf } from './bom.js';
 import { editCustomProps } from './custprops.js';
 import { MotionTool } from './motion.js';
 import { t as tr } from './i18n.js';
@@ -632,7 +632,7 @@ export class AssemblyEditor {
 
   // ---------------------------------------------------------------- undo / changes
   // (a part copy goes in by reference: it can hold megabytes of imported geometry, and copies are replaced, never changed)
-  snapshot() { return JSON.stringify({ components: this.doc.components, mates: this.doc.mates, parts: this.doc.parts.map((p) => ({ ...p, doc: this.docRef(p.doc) })), name: this.doc.name, nextId: this.doc.nextId, configs: this.doc.configs, activeConfig: this.doc.activeConfig || null, explodes: this.doc.explodes, exploded: this.doc.exploded || null, motions: this.doc.motions || [], customProps: this.doc.customProps || null }); }
+  snapshot() { return JSON.stringify({ components: this.doc.components, mates: this.doc.mates, parts: this.doc.parts.map((p) => ({ ...p, doc: this.docRef(p.doc) })), name: this.doc.name, nextId: this.doc.nextId, configs: this.doc.configs, activeConfig: this.doc.activeConfig || null, explodes: this.doc.explodes, exploded: this.doc.exploded || null, motions: this.doc.motions || [], customProps: this.doc.customProps || null, bomCols: this.doc.bomCols || null }); }
   docRef(doc) {
     this._docKeys ||= new WeakMap(); this._docs ||= new Map();
     let k = this._docKeys.get(doc);
@@ -652,7 +652,7 @@ export class AssemblyEditor {
   restore(json) {
     const s = JSON.parse(json);
     s.parts = s.parts.map((p) => ({ ...p, doc: this._docs.get(p.doc) }));
-    Object.assign(this.doc, s); if (!s.customProps) delete this.doc.customProps;
+    Object.assign(this.doc, s); if (!s.customProps) delete this.doc.customProps; if (!s.bomCols) delete this.doc.bomCols;
     this.dirty = true; this.loadParts(); this.updateGeometry(); this.renderAll(); this.app.macros?.syncEditor(this); }
   undo() { const s = this.undoStack.pop(); if (!s) return; this.redoStack.push(this.snapshot()); this.restore(s); }
   redo() { const s = this.redoStack.pop(); if (!s) return; this.undoStack.push(this.snapshot()); this.restore(s); }
@@ -693,6 +693,11 @@ export class AssemblyEditor {
     // (colour: the part's material's, for bodies without one of their own; p.color: an older STEP import's part colour)
     const done = (j, mesh, error = null) => {
       this.parts.set(j.gk, error ? { key: j.key, from: j.p.doc, mesh: null, error } : { key: j.key, from: j.p.doc, mesh: mesh && withPartLooks(mesh, j.p.doc), color: materialById(j.p.doc.material)?.color ?? j.p.color ?? DEFAULT_BODY_COLOR, box: mesh ? meshBox(mesh) : null });
+      // (its mass, for the bill of materials: the mesh's volume and the part's material)
+      if (mesh && !isAssembly(j.p.doc)) {
+        const kg = massOf(meshVolume(mesh), j.p.doc.material), k = j.cfgId ?? '';
+        if (kg != null) { if (j.p.mass?.[k] !== +kg.toPrecision(6)) (j.p.mass ||= {})[k] = +kg.toPrecision(6); } else if (j.p.mass) delete j.p.mass[k];
+      }
       any = true;
     };
     if (jobs.length && platform.desktop) {
@@ -1705,20 +1710,60 @@ export class AssemblyEditor {
     this.vp.setPreview(null);
   }
 
+  // the Bill of Materials window's columns: the assembly's own (doc.bomCols), else item, part, qty, material, the
+  // parts' custom properties and the file
+  bomCols() {
+    if (this.doc.bomCols?.length) return this.doc.bomCols;
+    return [{ key: 'item', title: 'Item' }, { key: 'name', title: 'Part' }, { key: 'qty', title: 'Qty' }, { key: 'material', title: 'Material' },
+      ...bomPropNames(this.doc).map((n) => ({ key: 'prop:' + n, title: n })), { key: 'file', title: 'File' }];
+  }
   showBOM() {
     // (indented: one row per part / sub-assembly and configuration used, a sub-assembly's own under it with the
-    // quantity in one of it; suppressed components left out)
-    const rows = bomRows(this.doc); // (bom.js: shared with the BOM tables and balloons on drawings)
-    const props = bomPropNames(this.doc); // (the parts' custom properties: a column each)
-    const table = `<table class="bom"><tr><th>Item</th><th>Part</th><th>Qty</th><th>Material</th>${props.map((n) => `<th>${esc(n)}</th>`).join('')}<th>File</th></tr>${rows.map((r) => `<tr><td>${r.item}</td><td style="padding-left:${6 + r.depth * 14}px">${r.sub ? '<b>' : ''}${esc(r.name)}${r.sub ? '</b>' : ''}</td><td>${r.qty}</td><td>${esc(r.material)}</td>${props.map((n) => `<td>${esc(r.props?.[n] ?? '')}</td>`).join('')}<td>${esc(r.file)}</td></tr>`).join('')}</table>`;
-    const q = (x) => `"${String(x ?? '').replace(/"/g, '""')}"`;
-    const csv = [['Item', 'Part', 'Qty', 'Material', ...props, 'File'].map(q).join(','), ...rows.map((r) => [r.item, r.name, r.qty, r.material, ...props.map((n) => r.props?.[n] ?? ''), r.file].map(q).join(','))].join('\r\n');
-    const top = rows.filter((r) => !r.depth);
-    this.app.ui.modal('Bill of Materials', 'bom', `${table}<p class="pm-hint">${top.reduce((t, r) => t + r.qty, 0)} components at the top level, ${top.length} different parts and sub-assemblies${rows.length > top.length ? ' (a sub-assembly\'s quantities are for one of it)' : ''}.</p>`, [
-      { label: 'Copy as CSV', action: () => { navigator.clipboard?.writeText(csv); this.app.status('Bill of materials copied (CSV).'); return false; } },
-      { label: 'Save CSV…', action: () => { platform.saveBinary(`${this.safeName()} BOM.csv`, new TextEncoder().encode(csv), 'csv'); } },
+    // quantity in one of it; suppressed components left out. bom.js: shared with the BOM tables and balloons on
+    // drawings.) Click a heading for its column's menu (what it shows, insert, move, rename, remove); values typed
+    // into the table are edited in place.
+    const box = el('div');
+    const NUM = ['qty', 'mass', 'totalMass', 'cost', 'totalCost'];
+    const render = () => {
+      const rows = bomRows(this.doc), cols = this.bomCols(), totals = bomTotals(rows, cols);
+      const top = rows.filter((r) => !r.depth);
+      const cell = (r, c, i) => {
+        if (c.key === 'text') return `<td><input class="bc-v" data-col="${i}" data-row="${esc(r.key)}" value="${esc(bomCell(r, c))}"></td>`;
+        if (c.key === 'name') return `<td style="padding-left:${6 + r.depth * 14}px">${r.sub ? '<b>' : ''}${esc(r.name)}${r.sub ? '</b>' : ''}</td>`;
+        return `<td${NUM.includes(c.key) ? ' class="num"' : ''}>${esc(bomCell(r, c))}</td>`;
+      };
+      box.innerHTML = `<table class="bom"><tr>${cols.map((c, i) => `<th class="bc-h" data-col="${i}" title="Click: what this column shows, insert, move, rename, remove">${esc(c.title)}</th>`).join('')}</tr>${rows.map((r) => `<tr>${cols.map((c, i) => cell(r, c, i)).join('')}</tr>`).join('')}${totals ? `<tr class="bc-total">${cols.map((c, i) => `<td${NUM.includes(c.key) ? ' class="num"' : ''}>${esc(totals[i] ?? '')}</td>`).join('')}</tr>` : ''}</table>
+        <p class="pm-hint">${top.reduce((t, r) => t + r.qty, 0)} components at the top level, ${top.length} different parts and sub-assemblies${rows.length > top.length ? ' (a sub-assembly\'s quantities are for one of it)' : ''}. Click a column heading to change the columns. Masses come from the parts' materials; costs from their Cost property.</p>`;
+      box.querySelectorAll('th.bc-h').forEach((th) => {
+        th.onclick = (e) => {
+          const cols2 = JSON.parse(JSON.stringify(this.bomCols()));
+          const done = () => { this.begin(); this.doc.bomCols = cols2; this.change('Bill of materials columns changed.'); render(); };
+          const r = th.getBoundingClientRect();
+          this.app.ui.showContext(r.left, r.bottom, bomColumnMenu(cols2, +th.dataset.col, bomSources(bomPropNames(this.doc), cols2), done, (t) => this.app.ui.promptText('Column Heading', 'bom', 'Heading', t)));
+          e.stopPropagation();
+        };
+      });
+      box.querySelectorAll('input.bc-v').forEach((inp) => {
+        inp.onkeydown = (e) => { e.stopPropagation(); if (e.key === 'Enter') inp.blur(); };
+        inp.onchange = () => {
+          const cols2 = JSON.parse(JSON.stringify(this.bomCols())), c = cols2[+inp.dataset.col];
+          (c.values ||= {})[inp.dataset.row] = inp.value;
+          this.begin(); this.doc.bomCols = cols2; this.change();
+        };
+      });
+    };
+    render();
+    const csv = () => {
+      const rows = bomRows(this.doc), cols = this.bomCols(), totals = bomTotals(rows, cols), q = (x) => `"${String(x ?? '').replace(/"/g, '""')}"`;
+      return [cols.map((c) => q(c.title)).join(','), ...rows.map((r) => cols.map((c) => q(bomCell(r, c))).join(',')), ...(totals ? [cols.map((c, i) => q(totals[i] ?? '')).join(',')] : [])].join('\r\n');
+    };
+    const dlg = this.app.ui.modal('Bill of Materials', 'bom', box, [
+      { label: 'Default Columns', action: () => { if (this.doc.bomCols) { this.begin(); delete this.doc.bomCols; this.change(); } render(); return false; } },
+      { label: 'Copy as CSV', action: () => { navigator.clipboard?.writeText(csv()); this.app.status('Bill of materials copied (CSV).'); return false; } },
+      { label: 'Save CSV…', action: () => { platform.saveBinary(`${this.safeName()} BOM.csv`, new TextEncoder().encode(csv()), 'csv'); } },
       { label: 'Close', primary: true },
     ]);
+    dlg.body.closest('.modal')?.classList.add('modal-wide');
   }
 
   // The assembly as a STEP file with its structure: each part once, every component placed and named after it,

@@ -14,7 +14,7 @@ import { cutListRows } from './weldments.js';
 import { bodyMaterialId, docJSON, stripThumbnail, fileStem, isDefaultName } from './model.js';
 import { TEMPLATE_EXT, templateFromDrawing, applyTemplate } from './drawtemplates.js';
 import { partMesh, assemblyParts } from './partmeshes.js';
-import { bomRows, bomItemOf, BOM_FIELDS, bomPropNames, bomCell } from './bom.js';
+import { bomRows, bomItemOf, BOM_FIELDS, bomPropNames, bomCell, bomSources, bomColumnMenu } from './bom.js';
 import { propOf } from './custprops.js';
 import { explodeOffsets } from './explode.js';
 import { autoDims, AUTO_DIM_DEFAULTS } from './autodim.js';
@@ -631,7 +631,7 @@ export class DrawingEditor {
     if (this.tool && this.tool.kind !== 'viewprops') return;
     const P = this.toSheet(e);
     const ann = this.annAt(P);
-    if (ann) { this.editAnn(ann); return; }
+    if (ann) { this.editAnn(ann, P); return; }
     const v = this.viewAt(P, 1);
     if (v) this.startViewProps(v);
   }
@@ -646,7 +646,19 @@ export class DrawingEditor {
       if (ann.type === 'dim' || ann.type === 'note') items.push({ label: ann.type === 'dim' ? 'Edit Dimension Text…' : 'Edit Note…', icon: 'note', action: () => this.editAnn(ann) });
       if (['datum', 'fcf', 'sfin', 'weld', 'revtable'].includes(ann.type)) items.push({ label: 'Edit…', icon: 'note', action: () => this.editAnn(ann) });
       if (ann.type === 'balloon') items.push({ label: 'Item Number…', icon: 'balloon', action: async () => { const t = await this.app.ui.promptText('Balloon', 'balloon', 'Item number', String(ann.item ?? '')); if (t != null && t.trim()) { ann.item = t.trim(); this.changed(); } } });
-      if (ann.type === 'bom') items.push({ label: 'Columns…', icon: 'bom', action: () => this.bomColumnsDialog(ann) }, { label: ann.indented ? 'Top Level Only' : 'Show Sub-assembly Parts (Indented)', icon: 'bom', action: () => { ann.indented = !ann.indented; this.changed(); } });
+      if (ann.type === 'bom') {
+        // (the column under the cursor: what it shows, insert, move, rename, remove; a typed value: edit it)
+        const hit = D.bomHit(this.doc, ann, P);
+        if (hit.col >= 0) {
+          const m = this.doc.models.find((x) => x.id === ann.model);
+          const cols = JSON.parse(JSON.stringify(D.bomColumns(ann)));
+          const src = bomSources(bomPropNames(m?.doc), cols);
+          const done = () => { ann.cols = cols; this.changed(); };
+          if (cols[hit.col].key === 'text' && hit.r) items.push({ label: `Edit "${cols[hit.col].title}" of ${hit.r.name}…`, icon: 'note', action: () => this.editBomValue(ann, hit.col, hit.r) }, 'sep');
+          items.push(...bomColumnMenu(cols, hit.col, src, done, (t) => this.app.ui.promptText('Column Heading', 'bom', 'Heading', t)).map((x) => (x === 'sep' ? x : { ...x, label: x.label.startsWith('Shows ▸') ? `${cols[hit.col].title} ${x.label}` : x.label })), 'sep');
+        }
+        items.push({ label: 'Columns…', icon: 'bom', action: () => this.bomColumnsDialog(ann) }, { label: ann.indented ? 'Top Level Only' : 'Show Sub-assembly Parts (Indented)', icon: 'bom', action: () => { ann.indented = !ann.indented; this.changed(); } });
+      }
       items.push({ label: 'Delete', icon: 'trash', action: () => this.deleteSelection() });
     } else if (v) {
       this.selected.clear(); this.selected.add(v.id);
@@ -1461,12 +1473,21 @@ export class DrawingEditor {
 
   // The BOM table's columns: what each shows (a field, a custom property of the parts, or values typed in here),
   // its heading and width, in order; typed values are entered in the grid below.
+  // a value typed into a BOM table cell
+  async editBomValue(ann, col, row) {
+    const cols = JSON.parse(JSON.stringify(D.bomColumns(ann))), c = cols[col];
+    const t = await this.app.ui.promptText(c.title, 'bom', `${row.name}`, c.values?.[row.key] ?? '');
+    if (t == null) return;
+    (c.values ||= {})[row.key] = t;
+    ann.cols = cols;
+    this.changed();
+  }
   bomColumnsDialog(ann) {
     const m = this.doc.models.find((x) => x.id === ann.model);
     const rows = bomRows(m?.doc).filter((r) => ann.indented || !r.depth);
     const props = bomPropNames(m?.doc);
     let cols = JSON.parse(JSON.stringify(D.bomColumns(ann)));
-    const sources = () => [...BOM_FIELDS.map(([k, l]) => [k, l]), ...[...new Set([...props, ...cols.filter((c) => c.key?.startsWith('prop:')).map((c) => c.key.slice(5))])].map((n) => ['prop:' + n, `Property: ${n}`]), ['text', 'Typed in the table']];
+    const sources = () => bomSources(props, cols);
     const label = (k) => sources().find((x) => x[0] === k)?.[1] || k;
     const box = el('div', { class: 'bomcols' });
     const render = () => {
@@ -1737,8 +1758,13 @@ export class DrawingEditor {
   }
 
   // ------------------------------------------------------------ editing annotations / views
-  async editAnn(a) {
-    if (a.type === 'bom') return this.bomColumnsDialog(a);
+  async editAnn(a, P = null) {
+    if (a.type === 'bom') {
+      // (double-click on a typed value: edit it; anywhere else: the columns)
+      const hit = P ? D.bomHit(this.doc, a, P) : null, col = hit?.col >= 0 ? D.bomColumns(a)[hit.col] : null;
+      if (col?.key === 'text' && hit.r) return this.editBomValue(a, hit.col, hit.r);
+      return this.bomColumnsDialog(a);
+    }
     if (a.type === 'revtable') { this.revisionTable(); return; }
     if (['datum', 'fcf', 'sfin', 'weld'].includes(a.type)) {
       const copy = JSON.parse(JSON.stringify(a));

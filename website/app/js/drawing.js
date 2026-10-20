@@ -9,7 +9,7 @@
 // Primitives may carry `ref: { kind: 'view' | 'ann', id }` (selection).
 import { paperSize, frameRect, formatPrims, titleBlockRect, LW, hatchStyle } from './drawingformats.js';
 import { fontMetrics } from './fonts.js';
-import { bomRows, bomCell } from './bom.js';
+import { bomRows, bomCell, bomTotals } from './bom.js';
 
 export const DRAWING_EXT = '.rdrw';
 const DASH_HIDDEN = [2.4, 1.2];
@@ -890,8 +890,9 @@ export function bomTablePrims(dwg, a) {
   const m = (dwg.models || []).find((x) => x.id === a.model);
   const rows = bomRows(m?.doc).filter((r) => a.indented || !r.depth);
   const spec = bomColumns(a), cols = spec.map((c) => [c.title, Math.max(4, Number(c.w) || 20)]), W = cols.reduce((s2, c) => s2 + c[1], 0), out = [];
-  const centred = spec.map((c) => c.key === 'item' || c.key === 'qty');
-  const N = rows.length + 1;
+  const centred = spec.map((c) => ['item', 'qty', 'mass', 'totalMass', 'cost', 'totalCost'].includes(c.key));
+  const totals = bomTotals(rows, spec);
+  const N = rows.length + 1 + (totals ? 1 : 0);
   out.push({ t: 'text', p: [P[0] + W / 2, P[1] - rh * 0.3], text: 'BILL OF MATERIALS', h: th, anchor: 'middle', base: 'bottom', bold: true });
   for (let r = 0; r <= N; r++) out.push({ t: 'line', a: [P[0], P[1] + r * rh], b: [P[0] + W, P[1] + r * rh], w: LW.thin });
   let x = P[0];
@@ -902,8 +903,21 @@ export function bomTablePrims(dwg, a) {
   };
   cell(0, cols.map((c) => c[0]), true);
   rows.forEach((r, i) => cell(i + 1, spec.map((c) => (c.key === 'name' ? '  '.repeat(r.depth) : '') + bomCell(r, c))));
+  if (totals) cell(rows.length + 1, spec.map((c, i) => totals[i] ?? ''), true);
   if (!m) out.push({ t: 'text', p: [P[0] + W / 2, P[1] + rh * 1.7], text: '(the assembly is missing)', h: th, anchor: 'middle', base: 'bottom', color: '#8a94a6' });
   return out;
+}
+
+// Where on a BOM table a sheet point is: { col (index, or -1), row (0: the headings, 1…: the rows, or -1), r (the
+// row's bomRows entry) }.
+export function bomHit(dwg, a, P) {
+  const th = (dwg.settings?.textH || 3.5) * 0.85, O = annPos(dwg, a), rh = th * 2.2;
+  const m = (dwg.models || []).find((x) => x.id === a.model);
+  const rows = bomRows(m?.doc).filter((r) => a.indented || !r.depth);
+  let x = O[0], col = -1;
+  bomColumns(a).forEach((c, i) => { const w = Math.max(4, Number(c.w) || 20); if (P[0] >= x && P[0] < x + w) col = i; x += w; });
+  const k = Math.floor((P[1] - O[1]) / rh), row = k >= 0 && k <= rows.length ? k : -1;
+  return { col, row, r: row > 0 ? rows[row - 1] : null };
 }
 
 // The revision table (rows from dwg.revisions), its top-left corner at the annotation's position.

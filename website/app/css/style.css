@@ -44,9 +44,18 @@ input, select { font: inherit; color: inherit; }
 }
 
 #dropdown, #ctxmenu {
-  position: fixed; z-index: 1000; background: var(--panel2); border: 1px solid var(--border);
+  position: fixed; background: var(--panel2); border: 1px solid var(--border);
   box-shadow: 0 6px 18px rgba(20,30,45,.18); padding: 4px 0; min-width: 200px; border-radius: 3px;
 }
+#dropdown { z-index: 1000; }
+#ctxmenu { z-index: 2500; max-height: 86vh; overflow-y: auto; } /* (also over dialogs: column menus) */
+table.bom th.bc-h { cursor: pointer; }
+table.bom th.bc-h:hover { background: var(--hover); }
+table.bom th.bc-h::after { content: ' ▾'; color: var(--muted); font-weight: normal; }
+table.bom td input.bc-v { width: 100%; min-width: 70px; box-sizing: border-box; border: 1px solid transparent; background: transparent; font: inherit; padding: 1px 2px; }
+table.bom td input.bc-v:hover, table.bom td input.bc-v:focus { border-color: var(--border); background: var(--panel2); }
+table.bom tr.bc-total td { font-weight: 600; border-top: 2px solid var(--border); }
+table.bom td.num { text-align: right; }
 .mi {
   display: flex; align-items: center; gap: 8px; padding: 5px 14px 5px 10px; cursor: default; white-space: nowrap;
 }

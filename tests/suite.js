@@ -1188,6 +1188,59 @@ await rc.cut(h, 10);`, 'plate');
       : { ok: false, detail: `chain ${n1}: ${vals}, tol ${tolOk}, overlaps ${overlap}; ordinate ${n2}: x ${xvals}` };
   },
 
+  // BOM mass and cost: a steel plate (60 × 40 × 5) and two aluminium blocks (20 × 20 × 15) with costs → masses from
+  // the materials, totals 0.126 kg and 18.50; the window's column menu changes a column; on the drawing table the
+  // column under a point is found, and a typed value is edited
+  async 'bom-mass-cost'() {
+    const a = window.app;
+    const box = (name, w, d, h, material, cost) => {
+      const p = M.newDoc(); p.name = name; p.material = material; p.customProps = [{ name: 'Cost', value: cost }];
+      const s = M.createFeature(p, 'sketch', { plane: { ref: 'top' } });
+      const pts = [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]];
+      Object.assign(s, { points: pts.map(([x, y], i) => ({ id: 'p' + (i + 1), x, y })), curves: pts.map((_, i) => ({ id: 'c' + (i + 1), type: 'line', p1: 'p' + (i + 1), p2: 'p' + ((i + 1) % 4 + 1), construction: false })), constraints: [] });
+      p.features.push(s, M.createFeature(p, 'extrude', { sketch: s.id, depth: h }));
+      return p;
+    };
+    a.newAssembly(); await wait(300); closeModals();
+    const asm = a.drawing;
+    const pp = asm.addPart(box('Plate', 60, 40, 5, 'steel', '12.50'), null, null), pb = asm.addPart(box('Block', 20, 20, 15, 'al6061', '$3'), null, null);
+    await asm.addComponent(pp); await asm.addComponent(pb); await asm.addComponent(pb);
+    await until(() => asm.doc.components.every((c) => asm.geo(c)?.mesh), 30000);
+    const B = await import('/js/bom.js');
+    const cols = [{ key: 'item', title: 'ITEM', w: 12 }, { key: 'name', title: 'PART', w: 30 }, { key: 'qty', title: 'QTY', w: 11 }, { key: 'mass', title: 'MASS', w: 18 }, { key: 'totalMass', title: 'TOTAL MASS', w: 22 }, { key: 'cost', title: 'COST', w: 16 }, { key: 'totalCost', title: 'TOTAL COST', w: 22 }];
+    asm.begin(); asm.doc.bomCols = JSON.parse(JSON.stringify(cols)); asm.change();
+    const rows = B.bomRows(asm.doc), totals = B.bomTotals(rows, cols);
+    const massOk = Math.abs(rows.find((r) => r.name === 'Plate').mass - 0.0936) < 1e-6 && Math.abs(rows.find((r) => r.name === 'Block').mass - 0.0162) < 1e-6;
+    asm.showBOM();
+    const win = document.querySelector('.modal-back:last-child table.bom')?.innerText || '';
+    // the column menu: the MASS column shows the material instead
+    const c2 = JSON.parse(JSON.stringify(asm.bomCols()));
+    const menu = B.bomColumnMenu(c2, 3, B.bomSources(B.bomPropNames(asm.doc), c2), () => { asm.begin(); asm.doc.bomCols = c2; asm.change(); }, async () => null);
+    menu.find((x) => x !== 'sep' && x.label === 'Shows ▸ Material').action();
+    closeModals();
+    const changed = asm.doc.bomCols[3].key === 'material' && asm.doc.bomCols[3].title === 'MATERIAL';
+    asm.undo();
+    const undone = asm.doc.bomCols[3].key === 'mass';
+    // the drawing table
+    const keep = a.ui.newDrawingSetup;
+    a.ui.newDrawingSetup = async () => ({ template: BUILTIN_TEMPLATES.find((t) => t.id === 'builtin:A3L'), name: 'BOM mass', props: {}, sheet: null });
+    try { await a.newDrawing(true); } finally { a.ui.newDrawingSetup = keep; }
+    const ed = a.drawing;
+    ed.addBOM();
+    const ann = ed.doc.anns.find((x) => x.type === 'bom');
+    ann.cols = [...JSON.parse(JSON.stringify(cols)), { key: 'text', title: 'NOTE', w: 20, values: {} }];
+    const O = D2.annPos(ed.doc, ann), th = (ed.doc.settings?.textH || 3.5) * 0.85;
+    const hit = D2.bomHit(ed.doc, ann, [O[0] + 12 + 30 + 11 + 2, O[1] + th * 2.2 * 1.5]);
+    const keepP = a.ui.promptText;
+    a.ui.promptText = async () => 'paint';
+    try { await ed.editBomValue(ann, 7, hit.r); } finally { a.ui.promptText = keepP; }
+    const texts = D2.annPrims(ed.doc, ann, {}).filter((p) => p.t === 'text').map((p) => p.text);
+    const ok = massOk && totals[4] === '0.126' && totals[6] === '18.50' && totals[0] === 'TOTAL' && win.includes('0.126') && win.includes('18.50') && changed && undone
+      && hit.col === 3 && hit.row === 1 && texts.includes('TOTAL') && texts.includes('18.50') && texts.includes('paint');
+    return ok ? { ok: true, detail: `plate ${rows[0].mass} kg, block ${rows[1].mass} kg; totals ${totals[4]} kg, ${totals[6]}; column menu + undo; drawing table: column ${hit.col}, typed value` }
+      : { ok: false, detail: `mass ${massOk} (${rows.map((r) => r.mass)}), totals ${JSON.stringify(totals)}, window ${win.slice(0, 160)}, changed ${changed}, undone ${undone}, hit ${JSON.stringify({ col: hit.col, row: hit.row })}, texts ${texts.join('|')}` };
+  },
+
   // the browser version's notice: above the window, as wide as it (the text wraps), gone with ✕
   async 'web-notice'() {
     const a = window.app, root = document.getElementById('app');
