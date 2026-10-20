@@ -489,8 +489,10 @@ In this order; each item tested (regression suite + preview / exe), logged in CH
 1. Gaps
 - [x] 1a STEP export of a whole assembly (components placed, names, colours, sub-assemblies).
   - Done: kernel builtPart (shared with assemblySolids), exportAssemblySTEP (XCAF: AddShape per part as used, NewShape + AddComponent per (sub-)assembly with TopLoc_Location from the pose, TDataStd_Name for parts / components, ColorTool from p.exportColor and body colours, STEPCAFControl_Writer with write.step.assembly 1), linearRGB / linearHex (colours were written too light; part export fixed too). AssemblyEditor.exportDoc (part colours as shown) / exportSTEP, File ▸ Export ▸ STEP…. Test assembly-step-export; preview: re-imported parts 12000 / 6000 mm³, colours exact.
-- [ ] 1b Etch lines on sheet metal (sketch lines marked onto the flat pattern and its DXF).
+- [x] 1b Etch lines on sheet metal (sketch lines marked onto the flat pattern and its DXF).
+  - Done: feature smEtch (model, PM, Sheet Metal toolbar, icon); kernel: sketch chains (lines, arcs via circleThrough, circles, beziers) and text outlines sampled, mapped to 3D, SM.addEtch (panel holding most points, clipped to its face) → marks kind "etch"; body record replaced (solid and name unchanged); res.curves for the 3D display; flatEnts layer ETCH; flat views kind "et" (View Properties ▸ Etch lines). Test sheet-metal-etch (65 segments ≈ 87.7 mm, DXF ETCH layer, volume unchanged); preview checked.
 - [ ] 1c Motion: drive a gear / slider / angle and play it back (also settles the half-turn limit of gear mates).
+- [ ] 1d Arrow keys move through the feature tree and the assembly tree (user request during plan 2: "also make the featuretree and assembly tree navigateable by arrow keys if it is already not possible.").
 3. Speed
 - [ ] 3a More than one geometry kernel at a time (separate workers for assembly parts, drawing views, exports).
 - [ ] 3b One-click updating (download and run the new setup from the update notice).

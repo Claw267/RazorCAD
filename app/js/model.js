@@ -150,6 +150,7 @@ export const TYPE_INFO = {
   smTransition: { base: 'Transition', icon: 'smTransition' },
   smExtrude: { base: 'SM-Extrude', icon: 'smExtrude' },
   smSketchBend: { base: 'Sketched-Bend', icon: 'smSketchBend' },
+  smEtch: { base: 'Etch', icon: 'smEtch' },
   smJog: { base: 'Jog', icon: 'smJog' },
   smCrossBreak: { base: 'Cross-Break', icon: 'smCrossBreak' },
   smTabSlot: { base: 'Tab-and-Slot', icon: 'smTabSlot' },
@@ -164,12 +165,12 @@ export const TYPE_INFO = {
   smFold: { base: 'Bend', icon: 'smFold' },
   smConvert: { base: 'Convert-to-Sheet-Metal', icon: 'smConvert' },
 };
-export const SHEET_TYPES = new Set(['smBase', 'smFlange', 'smCornerRelief', 'smClosedCorner', 'smUnfold', 'smFold', 'smConvert', 'smLoft', 'smTransition', 'smHem', 'smExtrude', 'smSketchBend', 'smJog', 'smCrossBreak', 'smTabSlot', 'smForm', 'smGusset', 'smProfileFlange']);
+export const SHEET_TYPES = new Set(['smBase', 'smFlange', 'smCornerRelief', 'smClosedCorner', 'smUnfold', 'smFold', 'smConvert', 'smLoft', 'smTransition', 'smHem', 'smExtrude', 'smSketchBend', 'smJog', 'smCrossBreak', 'smTabSlot', 'smForm', 'smGusset', 'smProfileFlange', 'smEtch']);
 
 // Features that need a sketch (the first unused one is offered by default).
 // features a pattern or mirror can copy (anything that changes the bodies at a place)
 export const PATTERN_SKIP = new Set(['structMember', 'weldTrim', 'weldBead', 'sketch', 'plane', 'axis', 'point', 'helix', 'sketch3d', 'projCurve', 'compCurve', 'lpattern', 'cpattern', 'mirror', 'spattern', 'curvePattern', 'fillPattern', 'combine', 'deleteBody', 'deleteSurface', 'moveBody', 'scale', 'import', 'knit', 'surfSolid', 'meshRepair', 'smConvert', 'smUnfold', 'smFold', 'split']);
-export const SKETCH_FEATURES = new Set(['extrude', 'revolve', 'surfExtrude', 'surfRevolve', 'surfPlanar', 'helix', 'wrap', 'smBase', 'smExtrude', 'smSketchBend', 'smJog', 'rib']);
+export const SKETCH_FEATURES = new Set(['extrude', 'revolve', 'surfExtrude', 'surfRevolve', 'surfPlanar', 'helix', 'wrap', 'smBase', 'smExtrude', 'smSketchBend', 'smJog', 'smEtch', 'rib']);
 
 // Sketches a feature uses (they are hidden and shown under it in the tree once used).
 export function sketchesUsedBy(f) {
@@ -339,6 +340,7 @@ export function createFeature(doc, type, props = {}) {
     // bends along sketch lines on a flat face of a sheet (the flat pattern stays the plate); position:
     // the bend zone 'center' (centred on the line) | 'start' (starts at it) | 'end' (ends at it)
     smSketchBend: { sketch: null, angle: 90, useDefaultRadius: true, radius: 2, position: 'center', flip: false, swapFixed: false },
+    smEtch: { sketch: null },
     // two opposite bends from one line, stepping the sheet over by height (heightRef: 'face' | 'overall' | 'inside')
     smJog: { sketch: null, height: 10, heightRef: 'face', angle: 90, useDefaultRadius: true, radius: 2, position: 'start', flip: false, swapFixed: false },
     // an X of shallow folds across each picked flat face (marks for the flat pattern / DXF); flip: pressed down

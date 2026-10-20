@@ -2360,6 +2360,35 @@ export function lineOnSheet(sheet, a, b) {
   return null;
 }
 
+// Etch lines: polylines drawn on a flat face of the sheet (model coordinates), marked in the flat pattern on the
+// panel they lie on, clipped to its face. Returns { sheet, count } (count: the segments marked).
+export function addEtch(sheet, polylines, id) {
+  if (sheet.lofted) throw new Error('A lofted bend cannot have etch lines');
+  if (sheet.flat) throw new Error('Fold the part (Bend feature) before adding etch lines');
+  const { panels } = fold(sheet);
+  const W = frameM(sheet.frame), t = sheet.t, tol = Math.max(1e-4, t * 1e-3);
+  const pts = polylines.flat();
+  // the panel whose top or bottom face holds the most of the points
+  let best = null, bestN = 0;
+  for (const P of panels) {
+    const L = invM(mulM(W, P.M));
+    let n = 0;
+    for (const p of pts) {
+      const q = apM(L, p);
+      if ((Math.abs(q[2] - t) < tol || Math.abs(q[2]) < tol) && faceAt([P.face], [q[0], q[1]], 1e-6)) n++;
+    }
+    if (n > bestN) { bestN = n; best = { P, L }; }
+  }
+  if (!best) throw new Error('The etch sketch is not on a flat face of the sheet: draw it on the top or bottom face of a flat part');
+  const marks = [...(sheet.marks || [])];
+  let count = 0;
+  for (const pl of polylines) for (let i = 1; i < pl.length; i++) {
+    const a = apM(best.L, pl[i - 1]), b = apM(best.L, pl[i]);
+    for (const [ca, cb] of clipSegment([best.P.face], [a[0], a[1]], [b[0], b[1]])) { marks.push({ kind: 'etch', id, a: ca, b: cb }); count++; }
+  }
+  return { sheet: { ...sheet, marks }, count };
+}
+
 const bendShift = (position, ba) => (position === 'start' ? 0 : position === 'end' ? -ba : -ba / 2);
 
 // A bend zone across the panel of `hit` (a line found by lineOnSheet), `shift` across the line from it

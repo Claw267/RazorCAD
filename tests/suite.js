@@ -618,6 +618,48 @@ const UI = {
       : { ok: false, detail: `stats ${JSON.stringify({ parts: r.parts, comps: r.components })}, read: parts ${s.parts?.length}, occ ${s.occurrences?.length}, top ${JSON.stringify(top?.children?.map((c) => [c.name, c.kind, c.pos]))}, warnings ${JSON.stringify(s.warnings)}` };
   },
 
+  // etch lines: a line and a circle sketched on the top face of a sheet metal plate are marked in its flat
+  // pattern (the flat view's 'et' lines, inside the outline); the folded body is unchanged
+  async 'sheet-metal-etch'() {
+    const k = window.app.kernel;
+    const d = M.newDoc();
+    const s = M.createFeature(d, 'sketch', { plane: { ref: 'top' } });
+    const pts = [[-50, -30], [50, -30], [50, 30], [-50, 30]];
+    Object.assign(s, { points: pts.map(([x, y], i) => ({ id: 'p' + (i + 1), x, y })), curves: pts.map((_, i) => ({ id: 'c' + (i + 1), type: 'line', p1: 'p' + (i + 1), p2: 'p' + ((i + 1) % 4 + 1), construction: false })), constraints: [] });
+    d.features.push(s, M.createFeature(d, 'smBase', { sketch: s.id, thickness: 2, radius: 2, kFactor: 0.44 }));
+    let r = await k.rebuild(d, null, null);
+    const vol = async (x) => { const m = await k.request('measure', { refs: [{ kind: 'body', id: x.body.bodies[0].id }] }); return (m.items?.[0] || m).volume; };
+    const v0 = await vol(r);
+    // the plate's top face: a plane through it (the base flange grows from the sketch plane one way or the other)
+    const b = r.body.bodies[0];
+    const m0 = await k.request('measure', { refs: [{ kind: 'body', id: b.id }] });
+    const up = (m0.items?.[0] || m0).centroid?.[1] > 0;
+    const pl = M.createFeature(d, 'plane', { refs: [{ kind: 'plane', id: 'top' }], offset: up ? 2 : 0 });
+    const es = M.createFeature(d, 'sketch', { plane: { ref: pl.id } });
+    Object.assign(es, { points: [{ id: 'a', x: -30, y: 0 }, { id: 'b', x: 20, y: 0 }, { id: 'o', x: 30, y: 10 }], curves: [{ id: 'l', type: 'line', p1: 'a', p2: 'b', construction: false }, { id: 'k', type: 'circle', c: 'o', r: 6, construction: false }], constraints: [] });
+    const et = M.createFeature(d, 'smEtch', { sketch: es.id });
+    d.features.push(pl, es, et);
+    r = await k.rebuild(d, null, null);
+    if (r.errors?.length) {
+      // (the plate went the other way: the plane on its other face)
+      pl.offset = up ? 0 : 2; r = await k.rebuild(d, null, null);
+      if (r.errors?.length) return { ok: false, detail: JSON.stringify(r.errors) };
+    }
+    const v1 = await vol(r);
+    const [fv] = await k.request('drawingViews', { doc: JSON.stringify(d), views: [{ id: 'f', flat: true, body: null, dir: [0, 0, 1], up: [0, 1, 0] }] });
+    const etch = (fv.edges || []).filter((e) => e.k === 'et');
+    const inside = etch.every((e) => [e.g.a, e.g.b].every((p) => p[0] >= fv.box.min[0] - 1e-6 && p[0] <= fv.box.max[0] + 1e-6 && p[1] >= fv.box.min[1] - 1e-6 && p[1] <= fv.box.max[1] + 1e-6));
+    const len = etch.reduce((t, e) => t + Math.hypot(e.g.b[0] - e.g.a[0], e.g.b[1] - e.g.a[1]), 0);
+    const want = 50 + 2 * Math.PI * 6;
+    // (and in the DXF, on its ETCH layer)
+    const flat = await k.request('sheetFlat', { bodyId: r.body.bodies[0].id, flip: false });
+    const X = await import('/js/dxf.js');
+    const dxf = X.buildDXF(X.selectEnts(flat.ents, X.DEFAULT_OPTIONS), {});
+    const inDxf = flat.ents.some((e) => e.layer === 'ETCH') && dxf.includes('ETCH');
+    const ok = Math.abs(v1 - v0) < 1e-6 * v0 && etch.length >= 2 && inside && Math.abs(len - want) < 0.05 * want && inDxf;
+    return ok ? { ok: true, detail: `${etch.length} etch segments, ${r6(len)} mm long (line + circle ≈ ${r6(want)}); volume unchanged` } : { ok: false, detail: `dxf ${inDxf}, volume ${v0} → ${v1}, ${etch.length} segments, inside ${inside}, length ${len} (want ${want}); notes ${JSON.stringify(r.notes?.[et.id])}` };
+  },
+
   // the view's mouse buttons: Shift + right-drag pans, middle-drag turns, a plain right-drag changes nothing
   async 'view-mouse-buttons'() {
     const a = window.app;

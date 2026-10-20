@@ -277,6 +277,12 @@ const PM_SCHEMAS = {
       ],
     },
   ],
+  smEtch: [
+    { title: 'Etch Lines', fields: [
+      { key: 'sketch', type: 'sketch', label: 'Sketch (lines or text on a face)' },
+      { key: 'eHint', type: 'hint', text: 'Draw lines, arcs, circles, splines or text on the top or bottom face of a flat part of the sheet. They are marked in the flat pattern and exported on the DXF\'s ETCH layer (for etching, scribing or marking part numbers); the folded part is not changed.' },
+    ] },
+  ],
   smSketchBend: [
     { title: 'Bend Lines', fields: [
       { key: 'sketch', type: 'sketch', label: 'Sketch (lines on a face)' },
@@ -1514,6 +1520,7 @@ export class UI {
         { icon: 'smSketchBend', label: 'Sketched Bend', action: () => a.startFeature('smSketchBend') },
         { icon: 'smJog', label: 'Jog', action: () => a.startFeature('smJog') },
         { icon: 'smCrossBreak', label: 'Cross Break', action: () => a.startFeature('smCrossBreak') },
+        { icon: 'smEtch', label: 'Etch Lines', action: () => a.startFeature('smEtch') },
         { icon: 'smTabSlot', label: 'Tab and Slot', action: () => a.startFeature('smTabSlot') },
         { icon: 'smForm', label: 'Forming Tools', action: () => a.startFeature('smForm') },
         { icon: 'smGusset', label: 'Gusset', action: () => a.startFeature('smGusset') },

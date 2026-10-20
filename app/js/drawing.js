@@ -332,6 +332,7 @@ function viewPrims(dwg, v, ctx) {
       else if (k === 'bu' || k === 'bd') { if (v.bendLines === false) continue; w = LW.thin; dash = DASH_CENTER; }
       else if (k === 'br') { if (!v.bendRegion) continue; w = LW.thin; dash = DASH_HIDDEN; }
       else if (k === 'fm') { if (v.bendLines === false) continue; w = LW.thin; dash = DASH_CENTER; }
+      else if (k === 'et') { if (v.etch === false) continue; w = LW.thin; }
       else if (k === 't') { if (!tangent) continue; w = LW.thin; }
       else if (k === 'th' || k === 'thd') { if (v.threads === false) continue; w = LW.thin; dash = k === 'thd' ? DASH_HIDDEN : null; }
       else if (k === 'h' || k === 'ht') {

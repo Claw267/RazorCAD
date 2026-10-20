@@ -4631,6 +4631,45 @@ async function rebuild(doc, previewId = null, opts = {}) {
           res.notes[f.id] = `${f.faces.length} cross break${f.faces.length === 1 ? '' : 's'} (in the flat pattern and DXF)`;
           break;
         }
+        case 'smEtch': {
+          // lines marked on the sheet (etched or scribed: part numbers, bend marks, outlines): the sketch's curves
+          // and text, drawn on a flat face of the sheet, kept as marks in the flat pattern and its DXF (ETCH)
+          if (!f.sketch) throw new Error('Select the sketch with the etch lines or text, drawn on a flat face of the sheet');
+          const s = sketches.get(f.sketch);
+          if (!s) throw new Error('The sketch is missing, suppressed or has errors');
+          const polys = [];
+          const arcPts = (c, r, a0, sweep, n) => Array.from({ length: n + 1 }, (_, i) => { const t = a0 + (sweep * i) / n; return [c[0] + r * Math.cos(t), c[1] + r * Math.sin(t)]; });
+          for (const ch of S.curveChains(s.sk)) for (const g of S.chainSegs(s.sk, ch)) {
+            if (g.type === 'line') polys.push([g.a, g.b]);
+            else if (g.type === 'circle') polys.push(arcPts(g.c, g.r, 0, 2 * Math.PI, 64));
+            else if (g.type === 'arc') {
+              // (the circle through its ends and middle; the way round that passes the middle)
+              const C = S.circleThrough(g.a, g.m, g.b);
+              if (!C) { polys.push([g.a, g.b]); continue; }
+              const c = [C.cx, C.cy], r = C.r, ang = (p) => Math.atan2(p[1] - c[1], p[0] - c[0]);
+              const a0 = ang(g.a), am = ang(g.m), a1 = ang(g.b), norm = (x) => ((x % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+              let sweep = norm(a1 - a0);
+              if (norm(am - a0) > sweep) sweep -= 2 * Math.PI;
+              polys.push(arcPts(c, r, a0, sweep, Math.max(8, Math.ceil(Math.abs(sweep) * 12))));
+            } else if (g.type === 'bezier') {
+              polys.push(Array.from({ length: 17 }, (_, i) => { const t = i / 16, u = 1 - t; return [0, 1].map((k) => u * u * u * g.a[k] + 3 * u * u * t * g.c1[k] + 3 * u * t * t * g.c2[k] + t * t * t * g.b[k]); }));
+            }
+          }
+          for (const list of Object.values(textOutlines(s.sk.texts || []))) for (const pl of list) polys.push(pl);
+          if (!polys.length) throw new Error('The sketch has no curves or text to etch');
+          const P3 = polys.map((pl) => pl.map(([x, y]) => S.fromFrame2D(s.frame, x, y)));
+          const rec = sheetRecs().find((r) => !r.sheet.stale && P3.some((pl) => pl.some((p) => SM.pointOnSheet(r.sheet, p))));
+          if (!rec) throw new Error('The etch sketch is not on a sheet metal body: draw it on the top or bottom face of a flat part of the sheet');
+          const out = SM.addEtch(sheetChecked(rec), P3, f.id);
+          if (!out.count) throw new Error('The etch lines are all off the face they were drawn on');
+          // (the solid stays as it is, and keeps its name: only its flat pattern gets the marks; a new record, as the
+          // rebuild cache's earlier states hold the old one)
+          solids = solids.map((x) => (x === rec ? { ...rec, sheet: out.sheet } : x));
+          body = compoundOf(solids);
+          res.curves[f.id] = P3;
+          res.notes[f.id] = `${out.count} etch line segment${out.count === 1 ? '' : 's'} in the flat pattern and DXF`;
+          break;
+        }
         case 'smSketchBend':
         case 'smJog': {
           // bend lines drawn on a flat face of a sheet metal body (a jog: one line, two opposite bends)
@@ -5542,7 +5581,7 @@ function flatView(solids, v) {
   const { ents, fp, bends } = flatEnts(rec.sheet, flip);
   const edges = [];
   for (const e of ents) {
-    const k = e.layer === 'OUTLINE' || e.layer === 'HOLES' ? 'v' : e.layer === 'BEND_UP' ? 'bu' : e.layer === 'BEND_DOWN' ? 'bd' : e.layer === 'BEND_REGION' ? 'br' : e.layer === 'FORMING' ? 'fm' : null;
+    const k = e.layer === 'OUTLINE' || e.layer === 'HOLES' ? 'v' : e.layer === 'BEND_UP' ? 'bu' : e.layer === 'BEND_DOWN' ? 'bd' : e.layer === 'BEND_REGION' ? 'br' : e.layer === 'FORMING' ? 'fm' : e.layer === 'ETCH' ? 'et' : null;
     if (!k) continue;
     if (e.type === 'LINE') edges.push({ k, g: { t: 'l', a: e.a, b: e.b } });
     else if (e.type === 'CIRCLE') edges.push({ k, g: { t: 'c', c: e.c, r: e.r } });
@@ -6561,7 +6600,7 @@ function flatEntsTop(sheet) {
   const noted = new Set();
   for (const mk of fp.marks || []) {
     const a = sh(mk.a), b = sh(mk.b);
-    ents.push({ type: 'LINE', layer: mk.kind === 'slit' ? 'HOLES' : 'FORMING', a, b });
+    ents.push({ type: 'LINE', layer: mk.kind === 'slit' ? 'HOLES' : mk.kind === 'etch' ? 'ETCH' : 'FORMING', a, b });
     const text = mk.kind === 'crossbreak' ? `CROSS BREAK ${mk.up ? 'UP' : 'DOWN'}` : mk.note;
     if (text && !noted.has(mk.id)) {
       noted.add(mk.id);

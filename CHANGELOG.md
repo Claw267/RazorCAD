@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 23:00 — Etch lines on sheet metal
+- **Sheet Metal ▸ Etch Lines:** pick a sketch drawn on the top or bottom face of a flat part of the sheet. Its lines, arcs, circles, splines and text are marked in the flat pattern, for etching, scribing or marking part numbers and bend marks. They go on the DXF's **ETCH** layer (DXF Settings can leave them out) and show in drawing flat-pattern views (View Properties ▸ Etch lines). They are clipped to the face they are on.
+- The folded part is not changed and keeps its name; the etch lines show on the model as thin lines.
+- Regression test: sheet-metal-etch.
+
 ## 2026-10-20 22:54 — STEP export of assemblies
 - **Assembly ▸ File ▸ Export ▸ STEP…** saves the whole assembly as one STEP file with its structure. Each part is stored once, in the configuration used. Every component is placed where it is and named after it, sub-assemblies stay assemblies, and the parts keep their colours (and multi-body parts their bodies' colours). Suppressed components are left out. Other CAD programs open it as an assembly; RazorCAD opens it back the same way.
 - Fix: colours in exported STEP files (parts too) came out lighter than shown; they now match.

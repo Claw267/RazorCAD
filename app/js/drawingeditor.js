@@ -2075,7 +2075,7 @@ export class DrawingEditor {
         const fg = this.geos.get(v.id)?.flat;
         if (fg && fg.bodies.length > 1) row(g, 'Body', select(fg.bodies.map((id, i) => [id, `Sheet metal body ${i + 1}`]), v.body || fg.body, (b) => { v.body = b; this.changed(); }));
         const fl = group('Flat Pattern');
-        for (const [key, label, def] of [['bendLines', 'Bend lines', true], ['bendNotes', 'Bend notes (direction, angle, radius)', true], ['bendTable', 'Bend table (bends numbered B1, B2 … instead of notes)', false], ['bendRegion', 'Bend region lines', false], ['cutInfo', 'Cut length and pierces under the view', true]]) {
+        for (const [key, label, def] of [['bendLines', 'Bend lines', true], ['bendNotes', 'Bend notes (direction, angle, radius)', true], ['bendTable', 'Bend table (bends numbered B1, B2 … instead of notes)', false], ['bendRegion', 'Bend region lines', false], ['etch', 'Etch lines', true], ['cutInfo', 'Cut length and pierces under the view', true]]) {
           const c = el('label', {}, `<input type="checkbox" ${(v[key] ?? def) ? 'checked' : ''}> ${esc(label)}`);
           c.querySelector('input').onchange = (ev) => { v[key] = ev.target.checked; this.changed(); };
           fl.appendChild(c);
