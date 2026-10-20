@@ -1363,6 +1363,41 @@ await rc.cut(h, 10);`, 'plate');
       : { ok: false, detail: `vertex: errors ${JSON.stringify(r1.errors)}, vertices ${JSON.stringify(vs)}, vol ${v1} vs ${want}, z ${zl} / ${zr}; setback: note ${JSON.stringify(r3.notes)}, errors ${JSON.stringify(r3.errors)}, bodies ${r3.body?.bodies?.length}, kind ${b3?.kind}, faces ${b2.faceCount}/${b3?.faceCount}, vol ${v2} / ${v3}` };
   },
 
+  // curvature control: a 3D spline set to C2 has the same curvature on both sides of every point it runs through
+  // (the C1 one jumps); an end weight of 2 doubles the first handle; a loft through three profiles builds with C2,
+  // C1 and smoothing, with about the same volume
+  async 'curvature-splines'() {
+    const S3 = await import('/js/sketch3dmodel.js'), k = window.app.kernel;
+    const f = { pts: [[0, 0, 0], [20, 15, 0], [40, -5, 10], [60, 20, 0], [80, 0, 5]].map(([x, y, z], i) => ({ id: 'p' + i, x, y, z })), segs: [], rels: [] };
+    const seg = (extra) => ({ id: 's', type: 'spline', pts: f.pts.map((p) => p.id), ...extra });
+    const jumps = (s) => { const q = S3.splineGeom(f, s).pieces; let m = 0; for (let i = 1; i < q.length; i++) m = Math.max(m, Math.abs(S3.bezierCurvature(q[i - 1], 1).k - S3.bezierCurvature(q[i], 0).k)); return m; };
+    const j1 = jumps(seg({})), j2 = jumps(seg({ smooth: 'c2' }));
+    const h = (s) => { const q = S3.splineGeom(f, s).pieces[0]; return Math.hypot(...[0, 1, 2].map((i) => q[1][i] - q[0][i])); };
+    const wOk = Math.abs(h(seg({ w0: 2 })) - 2 * h(seg({}))) < 1e-9;
+    // lofts
+    const loftDoc = (opts) => {
+      const d = M.newDoc(), add = (t, p) => { const x = M.createFeature(d, t, p); d.features.push(x); return x; };
+      const sq = (plane, w) => { const s = M.createFeature(d, 'sketch', { plane: { ref: plane } }); const pts = [[-w, -w], [w, -w], [w, w], [-w, w]]; Object.assign(s, { points: pts.map(([x, y], i) => ({ id: 'p' + (i + 1), x, y })), curves: pts.map((_, i) => ({ id: 'c' + (i + 1), type: 'line', p1: 'p' + (i + 1), p2: 'p' + ((i + 1) % 4 + 1), construction: false })), constraints: [] }); d.features.push(s); return s; };
+      const p1 = add('plane', { refs: [{ kind: 'plane', id: 'top' }], offset: 20 }), p2 = add('plane', { refs: [{ kind: 'plane', id: 'top' }], offset: 40 });
+      const a = sq('top', 20), b = sq(p1.id, 10), c = sq(p2.id, 20);
+      add('loft', { profiles: [a.id, b.id, c.id], ...opts });
+      return d;
+    };
+    const vols = [];
+    let loftOk = true;
+    for (const opts of [{}, { continuity: 'C1' }, { continuity: 'C1', smoothing: true }]) {
+      const r = await k.rebuild(loftDoc(opts), null, null);
+      const b = r.body?.bodies?.[0];
+      if (r.errors.length || !b || b.kind !== 'solid') { loftOk = false; vols.push(`${JSON.stringify(opts)}: ${JSON.stringify(r.errors)}`); continue; }
+      const m = await k.request('measure', { refs: [{ kind: 'body', id: b.id }] });
+      vols.push((m.items?.[0] || m).volume);
+    }
+    loftOk &&= vols.every((v) => typeof v === 'number' && Math.abs(v - vols[0]) < 0.15 * vols[0]);
+    const ok = j1 > 1e-4 && j2 < 1e-9 && wOk && loftOk;
+    return ok ? { ok: true, detail: `curvature jump at the points: C1 ${j1.toExponential(2)}, C2 ${j2.toExponential(2)}; end weight ok; lofts ${vols.map((v) => Math.round(v)).join(' / ')} mm³` }
+      : { ok: false, detail: `jumps C1 ${j1} C2 ${j2}, weight ${wOk}, lofts ${vols.join(' | ')}` };
+  },
+
   // the browser version's notice: above the window, as wide as it (the text wraps), gone with ✕
   async 'web-notice'() {
     const a = window.app, root = document.getElementById('app');

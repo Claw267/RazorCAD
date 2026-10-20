@@ -310,7 +310,8 @@ export function createFeature(doc, type, props = {}) {
     // profileType 'circle': a round profile of `diameter` made across the start of the path (springs)
     sweep: { op: 'add', profileType: 'sketch', profile: null, diameter: 2, path: null, merge: true, thin: false, thinT: 1, thinDir: 'one', scopeAll: true, scope: [] },
     // profiles: sketch ids in order; circles are split to match the other profiles' points
-    loft: { op: 'add', profiles: [], ruled: false, merge: true, thin: false, thinT: 1, thinDir: 'one', scopeAll: true, scope: [] },
+    // continuity: 'C2' (curvature-continuous through the profiles) | 'C1' (tangent-continuous); smoothing: evened out
+    loft: { op: 'add', profiles: [], ruled: false, continuity: 'C2', smoothing: false, merge: true, thin: false, thinT: 1, thinDir: 'one', scopeAll: true, scope: [] },
     // Hole: holeType 'simple' | 'cbore' | 'csink' | 'tapped'; size a standard screw size (or
     // 'custom': diameter / cboreD / cboreDepth / csinkD / csinkAngle), fit 'close' | 'normal' | 'loose';
     // tapped: system + thread (cosmetic, threadDepth for the callout); end 'blind' (depth, drill point) | 'through'

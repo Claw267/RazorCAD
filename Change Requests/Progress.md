@@ -548,7 +548,8 @@ In this order; each item tested (regression suite + preview / exe), logged in CH
 3. Modelling
 - [x] 3a Variable-radius fillets; setback (blended) corners where fillets meet.
   - Done: kernel filletByVertex (BRepFilletAPI_MakeFillet: Add each edge, then per contour / edge SetRadius(r at its start, r at its end) with the start found by walking from FirstVertex), cornersOf (≥ 3 edge ends), setbackCorners (cut a ball of the setback radius at each corner, drop the ball's faces, fill each opening with BRepOffsetAPI_MakeFilling G1 to the faces round it, sew, solid), both fillet paths; res.info channel (vertices) → main result.info. Model: radiusMode, vertexRadii, setback. PM: Radius mode select, vertexRadii rows (renderVertexRadii), Setback field + hint. Test fillet-vertex-setback; full suite passes.
-- [ ] 3c 3D sketch splines with curvature control; curvature-continuous lofts.
+- [x] 3c 3D sketch splines with curvature control; curvature-continuous lofts.
+  - Done: sketch3dmodel splineC2 (cubic spline in chord length, tangents solved: natural / clamped by Tangent relations × w0 / w1 / periodic; Bézier pieces), bezierCurvature, splineGeom honours s.smooth "c2" and end weights (C1: handle lengths scaled). sketch3d: Shape select and Start / End weight fields for a selected spline, Show curvature comb toggle (teeth along the normal, 60 px for the largest curvature), spline name in Selected. Loft: continuity C2 / C1 and smoothing (own BRepOffsetAPI_ThruSections when asked: SetContinuity, SetSmoothing); model defaults; PM fields. Test curvature-splines; full suite passes.
 - [ ] 3d Equations shared across the parts of an assembly (top-down design with linked parameters).
 4. Assemblies and drawings
 - [ ] 4a Collision detection while dragging and in motion studies.

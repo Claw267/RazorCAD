@@ -31,7 +31,7 @@ import {
   normalize3d, perp, r6, rot, segPts, solve3d, sub, unit,
   unknowns,
 } from './sketch3dmodel.js';
-import { splineGeom, splineBeziers, segEnds as segEndIds } from './sketch3dmodel.js';
+import { splineGeom, splineBeziers, bezierCurvature, segEnds as segEndIds } from './sketch3dmodel.js';
 import { sketchDefined, sketchUnder } from './theme.js';
 export { REL3D, normalize3d, solve3d, freedom3d, applicableRelations, getPt, getSeg, arcGeom, circleGeom } from './sketch3dmodel.js';
 
@@ -1351,6 +1351,19 @@ export class Sketcher3D {
       const col = s.link && !this.sel.has(s.id) && this.hover !== s.id && !picked.has(s.id) ? LINKED : segCol(s.id);
       if (pts.length > 1) polyline(pts, col, !!s.construction);
     }
+    // curvature combs on the splines (Show curvature): a tooth along the normal, as long as the curvature
+    if (this.showComb) {
+      const combs = [];
+      for (const s of f.segs) {
+        if (s.type !== 'spline' || (this.combSel && this.sel.size && !this.sel.has(s.id))) continue;
+        for (const q of splineGeom(f, s).pieces) for (let k = 0; k <= 24; k++) combs.push(bezierCurvature(q, k / 24));
+      }
+      const kmax = Math.max(1e-12, ...combs.map((c) => c.k));
+      const scale = (60 * w) / kmax; // (the longest tooth: 60 pixels)
+      const tips = combs.map((c) => addv(c.p, mulv(c.n, c.k * scale)));
+      for (let i = 0; i < combs.length; i++) if (combs[i].k > 1e-12) polyline([combs[i].p, tips[i]], 0xa855f7, false, 19, 0.7);
+      if (tips.length > 1) polyline(tips, 0xa855f7, false, 19, 0.9);
+    }
     // the spline being drawn, and the tangent arc that would be made
     if (this.spl && this.cand) {
       const P = [...this.spl.ids.map((id) => V(getPt(f, id))), this.cand.p];
@@ -1592,7 +1605,7 @@ export class Sketcher3D {
     const ids = [...this.sel].filter((id) => kindOf(f, id));
     if (ids.length) {
       const gs = ui.pmGroup(root, `Selected (${ids.length})`, 's3:sel');
-      const NAMES = { pt: 'Point', seg: 'Line', arc: 'Arc', circle: 'Circle' };
+      const NAMES = { pt: 'Point', seg: 'Line', arc: 'Arc', circle: 'Circle', spline: 'Spline' };
       const name = (id) => (getSeg(f, id)?.construction ? 'Construction ' : '') + NAMES[kindOf(f, id)] + ' ' + id.replace(/^\D+/, '');
       gs.appendChild(el('div', { class: 'pm-hint' }, esc(ids.map(name).join(', '))));
       const only = ids.length === 1 ? kindOf(f, ids[0]) : null;
@@ -1628,6 +1641,26 @@ export class Sketcher3D {
         const s = getSeg(f, ids[0]), q = this.entPts(s, 240);
         const L = q.slice(1).reduce((t, p, i) => t + len(sub(p, q[i])), 0);
         gs.appendChild(el('div', { class: 's3-props' }, `Spline through <b>${s.pts.length}</b> points${s.closed ? ' (closed)' : ''}<br>Length ${fmt(L)} mm<br><span class="pm-hint">Drag its points to shape it; Tangent with a line at an end makes it leave the line smoothly.</span>`));
+        // its shape: tangent-smooth (each point's tangent from its neighbours) or curvature-continuous (C2)
+        const shape = el('select');
+        for (const [v, l] of [['c1', 'Tangent-smooth (C1)'], ['c2', 'Curvature-continuous (C2)']]) { const o = el('option', { value: v }, l); if ((s.smooth || 'c1') === v) o.selected = true; shape.appendChild(o); }
+        shape.onchange = () => { if (shape.value === 'c2') s.smooth = 'c2'; else delete s.smooth; this.changed(); };
+        gs.appendChild(el('label', { class: 'pm-label' }, 'Shape'));
+        gs.appendChild(shape);
+        if (!s.closed) {
+          const wrow = el('div', { class: 's3-xyz' });
+          for (const [k, lab] of [['w0', 'Start weight'], ['w1', 'End weight']]) {
+            const wrap = el('label', { class: 's3-coord' }, `<span>${lab}</span>`);
+            const inp = el('input', { type: 'text', spellcheck: 'false' });
+            inp.value = String(s[k] ?? 1);
+            inp.addEventListener('change', () => { const v = Number(inp.value); if (v > 0 && v <= 10) { if (v === 1) delete s[k]; else s[k] = v; this.changed(); } else inp.classList.add('bad'); });
+            inp.addEventListener('keydown', (e) => e.stopPropagation());
+            wrap.appendChild(inp);
+            wrow.appendChild(wrap);
+          }
+          gs.appendChild(wrow);
+          gs.appendChild(el('div', { class: 'pm-hint' }, 'How strongly the end tangents pull (1: as they are; more: the spline leaves its ends straighter). C2 keeps the curvature running on smoothly through every point.'));
+        }
       }
       if (ids.some((id) => getSeg(f, id)?.link)) {
         gs.appendChild(el('div', { class: 'pm-hint' }, 'Converted from the model (purple): it follows the edge when the model changes.'));
@@ -1757,6 +1790,15 @@ export class Sketcher3D {
     if ((f.kind || 'lines') !== 'spline') {
       gc.appendChild(el('label', { class: 'pm-label' }, 'Bend radius at every corner of runs of lines'));
       gc.appendChild(ui.exprInput(f.radius ?? 0, 'mm', (v) => { f.radius = v; this.changed(); }, { min: 0 }));
+    }
+    if (f.segs.some((s) => s.type === 'spline')) {
+      const lab = el('label', { class: 'pm-check', style: 'display:flex;align-items:center;gap:6px;margin-top:6px' });
+      const cb = el('input', { type: 'checkbox' });
+      cb.checked = !!this.showComb;
+      cb.onchange = () => { this.showComb = cb.checked; this.redraw(); };
+      lab.append(cb, document.createTextNode('Show curvature (combs on the splines; the selected ones when some are)'));
+      gc.appendChild(lab);
+      this.combSel = true;
     }
     const count = (pred) => f.segs.filter(pred).length;
     const nl = count((s) => isLine(s) && !s.construction), na = count((s) => s.type === 'arc' && !s.construction), nci = count((s) => s.type === 'circle' && !s.construction), nc = count((s) => s.construction);

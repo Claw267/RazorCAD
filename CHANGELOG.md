@@ -6,6 +6,14 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 07:51 — Curvature control: 3D splines, curvature combs, lofts
+- **3D sketch splines: Shape ▸ Curvature-continuous (C2).** The spline's curvature runs on smoothly through every point it passes, where the tangent-smooth shape (C1, as before) has small kinks in curvature. Select a spline to set it.
+- **End weights:** how strongly a spline's end tangents pull (1 as before; more leaves the ends straighter), with a Tangent relation or a free end.
+- **Show curvature:** combs drawn on the 3D sketch's splines (the selected ones when some are), so the curvature can be seen as it is shaped.
+- **Lofts: Through the profiles ▸ Curvature-continuous (C2, as before) or Tangent-continuous (C1)**, and **Smooth the surface**, which evens out its bends.
+- The 3D sketch's Selected list names splines properly (it showed "undefined").
+- Regression test: curvature-splines (the C2 spline's curvature matches on both sides of every point: 3e-16 against 0.05 for C1).
+
 ## 2026-10-21 07:45 — Fillets: radius at each vertex, setback corners
 - **Variable size fillets: Radius ▸ Set at each vertex.**
   - The Property panel lists the vertices of the selected edges (the ends of each run of edges) with a radius for each; ones left empty use the fillet's radius.

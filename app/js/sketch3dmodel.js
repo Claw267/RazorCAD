@@ -126,6 +126,58 @@ export function splineBeziers(P, T0 = null, T1 = null, closed = false) {
   }
   return out;
 }
+// A curvature-continuous (C2) spline through P: a cubic spline in chord length (its tangents solved so the curvature
+// runs on smoothly through every point), as cubic Bézier pieces. Open ends: natural (no curvature), or the given
+// tangents T0 / T1 (unit) times w0 / w1 times the end chord; closed: periodic.
+export function splineC2(P, T0 = null, T1 = null, closed = false, w0 = 1, w1 = 1) {
+  const n = P.length;
+  if (n < 2) return [];
+  if (n === 2 && !closed) return splineBeziers(P, T0, T1, false);
+  const m = closed ? n : n - 1, h = [];
+  for (let i = 0; i < m; i++) h.push(Math.max(1e-9, len(sub(P[(i + 1) % n], P[i]))));
+  // the tangents D (per unit of chord length): A D = rhs, one row per point
+  const A = Array.from({ length: n }, () => new Array(n).fill(0)), rhs = Array.from({ length: n }, () => [0, 0, 0]);
+  const dq = (i) => mulv(sub(P[(i + 1) % n], P[i]), 1 / h[i]); // (the chord's direction / length)
+  for (let i = 0; i < n; i++) {
+    if (!closed && i === 0) {
+      if (T0) { A[0][0] = 1; rhs[0] = mulv(unit(T0), w0); } else { A[0][0] = 2; A[0][1] = 1; rhs[0] = mulv(dq(0), 3); }
+      continue;
+    }
+    if (!closed && i === n - 1) {
+      if (T1) { A[i][i] = 1; rhs[i] = mulv(unit(T1), w1); } else { A[i][i - 1] = 1; A[i][i] = 2; rhs[i] = mulv(dq(n - 2), 3); }
+      continue;
+    }
+    const ip = (i - 1 + n) % n, hp = h[ip], hn = h[i % m];
+    A[i][ip] += hn; A[i][i] += 2 * (hp + hn); A[i][(i + 1) % n] += hp;
+    rhs[i] = mulv(addv(mulv(dq(ip), hn), mulv(dq(i % m), hp)), 3);
+  }
+  // (Gaussian elimination with partial pivoting; n is small)
+  const M = A.map((r, i) => [...r, ...rhs[i]]), W = n + 3;
+  for (let c = 0; c < n; c++) {
+    let p = c;
+    for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+    [M[c], M[p]] = [M[p], M[c]];
+    const d = M[c][c] || 1e-12;
+    for (let r = 0; r < n; r++) if (r !== c && M[r][c]) { const k = M[r][c] / d; for (let q = c; q < W; q++) M[r][q] -= k * M[c][q]; }
+  }
+  const D = M.map((r, i) => [r[n] / (r[i] || 1e-12), r[n + 1] / (r[i] || 1e-12), r[n + 2] / (r[i] || 1e-12)]);
+  const out = [];
+  for (let i = 0; i < m; i++) {
+    const a = P[i], b = P[(i + 1) % n], k = h[i] / 3;
+    out.push([a, addv(a, mulv(D[i], k)), sub(b, mulv(D[(i + 1) % n], k)), b]);
+  }
+  return out;
+}
+// The curvature of a cubic Bézier piece q at t: { p (point), k (curvature, 1/mm), n (unit normal, towards the centre) }
+export function bezierCurvature(q, t) {
+  const u = 1 - t;
+  const d1 = [0, 1, 2].map((k) => 3 * (u * u * (q[1][k] - q[0][k]) + 2 * u * t * (q[2][k] - q[1][k]) + t * t * (q[3][k] - q[2][k])));
+  const d2 = [0, 1, 2].map((k) => 6 * (u * (q[2][k] - 2 * q[1][k] + q[0][k]) + t * (q[3][k] - 2 * q[2][k] + q[1][k])));
+  const c = cross(d1, d2), l1 = len(d1);
+  const k = l1 > 1e-12 ? len(c) / l1 ** 3 : 0;
+  const nrm = l1 > 1e-12 && len(c) > 1e-15 ? unit(cross(c, d1)) : [0, 0, 0];
+  return { p: bez(q, t), k, n: nrm };
+}
 const bez = (q, t) => { const u = 1 - t; return [0, 1, 2].map((k) => u * u * u * q[0][k] + 3 * u * u * t * q[1][k] + 3 * u * t * t * q[2][k] + t * t * t * q[3][k]); };
 // a spline entity: its pieces, and points along it; end tangents from Tangent relations with lines met there
 export function splineGeom(f, s) {
@@ -141,7 +193,21 @@ export function splineGeom(f, s) {
     }
     return null;
   };
-  const pieces = splineBeziers(P, s.closed ? null : tan(false), s.closed ? null : tan(true), !!s.closed);
+  // (s.smooth 'c2': curvature-continuous; w0 / w1: how strongly the end tangents pull)
+  const w0 = Number(s.w0) > 0 ? Number(s.w0) : 1, w1 = Number(s.w1) > 0 ? Number(s.w1) : 1;
+  let pieces;
+  if (s.smooth === 'c2') {
+    const t0 = s.closed ? null : tan(false), t1 = s.closed ? null : tan(true);
+    pieces = splineC2(P, t0, t1, !!s.closed, w0, w1);
+  } else {
+    pieces = splineBeziers(P, s.closed ? null : tan(false), s.closed ? null : tan(true), !!s.closed);
+    // (end weights: the first and last handles longer or shorter)
+    if (!s.closed && pieces.length && (w0 !== 1 || w1 !== 1)) {
+      const f0 = pieces[0], fl = pieces[pieces.length - 1];
+      f0[1] = addv(f0[0], mulv(sub(f0[1], f0[0]), w0));
+      fl[2] = addv(fl[3], mulv(sub(fl[2], fl[3]), w1));
+    }
+  }
   return { P, pieces, sample: (m = 16) => pieces.flatMap((q, i) => Array.from({ length: m + (i === pieces.length - 1 ? 1 : 0) }, (_, k) => bez(q, k / m))) };
 }
 

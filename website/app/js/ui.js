@@ -579,7 +579,12 @@ const PM_SCHEMAS = {
   ],
   loft: [
     { title: 'Profiles', fields: [{ key: 'profiles', type: 'sketchList' }] },
-    { title: 'Options', fields: [{ key: 'ruled', type: 'check', label: 'Straight (ruled) sides between profiles' }, { key: 'merge', type: 'check', label: 'Merge result (off: make a separate body)', show: (f) => f.op === 'add' }] },
+    { title: 'Options', fields: [
+      { key: 'ruled', type: 'check', label: 'Straight (ruled) sides between profiles' },
+      { key: 'continuity', type: 'select', label: 'Through the profiles', show: (f) => !f.ruled, options: [['C2', 'Curvature-continuous (C2)'], ['C1', 'Tangent-continuous (C1)']] },
+      { key: 'smoothing', type: 'check', label: 'Smooth the surface (evens out its bends)', show: (f) => !f.ruled },
+      { key: 'merge', type: 'check', label: 'Merge result (off: make a separate body)', show: (f) => f.op === 'add' },
+    ] },
     THIN_GROUP,
     ...SCOPE_GROUP,
   ],

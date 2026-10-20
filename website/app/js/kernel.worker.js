@@ -3972,7 +3972,23 @@ async function rebuild(doc, previewId = null, opts = {}) {
             if (regions.length !== 1) throw new Error(`${s.sk.name} must have exactly one closed profile (it has ${regions.length})`);
             return { name: s.sk.name, outer: loftSection(s.frame, regions[0].outer.segs), holes: regions[0].holes.map((h) => loftSection(s.frame, h.segs)) };
           });
-          const loftOf = (secs) => R.loft(matchLoftSections(secs, profs.map((p) => p.name)).map(sectionWire), { ruled: !!f.ruled });
+          // (continuity C2: curvature-continuous through the profiles, the kernel's usual; C1: tangent-continuous;
+          // smoothing: the surface evened out, with its own builder when either is asked for)
+          const custom = !f.ruled && ((f.continuity && f.continuity !== 'C2') || f.smoothing);
+          const loftOf = (secs) => {
+            const wires = matchLoftSections(secs, profs.map((p) => p.name)).map(sectionWire);
+            if (!custom) return R.loft(wires, { ruled: !!f.ruled });
+            const oc = R.getOC(), mk = new oc.BRepOffsetAPI_ThruSections(true, false, 1e-6);
+            try {
+              mk.SetContinuity(oc.GeomAbs_Shape[f.continuity === 'C1' ? 'GeomAbs_C1' : 'GeomAbs_C2']);
+              if (f.smoothing) mk.SetSmoothing(true);
+              for (const w of wires) mk.AddWire(w.wrapped);
+              mk.Build();
+              const sh = R.cast(mk.Shape());
+              if (!solidsOf(sh).length) throw new Error('The loft could not be made with these options');
+              return sh;
+            } finally { mk.delete(); }
+          };
           let tool = loftOf(profs.map((p) => p.outer));
           const nh = profs[0].holes.length;
           if (profs.some((p) => p.holes.length !== nh)) throw new Error('Every profile needs the same number of holes (inner loops)');
