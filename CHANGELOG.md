@@ -6,6 +6,16 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 23:47 — Part properties and BOM table columns
+- **File ▸ Properties…** in parts and assemblies: custom properties such as Part Number, Description, Vendor or Finish (common names are suggested; any name works). Undo takes a change back. A drawing of a part takes its drawing number from the Part Number.
+- **BOM table columns** on drawings: right-click the table ▸ **Columns…** (or double-click it). Each column shows one of:
+  - a field: item, quantity, part, material, file or configuration;
+  - any custom property the parts have;
+  - values typed into the table, entered in a grid in the same dialog.
+- Each column has its own heading and width and can be moved or removed. **Default Columns** goes back to ITEM | QTY | PART | MATERIAL. The table keeps its right edge where it was, so it stays inside the frame.
+- The assembly's **Bill of Materials** window and its CSV have a column for each custom property too.
+- Regression test: bom-columns.
+
 ## 2026-10-20 23:42 — Auto Dimension
 - **Annotation ▸ Auto Dimension** (also Insert ▸ Annotations) dimensions the selected views, or every view on the sheet:
   - the overall sizes of each view, outermost;

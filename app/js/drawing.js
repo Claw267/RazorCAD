@@ -9,7 +9,7 @@
 // Primitives may carry `ref: { kind: 'view' | 'ann', id }` (selection).
 import { paperSize, frameRect, formatPrims, titleBlockRect, LW, hatchStyle } from './drawingformats.js';
 import { fontMetrics } from './fonts.js';
-import { bomRows } from './bom.js';
+import { bomRows, bomCell } from './bom.js';
 
 export const DRAWING_EXT = '.rdrw';
 const DASH_HIDDEN = [2.4, 1.2];
@@ -879,14 +879,18 @@ export function cutListPrims(dwg, a, ctx) {
   return out;
 }
 
-// The bill of materials of an assembly in the drawing (a.model): ITEM | QTY | PART | MATERIAL, the top level
-// (a.indented: the sub-assemblies' parts too), its top-left corner at the annotation's position.
+// The bill of materials of an assembly in the drawing (a.model): its columns a.cols ([{ key, title, w, values }],
+// see bom.js; ITEM | QTY | PART | MATERIAL when it has none), the top level (a.indented: the sub-assemblies'
+// parts too), its top-left corner at the annotation's position.
 export const BOM_COLS = [['ITEM', 12], ['QTY', 11], ['PART', 62], ['MATERIAL', 40]];
+const BOM_KEYS = ['item', 'qty', 'name', 'material'];
+export const bomColumns = (a) => (a?.cols?.length ? a.cols : BOM_COLS.map(([title, w], i) => ({ key: BOM_KEYS[i], title, w })));
 export function bomTablePrims(dwg, a) {
   const th = (dwg.settings?.textH || 3.5) * 0.85, P = annPos(dwg, a), rh = th * 2.2;
   const m = (dwg.models || []).find((x) => x.id === a.model);
   const rows = bomRows(m?.doc).filter((r) => a.indented || !r.depth);
-  const cols = BOM_COLS, W = cols.reduce((s2, c) => s2 + c[1], 0), out = [];
+  const spec = bomColumns(a), cols = spec.map((c) => [c.title, Math.max(4, Number(c.w) || 20)]), W = cols.reduce((s2, c) => s2 + c[1], 0), out = [];
+  const centred = spec.map((c) => c.key === 'item' || c.key === 'qty');
   const N = rows.length + 1;
   out.push({ t: 'text', p: [P[0] + W / 2, P[1] - rh * 0.3], text: 'BILL OF MATERIALS', h: th, anchor: 'middle', base: 'bottom', bold: true });
   for (let r = 0; r <= N; r++) out.push({ t: 'line', a: [P[0], P[1] + r * rh], b: [P[0] + W, P[1] + r * rh], w: LW.thin });
@@ -894,10 +898,10 @@ export function bomTablePrims(dwg, a) {
   for (let c = 0; c <= cols.length; c++) { out.push({ t: 'line', a: [x, P[1]], b: [x, P[1] + N * rh], w: LW.thin }); if (c < cols.length) x += cols[c][1]; }
   const cell = (r, vals, bold) => {
     let cx = P[0];
-    vals.forEach((t, c) => { out.push({ t: 'text', p: [cx + (c >= 2 ? 1.2 : cols[c][1] / 2), P[1] + r * rh + rh * 0.7], text: String(t ?? ''), h: th, anchor: c >= 2 ? 'start' : 'middle', base: 'bottom', bold, fit: cols[c][1] - 1.5 }); cx += cols[c][1]; });
+    vals.forEach((t, c) => { out.push({ t: 'text', p: [cx + (!centred[c] ? 1.2 : cols[c][1] / 2), P[1] + r * rh + rh * 0.7], text: String(t ?? ''), h: th, anchor: !centred[c] ? 'start' : 'middle', base: 'bottom', bold, fit: cols[c][1] - 1.5 }); cx += cols[c][1]; });
   };
   cell(0, cols.map((c) => c[0]), true);
-  rows.forEach((r, i) => cell(i + 1, [r.item, r.qty, '  '.repeat(r.depth) + r.name, r.material || '']));
+  rows.forEach((r, i) => cell(i + 1, spec.map((c) => (c.key === 'name' ? '  '.repeat(r.depth) : '') + bomCell(r, c))));
   if (!m) out.push({ t: 'text', p: [P[0] + W / 2, P[1] + rh * 1.7], text: '(the assembly is missing)', h: th, anchor: 'middle', base: 'bottom', color: '#8a94a6' });
   return out;
 }

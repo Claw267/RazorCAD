@@ -682,3 +682,18 @@ svg.ref-arrows { position: absolute; left: 0; top: 0; pointer-events: none; z-in
 .macros .mc-out.err { color: #c62828; }
 .macros .mc-api { max-height: 220px; }
 #status-macro { color: #d23c3c; font-weight: 600; cursor: pointer; margin-right: 10px; }
+
+/* Part / assembly properties and BOM table columns */
+.cprops .cp-table, .bomcols .bc-table { border-collapse: collapse; width: 100%; }
+.cprops th, .bomcols th { text-align: left; font-weight: 600; padding: 2px 4px; }
+.cprops td, .bomcols td { padding: 2px 4px; }
+.cprops input[type=text] { width: 100%; min-width: 180px; box-sizing: border-box; }
+.cprops .cp-del { padding: 2px 4px; line-height: 0; }
+.cprops .cp-del svg { width: 16px; height: 16px; }
+.cprops .cp-add { margin-top: 6px; }
+.bomcols { min-width: 520px; }
+.bomcols .bc-btns button { padding: 1px 6px; margin-right: 2px; }
+.bomcols .bc-grid { max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 3px; margin-top: 4px; }
+.bomcols .bc-grid table { border-collapse: collapse; width: 100%; }
+.bomcols .bc-grid td, .bomcols .bc-grid th { border-bottom: 1px solid var(--border); white-space: pre; }
+.bomcols .bc-grid input { width: 100%; min-width: 90px; box-sizing: border-box; }

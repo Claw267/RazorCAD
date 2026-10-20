@@ -508,7 +508,8 @@ In this order; each item tested (regression suite + preview / exe), logged in CH
 5. Drawings
 - [x] 5a Automatic dimensioning of a view (outline, holes, hole patterns; ordinate for flat patterns).
   - Done: app/js/autodim.js autoDims(dwg, views, geos): per axis-aligned view (viewPickables): hole diameters grouped by size (prefix "N× ", leader towards the view middle), arc radii, hole positions from the left / bottom edge points (h / v rows, max 8 each), overall sizes outermost; a "done" set keyed by model + model axis so each size is dimensioned once across views (front first), existing dims in a view skipped (and count as done); round outline: no width / height. DrawingEditor.autoDimension (selected views or the sheet; one undo step), Annotation ribbon + Insert menu, icon autoDim. Test auto-dimension; full suite passes.
-- [ ] 5b Parts-list options: custom columns (part number, description, mass) from part properties.
+- [x] 5b Parts-list options: custom columns (part number, description, mass) from part properties.
+  - Done: app/js/custprops.js (doc.customProps [{ name, value }], propsOf / propOf, Properties dialog with suggestions) in the part and assembly File menus (part: commit; assembly: snapshot / restore include customProps). bom.js rows carry props + a stable key; BOM_FIELDS, bomPropNames, bomCell (field | prop:<name> | text with values by row key). drawing.js bomColumns(a) / bomTablePrims use a.cols; DrawingEditor.bomColumnsDialog (source / heading / width, move, remove, add; grid for typed values; Default Columns; right edge kept), context menu Columns… + double-click; drawing number from Part Number. Assembly BOM window + CSV: a column per property. Test bom-columns; full suite passes.
 6. Reach and polish
 - [ ] 6a Browser version for razorcad.com ("try it online"), built into the website folder (deployed only when published).
 - [ ] 6b Dark theme.

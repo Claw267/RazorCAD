@@ -26,7 +26,8 @@ import { ExplodeTool, explodeOffsets, drawExplodeLines, animateExplode } from '.
 import { hashText, packResult, unpackResult } from './modelcache.js';
 import { packMesh, unpackMesh, MESH_CACHE } from './partmeshes.js';
 import { AssemblyView } from './asmview.js';
-import { bomRows } from './bom.js';
+import { bomRows, bomPropNames } from './bom.js';
+import { editCustomProps } from './custprops.js';
 import { MotionTool } from './motion.js';
 import { volWithUnit, lenWithUnit, unitOf } from './units.js';
 import * as G from './geometry.js';
@@ -630,7 +631,7 @@ export class AssemblyEditor {
 
   // ---------------------------------------------------------------- undo / changes
   // (a part copy goes in by reference: it can hold megabytes of imported geometry, and copies are replaced, never changed)
-  snapshot() { return JSON.stringify({ components: this.doc.components, mates: this.doc.mates, parts: this.doc.parts.map((p) => ({ ...p, doc: this.docRef(p.doc) })), name: this.doc.name, nextId: this.doc.nextId, configs: this.doc.configs, activeConfig: this.doc.activeConfig || null, explodes: this.doc.explodes, exploded: this.doc.exploded || null, motions: this.doc.motions || [] }); }
+  snapshot() { return JSON.stringify({ components: this.doc.components, mates: this.doc.mates, parts: this.doc.parts.map((p) => ({ ...p, doc: this.docRef(p.doc) })), name: this.doc.name, nextId: this.doc.nextId, configs: this.doc.configs, activeConfig: this.doc.activeConfig || null, explodes: this.doc.explodes, exploded: this.doc.exploded || null, motions: this.doc.motions || [], customProps: this.doc.customProps || null }); }
   docRef(doc) {
     this._docKeys ||= new WeakMap(); this._docs ||= new Map();
     let k = this._docKeys.get(doc);
@@ -649,7 +650,8 @@ export class AssemblyEditor {
   restore(json) {
     const s = JSON.parse(json);
     s.parts = s.parts.map((p) => ({ ...p, doc: this._docs.get(p.doc) }));
-    Object.assign(this.doc, s); this.dirty = true; this.loadParts(); this.updateGeometry(); this.renderAll(); }
+    Object.assign(this.doc, s); if (!s.customProps) delete this.doc.customProps;
+    this.dirty = true; this.loadParts(); this.updateGeometry(); this.renderAll(); }
   undo() { const s = this.undoStack.pop(); if (!s) return; this.redoStack.push(this.snapshot()); this.restore(s); }
   redo() { const s = this.redoStack.pop(); if (!s) return; this.undoStack.push(this.snapshot()); this.restore(s); }
 
@@ -1613,8 +1615,10 @@ export class AssemblyEditor {
     // (indented: one row per part / sub-assembly and configuration used, a sub-assembly's own under it with the
     // quantity in one of it; suppressed components left out)
     const rows = bomRows(this.doc); // (bom.js: shared with the BOM tables and balloons on drawings)
-    const table = `<table class="bom"><tr><th>Item</th><th>Part</th><th>Qty</th><th>Material</th><th>File</th></tr>${rows.map((r) => `<tr><td>${r.item}</td><td style="padding-left:${6 + r.depth * 14}px">${r.sub ? '<b>' : ''}${esc(r.name)}${r.sub ? '</b>' : ''}</td><td>${r.qty}</td><td>${esc(r.material)}</td><td>${esc(r.file)}</td></tr>`).join('')}</table>`;
-    const csv = ['Item,Part,Qty,Material,File', ...rows.map((r) => [r.item, r.name, r.qty, r.material, r.file].map((x) => `"${String(x).replace(/"/g, '""')}"`).join(','))].join('\r\n');
+    const props = bomPropNames(this.doc); // (the parts' custom properties: a column each)
+    const table = `<table class="bom"><tr><th>Item</th><th>Part</th><th>Qty</th><th>Material</th>${props.map((n) => `<th>${esc(n)}</th>`).join('')}<th>File</th></tr>${rows.map((r) => `<tr><td>${r.item}</td><td style="padding-left:${6 + r.depth * 14}px">${r.sub ? '<b>' : ''}${esc(r.name)}${r.sub ? '</b>' : ''}</td><td>${r.qty}</td><td>${esc(r.material)}</td>${props.map((n) => `<td>${esc(r.props?.[n] ?? '')}</td>`).join('')}<td>${esc(r.file)}</td></tr>`).join('')}</table>`;
+    const q = (x) => `"${String(x ?? '').replace(/"/g, '""')}"`;
+    const csv = [['Item', 'Part', 'Qty', 'Material', ...props, 'File'].map(q).join(','), ...rows.map((r) => [r.item, r.name, r.qty, r.material, ...props.map((n) => r.props?.[n] ?? ''), r.file].map(q).join(','))].join('\r\n');
     const top = rows.filter((r) => !r.depth);
     this.app.ui.modal('Bill of Materials', 'bom', `${table}<p class="pm-hint">${top.reduce((t, r) => t + r.qty, 0)} components at the top level, ${top.length} different parts and sub-assemblies${rows.length > top.length ? ' (a sub-assembly\'s quantities are for one of it)' : ''}.</p>`, [
       { label: 'Copy as CSV', action: () => { navigator.clipboard?.writeText(csv); this.app.status('Bill of materials copied (CSV).'); return false; } },
@@ -1837,6 +1841,8 @@ export class AssemblyEditor {
         { label: 'Save As…', icon: 'save', key: 'Ctrl+Shift+S', action: () => a.saveFile(true) },
         'sep',
         { label: 'Export ▸ STEP…', icon: 'step', action: () => this.exportSTEP(), disabled: !this.doc.components.length },
+        'sep',
+        { label: 'Properties…', icon: 'customProps', action: () => { const before = this.snapshot(); editCustomProps(this.app.ui, this.doc, (ch) => { if (ch) { this._before = before; this.change('Assembly properties changed.'); } }, 'assembly'); } },
       ],
       Edit: [
         { label: 'Undo', icon: 'undo', key: 'Ctrl+Z', action: () => this.undo(), disabled: !this.undoStack.length },

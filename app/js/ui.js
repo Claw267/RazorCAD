@@ -1,6 +1,7 @@
 // User interface: menus, Command ribbon, Feature tree, Property panel,
 // context menus, heads-up view toolbar and dialogs.
 import { icon } from './icons.js';
+import { editCustomProps } from './custprops.js';
 import { iconFor, MATERIALS, planeName, findFeature, TYPE_INFO, bodySettings, materialById, rollbackIndex, referencesOf, dependentsOf, absorbedSketches, moveProblem, bodyOwner, folderOfBody, sketchesUsedBy } from './model.js';
 import { STD_PLANES } from './geometry.js';
 import { evaluate, evalEquations, fmt, isNumeric, isValidName, normalizeValue } from './expr.js';
@@ -1198,6 +1199,8 @@ export class UI {
         { label: 'Export ▸ STL…', icon: 'stl', action: () => a.exportFile('stl') },
         { label: 'Export ▸ Flat Pattern as DXF…', icon: 'dxf', action: () => a.exportSheetDXF(), disabled: !a.flatView && !(a.result?.bodies || []).some((b) => b.sheet) },
         { label: 'Export ▸ Face as DXF…', icon: 'dxf', action: () => a.exportFaceDXF(), disabled: !a.flatView && !(a.selection?.kind === 'face' && a.selection.face.planar) },
+        'sep',
+        { label: 'Properties…', icon: 'customProps', action: () => editCustomProps(this, a.doc, (ch) => { if (ch) { a.commit(); a.status('Part properties changed.'); } }) },
       ],
       Edit: [
         { label: 'Undo', icon: 'undo', key: 'Ctrl+Z', action: () => a.undo(), disabled: !a.history.canUndo() || a.mode === 'sketch' },

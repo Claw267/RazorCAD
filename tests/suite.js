@@ -855,6 +855,55 @@ await rc.cut(h, 10);`, 'plate');
       : { ok: false, detail: `added ${n1} (${lin.join(', ')} | ${dia.join(', ')}), again ${n2}` };
   },
 
+  // BOM columns: parts' custom properties in the assembly's bill of materials and as BOM table columns on its
+  // drawing, with a column of values typed into the table; a part's drawing takes its number from Part Number
+  async 'bom-columns'() {
+    const a = window.app;
+    const box = (name, w, h, props) => {
+      const p = M.newDoc(); p.name = name; p.customProps = props;
+      const s = M.createFeature(p, 'sketch', { plane: { ref: 'top' } });
+      const pts = [[-w / 2, -w / 2], [w / 2, -w / 2], [w / 2, w / 2], [-w / 2, w / 2]];
+      Object.assign(s, { points: pts.map(([x, y], i) => ({ id: 'p' + (i + 1), x, y })), curves: pts.map((_, i) => ({ id: 'c' + (i + 1), type: 'line', p1: 'p' + (i + 1), p2: 'p' + ((i + 1) % 4 + 1), construction: false })), constraints: [] });
+      p.features.push(s, M.createFeature(p, 'extrude', { sketch: s.id, depth: h }));
+      return p;
+    };
+    const base = box('Base', 60, 5, [{ name: 'Part Number', value: 'PN-100' }, { name: 'Vendor', value: 'Acme' }]);
+    const pin = box('Pin', 8, 20, [{ name: 'Part Number', value: 'PN-200' }, { name: 'Finish', value: 'Zinc' }]);
+    a.newAssembly(); await wait(300); closeModals();
+    const asm = a.drawing;
+    const pb = asm.addPart(base, null, null), pp = asm.addPart(pin, null, null);
+    await asm.addComponent(pb); await asm.addComponent(pp); await asm.addComponent(pp);
+    await until(() => asm.doc.components.every((c) => asm.geo(c)?.mesh), 30000);
+    const B = await import('/js/bom.js'), Dm = await import('/js/drawing.js');
+    const names = B.bomPropNames(asm.doc).join(',');
+    asm.showBOM();
+    const win = document.querySelector('.modal-back table.bom')?.textContent || '';
+    closeModals();
+    const keep = a.ui.newDrawingSetup;
+    a.ui.newDrawingSetup = async () => ({ template: BUILTIN_TEMPLATES.find((t) => t.id === 'builtin:A3L'), name: 'BOM cols', props: {}, sheet: null });
+    try { await a.newDrawing(true); } finally { a.ui.newDrawingSetup = keep; }
+    const ed = a.drawing;
+    ed.addBOM();
+    const ann = ed.doc.anns.find((x) => x.type === 'bom');
+    const rows = B.bomRows(ed.doc.models[0].doc);
+    const pinRow = rows.find((r) => r.name === 'Pin');
+    ann.cols = [{ key: 'item', title: 'ITEM', w: 12 }, { key: 'prop:Part Number', title: 'PART NO.', w: 30 }, { key: 'name', title: 'PART', w: 40 }, { key: 'qty', title: 'QTY', w: 11 }, { key: 'text', title: 'NOTES', w: 30, values: { [pinRow.key]: 'press fit' } }];
+    ed.changed();
+    const texts = Dm.annPrims(ed.doc, ann, {}).filter((p) => p.t === 'text').map((p) => p.text);
+    const tableOk = ['PART NO.', 'NOTES', 'PN-100', 'PN-200', 'press fit', 'Pin', '2'].every((t) => texts.includes(t)) && !texts.includes('MATERIAL');
+    // a drawing of the pin part: its number from Part Number
+    const pi = a.tabs.findIndex((t) => t.kind !== 'drawing');
+    if (pi >= 0) await a.activateTab(pi);
+    a.newDocument(); await wait(200);
+    Object.assign(a.doc, JSON.parse(JSON.stringify(pin))); a.commit(); await a.rebuild();
+    a.ui.newDrawingSetup = async () => ({ template: BUILTIN_TEMPLATES.find((t) => t.id === 'builtin:A3L'), name: 'Pin drawing', props: {}, sheet: null });
+    try { await a.newDrawing(true); } finally { a.ui.newDrawingSetup = keep; }
+    const num = a.drawing.doc.props.number;
+    const ok = names === 'Part Number,Vendor,Finish' && win.includes('Vendor') && win.includes('Acme') && win.includes('Zinc') && tableOk && num === 'PN-200';
+    return ok ? { ok: true, detail: `properties ${names}; table ${texts.slice(0, 6).join(' | ')}…; drawing number ${num}` }
+      : { ok: false, detail: `names ${names}; window ${win.slice(0, 120)}; table ${texts.join(' | ')}; number ${num}` };
+  },
+
   // the view's mouse buttons: Shift + right-drag pans, middle-drag turns, a plain right-drag changes nothing
   async 'view-mouse-buttons'() {
     const a = window.app;

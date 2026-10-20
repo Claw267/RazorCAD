@@ -14,7 +14,8 @@ import { cutListRows } from './weldments.js';
 import { bodyMaterialId, docJSON, stripThumbnail, fileStem, isDefaultName } from './model.js';
 import { TEMPLATE_EXT, templateFromDrawing, applyTemplate } from './drawtemplates.js';
 import { partMesh, assemblyParts } from './partmeshes.js';
-import { bomRows, bomItemOf } from './bom.js';
+import { bomRows, bomItemOf, BOM_FIELDS, bomPropNames, bomCell } from './bom.js';
+import { propOf } from './custprops.js';
 import { explodeOffsets } from './explode.js';
 import { autoDims } from './autodim.js';
 
@@ -160,7 +161,7 @@ export class DrawingEditor {
     // title block defaults from the first part
     const p = this.doc.props;
     if (!p.title) p.title = name;
-    if (!p.number) p.number = name.toUpperCase().replace(/\s+/g, '-');
+    if (!p.number) p.number = propOf(doc, 'Part Number') || name.toUpperCase().replace(/\s+/g, '-');
     if (!p.material) { const mat = materialById(doc.material); if (mat) p.material = mat.name; }
     // (the first part's units, when it is in inches and nothing was chosen)
     if (this.doc.models.length === 1 && doc.units === 'in' && !this.doc.settings.units) { this.doc.settings.units = 'in'; if ((this.doc.settings.decimals ?? 2) === 2) this.doc.settings.decimals = 3; }
@@ -642,7 +643,7 @@ export class DrawingEditor {
       if (ann.type === 'dim' || ann.type === 'note') items.push({ label: ann.type === 'dim' ? 'Edit Dimension Text…' : 'Edit Note…', icon: 'note', action: () => this.editAnn(ann) });
       if (['datum', 'fcf', 'sfin', 'weld', 'revtable'].includes(ann.type)) items.push({ label: 'Edit…', icon: 'note', action: () => this.editAnn(ann) });
       if (ann.type === 'balloon') items.push({ label: 'Item Number…', icon: 'balloon', action: async () => { const t = await this.app.ui.promptText('Balloon', 'balloon', 'Item number', String(ann.item ?? '')); if (t != null && t.trim()) { ann.item = t.trim(); this.changed(); } } });
-      if (ann.type === 'bom') items.push({ label: ann.indented ? 'Top Level Only' : 'Show Sub-assembly Parts (Indented)', icon: 'bom', action: () => { ann.indented = !ann.indented; this.changed(); } });
+      if (ann.type === 'bom') items.push({ label: 'Columns…', icon: 'bom', action: () => this.bomColumnsDialog(ann) }, { label: ann.indented ? 'Top Level Only' : 'Show Sub-assembly Parts (Indented)', icon: 'bom', action: () => { ann.indented = !ann.indented; this.changed(); } });
       items.push({ label: 'Delete', icon: 'trash', action: () => this.deleteSelection() });
     } else if (v) {
       this.selected.clear(); this.selected.add(v.id);
@@ -1432,13 +1433,73 @@ export class DrawingEditor {
     return anns.length;
   }
 
+  // The BOM table's columns: what each shows (a field, a custom property of the parts, or values typed in here),
+  // its heading and width, in order; typed values are entered in the grid below.
+  bomColumnsDialog(ann) {
+    const m = this.doc.models.find((x) => x.id === ann.model);
+    const rows = bomRows(m?.doc).filter((r) => ann.indented || !r.depth);
+    const props = bomPropNames(m?.doc);
+    let cols = JSON.parse(JSON.stringify(D.bomColumns(ann)));
+    const sources = () => [...BOM_FIELDS.map(([k, l]) => [k, l]), ...[...new Set([...props, ...cols.filter((c) => c.key?.startsWith('prop:')).map((c) => c.key.slice(5))])].map((n) => ['prop:' + n, `Property: ${n}`]), ['text', 'Typed in the table']];
+    const label = (k) => sources().find((x) => x[0] === k)?.[1] || k;
+    const box = el('div', { class: 'bomcols' });
+    const render = () => {
+      const typed = cols.map((c, i) => [c, i]).filter(([c]) => c.key === 'text');
+      box.innerHTML = `<table class="bc-table"><tr><th>Shows</th><th>Heading</th><th>Width</th><th></th></tr>${cols.map((c, i) => `<tr>
+        <td><select data-i="${i}" data-k="key">${sources().map(([k, l]) => `<option value="${esc(k)}"${k === c.key ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></td>
+        <td><input type="text" data-i="${i}" data-k="title" value="${esc(c.title)}"></td>
+        <td><input type="number" data-i="${i}" data-k="w" min="4" max="300" step="1" value="${Number(c.w) || 20}" style="width:60px"></td>
+        <td class="bc-btns"><button data-i="${i}" data-a="up" title="Move left"${i ? '' : ' disabled'}>↑</button><button data-i="${i}" data-a="down" title="Move right"${i < cols.length - 1 ? '' : ' disabled'}>↓</button><button data-i="${i}" data-a="del" title="Remove"${cols.length > 1 ? '' : ' disabled'}>✕</button></td></tr>`).join('')}</table>
+        <div style="margin-top:6px"><button class="bc-add">Add Column</button></div>
+        ${props.length ? '' : '<p class="pm-hint">Give the parts custom properties (File ▸ Properties… in a part: Part Number, Description, Vendor…) to show them here.</p>'}
+        ${typed.length ? `<div class="pm-label" style="margin-top:10px">Values typed in the table</div><div class="bc-grid"><table><tr><th>Item</th><th>Part</th>${typed.map(([c]) => `<th>${esc(c.title)}</th>`).join('')}</tr>${rows.map((r) => `<tr><td>${esc(r.item)}</td><td>${esc('  '.repeat(r.depth) + r.name)}</td>${typed.map(([c, i]) => `<td><input type="text" data-v="${i}" data-row="${esc(r.key)}" value="${esc(bomCell(r, c))}"></td>`).join('')}</tr>`).join('')}</table></div>` : ''}`;
+      box.querySelectorAll('[data-k]').forEach((inp) => {
+        inp.onkeydown = (e) => e.stopPropagation();
+        inp.onchange = () => {
+          const c = cols[+inp.dataset.i], k = inp.dataset.k;
+          if (k === 'key') {
+            const was = label(c.key).replace(/^Property: /, '').toUpperCase();
+            c.key = inp.value;
+            if (!c.title || c.title === was) c.title = label(c.key).replace(/^Property: /, '').toUpperCase();
+            if (c.key === 'text') c.values ||= {}; else delete c.values;
+            render();
+          } else if (k === 'w') c.w = Math.max(4, Math.min(300, Number(inp.value) || 20));
+          else c.title = inp.value;
+        };
+      });
+      box.querySelectorAll('[data-v]').forEach((inp) => { inp.onkeydown = (e) => e.stopPropagation(); inp.oninput = () => { const c = cols[+inp.dataset.v]; (c.values ||= {})[inp.dataset.row] = inp.value; }; });
+      box.querySelectorAll('[data-a]').forEach((b) => {
+        b.onclick = () => {
+          const i = +b.dataset.i, a = b.dataset.a;
+          if (a === 'del') cols.splice(i, 1);
+          else { const j = a === 'up' ? i - 1 : i + 1; [cols[i], cols[j]] = [cols[j], cols[i]]; }
+          render();
+        };
+      });
+      box.querySelector('.bc-add').onclick = () => {
+        const pick = props.find((n) => !cols.some((c) => c.key === 'prop:' + n));
+        cols.push(pick ? { key: 'prop:' + pick, title: pick.toUpperCase(), w: 30 } : { key: 'text', title: 'NOTES', w: 30, values: {} });
+        render();
+      };
+    };
+    render();
+    // (its right edge stays where it is: a table placed at the frame's right stays inside it)
+    const width = (cs) => cs.reduce((s, c) => s + Math.max(4, Number(c.w) || 20), 0), w0 = width(D.bomColumns(ann));
+    const keepRight = () => { if (Array.isArray(ann.pos)) ann.pos = [ann.pos[0] + w0 - width(D.bomColumns(ann)), ann.pos[1]]; };
+    this.app.ui.modal('BOM Table Columns', 'bom', box, [
+      { label: 'OK', primary: true, action: () => { ann.cols = cols; keepRight(); this.changed(); } },
+      { label: 'Default Columns', action: () => { delete ann.cols; keepRight(); this.changed(); } },
+      { label: 'Cancel' },
+    ]);
+  }
+
   addBOM() {
     if (this.tool) this.cancelTool(false);
     const v = [...this.selected].map((id) => D.findView(this.doc, id)).find(Boolean);
     const isAsm = (id) => this.doc.models.find((x) => x.id === id)?.doc?.kind === 'assembly';
     const mid = v && isAsm(v.model) ? v.model : this.doc.models.find((x) => x.doc?.kind === 'assembly')?.id;
     if (!mid) { this.app.toast('A bill of materials needs a view of an assembly', true); return; }
-    const f = frameRect(this.sheet, this.doc.format), W = D.BOM_COLS.reduce((s, c) => s + c[1], 0);
+    const f = frameRect(this.sheet, this.doc.format), W = D.bomColumns(null).reduce((s, c) => s + c.w, 0);
     this.doc.anns.push({ id: D.newId(this.doc, 'a'), type: 'bom', sheet: this.sheetId, model: mid, pos: [f.x1 - W - 8, f.y0 + 12] });
     this.changed();
     this.app.status(`Bill of materials added (${bomRows(this.doc.models.find((x) => x.id === mid).doc).filter((r) => !r.depth).length} items): drag it where you want it. Right-click it to show the sub-assemblies' parts.`);
@@ -1651,6 +1712,7 @@ export class DrawingEditor {
 
   // ------------------------------------------------------------ editing annotations / views
   async editAnn(a) {
+    if (a.type === 'bom') return this.bomColumnsDialog(a);
     if (a.type === 'revtable') { this.revisionTable(); return; }
     if (['datum', 'fcf', 'sfin', 'weld'].includes(a.type)) {
       const copy = JSON.parse(JSON.stringify(a));
