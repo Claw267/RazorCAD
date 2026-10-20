@@ -569,6 +569,8 @@ const UI = {
   async 'getting-started-tour'() {
     const ui = window.app.ui;
     closeModals();
+    // (the tour shows the part window: an assembly or drawing left in front by another test is put behind)
+    if (window.app.mode !== 'part') { await window.app.newDocument?.(); closeModals(); }
     const keep = ui.prefs.tourDone;
     ui.startTour();
     const titles = [];
