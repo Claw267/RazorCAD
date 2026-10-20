@@ -562,7 +562,8 @@ In this order; each item tested (regression suite + preview / exe), logged in CH
 - [x] 4d Speed mode for very large assemblies (components shown from simplified display meshes, loaded in full when needed).
   - Done: Kernel: rebuild opts.coarse (tolerance ×12.5, angular 0.7 rad; meshPart takes the angular tolerance, cached by it), partMesh passes data.coarse. Assembly: doc.speedMode, loadParts builds each part key coarse unless in this._full (record .coarse; key and mesh-cache key marked), setSpeedMode (status with triangle counts before / after), ensureFull (select() of a component or refs), suggestSpeedMode after loads (≥ 3M triangles or 300 components, once), ribbon toggle + View menu item, icon speed. Test speed-mode; full suite passes.
 6. Project and quality
-- [ ] 6a Releases on GitHub: a tagged version builds the setup and drafts the release (runs only when a version is tagged).
+- [x] 6a Releases on GitHub: a tagged version builds the setup and drafts the release (runs only when a version is tagged).
+  - Done: .github/workflows/release.yml (on push tags v[0-9]*; contents: write; windows-latest: checkout fetch-depth 0, Python 3.12, tag = v + version.txt check, pip pywebview pyinstaller pillow playwright, tests, optional PFX from secrets RAZORCAD_SIGN_PFX_BASE64 / RAZORCAD_SIGN_PASSWORD, installer\build_installer.bat, files + SHA256SUMS, upload-artifact, gh release create --draft [--prerelease]). tools/release_notes.py (entries not in the previous tag's CHANGELOG.md; regression-test lines dropped; checked locally against v0.13.0-beta: 29 entries). installer/RELEASING.md. Not run (no tag pushed).
 - [ ] 6b Performance tracking in the test suite (rebuild times stored; slowdowns reported).
 - [ ] 6c Accessibility: the Property panels usable from the keyboard, labels for screen readers.
 

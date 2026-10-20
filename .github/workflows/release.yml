@@ -1,0 +1,89 @@
+# A release, when a version is tagged (git tag v0.14.0-beta, pushed): the regression tests, then RazorCAD.exe and
+# RazorCAD-Setup-<version>.exe built (installer/build_installer.bat), and a draft release made on GitHub with the
+# setup, its read-me and checksums, and notes from CHANGELOG.md. Nothing is published: the draft waits for review.
+# It runs only for a version tag (never on ordinary pushes), and the tag must match version.txt.
+#
+# Code signing, when set up (installer/SIGNING.md): repository secrets RAZORCAD_SIGN_PFX_BASE64 (the .pfx,
+# base64-encoded) and RAZORCAD_SIGN_PASSWORD; without them the files are built unsigned.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # (the earlier tags, for the release notes)
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Check the tag against version.txt
+        shell: pwsh
+        run: |
+          $ver = (Get-Content -Raw version.txt).Trim()
+          if ("v$ver" -ne "${{ github.ref_name }}") { throw "The tag ${{ github.ref_name }} does not match version.txt ($ver): set version.txt and tag again." }
+          "VERSION=$ver" >> $env:GITHUB_ENV
+
+      - name: Install the build tools
+        run: python -m pip install --upgrade pip pywebview pyinstaller pillow playwright
+
+      - name: Run the regression tests
+        run: python tests/run_tests.py
+        env:
+          CI: 'true'
+
+      - name: Set up code signing (when the secrets are there)
+        shell: pwsh
+        env:
+          PFX_BASE64: ${{ secrets.RAZORCAD_SIGN_PFX_BASE64 }}
+        run: |
+          if ($env:PFX_BASE64) {
+            $pfx = Join-Path $env:RUNNER_TEMP 'razorcad-sign.pfx'
+            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:PFX_BASE64))
+            "RAZORCAD_SIGN_PFX=$pfx" >> $env:GITHUB_ENV
+            'Signing: set up'
+          } else { 'Signing: not set up (the files are built unsigned)' }
+
+      - name: Build RazorCAD and the setup
+        shell: cmd
+        run: call installer\build_installer.bat
+        env:
+          RAZORCAD_SIGN_PASSWORD: ${{ secrets.RAZORCAD_SIGN_PASSWORD }}
+
+      - name: Gather the release files
+        shell: pwsh
+        run: |
+          $out = Join-Path (Split-Path $env:GITHUB_WORKSPACE) 'RazorCAD Install'
+          $dist = Join-Path $env:RUNNER_TEMP 'release'
+          New-Item -ItemType Directory -Force $dist | Out-Null
+          Copy-Item (Join-Path $out "RazorCAD-Setup-$env:VERSION.exe") $dist
+          Copy-Item (Join-Path $out 'Read me first.txt') (Join-Path $dist 'Read-me-first.txt')
+          Get-ChildItem $dist -File | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name } | Set-Content -Encoding utf8 (Join-Path $dist 'SHA256SUMS.txt')
+          python tools/release_notes.py $env:VERSION --out (Join-Path $env:RUNNER_TEMP 'notes.md')
+          "DIST=$dist" >> $env:GITHUB_ENV
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RazorCAD-${{ env.VERSION }}
+          path: ${{ env.DIST }}
+
+      - name: Draft the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $a = @('release', 'create', '${{ github.ref_name }}', '--draft', '--title', "RazorCAD $env:VERSION", '--notes-file', (Join-Path $env:RUNNER_TEMP 'notes.md'))
+          if ($env:VERSION -match '-') { $a += '--prerelease' }   # (a beta)
+          $a += Get-ChildItem $env:DIST -File | ForEach-Object { $_.FullName }
+          gh @a

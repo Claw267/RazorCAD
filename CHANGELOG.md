@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 08:31 — Releases from a version tag
+- New GitHub workflow **Release** (`.github/workflows/release.yml`), run only when a version tag is pushed (e.g. `v0.14.0-beta`), never on ordinary pushes. It checks the tag against `version.txt`, runs the regression tests, builds RazorCAD.exe and the setup (signed when signing secrets are set up), and drafts a release with the setup, its read-me and SHA-256 checksums. Betas are marked as pre-releases. Nothing is published until the draft is reviewed.
+- `tools/release_notes.py`: the release notes from CHANGELOG.md, the entries added since the previous tag (test notes left out).
+- `installer/RELEASING.md`: how to tag a release, and how to set up signing for it.
+
 ## 2026-10-21 08:29 — Speed mode for very large assemblies
 - **Speed Mode** (Assembly ribbon, View menu): the parts are shown from simplified display meshes, made coarser by the kernel, with far fewer triangles to draw and keep in memory (a test assembly of round parts: 2096 → 600). The faces and edges stay the same, so mates, measuring, picking and collision detection work as before.
 - A component you select is loaded in full. Turning speed mode off shows everything in full again.
