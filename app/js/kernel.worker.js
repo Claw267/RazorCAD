@@ -5260,9 +5260,10 @@ async function ensureDrawingCache(docJson) {
 // lists): every component shown in the configuration the assembly (and each sub-assembly) shows, suppressed and
 // hidden ones left out. Each part is built once (by its content, in the configuration used) and its solids are
 // placed by location, so a part used many times shares its geometry. Hole callout data are placed with them.
+const asmPartsBuilt = new Map(); // part document (as built) → { solids, holes, threads }: the latest few, kept
 async function assemblySolids(asm) {
   const oc = R.getOC();
-  const built = new Map(); // part document (as built) → { solids, holes }
+  const built = asmPartsBuilt;
   const solids = [], holes = [], threads = [];
   const effIn = (d, c) => {
     const o = (d.activeConfig ? (d.configs || []).find((x) => x.id === d.activeConfig) : null)?.comps?.[c.id] || {};
@@ -5310,6 +5311,7 @@ async function assemblySolids(asm) {
         for (const r of Object.values(part.features || {})) for (const h of r.holes || []) if (r.sizes) hs.push({ p: h.p, dir: h.dir, sizes: r.sizes, through: r.through, depth: r.depth, thread: r.thread });
         b = { solids: part.solids || [], holes: hs, threads: Object.values(part.threads || {}).flat() };
         built.set(key, b);
+        while (built.size > 60) built.delete(built.keys().next().value);
       }
       for (const s of b.solids) solids.push({ ...s, id: `${prefix}${c.id}/${s.id}`, shape: placed(s.shape, Mc), comp: c.name });
       for (const h of b.holes) holes.push({ ...h, p: ptM(Mc, h.p), dir: dirM(Mc, h.dir) });

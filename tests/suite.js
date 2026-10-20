@@ -456,6 +456,46 @@ const UI = {
       : { ok: false, detail: `bom ${bomOk} (${texts.join('|')}), balloon ${JSON.stringify(bl)} (block item ${blockItem})` };
   },
 
+  // an exploded view of an assembly on a drawing sheet: the view switched to the assembly's exploded view
+  // shows the moved component where the explode puts it (and its projected view follows)
+  async 'exploded-drawing-view'() {
+    const a = window.app;
+    const p = M.newDoc(); p.name = 'Cube';
+    const s = M.createFeature(p, 'sketch', { plane: { ref: 'top' } });
+    const pts = [[-10, -10], [10, -10], [10, 10], [-10, 10]];
+    Object.assign(s, { points: pts.map(([x, y], i) => ({ id: 'p' + (i + 1), x, y })), curves: pts.map((_, i) => ({ id: 'c' + (i + 1), type: 'line', p1: 'p' + (i + 1), p2: 'p' + ((i + 1) % 4 + 1), construction: false })), constraints: [] });
+    p.features.push(s, M.createFeature(p, 'extrude', { sketch: s.id, depth: 20 }));
+    a.newAssembly();
+    await wait(400);
+    closeModals();
+    const asm = a.drawing;
+    const pid = asm.addPart(p, null, null);
+    await asm.addComponent(pid); await asm.addComponent(pid);
+    await until(() => asm.doc.components.every((c) => asm.geo(c)?.mesh), 30000);
+    const c2 = asm.doc.components[1];
+    asm.doc.explodes.push({ id: 'ex1', name: 'Exploded View 1', steps: [{ items: [c2.id], dir: [1, 0, 0], dist: 50 }] });
+    const keep = a.ui.newDrawingSetup;
+    a.ui.newDrawingSetup = async () => ({ template: BUILTIN_TEMPLATES.find((t) => t.id === 'builtin:A3L'), name: 'Exploded drawing', props: {}, sheet: null });
+    try { await a.newDrawing(true); } finally { a.ui.newDrawingSetup = keep; }
+    const ed = a.drawing;
+    const ready = () => until(() => ed.doc.views.every((v) => ed.geos.get(v.id)?.box && !ed.errors.get(v.id)), 60000, 200);
+    await ready();
+    const front = ed.doc.views.find((v) => v.type === 'model');
+    const width = (v) => { const b = ed.geos.get(v.id).box; return b.max[0] - b.min[0]; };
+    const kids = ed.doc.views.filter((v) => v.parent === front.id);
+    const w0 = width(front), k0 = kids.map(width);
+    front.explode = 'ex1';
+    const before = ed.geos.get(front.id);
+    await ed.updateGeometry();
+    await until(() => ed.geos.get(front.id) !== before, 30000, 100);
+    await ready();
+    const w1 = width(front), k1 = kids.map(width);
+    const grew = Math.abs(w1 - w0 - 50) < 1e-3;
+    // (the projected views: the one beside it, looking along x, is unchanged in width; the one above grows too)
+    const kidsFollow = k1.some((w, i) => Math.abs(w - k0[i] - 50) < 1e-3);
+    return grew && kidsFollow ? { ok: true, detail: `front view ${r6(w0)} → ${r6(w1)} mm wide; projected views follow` } : { ok: false, detail: `front ${w0} → ${w1}, projected ${JSON.stringify(k0)} → ${JSON.stringify(k1)}` };
+  },
+
   // the view's mouse buttons: Shift + right-drag pans, middle-drag turns, a plain right-drag changes nothing
   async 'view-mouse-buttons'() {
     const a = window.app;

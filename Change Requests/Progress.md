@@ -467,7 +467,8 @@ Work through in this order; each item tested, logged in CHANGELOG, RazorCAD.exe 
   - Done: bom.js (bomRows / bomItemOf, used by AssemblyEditor.showBOM); kernel drawingPick (a line along the view direction through the click, Common with each body whose box reaches it, nearest to the viewer); drawing.js balloon prims (circle, number, leader, dot) and bomTablePrims (BOM_COLS, indented option); drawingeditor Balloon tool (pick → item, else prompt), addBOM (top right of the frame), context items, icon. Test assembly-drawing-bom-balloons; checked in the preview (table + balloons 1, 2, 2).
 - [x] 4c Drawing symbols: GD&T (feature control frames, datums), surface finish, weld symbols.
   - Already in RazorCAD (CHANGELOG: Datum Feature, Geometric Tolerance with the 14 characteristic symbols, Ø zone, material condition, up to three datums; Surface Finish; Weld Symbol with fillet / square / V / bevel / plug, arrow / other / both sides, all-around, field weld, tail; optional leaders), Annotation tab. Checked 2026-10-20: all four still draw. Nothing to change.
-- [ ] 4d Exploded views placed on drawing sheets.
+- [x] 4d Exploded views placed on drawing sheets.
+  - Done: drawingeditor explodeOf (own or the parent model view's) / viewModel (assembly copy with components moved by explodeOffsets); updateGeometry batches per model + explode; balloon pick uses viewModel; View Properties ▸ Exploded select (keeps the view centre). Kernel: asmPartsBuilt kept between drawing requests (latest 60). Test exploded-drawing-view (front 43 → 93 mm, projected views follow); checked in the preview.
 - [ ] 4e Assemblies: interference check.
 - [ ] 4f Assemblies: gear and rack-and-pinion mates.
 6. Ease of use

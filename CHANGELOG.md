@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 22:15 — Exploded views on drawings
+- **A drawing view of an assembly can show one of its exploded views:** View Properties ▸ Display ▸ **Exploded**. The components are where the exploded view moves them; the view keeps its place on the sheet. Its projected, section, auxiliary and detail views follow, and balloons placed on it pick the moved parts. Set it back to "Not exploded" at any time.
+- Drawings with exploded and plain views of the same assembly no longer build its parts again for each: the kernel keeps the latest parts it built for drawings.
+- Regression test: exploded-drawing-view.
+
 ## 2026-10-20 22:12 — Balloons and bill of materials on assembly drawings
 - **Annotation ▸ BOM Table:** the drawing's assembly as a table (ITEM, QTY, PART, MATERIAL), placed at the top right of the sheet; drag it anywhere. Right-click it to show the sub-assemblies' parts too (indented). It follows the assembly when its parts change.
 - **Annotation ▸ Balloon:** click a part in a view, then where the balloon goes. The circled number is that part's item in the bill of materials, found from the part under the click, also in sub-assemblies (their item at the top level). Keep clicking for more balloons; Esc ends. Where no part can be told, it asks for the number (the next free one is offered). Right-click a balloon ▸ Item Number to change it.

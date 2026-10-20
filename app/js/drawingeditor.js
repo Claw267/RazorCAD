@@ -15,6 +15,7 @@ import { bodyMaterialId, docJSON, stripThumbnail, fileStem, isDefaultName } from
 import { TEMPLATE_EXT, templateFromDrawing, applyTemplate } from './drawtemplates.js';
 import { partMesh, assemblyParts } from './partmeshes.js';
 import { bomRows, bomItemOf } from './bom.js';
+import { explodeOffsets } from './explode.js';
 
 // Assemblies this big (solids, or display triangles) are drawn with fast hidden-line removal unless a view asks
 // for exact (exact on thousands of solids takes many minutes a view)
@@ -267,28 +268,49 @@ export class DrawingEditor {
     return out;
   }
 
+  // The exploded view of the assembly a drawing view shows (its own, or its parent model view's), or null.
+  explodeOf(v) {
+    for (let x = v, i = 0; x && i < 10; i++, x = x.parent ? D.findView(this.doc, x.parent) : null) {
+      if (x.explode) return x.explode;
+      if (x.type === 'model') return null;
+    }
+    return null;
+  }
+  // The model a view shows: its part or assembly — an assembly exploded as the view asks (each component moved
+  // by the steps of that exploded view).
+  viewModel(v) {
+    const m = this.doc.models.find((x) => x.id === v.model);
+    const exId = m?.doc?.kind === 'assembly' ? this.explodeOf(v) : null;
+    const ex = exId && (m.doc.explodes || []).find((x) => x.id === exId);
+    if (!ex) return m;
+    const offs = explodeOffsets(ex);
+    return { ...m, doc: { ...m.doc, exploded: null, components: m.doc.components.map((c) => { const o = offs.get(c.id); return o ? { ...c, pos: c.pos.map((x, i) => x + o[i]) } : c; }) } };
+  }
+
   async updateGeometry() {
     this.updateCutLists();
     const byModel = new Map();
     for (const v of this.doc.views) {
       const req = D.viewRequest(this.doc, v);
       if (!req) continue;
-      const m = this.doc.models.find((x) => x.id === v.model);
+      const m = this.viewModel(v);
       if (!m) { this.errors.set(v.id, 'the part or assembly is missing'); continue; }
       const docJson = JSON.stringify(m.doc);
       const key = docJson.length + ':' + hash(docJson) + JSON.stringify(req);
       if (this.geoKeys.get(v.id) === key) continue;
-      if (!byModel.has(m.id)) byModel.set(m.id, { docJson, reqs: [], keys: new Map() });
-      const g = byModel.get(m.id);
+      // (one batch per model as each view shows it: exploded views of an assembly apart from the others)
+      const gk = m.id + '|' + (this.explodeOf(v) || '');
+      if (!byModel.has(gk)) byModel.set(gk, { m, docJson, reqs: [], keys: new Map() });
+      const g = byModel.get(gk);
       g.reqs.push(req); g.keys.set(v.id, key);
     }
     if (!byModel.size) return;
     const run = ++this._geoRun;
-    for (const [mid, { docJson, reqs, keys }] of byModel) {
+    for (const [, { m: model, docJson, reqs, keys }] of byModel) {
       this.app.status('Updating drawing views…');
       try {
         // an assembly: its big views drawn fast (from the display meshes), the rest by the kernel
-        const fast = await this.fastViews(this.doc.models.find((x) => x.id === mid), reqs);
+        const fast = await this.fastViews(model, reqs);
         const exact = reqs.filter((r) => !fast.has(r.id));
         const res = [...fast.values()];
         if (exact.length) res.push(...(await this.app.kernel.request('drawingViews', { doc: docJson, views: exact })));
@@ -1250,7 +1272,7 @@ export class DrawingEditor {
         if (!v || v.type === 'flat') { this.app.status('Click on a part in a view.'); return; }
         const X = D.viewXform(this.doc, v), p = X.toView(P);
         t.leader = { view: v.id, p };
-        const m = this.doc.models.find((x) => x.id === v.model);
+        const m = this.viewModel(v.type === 'detail' ? D.findView(this.doc, v.parent) || v : v);
         const req = D.viewRequest(this.doc, v) || D.viewRequest(this.doc, D.findView(this.doc, v.parent));
         t.item = m?.doc?.kind === 'assembly' && req ? this.app.kernel.request('drawingPick', { doc: JSON.stringify(m.doc), view: { dir: req.dir, up: req.up }, p })
           .then((id) => (id ? bomItemOf(m.doc, String(id).split('/')[0]) : null)).catch(() => null) : Promise.resolve(m?.doc?.kind === 'assembly' ? null : '1');
@@ -2069,6 +2091,11 @@ export class DrawingEditor {
         const th = el('label', {}, `<input type="checkbox" ${v.threads !== false ? 'checked' : ''}> Cosmetic threads`);
         th.querySelector('input').onchange = (e) => { v.threads = e.target.checked; this.changed(); };
         d.appendChild(th);
+        // (an assembly with exploded views: show this view exploded)
+        const md = this.doc.models.find((x) => x.id === v.model)?.doc;
+        if (md?.kind === 'assembly' && md.explodes?.length && (v.type === 'model' || v.explode)) {
+          row(d, 'Exploded', select([['', 'Not exploded'], ...md.explodes.map((x) => [x.id, x.name])], v.explode || '', (s) => { (this.pendingCentre ||= new Map()).set(v.id, this.viewCentre(v)); if (s) v.explode = s; else delete v.explode; this.changed(); this.updateGeometry(); }));
+        } else if (md?.kind === 'assembly' && v.type === 'model') d.appendChild(el('div', { class: 'pm-hint' }, 'Exploded views made in the assembly (Exploded View) can be shown here.'));
         // (an assembly: how its hidden lines are worked out — exactly, or quickly from the display meshes)
         if (this.modelDoc(v.model)?.kind === 'assembly' && v.type !== 'section') {
           row(d, 'Hidden lines', select([['auto', 'Automatic (fast for big assemblies)'], ['exact', 'Exact'], ['fast', 'Fast (from the display meshes)']], v.hlr || 'auto', (s) => { v.hlr = s === 'auto' ? undefined : s; this.changed(); }));
