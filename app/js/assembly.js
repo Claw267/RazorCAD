@@ -26,6 +26,7 @@ import { hashText, packResult, unpackResult } from './modelcache.js';
 import { packMesh, unpackMesh, MESH_CACHE } from './partmeshes.js';
 import { AssemblyView } from './asmview.js';
 import { bomRows } from './bom.js';
+import { volWithUnit, unitOf } from './units.js';
 import * as G from './geometry.js';
 
 const $ = (s) => document.querySelector(s);
@@ -1386,6 +1387,37 @@ export class AssemblyEditor {
   }
 
   // ---------------------------------------------------------------- bill of materials
+  // Interference Check: where components overlap (in red), with the overlap volume of each pair. Parts that
+  // only touch (mated faces) do not count. Done with the components where the mates put them (not exploded).
+  async checkInterference() {
+    const shown = this.doc.components.filter((c) => !this.eff(c).suppressed);
+    if (shown.length < 2) { this.app.toast('Interference Check needs two or more components', true); return; }
+    if (this.doc.exploded) this.setExploded(null, false);
+    let r;
+    try { r = await this.app.withProgress('Checking for interference…', () => this.app.kernel.request('asmInterference', { doc: JSON.stringify(this.doc) })); } catch (e) { this.app.toast('Interference Check failed: ' + e.message, true); return; }
+    this.vp.setPreview(r.mesh ? { remove: r.mesh } : null);
+    this.vp.requestRender?.();
+    // a body's path → "Component" (inside a sub-assembly: "Sub-assembly ▸ Component")
+    const nameOf = (path) => {
+      const ids = String(path).split('/').slice(0, -1);
+      let doc = this.doc;
+      const names = [];
+      for (const id of ids) {
+        const c = (doc?.components || []).find((x) => x.id === id);
+        if (!c) break;
+        names.push(c.name);
+        doc = (doc.parts || []).find((p) => p.id === c.part)?.doc;
+      }
+      return names.join(' ▸ ') || path;
+    };
+    const U = unitOf(this.doc);
+    const html = r.pairs.length
+      ? `<p>${r.pairs.length} interference${r.pairs.length === 1 ? '' : 's'} (shown in red):</p><table class="grid"><tr><th>Component</th><th>Component</th><th>Overlap volume</th></tr>${r.pairs.map((x) => `<tr><td>${esc(nameOf(x.a))}</td><td>${esc(nameOf(x.b))}</td><td class="num">${volWithUnit(x.volume, U)}</td></tr>`).join('')}</table><p class="pm-hint">Faces that only touch (such as mated faces) are not counted.</p>`
+      : '<p>No interference: no two components overlap.</p><p class="pm-hint">Faces that only touch (such as mated faces) are not counted.</p>';
+    await this.app.ui.choose('Interference Check', 'interference', html, [['ok', 'Close', true]]);
+    this.vp.setPreview(null);
+  }
+
   showBOM() {
     // (indented: one row per part / sub-assembly and configuration used, a sub-assembly's own under it with the
     // quantity in one of it; suppressed components left out)
@@ -1555,6 +1587,7 @@ export class AssemblyEditor {
         { icon: 'explode', label: this.doc.exploded ? 'Collapse' : 'Explode', action: () => (this.doc.exploded ? this.setExploded(null, true) : this.doc.explodes.length && this.setExploded(this.doc.explodes[this.doc.explodes.length - 1].id, true)), disabled: !this.doc.explodes.length },
         'sep',
         { icon: 'bom', label: 'Bill of Materials', action: () => this.showBOM() },
+        { icon: 'interference', label: 'Interference Check', action: () => this.checkInterference() },
         { icon: 'zoomfit', label: 'Zoom to Fit', key: 'F', action: () => this.vp.zoomToFit() },
       ],
     };
@@ -1608,6 +1641,7 @@ export class AssemblyEditor {
       ],
       Tools: [
         { label: 'Bill of Materials…', icon: 'bom', action: () => this.showBOM() },
+        { label: 'Interference Check…', icon: 'interference', action: () => this.checkInterference() },
         { label: 'Fix Mates…', icon: 'fix', action: () => this.showBrokenMates() },
         ...(selC ? [{ label: `Open ${selC.name}`, icon: 'part', action: () => this.openPart(selC.id) }] : []),
       ],

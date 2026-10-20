@@ -496,6 +496,32 @@ const UI = {
     return grew && kidsFollow ? { ok: true, detail: `front view ${r6(w0)} → ${r6(w1)} mm wide; projected views follow` } : { ok: false, detail: `front ${w0} → ${w1}, projected ${JSON.stringify(k0)} → ${JSON.stringify(k1)}` };
   },
 
+  // assembly interference: of three 20 mm cubes, one overlapping another by 5 mm (2000 mm³) and one only
+  // touching (not counted)
+  async 'assembly-interference'() {
+    const a = window.app;
+    const p = M.newDoc(); p.name = 'Cube';
+    const s = M.createFeature(p, 'sketch', { plane: { ref: 'top' } });
+    const pts = [[-10, -10], [10, -10], [10, 10], [-10, 10]];
+    Object.assign(s, { points: pts.map(([x, y], i) => ({ id: 'p' + (i + 1), x, y })), curves: pts.map((_, i) => ({ id: 'c' + (i + 1), type: 'line', p1: 'p' + (i + 1), p2: 'p' + ((i + 1) % 4 + 1), construction: false })), constraints: [] });
+    p.features.push(s, M.createFeature(p, 'extrude', { sketch: s.id, depth: 20 }));
+    a.newAssembly();
+    await wait(400);
+    closeModals();
+    const asm = a.drawing;
+    const pid = asm.addPart(p, null, null);
+    await asm.addComponent(pid); await asm.addComponent(pid); await asm.addComponent(pid);
+    const [c1, c2, c3] = asm.doc.components;
+    c1.pos = [0, 0, 0]; c2.pos = [15, 0, 0]; c3.pos = [-20, 0, 0];
+    let html = '';
+    const keep = a.ui.choose;
+    a.ui.choose = async (title, ic, h) => { html = h; return 'ok'; };
+    try { await asm.checkInterference(); } finally { a.ui.choose = keep; }
+    const r = await a.kernel.request('asmInterference', { doc: JSON.stringify(asm.doc) });
+    const ok = r.pairs.length === 1 && Math.abs(r.pairs[0].volume - 2000) < 1e-6 && html.includes('2000 mm³') && [c1, c2].every((c) => html.includes(c.name.replace(/</g, '&lt;').replace(/>/g, '&gt;')));
+    return ok ? { ok: true, detail: `1 interference, ${r6(r.pairs[0].volume)} mm³ (${c1.name} / ${c2.name}); touching cube not counted` } : { ok: false, detail: `${JSON.stringify(r.pairs)} | ${html.replace(/<[^>]+>/g, ' ').slice(0, 200)}` };
+  },
+
   // the view's mouse buttons: Shift + right-drag pans, middle-drag turns, a plain right-drag changes nothing
   async 'view-mouse-buttons'() {
     const a = window.app;

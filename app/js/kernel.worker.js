@@ -1343,6 +1343,28 @@ function interference() {
   return { pairs: out, mesh: shapes.length ? meshData(shapes, diag) : null };
 }
 
+// Where the components of an assembly overlap: every two bodies of different components whose common volume
+// is more than a hair (faces that only touch, as mated faces do, are no interference). Bodies are named by
+// their path ("<component>/…/<body>"). Returns { pairs: [{ a, b, volume }], mesh (the overlaps) }.
+async function asmInterference(docJson) {
+  const { solids } = await assemblySolids(JSON.parse(docJson));
+  const list = solids.map((r) => ({ ...r, owner: String(r.id).split('/').slice(0, -1).join('/'), box: bbox(r.shape) }));
+  const out = [], shapes = [];
+  for (let i = 0; i < list.length; i++) {
+    progress(i / Math.max(1, list.length), 'Checking for interference…');
+    for (let j = i + 1; j < list.length; j++) {
+      const a = list[i], b = list[j];
+      if (a.owner === b.owner || !boxesTouch(a.box, b.box, 1e-6)) continue;
+      let common = null;
+      try { common = a.shape.intersect(b.shape); } catch (e) { if (isFatal(e)) throw e; continue; }
+      const v = solidsOf(common).reduce((acc, x) => acc + R.measureVolume(x), 0);
+      if (v > Math.max(1e-6, Math.min(R.measureVolume(a.shape), R.measureVolume(b.shape)) * 1e-9)) { out.push({ a: a.id, b: b.id, volume: v }); shapes.push(common); }
+    }
+  }
+  const diag = list.length ? bboxOfAll(list.map((r) => r.shape)).diag : 1;
+  return { pairs: out, mesh: shapes.length ? meshData(shapes, diag) : null };
+}
+
 function b64ToBytes(b64) {
   const bin = atob(b64);
   const out = new Uint8Array(bin.length);
@@ -6724,6 +6746,9 @@ async function handleMessage(e) {
       const r = out.res;
       result = { body: r.body, errors: [...(r.errors instanceof Map ? r.errors : Object.entries(r.errors || {}))].length };
       transfer = out.transfer;
+    } else if (type === 'asmInterference') {
+      result = await asmInterference(data.doc);
+      if (result.mesh) transfer = [result.mesh.vertices.buffer, result.mesh.normals.buffer, result.mesh.triangles.buffer];
     } else if (type === 'drawingPick') {
       result = await drawingPick(data.doc, data.view, data.p);
     } else if (type === 'drawingViews') {

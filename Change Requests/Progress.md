@@ -469,7 +469,8 @@ Work through in this order; each item tested, logged in CHANGELOG, RazorCAD.exe 
   - Already in RazorCAD (CHANGELOG: Datum Feature, Geometric Tolerance with the 14 characteristic symbols, Ø zone, material condition, up to three datums; Surface Finish; Weld Symbol with fillet / square / V / bevel / plug, arrow / other / both sides, all-around, field weld, tail; optional leaders), Annotation tab. Checked 2026-10-20: all four still draw. Nothing to change.
 - [x] 4d Exploded views placed on drawing sheets.
   - Done: drawingeditor explodeOf (own or the parent model view's) / viewModel (assembly copy with components moved by explodeOffsets); updateGeometry batches per model + explode; balloon pick uses viewModel; View Properties ▸ Exploded select (keeps the view centre). Kernel: asmPartsBuilt kept between drawing requests (latest 60). Test exploded-drawing-view (front 43 → 93 mm, projected views follow); checked in the preview.
-- [ ] 4e Assemblies: interference check.
+- [x] 4e Assemblies: interference check.
+  - Done: kernel asmInterference (assemblySolids, pairs of different owners, box prefilter, Common volume > tolerance, overlap mesh); AssemblyEditor.checkInterference (collapses an explode, red preview, dialog with component paths and volume in doc units), toolbar + Tools menu. Test assembly-interference (2000 mm³, touching cube not counted); checked in the preview (1200 mm³ overlap in red).
 - [ ] 4f Assemblies: gear and rack-and-pinion mates.
 6. Ease of use
 - [ ] 6a Command search (a key, type a command name, Enter).

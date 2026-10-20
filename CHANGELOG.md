@@ -6,6 +6,10 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 22:18 — Interference check for assemblies
+- **Assembly ▸ Interference Check** (toolbar and Tools menu) finds where components overlap. Each overlap shows in red on the model and is listed with the two components (inside sub-assemblies too, as "Sub-assembly ▸ Part") and the overlap volume in the assembly's units. Faces that only touch, such as mated faces, are not counted, and nor are the bodies of one multi-body part against each other. An exploded assembly is collapsed first, so the check is of where the mates put the parts.
+- Regression test: assembly-interference.
+
 ## 2026-10-20 22:15 — Exploded views on drawings
 - **A drawing view of an assembly can show one of its exploded views:** View Properties ▸ Display ▸ **Exploded**. The components are where the exploded view moves them; the view keeps its place on the sheet. Its projected, section, auxiliary and detail views follow, and balloons placed on it pick the moved parts. Set it back to "Not exploded" at any time.
 - Drawings with exploded and plain views of the same assembly no longer build its parts again for each: the kernel keeps the latest parts it built for drawings.
