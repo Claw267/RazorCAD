@@ -110,6 +110,8 @@ def main():
         page = browser.new_page(viewport={'width': 1400, 'height': 900})
         page.on('console', lambda m: console_errors.append(m.text) if m.type == 'error' else None)
         page.on('pageerror', lambda e: console_errors.append(str(e)))
+        # (a fresh browser is a first run: no Getting Started Tour over the tests)
+        page.add_init_script("try { const p = JSON.parse(localStorage.getItem('razorcad.prefs') || '{}'); p.tourDone = true; localStorage.setItem('razorcad.prefs', JSON.stringify(p)); } catch (e) {}")
         page.goto(url)
         page.wait_for_function("window.app && window.app.doc && !window.app.kernel.pending && document.querySelector('#status-msg')?.textContent === 'Ready'", timeout=180000)
 

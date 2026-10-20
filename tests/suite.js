@@ -565,6 +565,26 @@ const UI = {
     return ok ? { ok: true, detail: `A +30° → B ${r6(b1)}°, rack ${r6(x1)} mm; +200° more → B ${r6(b2)}°, rack ${r6(x2)} mm` } : { ok: false, detail: `ok ${r0.ok}/${r1.ok}/${r2.ok}; B ${b1}, rack ${x1}; then B ${b2}, rack ${x2}` };
   },
 
+  // the Getting Started Tour: steps with → and ←, each pointing at its part of the window; done at the end
+  async 'getting-started-tour'() {
+    const ui = window.app.ui;
+    closeModals();
+    const keep = ui.prefs.tourDone;
+    ui.startTour();
+    const titles = [];
+    for (let k = 0; k < 12 && document.querySelector('#tour'); k++) {
+      titles.push(document.querySelector('#tour .tb-t').textContent);
+      const last = [...document.querySelectorAll('#tour .tb-nav button')].some((b) => b.textContent === 'Finish');
+      if (last) { [...document.querySelectorAll('#tour .tb-nav button')].find((b) => b.textContent === 'Finish').click(); break; }
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      await wait(20);
+      if (k === 1) { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })); await wait(20); document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); await wait(20); }
+    }
+    const ok = !document.querySelector('#tour') && ui.prefs.tourDone === true && titles.length >= 6 && titles[0].startsWith('Welcome');
+    ui.prefs.tourDone = keep ?? true;
+    return ok ? { ok: true, detail: `${titles.length} steps: ${titles.join(' · ')}` } : { ok: false, detail: `${titles.join(' · ')}; open ${!!document.querySelector('#tour')}` };
+  },
+
   // the view's mouse buttons: Shift + right-drag pans, middle-drag turns, a plain right-drag changes nothing
   async 'view-mouse-buttons'() {
     const a = window.app;

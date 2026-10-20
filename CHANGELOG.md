@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 22:32 — Getting Started Tour
+- **A one-minute tour for new users:** eight short steps, each pointing at a part of the window: the toolbar, the feature tree, the view and its mouse buttons, how to make a first part (sketch, dimension, extrude), the command search and units. It ends with **Open the Sample Part**. Next / Back (or → / ←, Enter); Esc or Skip ends it.
+- The first time RazorCAD starts, the start window offers it ("New to RazorCAD? Take the one-minute tour"). If the start window is closed on an empty part, the tour starts by itself, once. After that it is in **Help ▸ Getting Started Tour**.
+- Regression test: getting-started-tour (the test runs skip the tour on their fresh first run).
+
 ## 2026-10-20 22:28 — Your own keyboard shortcuts
 - **Help ▸ Customize Shortcuts…** (also from Help ▸ Keyboard Shortcuts ▸ Customize): find a command, click **Set** and press the keys you want (Ctrl+Shift+F, G, F6…). They work for the part, sketch, assembly or drawing in front, wherever that command exists. They are kept with your RazorCAD settings.
 - A shortcut of your own takes the place of RazorCAD's own key, and the window says when it does (F instead of Zoom to Fit, for example). Giving a key to another command moves it there. Esc, Enter, Tab and Backspace can't be taken. ✕ removes one; Remove All removes them all.

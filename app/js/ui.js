@@ -1274,6 +1274,7 @@ export class UI {
         { label: 'Claude Settings…', icon: 'gear', action: () => this.showClaudeSettings() },
       ],
       Help: [
+        { label: 'Getting Started Tour', icon: 'help', action: () => this.startTour() },
         { label: 'Search Commands…', icon: 'search', key: 'Ctrl+K', action: () => this.commandSearch() },
         { label: 'Customize Shortcuts…', icon: 'select', action: () => this.showShortcutEditor() },
         { label: 'Keyboard Shortcuts', icon: '', action: () => this.showShortcuts() },
@@ -4004,6 +4005,13 @@ export class UI {
       big('rebuild', 'Recover Previous Session', `Unsaved work kept by RazorCAD (${when})`, () => a.recoverLegacySession(), 'warn');
     }
     left.appendChild(el('div', { class: 'pm-hint start-note' }, 'Parts are auto-saved next to their file once they have been saved for the first time.'));
+    // new here: a short tour of the window
+    const firstRun = !this.prefs?.tourDone;
+    if (firstRun) {
+      const t = el('button', { class: 'start-tour' }, `${icon('help')}<span><b>New to RazorCAD?</b> Take the one-minute tour</span>`);
+      t.onclick = () => { chosen = true; dlg?.close(); setTimeout(() => this.startTour(), 50); };
+      left.insertBefore(t, left.firstChild);
+    }
 
     // crash reports written since they were last shown
     const crashes = info.crashes?.recent || [];
@@ -4055,6 +4063,93 @@ export class UI {
     right.appendChild(list);
     dlg = this.modal('RazorCAD', 'part', wrap, []);
     dlg.body.closest('.modal-back').classList.add('start-back');
+    // (the first time: when the start window closes on an empty part, the tour starts by itself, once)
+    if (firstRun && !this.prefs.tourOffered) {
+      this.prefs.tourOffered = true;
+      this.savePrefs();
+      const back = dlg.body.closest('.modal-back');
+      new MutationObserver((_, obs) => {
+        if (back.isConnected) return;
+        obs.disconnect();
+        setTimeout(() => { if (!this.prefs.tourDone && !document.querySelector('.modal-back') && a.mode === 'part' && !a.doc?.features?.length) this.startTour(); }, 700);
+      }).observe($('#modal-root'), { childList: true });
+    }
+  }
+
+  // ---- Getting Started Tour: a few steps, each pointing at a part of the window (Next / Back, → / ← or Enter;
+  // Esc ends it). Shown once by itself the first time RazorCAD starts; Help ▸ Getting Started Tour any time.
+  startTour() {
+    document.querySelector('#tour')?.remove();
+    const a = this.app;
+    if (a.mode !== 'part' && a.mode !== 'sketch') { a.toast('The tour shows the part window: open or start a part first'); return; }
+    const steps = [
+      { title: 'Welcome to RazorCAD', text: 'A one-minute look round the window. Use <b>Next</b> (or → / Enter); <b>Esc</b> ends the tour.' },
+      { at: '#commandmanager', title: 'Commands', text: 'The toolbar holds the commands of each tab: Features, Sketch, Surfaces, Sheet Metal, Fast Structure, Evaluate. Point at a button for its name. The menus above have them all as well.' },
+      { at: '#tree', title: 'The feature tree', text: 'Your part as you built it, one feature after another. Double-click a feature to change it, right-click for more, and drag the bar at the end to roll the part back.' },
+      { at: '#viewport', title: 'The view', text: '<b>Middle mouse</b>: turn · <b>Shift + right mouse</b>: pan · <b>wheel</b>: zoom · <b>F</b>: zoom to fit. Click faces, edges and vertices to pick them; the arrows turn the view in steps.' },
+      { at: '#tree', title: 'Your first part', text: 'Click <b>Top Plane</b> here, then <b>Sketch</b> (Sketch tab). Draw with <b>R</b> (rectangle), <b>L</b> (line) or <b>C</b> (circle), dimension with <b>D</b>, close the sketch and click <b>Extrude</b>.' },
+      { at: '#menubar .mb-quick', title: 'Find any command', text: 'Press <b>Ctrl+K</b> (or click the magnifier) and type part of a command\'s name. Help ▸ Keyboard Shortcuts lists the controls, and you can give commands keys of your own.' },
+      { at: '#status-units', title: 'Units', text: 'Millimetres or inches, for each part, assembly or drawing: click here to change.' },
+      { title: 'That\'s it', text: 'The sample part shows many features at work. Help ▸ Getting Started Tour shows this tour again.', end: true },
+    ];
+    let i = 0;
+    const root = el('div', { id: 'tour' });
+    const hole = el('div', { class: 'tour-hole' });
+    const bub = el('div', { class: 'tour-bubble' });
+    root.append(hole, bub);
+    document.body.appendChild(root);
+    const finish = (sample = false) => {
+      root.remove();
+      document.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('resize', show);
+      this.prefs ||= {};
+      this.prefs.tourDone = true;
+      this.savePrefs();
+      if (sample) a.openSample();
+    };
+    const show = () => {
+      const st = steps[i];
+      const t = st.at && document.querySelector(st.at);
+      const r = t?.getBoundingClientRect();
+      const W = window.innerWidth, H = window.innerHeight;
+      if (r && r.width && r.height) {
+        const pad = 4;
+        Object.assign(hole.style, { display: 'block', left: r.left - pad + 'px', top: r.top - pad + 'px', width: r.width + 2 * pad + 'px', height: r.height + 2 * pad + 'px' });
+      } else Object.assign(hole.style, { display: 'block', left: W / 2 + 'px', top: H / 2 + 'px', width: '0px', height: '0px' });
+      bub.innerHTML = `<div class="tb-n">${i + 1} / ${steps.length}</div><div class="tb-t">${esc(st.title)}</div><div class="tb-x">${st.text}</div>`;
+      const nav = el('div', { class: 'tb-nav' });
+      const btn = (label, fn, primary = false) => { const b = el('button', { class: 'pm-btn' + (primary ? ' primary' : '') }, esc(label)); b.onclick = fn; nav.appendChild(b); };
+      if (!st.end) btn('Skip the tour', () => finish());
+      if (i > 0) btn('Back', () => { i--; show(); });
+      if (st.end) { btn('Open the Sample Part', () => finish(true)); btn('Finish', () => finish(), true); } else btn('Next', () => { i++; show(); }, true);
+      bub.appendChild(nav);
+      // the bubble beside what it points at: below, else above, else in the middle
+      const bw = Math.min(360, W - 24), bh = bub.offsetHeight || 160;
+      let x = W / 2 - bw / 2, y = H / 2 - bh / 2;
+      if (r && r.width) {
+        const tall = r.height > H * 0.4, wide = r.width > W * 0.5;
+        if (tall && wide) { x = r.left + Math.min(40, r.width / 8); y = r.top + Math.min(40, r.height / 8); } // (a big area: inside it, at its top left)
+        else if (tall) { y = r.top + Math.min(60, r.height / 6); x = r.right + 14 + bw < W ? r.right + 14 : Math.max(12, r.left - bw - 14); } // (beside a tall one)
+        else {
+          x = r.left + r.width / 2 - bw / 2;
+          if (r.bottom + 14 + bh < H) y = r.bottom + 14;
+          else if (r.top - 14 - bh > 0) y = r.top - 14 - bh;
+          else { y = r.top + 20; x = r.right + 14 + bw < W ? r.right + 14 : r.left - bw - 14; }
+        }
+        x = Math.min(Math.max(12, x), W - bw - 12);
+        y = Math.min(Math.max(12, y), H - bh - 12);
+      }
+      Object.assign(bub.style, { left: x + 'px', top: y + 'px', width: bw + 'px' });
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(); }
+      else if ((e.key === 'ArrowRight' || e.key === 'Enter') && !steps[i].end) { e.preventDefault(); e.stopPropagation(); i++; show(); }
+      else if (e.key === 'ArrowLeft' && i > 0) { e.preventDefault(); e.stopPropagation(); i--; show(); }
+      else if (e.key === 'Enter' && steps[i].end) { e.preventDefault(); e.stopPropagation(); finish(); }
+    };
+    document.addEventListener('keydown', onKey, true);
+    window.addEventListener('resize', show);
+    show();
   }
 
   // Draft analysis: the pull direction and the draft needed.
