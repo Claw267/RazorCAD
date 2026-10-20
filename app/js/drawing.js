@@ -326,6 +326,7 @@ function viewPrims(dwg, v, ctx) {
       else if (k === 'br') { if (!v.bendRegion) continue; w = LW.thin; dash = DASH_HIDDEN; }
       else if (k === 'fm') { if (v.bendLines === false) continue; w = LW.thin; dash = DASH_CENTER; }
       else if (k === 't') { if (!tangent) continue; w = LW.thin; }
+      else if (k === 'th' || k === 'thd') { if (v.threads === false) continue; w = LW.thin; dash = k === 'thd' ? DASH_HIDDEN : null; }
       else if (k === 'h' || k === 'ht') {
         if (style === 'hlr' || (k === 'ht' && !tangent)) continue;
         w = style === 'wire' ? LW.thin : LW.thin; dash = style === 'wire' ? null : DASH_HIDDEN;

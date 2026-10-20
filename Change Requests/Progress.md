@@ -446,7 +446,8 @@ Work through in this order; each item tested, logged in CHANGELOG, RazorCAD.exe 
 - [x] 1c Kernel requests handled strictly one at a time in the worker itself.
   - Done: kernel.worker.js onmessage → a promise queue running handleMessage one by one (no handler waits on a later message, so no deadlock); stats report queued / handled. Test kernel-one-at-a-time: rebuild with a STEP import + export sent together — old kernel fails ("There is no body to export"), new passes. All 18 tests pass.
 2. Speed
-- [ ] 2a Cosmetic threads (shown and called out on drawings, not modelled).
+- [x] 2a Cosmetic threads (shown and called out on drawings, not modelled).
+  - Done: feature cosmeticThread (model TYPE_INFO/defaults, icon, PM, Insert menu + toolbar, cylface picking). Kernel: res.threads per feature (internal, o, d, len, r, D, D1, P, label), tapped holes too (length from the bore wall); in snapshots (with res.missing); partial rebuild returns threads; drawing cache (parts + assemblies, placed) → threadLines(): side view lines (th / thd), end-on ¾ arcs, hole-callout entries for plain bores. main: result.threads → helix in the viewport (setRefGeometry threads, depth-tested). drawing.js kinds th/thd, view option "Cosmetic threads". Test cosmetic-threads; checked in the preview (3D helix in bore and on shaft; drawing: dashed bore lines, shaft minor lines + end line, ¾ circles).
 - [ ] 2b Keep each feature's finished geometry between sessions, so the first edit after opening is fast too.
 - [ ] 2c Add-patterns and mirrors in one operation (as cut patterns now).
 3. Distribution and trust

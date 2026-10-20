@@ -6,6 +6,14 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 21:36 — Cosmetic threads
+- **Insert ▸ Features ▸ Cosmetic Thread** (also on the Features toolbar): click a bore or a shaft and choose the thread (metric or inch, automatic size from the face, custom, pitch, left-hand). Length: the whole face, a depth, or up to a plane / face; it starts at the end nearest where you clicked. The thread is **shown but not modelled**, so it costs nothing to rebuild, unlike Thread Cut / Thread Extrude. The feature's note says when the face is not the size the thread expects.
+- **In the model:** a thin bronze helix on the bore or shaft. **Tapped holes** made with the Hole feature now show their thread the same way.
+- **On drawings**, drawn by convention: from the side, thin lines at the thread's other diameter and a line where it ends (a bore's thread dashed, as it is hidden, unless a section cuts through it); end on, a ¾ circle. View ▸ Display ▸ **Cosmetic threads** turns them off for a view. Works in assembly drawings too.
+- **Hole callouts** on a bore with a cosmetic thread give the thread: "M10×1.5 THRU ALL / TAP DRILL Ø8.5 THRU ALL".
+- Fix: a feature reused from the rebuild cache keeps its list of missing references (Fix References ▸ Remove missing).
+- Regression test: cosmetic-threads.
+
 ## 2026-10-20 21:30 — Geometry kernel: one request at a time
 - The geometry kernel now finishes each request before it starts the next, in the order they were asked. A rebuild that pauses part way (while it reads an imported STEP or 3MF file, or an export being packed) no longer lets another request (a measurement, an export, a drawing view) run in that pause on a half-built model and reset the kernel under it. Before, an export asked for during such a pause could fail with "There is no body to export" or export the previous model.
 - Crash reports also record how many kernel requests were waiting.

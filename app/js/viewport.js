@@ -465,7 +465,7 @@ export class Viewport {
   }
 
   // Reference axes (dashed lines) and points (markers), each with a label.
-  setRefGeometry(axes, points, curves = []) {
+  setRefGeometry(axes, points, curves = [], threads = []) {
     if (this.refGroup) { this.scene.remove(this.refGroup); this.refGroup.traverse((o) => { o.geometry?.dispose(); o.material?.dispose(); }); }
     for (const l of this.refLabels || []) l.el.remove();
     this.refLabels = [];
@@ -496,6 +496,12 @@ export class Viewport {
       line.renderOrder = 6;
       this.refGroup.add(line);
       label(c.name, new THREE.Vector3(...c.pts[c.pts.length - 1]));
+    }
+    for (const t of threads) {
+      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(t.pts.map((q) => new THREE.Vector3(...q))),
+        new THREE.LineBasicMaterial({ color: t.state === 'preview' ? 0xf59e0b : t.state === 'selected' ? 0x2b7de9 : 0x9a5b00 }));
+      line.renderOrder = 3;
+      this.refGroup.add(line);
     }
     for (const p of points) {
       const m = new THREE.Points(new THREE.BufferGeometry().setFromPoints([p.p]), new THREE.PointsMaterial({ color: col(p.state), size: 9, sizeAttenuation: false, depthTest: false }));

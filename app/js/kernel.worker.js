@@ -1492,7 +1492,8 @@ async function rebuild(doc, previewId = null, opts = {}) {
   }
   const { vars, errors: eqErrors } = evalEquations(doc.equations || []);
   const ev = (x) => evaluate(x, vars);
-  const res = { errors: [], sketches: {}, planes: {}, axes: {}, points: {}, curves: {}, notes: {}, detected: {}, features: {}, eqErrors: [...eqErrors], preview: null };
+  // threads: cosmetic threads (shown and called out, not modelled) per feature: [{ internal, o, d, len, r, D, D1, P, label }]
+  const res = { errors: [], sketches: {}, planes: {}, axes: {}, points: {}, curves: {}, notes: {}, detected: {}, features: {}, threads: {}, missing: {}, eqErrors: [...eqErrors], preview: null };
   const curves = new Map(); // curve features (helices): id -> { wire, axis, r, pitch, height }
   const planes = new Map();
   const sketches = new Map();
@@ -1844,7 +1845,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
     body, solids: [...solids], surfaces: [...surfaces], dense, blendChain, steps: [...steps],
     planes: new Map(planes), sketches: new Map(sketches), axes: new Map(axes), points: new Map(points), tools: new Map(tools), curves: new Map(curves),
     usedIds: new Set(usedIds), featureDiffs: new Map(featureDiffs), sketchBodies: new Map(sketchBodies),
-    res: { errors: [...res.errors], sketches: { ...res.sketches }, planes: { ...res.planes }, axes: { ...res.axes }, points: { ...res.points }, curves: { ...res.curves }, notes: { ...res.notes }, detected: { ...res.detected }, features: { ...res.features } },
+    res: { errors: [...res.errors], sketches: { ...res.sketches }, planes: { ...res.planes }, axes: { ...res.axes }, points: { ...res.points }, curves: { ...res.curves }, notes: { ...res.notes }, detected: { ...res.detected }, features: { ...res.features }, threads: { ...res.threads }, missing: { ...res.missing } },
     timing: [...timing.features],
   });
   const restoreSnap = (s) => {
@@ -1855,7 +1856,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
     copyMap(featureDiffs, s.featureDiffs); copyMap(sketchBodies, s.sketchBodies);
     usedIds.clear(); for (const id of s.usedIds) usedIds.add(id);
     res.errors = [...s.res.errors];
-    for (const key of ['sketches', 'planes', 'axes', 'points', 'curves', 'notes', 'detected', 'features']) res[key] = { ...s.res[key] };
+    for (const key of ['sketches', 'planes', 'axes', 'points', 'curves', 'notes', 'detected', 'features', 'threads', 'missing']) res[key] = { ...s.res[key] };
     timing.features = [...s.timing];
   };
   // ---- patterns: instance transforms { pt, dir, shape } and running them
@@ -3790,6 +3791,53 @@ async function rebuild(doc, previewId = null, opts = {}) {
           apply(f.op, tool, f.merge !== false, scope);
           break;
         }
+        case 'cosmeticThread': {
+          // A thread that is shown (in the model and on drawings) and called out, not modelled: the body keeps
+          // its plain bore or shaft, so it costs nothing to rebuild.
+          if (!f.face) throw new Error('Click the cylindrical face to thread (a bore or a shaft)');
+          const hit = findFaceAny(solids, f.face);
+          if (!hit) throw new Error('The selected face could not be found in the model');
+          const ax = faceAxis(hit.face);
+          if (!ax || hit.face.geomType !== 'CYLINDRE') throw new Error('Select a cylindrical face (a bore or a shaft)');
+          const rF = radiusOfFace(hit.face);
+          const p = f.face.p, axisPt = (q) => add(ax.o, mul(ax.d, dot(sub(q, ax.o), ax.d)));
+          const internal = dot(unit(vec(hit.face.normalAt(p))), unit(sub(p, axisPt(p)))) < 0; // (the face looks at the axis: a bore)
+          const ts = [];
+          for (const e of hit.face.edges) for (const u of [0, 0.25, 0.5, 0.75, 1]) ts.push(dot(sub(vec(e.pointAt(u)), ax.o), ax.d));
+          const tMin = Math.min(...ts), tMax = Math.max(...ts), tp = dot(sub(p, ax.o), ax.d);
+          let std;
+          if (f.size === 'custom') {
+            const D = ev(f.diameter), Pc = ev(f.pitch);
+            if (!(D > 0) || !(Pc > 0)) throw new Error('Enter the custom diameter and pitch');
+            std = { label: `Custom Ø${+D.toFixed(3)}×${+Pc.toFixed(3)}`, D, P: Pc };
+          } else if (f.size && f.size !== 'auto') {
+            std = threadList(f.system).find((t) => t.id === f.size);
+            if (!std) throw new Error('Choose a thread size');
+          } else std = nearestThread(f.system || 'metric', 2 * rF, internal);
+          const pitchOverride = f.size !== 'custom' && f.pitch !== '' && f.pitch != null ? ev(f.pitch) : null;
+          const Pt = pitchOverride > 0 ? pitchOverride : std.P, D = std.D, D1 = minorDiameter(D, Pt);
+          if (D1 <= 0) throw new Error('The pitch is too large for this diameter');
+          // from the end nearest the picked point (Reverse: the other end)
+          const fromMax = (Math.abs(tp - tMax) < Math.abs(tp - tMin)) !== !!f.reverse;
+          const t0 = fromMax ? tMax : tMin, sgn = fromMax ? -1 : 1, full = tMax - tMin;
+          let L = full;
+          if (f.end === 'blind') L = ev(f.depth);
+          else if (f.end === 'upTo') {
+            const sf = resolveSurface(f.toPlane, f.toFace);
+            if (f.toFace) res.features[f.id] = { ...(res.features[f.id] || {}), toFace: f.toFace };
+            const den = dot(ax.d, sf.n);
+            if (Math.abs(den) < 1e-9) throw new Error('The end reference is parallel to the thread axis');
+            L = (dot(sub(sf.p, ax.o), sf.n) / den - t0) * sgn;
+          }
+          if (!(L > 1e-6)) throw new Error('The thread length must be greater than zero (check the end condition and the direction)');
+          L = Math.min(L, full);
+          const label = `${std.label}${pitchOverride ? ` (pitch ${+pitchOverride.toFixed(4)})` : ''}${f.leftHand ? ' LH' : ''}`;
+          res.threads[f.id] = [{ internal, o: add(ax.o, mul(ax.d, t0)), d: mul(ax.d, sgn), len: L, full: L > full - 1e-6, r: rF, D, D1, P: Pt, label }];
+          // (a bore is drilled to about the minor diameter, a shaft turned to the major one)
+          const want = internal ? D1 : D, off = Math.abs(2 * rF - want) > Math.max(0.05, 0.03 * want);
+          res.notes[f.id] = `${label}, ${internal ? 'internal (bore)' : 'external (shaft)'}, ${+L.toFixed(3)} long — shown, not modelled${off ? ` (the face is Ø${+(2 * rF).toFixed(3)}; this thread expects Ø${+want.toFixed(3)})` : ''}`;
+          break;
+        }
         case 'thread': {
           if (!f.face) throw new Error('Click the cylindrical face to thread (a bore or a shaft)');
           needEdges('Thread');
@@ -4418,6 +4466,22 @@ async function rebuild(doc, previewId = null, opts = {}) {
           apply('cut', tool, true, null);
           res.features[f.id] = { faces: f.faces || [], holes: locs.map((l) => ({ p: l.p, dir: l.dir })), spec: spec.label, sizes: { type: spec.type, d: spec.d, cbD: spec.cbD, cbDepth: spec.cbDepth, csD: spec.csD, csAng: spec.csAng }, through, depth: through ? null : depth, thread: spec.thread ? { label: spec.thread.label, depth: f.threadDepth === '' || f.threadDepth == null ? null : ev(f.threadDepth) } : null };
           res.notes[f.id] = `${locs.length} hole${locs.length === 1 ? '' : 's'}: ${spec.label}${through ? ', through all' : `, ${+depth.toFixed(3)} deep`}${spec.thread ? ' (cosmetic thread: add Thread Cut on the hole for a modelled one)' : ''}`;
+          // a tapped hole's thread, shown like a cosmetic thread: as deep as asked, else the bore in the material
+          if (spec.thread) {
+            const th = spec.thread, D1 = minorDiameter(th.D, th.P), tDepth = f.threadDepth === '' || f.threadDepth == null ? null : ev(f.threadDepth);
+            res.threads[f.id] = locs.map(({ p, dir }) => {
+              let len = tDepth;
+              if (!(len > 0)) {
+                // (where the bore leaves the material: the far end of its wall)
+                const u = unit(cross(dir, Math.abs(dir[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0]));
+                const wall = findFaceAny(solids, { p: add(add(p, mul(dir, Math.min(0.05, depth / 4))), mul(u, spec.d / 2)) });
+                let far = through ? 0 : depth;
+                if (wall) for (const e of wall.face.edges) for (const k of [0, 0.5, 1]) far = Math.max(far, dot(sub(vec(e.pointAt(k)), p), dir));
+                len = through ? far : Math.min(depth, far || depth);
+              }
+              return { internal: true, o: p, d: dir, len, full: true, r: spec.d / 2, D: th.D, D1, P: th.P, label: th.label };
+            }).filter((t) => t.len > 1e-6);
+          }
           break;
         }
         case 'smProfileFlange': {
@@ -4896,7 +4960,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
   if (useCache) rebuildCache = { eqKey, entries };
 
 
-  if (opts.partial) return { solids, surfaces, features: res.features };
+  if (opts.partial) return { solids, surfaces, features: res.features, threads: res.threads };
   lastFeatureDiffs = featureDiffs;
   lastSketchBodies = sketchBodies;
   lastFacePts = [];
@@ -5140,8 +5204,8 @@ async function ensureDrawingCache(docJson) {
   if (drawingCache.key !== docJson) {
     const doc = JSON.parse(docJson);
     if (doc.kind === 'assembly') {
-      const { solids: list, holes } = await assemblySolids(doc);
-      drawingCache = { key: docJson, shape: list.length ? compoundOf(list) : null, solids: list, doc, holes };
+      const { solids: list, holes, threads } = await assemblySolids(doc);
+      drawingCache = { key: docJson, shape: list.length ? compoundOf(list) : null, solids: list, doc, holes, threads };
       return;
     }
     doc.rollbackAt = null;
@@ -5150,7 +5214,8 @@ async function ensureDrawingCache(docJson) {
     // holes made by the Hole feature (for hole callouts)
     const holes = [];
     for (const r of Object.values(part.features || {})) for (const h of r.holes || []) if (r.sizes) holes.push({ p: h.p, dir: h.dir, sizes: r.sizes, through: r.through, depth: r.depth, thread: r.thread });
-    drawingCache = { key: docJson, shape: list.length ? compoundOf(list) : null, solids: list, doc, holes };
+    const threads = Object.values(part.threads || {}).flat();
+    drawingCache = { key: docJson, shape: list.length ? compoundOf(list) : null, solids: list, doc, holes, threads };
   }
 }
 
@@ -5161,7 +5226,7 @@ async function ensureDrawingCache(docJson) {
 async function assemblySolids(asm) {
   const oc = R.getOC();
   const built = new Map(); // part document (as built) → { solids, holes }
-  const solids = [], holes = [];
+  const solids = [], holes = [], threads = [];
   const effIn = (d, c) => {
     const o = (d.activeConfig ? (d.configs || []).find((x) => x.id === d.activeConfig) : null)?.comps?.[c.id] || {};
     return { config: 'config' in o ? o.config : (c.config ?? null), hidden: 'hidden' in o ? o.hidden : !!c.hidden, suppressed: 'suppressed' in o ? o.suppressed : !!c.suppressed };
@@ -5206,15 +5271,16 @@ async function assemblySolids(asm) {
         const part = await rebuild(JSON.parse(key), null, { partial: true });
         const hs = [];
         for (const r of Object.values(part.features || {})) for (const h of r.holes || []) if (r.sizes) hs.push({ p: h.p, dir: h.dir, sizes: r.sizes, through: r.through, depth: r.depth, thread: r.thread });
-        b = { solids: part.solids || [], holes: hs };
+        b = { solids: part.solids || [], holes: hs, threads: Object.values(part.threads || {}).flat() };
         built.set(key, b);
       }
       for (const s of b.solids) solids.push({ ...s, id: `${prefix}${c.id}/${s.id}`, shape: placed(s.shape, Mc), comp: c.name });
       for (const h of b.holes) holes.push({ ...h, p: ptM(Mc, h.p), dir: dirM(Mc, h.dir) });
+      for (const t of b.threads) threads.push({ ...t, o: ptM(Mc, t.o), d: dirM(Mc, t.d) });
     }
   };
   await walk(asm, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], '', 0);
-  return { solids, holes };
+  return { solids, holes, threads };
 }
 function drawingViewsOf(shape, views) {
   const box = bbox(shape);
@@ -5225,10 +5291,38 @@ function drawingViewsOf(shape, views) {
         // holes seen end on in this view: their centres in view coordinates
         const dir = unit(v.dir), x = unit(cross(v.up || [0, 1, 0], dir)), y = cross(dir, x);
         out.holes = drawingCache.holes.filter((h) => Math.abs(dot(unit(h.dir), dir)) > 0.999).map((h) => ({ c: [dot(h.p, x), dot(h.p, y)], sizes: h.sizes, through: h.through, depth: h.depth, thread: h.thread, near: dot(h.dir, dir) < 0 }));
+        threadLines(out, drawingCache.threads || [], dir, x, y, v.section);
       }
       return out;
     } catch (e) { if (isFatal(e)) throw e; return { id: v.id, error: e?.message || String(e), edges: [], cut: [] }; }
   });
+}
+
+// Cosmetic threads in a view, as drawn by convention (thin lines, 'th'; hidden ones dashed, 'thd'): seen from
+// the side, two lines at the thread's other diameter (a shaft: the minor one; a bore: the major one, hidden
+// unless the section cuts through it) and a line across where the thread ends; seen end on, a three-quarter
+// circle. A bore with a cosmetic thread (not one made by the Hole feature) also gets a hole callout entry.
+function threadLines(out, threads, dir, x, y, section) {
+  const to2 = (p) => [dot(p, x), dot(p, y)];
+  for (const t of threads) {
+    const d = unit(t.d), c = dot(d, dir), rT = (t.internal ? t.D : t.D1) / 2, R = t.D / 2;
+    const cut = section && Math.abs(dot(sub(t.o, section.o), unit(section.n))) < R;
+    if (Math.abs(c) > 0.999) {
+      // end on: the circle from the side the thread opens to (else hidden)
+      const near = c < 0;
+      out.edges.push({ k: near || cut ? 'th' : 'thd', g: { t: 'a', c: to2(t.o), r: rT, a0: 0, a1: 1.5 * Math.PI } });
+      if (t.internal && !(out.holes || []).some((h) => Math.hypot(h.c[0] - dot(t.o, x), h.c[1] - dot(t.o, y)) < 1e-6)) {
+        (out.holes ||= []).push({ c: to2(t.o), sizes: { type: 'simple', d: 2 * t.r }, through: t.full, depth: t.full ? null : t.len, thread: { label: t.label, depth: t.len }, near });
+      }
+      continue;
+    }
+    if (Math.abs(c) > 1e-3) continue; // (at an angle to the view: not drawn)
+    const a2 = unit([dot(d, x), dot(d, y), 0]), n2 = [-a2[1], a2[0]];
+    const S = to2(t.o), E = [S[0] + a2[0] * t.len, S[1] + a2[1] * t.len];
+    const k = t.internal && !cut ? 'thd' : 'th';
+    for (const s of [1, -1]) out.edges.push({ k, g: { t: 'l', a: [S[0] + n2[0] * rT * s, S[1] + n2[1] * rT * s], b: [E[0] + n2[0] * rT * s, E[1] + n2[1] * rT * s] } });
+    out.edges.push({ k, g: { t: 'l', a: [E[0] + n2[0] * R, E[1] + n2[1] * R], b: [E[0] - n2[0] * R, E[1] - n2[1] * R] } });
+  }
 }
 
 // A flat pattern view: the unfolded sheet metal body (v.body, or the first one) in flat coordinates.

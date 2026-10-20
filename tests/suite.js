@@ -272,6 +272,56 @@ const UI = {
     return n === 12 ? { ok: true, detail: `export waited for the rebuild (12 triangles); ${st?.handled ?? '?'} requests handled` } : { ok: false, detail: `${n} triangles exported` };
   },
 
+  // cosmetic threads: a plain Ø8.5 bore given an M10 thread (not modelled: the volume stays the same) and an M6
+  // tapped hole; both shown in drawing views (lines from the side, ¾ circles end on) and called out
+  async 'cosmetic-threads'() {
+    const k = window.app.kernel;
+    const d = M.newDoc();
+    const s = M.createFeature(d, 'sketch', { plane: { ref: 'top' } });
+    const pts = [[-40, -20], [40, -20], [40, 20], [-40, 20]];
+    Object.assign(s, { points: [...pts.map(([x, y], i) => ({ id: 'p' + (i + 1), x, y })), { id: 'hc', x: -20, y: 0 }], curves: [...pts.map((_, i) => ({ id: 'c' + (i + 1), type: 'line', p1: 'p' + (i + 1), p2: 'p' + ((i + 1) % 4 + 1), construction: false }))], constraints: [] });
+    const s2 = M.createFeature(d, 'sketch', { plane: { ref: 'top' } });
+    Object.assign(s2, { points: [{ id: 'q', x: -20, y: 0 }], curves: [{ id: 'k', type: 'circle', c: 'q', r: 4.25, construction: false }], constraints: [] });
+    d.features.push(s, M.createFeature(d, 'extrude', { sketch: s.id, depth: 12 }), s2, M.createFeature(d, 'extrude', { sketch: s2.id, op: 'cut', end: 'through2' }));
+    let r = await k.rebuild(d, null, null);
+    const vol = async (x) => { const m = await k.request('measure', { refs: [{ kind: 'body', id: x.body.bodies[0].id }] }); return (m.items?.[0] || m).volume; };
+    const v0 = await vol(r);
+    // the bore's wall: a point on it (where the plate's top plane cuts it is y = 12 or -12: take the middle)
+    const top = r.body.bodies[0];
+    const wallY = 6 * Math.sign((await k.request('measure', { refs: [{ kind: 'body', id: top.id }] })).items?.[0]?.centroid?.[1] ?? 1) || 6;
+    const ct = M.createFeature(d, 'cosmeticThread', { face: { p: [-20 + 4.25, wallY, 0] } });
+    const hp = M.createFeature(d, 'sketch', { plane: { ref: 'top' } });
+    Object.assign(hp, { points: [{ id: 'h1', x: 20, y: 0 }], curves: [], constraints: [] });
+    d.features.push(ct, hp);
+    r = await k.rebuild(d, null, null);
+    if (r.errors?.length) {
+      // (the plate may have been extruded down: try the wall the other way)
+      ct.face.p[1] = -wallY;
+      r = await k.rebuild(d, null, null);
+      if (r.errors?.length) return { ok: false, detail: 'thread: ' + JSON.stringify(r.errors) };
+    }
+    const t = r.threads?.[ct.id]?.[0];
+    if (!t || !t.internal || !/^M10/.test(t.label) || Math.abs(t.len - 12) > 1e-6) return { ok: false, detail: `thread data ${JSON.stringify(t)}` };
+    const v1 = await vol(r);
+    if (Math.abs(v1 - v0) > 1e-6 * v0) return { ok: false, detail: `the cosmetic thread changed the volume: ${v0} → ${v1}` };
+    // an M6 tapped hole through the plate, from the sketch plane (into the plate: whichever way it lies)
+    const holeF = M.createFeature(d, 'hole', { holeType: 'tapped', thread: 'M6', system: 'metric', end: 'through', sketch: hp.id, reverse: false });
+    d.features.push(holeF);
+    r = await k.rebuild(d, null, null);
+    if (!r.threads?.[holeF.id]?.length) { holeF.reverse = true; r = await k.rebuild(d, null, null); }
+    const ht = r.threads?.[holeF.id]?.[0];
+    if (r.errors?.length || !ht || Math.abs(ht.len - 12) > 1e-3) return { ok: false, detail: `tapped hole: errors ${JSON.stringify(r.errors)}, thread ${JSON.stringify(ht)}` };
+    // drawing views: from above (end on) and from the front (side on)
+    const views = await k.request('drawingViews', { doc: JSON.stringify(d), views: [{ id: 'top', dir: [0, -1, 0], up: [0, 0, -1] }, { id: 'front', dir: [0, 0, -1], up: [0, 1, 0] }] });
+    const [vt, vf] = views;
+    const kinds = (v) => v.edges.filter((e) => e.k === 'th' || e.k === 'thd').map((e) => e.k + ':' + e.g.t).sort().join(',');
+    const callouts = (vt.holes || []).map((h) => h.thread?.label).filter(Boolean).sort();
+    const okTop = vt.edges.filter((e) => e.k.startsWith('th') && e.g.t === 'a').length === 2 && callouts.length === 2;
+    const okFront = vf.edges.filter((e) => e.k === 'thd' && e.g.t === 'l').length === 6;
+    return okTop && okFront ? { ok: true, detail: `${t.label} ${t.len} long, volume unchanged; drawing: ¾ circles + ${callouts.join(', ')} callouts, hidden thread lines from the side` }
+      : { ok: false, detail: `top: ${kinds(vt)} callouts ${JSON.stringify(callouts)}; front: ${kinds(vf)}` };
+  },
+
   // the view's mouse buttons: Shift + right-drag pans, middle-drag turns, a plain right-drag changes nothing
   async 'view-mouse-buttons'() {
     const a = window.app;

@@ -2017,6 +2017,9 @@ export class DrawingEditor {
         const tg = el('label', {}, `<input type="checkbox" ${v.tangent !== false ? 'checked' : ''}> Tangent edges`);
         tg.querySelector('input').onchange = (e) => { v.tangent = e.target.checked; this.changed(); };
         d.appendChild(tg);
+        const th = el('label', {}, `<input type="checkbox" ${v.threads !== false ? 'checked' : ''}> Cosmetic threads`);
+        th.querySelector('input').onchange = (e) => { v.threads = e.target.checked; this.changed(); };
+        d.appendChild(th);
         // (an assembly: how its hidden lines are worked out — exactly, or quickly from the display meshes)
         if (this.modelDoc(v.model)?.kind === 'assembly' && v.type !== 'section') {
           row(d, 'Hidden lines', select([['auto', 'Automatic (fast for big assemblies)'], ['exact', 'Exact'], ['fast', 'Fast (from the display meshes)']], v.hlr || 'auto', (s) => { v.hlr = s === 'auto' ? undefined : s; this.changed(); }));

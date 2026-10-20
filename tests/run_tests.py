@@ -97,6 +97,8 @@ def main():
     ap.add_argument('--only', nargs='*')
     ap.add_argument('--headed', action='store_true', help='show the browser window')
     args = ap.parse_args()
+    try: sys.stdout.reconfigure(encoding='utf-8')
+    except Exception: pass
 
     from playwright.sync_api import sync_playwright
     httpd = serve()
@@ -142,8 +144,6 @@ def main():
             continue
         want = expected.get('parts', {}).get(name)
         diffs = ['not in expected.json (run with --update)'] if want is None else compare(name, got, want)
-        if not want is None and any(v.get('errors') for v in got.values() if isinstance(v, dict)) and not diffs:
-            pass
         print(f'  {"PASS" if not diffs else "FAIL"}  {name:24} {times}')
         for d in diffs:
             print(f'        {d}')

@@ -518,6 +518,7 @@ class App {
     this.result.bodies = this.bodyList(r.body);
     this.result.curves = new Map(Object.entries(r.curves || {}));
     this.result.notes = new Map(Object.entries(r.notes || {}));
+    this.result.threads = new Map(Object.entries(r.threads || {})); // cosmetic threads (and tapped holes' threads)
     this.result.detected = new Map(Object.entries(r.detected || {})); // what features found in the model (e.g. a converted sheet's thickness)
     this.clearCycle(); // the mesh (and its face/body indices) changed
     this._featureFaceCache = new Map();
@@ -1657,7 +1658,7 @@ class App {
     const scoped = (f.type === 'extrude' || f.type === 'revolve') && f.op === 'cut' && f.scopeAll === false;
     if (f.type === 'deleteBody' || f.type === 'deleteSurface') return 'body';
     if (f.type === 'axis' && f.axisType === 'cylinder') return 'cylface';
-    if (f.type === 'thread') return 'cylface';
+    if (f.type === 'thread' || f.type === 'cosmeticThread') return 'cylface';
     if (f.type === 'sketch3d') return 'vertex'; // (a clicked vertex adds a point)
     if (f.type === 'smUnfold') return 'flatface';
     if (f.type === 'smTabSlot') return f.edge ? 'flatface' : 'edge'; // (the tab edge first, then the slot face)
@@ -1802,7 +1803,7 @@ class App {
     }
     if (f) {
       const faceRefs = [...(f.faces || []), ...(f.type === 'moveBody' ? (f.mates || []).flatMap((m) => [m.a, m.b]).filter((r) => r?.kind === 'face') : [])];
-      if (((f.type === 'axis' && f.axisType === 'cylinder') || f.type === 'thread' || f.type === 'wrap') && f.face) faceRefs.push(f.face);
+      if (((f.type === 'axis' && f.axisType === 'cylinder') || f.type === 'thread' || f.type === 'cosmeticThread' || f.type === 'wrap') && f.face) faceRefs.push(f.face);
       if (f.axis === 'face' && f.axisFace) faceRefs.push(f.axisFace);
       for (const r of faceRefs) { const i = vp.faceIndexNear(r.p); if (i >= 0) infos.push(vp.faceInfo(i)); }
       const ids = [...(f.bodies || []), f.main, f.body, ...(f.scopeAll === false ? f.scope || [] : [])].filter(Boolean);
@@ -1890,7 +1891,25 @@ class App {
       // a 3D sketch being edited: its points, numbered
       if (f.type === 'sketch3d' && st === 'preview') (res.detected?.get(f.id)?.pts || []).forEach((p, i) => points.push({ id: f.id + ':' + i, name: 'P' + (i + 1), p: new THREE.Vector3(...p), state: 'preview' }));
     }
-    this.viewport.setRefGeometry(axes, points, curves);
+    // cosmetic threads: a helix just off the bore / shaft (at most 60 turns drawn)
+    const threads = [];
+    for (const f of this.doc.features) {
+      const list = !f.suppressed && this.mode !== 'sketch' && res.threads?.get(f.id);
+      if (!list) continue;
+      const st = state(f.id);
+      for (const t of list) {
+        const d = new THREE.Vector3(...t.d).normalize(), o = new THREE.Vector3(...t.o);
+        const u = new THREE.Vector3().crossVectors(d, Math.abs(d.x) < 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0)).normalize(), w = new THREE.Vector3().crossVectors(d, u);
+        const r = t.r * (t.internal ? 0.985 : 1.015), turns = Math.min(60, t.len / t.P), n = Math.max(8, Math.ceil(turns * 24));
+        const pts = [];
+        for (let i = 0; i <= n; i++) {
+          const s = i / n, a = s * turns * 2 * Math.PI * (t.label.endsWith(' LH') ? -1 : 1);
+          pts.push(o.clone().addScaledVector(d, s * t.len).addScaledVector(u, r * Math.cos(a)).addScaledVector(w, r * Math.sin(a)).toArray());
+        }
+        threads.push({ pts, state: st });
+      }
+    }
+    this.viewport.setRefGeometry(axes, points, curves, threads);
   }
 
 
@@ -2441,8 +2460,8 @@ class App {
       const face = this.viewport.faceInfo(fh.hit.face), f = this.pm.feature;
       if (face.planar) {
         // a thread's end reference
-        if (f.type === 'thread' && f.end === 'upTo') { f.toFace = { p: fh.hit.point.toArray(), n: face.normal.toArray() }; f.toPlane = null; this.ui.renderPM(); this.preview(); return; }
-        this.toast(f.type === 'thread' ? 'Select a bore or a shaft (a cylindrical face)' : 'Select a cylindrical or conical face');
+        if ((f.type === 'thread' || f.type === 'cosmeticThread') && f.end === 'upTo') { f.toFace = { p: fh.hit.point.toArray(), n: face.normal.toArray() }; f.toPlane = null; this.ui.renderPM(); this.preview(); return; }
+        this.toast(f.type === 'thread' || f.type === 'cosmeticThread' ? 'Select a bore or a shaft (a cylindrical face)' : 'Select a cylindrical or conical face');
         return;
       }
       this.pm.feature.face = { p: fh.hit.point.toArray() };
@@ -3086,7 +3105,7 @@ class App {
         if (!props.profile && !props.path) { this.toast('A sweep needs a path (a sketch or a helix) and a profile: create them first.', true); return; }
       }
     }
-    if (type === 'thread' && sel?.kind === 'face' && !sel.face.planar) props.face = { p: sel.point || sel.face.center.toArray() };
+    if ((type === 'thread' || type === 'cosmeticThread') && sel?.kind === 'face' && !sel.face.planar) props.face = { p: sel.point || sel.face.center.toArray() };
     if (type === 'wrap' && sel?.kind === 'face') props.face = { p: sel.point || sel.face.center.toArray() };
     if (type === 'helix' && !props.sketch) {
       const withCircle = [...doc.features].reverse().find((x) => x.type === 'sketch' && x.curves?.some((c) => c.type === 'circle'));

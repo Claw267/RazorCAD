@@ -113,6 +113,7 @@ export const TYPE_INFO = {
   moveFace: { base: 'Move Face', icon: 'moveFace' },
   sketch3d: { base: '3D Sketch', icon: 'sketch3d' },
   thread: { base: 'Thread-Extrude', cutBase: 'Thread-Cut', icon: 'threadExtrude', cutIcon: 'threadCut' },
+  cosmeticThread: { base: 'Cosmetic Thread', icon: 'cosmeticThread' },
   wrap: { base: 'Wrap', icon: 'wrap' },
   deleteSurface: { base: 'Surface-Delete', icon: 'deleteSurface' },
   surfExtrude: { base: 'Surface-Extrude', icon: 'surfExtrude' },
@@ -316,6 +317,7 @@ export function createFeature(doc, type, props = {}) {
     helix: { sketch: null, definedBy: 'pitchRev', pitch: 5, revolutions: 5, height: 25, startAngle: 0, clockwise: false, reverse: false },
     // op 'cut' = Thread Cut, 'add' = Thread Extrude; size 'auto' picks the standard that fits the face
     thread: { op: 'cut', face: null, system: 'metric', size: 'auto', diameter: 10, pitch: '', leftHand: false, end: 'through', depth: 10, toPlane: null, toFace: null, reverse: false, autoSize: true },
+    cosmeticThread: { face: null, system: 'metric', size: 'auto', diameter: 10, pitch: '', leftHand: false, end: 'through', depth: 10, toPlane: null, toFace: null, reverse: false },
     wrap: { sketch: null, face: null, method: 'emboss', depth: 1, flip: false },
     // sheet metal (see sheetmetal.js). kFactor: where the neutral axis lies in the thickness
     smBase: { sketch: null, thickness: 2, radius: 2, kFactor: 0.44, reverse: false },

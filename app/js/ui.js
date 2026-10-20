@@ -632,6 +632,26 @@ const PM_SCHEMAS = {
       ],
     },
   ],
+  cosmeticThread: [
+    { title: 'Thread Location', fields: [{ key: 'face', type: 'pick', label: 'Cylinder', what: 'cylface' }, { key: 'threadHint', type: 'hint', text: 'Click a bore (internal thread) or a shaft (external thread). The thread is shown and called out on drawings but not modelled, so it costs nothing to rebuild. It starts at the end nearest to where you click.' }] },
+    {
+      title: 'Specification', fields: [
+        { key: 'system', type: 'select', label: 'Standard', options: [['metric', 'Metric (ISO)'], ['imperial', 'Inch (UNC / UNF)']] },
+        { key: 'size', type: 'threadSize', label: 'Size' },
+        { key: 'diameter', type: 'expr', label: 'Major diameter', unit: 'mm', show: (f) => f.size === 'custom' },
+        { key: 'pitch', type: 'expr', label: (f) => (f.size === 'custom' ? 'Pitch' : 'Pitch (empty = standard)'), unit: 'mm', optional: true },
+        { key: 'leftHand', type: 'check', label: 'Left-hand thread' },
+      ],
+    },
+    {
+      title: 'Length', fields: [
+        { key: 'end', type: 'select', label: 'End condition', options: [['through', 'Whole length of the face'], ['blind', 'Depth'], ['upTo', 'Up to a plane or face']] },
+        { key: 'depth', type: 'expr', label: 'Depth', unit: 'mm', show: (f) => f.end === 'blind' },
+        { key: 'toPlane', type: 'surfaceRef', label: 'Up to', show: (f) => f.end === 'upTo' },
+        { key: 'reverse', type: 'check', label: 'Start from the other end' },
+      ],
+    },
+  ],
   wrap: [
     { title: 'Sketch', fields: [{ key: 'sketch', type: 'sketch', label: 'Sketch (outlines or text)' }] },
     { title: 'Face', fields: [{ key: 'face', type: 'pick', label: 'Face', what: 'faceAny' }, { key: 'wrapHint', type: 'hint', text: 'The sketch is projected along its normal onto the face (flat or curved) and raised or sunk by the depth.' }] },
@@ -1189,6 +1209,7 @@ export class UI {
         { label: 'Features ▸ Hole…', icon: 'hole', action: () => a.startFeature('hole') },
         { label: 'Features ▸ Thread Cut…', icon: 'threadCut', action: () => a.startFeature('thread', 'cut') },
         { label: 'Features ▸ Thread Extrude…', icon: 'threadExtrude', action: () => a.startFeature('thread', 'add') },
+        { label: 'Features ▸ Cosmetic Thread…', icon: 'cosmeticThread', action: () => a.startFeature('cosmeticThread') },
         { label: 'Features ▸ Wrap (Emboss / Deboss)…', icon: 'wrap', action: () => a.startFeature('wrap') },
         'sep',
         { label: 'Pattern/Mirror ▸ Linear Pattern…', icon: 'lpattern', action: () => a.startFeature('lpattern') },
@@ -1341,6 +1362,7 @@ export class UI {
         { icon: 'helix', label: 'Helix', action: () => a.startFeature('helix') },
         { icon: 'threadCut', label: 'Thread Cut', action: () => a.startFeature('thread', 'cut') },
         { icon: 'threadExtrude', label: 'Thread Extrude', action: () => a.startFeature('thread', 'add') },
+        { icon: 'cosmeticThread', label: 'Cosmetic Thread', action: () => a.startFeature('cosmeticThread') },
         { icon: 'wrap', label: 'Wrap (Emboss / Deboss)', action: () => a.startFeature('wrap') },
         'sep',
         { icon: 'lpattern', label: 'Linear Pattern', action: () => a.startFeature('lpattern') },
