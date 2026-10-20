@@ -27,6 +27,7 @@ import { bodySignature, groupBodies, sameBody } from './bodygroups.js';
 import * as D from './drawing.js';
 import { Macros } from './macros.js';
 import { igesToStep } from './igesstep.js';
+import { installA11y, onControl } from './a11y.js';
 
 // Saved parts are auto-saved next to their file at most this often while they have unsaved changes.
 const AUTOSAVE_MS = 20000;
@@ -3910,7 +3911,10 @@ class App {
         else this.select(null);
         return;
       }
-      if (e.key === 'Tab' && !e.altKey) { e.preventDefault(); this.tabHide(e.shiftKey); return; }
+      // (Tab hides what is under the cursor only with the focus on the view: in the panels it moves the focus; Enter
+      // on a focused button presses it)
+      if (e.key === 'Tab' && !e.altKey && (e.target === document.body || e.target.id === 'c')) { e.preventDefault(); this.tabHide(e.shiftKey); return; }
+      if (onControl(e) && (e.key === 'Enter' || e.key === ' ' || e.key === 'Tab')) return;
       if (e.key === 'Enter' && this.pm && this.pm.kind !== 'sketch') { e.preventDefault(); this.okPM(); return; }
       if (e.key === 'Delete') { this.deleteSelection(); return; }
       if (k === 'f') { this.viewport.zoomToFit(); return; }
@@ -3950,3 +3954,4 @@ class App {
 }
 
 window.app = new App();
+installA11y();

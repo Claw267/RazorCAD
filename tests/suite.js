@@ -1444,6 +1444,74 @@ await rc.cut(h, 10);`, 'plate');
       : { ok: false, detail: `tb ${tb}, noDims ${noDims}, hole ${hole}, sizes ${sizes}, shown ${shown}/${r1.items.length}, callout ${calloutOk}, clean ${clean} (${texts(r3).join('; ')}), orphan ${orphan}; first: ${t1.join(' | ')}` };
   },
 
+  // accessibility: in an Extrude's Property panel every field has a name (its label and unit), the group headings
+  // are buttons that say whether they are open and open / close with Enter, the icon buttons are named; Tab and Enter
+  // on a panel button are left to it (no hiding, no OK); F6 goes round the panel, the ribbon and the view; a dialog
+  // is named, takes the focus, keeps Tab inside and gives the focus back.
+  async 'accessibility'() {
+    const a = window.app, { focusRegion } = await import('/js/a11y.js');
+    if (a.mode === 'drawing') { const i = a.tabs.findIndex((t) => t.kind !== 'drawing'); if (i >= 0) await a.activateTab(i); }
+    a.newDocument(); await wait(200);
+    const r = await a.macros.run(`await rc.sketch('top', (s) => s.centerRect(0, 0, 40, 20));`, 'a11y');
+    if (!r.ok) return { ok: false, detail: r.error };
+    const sk = a.doc.features.find((f) => f.type === 'sketch');
+    a.selection = { kind: 'feature', id: sk.id };
+    a.startFeature('extrude', 'add');
+    await wait(400);
+    const pm = document.querySelector('#pm');
+    const name = (c) => c.getAttribute('aria-label') || (c.id && document.querySelector(`label[for="${c.id}"]`)?.textContent) || c.closest('label')?.textContent?.trim();
+    const fields = [...pm.querySelectorAll('input, select, textarea')].filter((c) => c.getClientRects().length);
+    const unnamed = fields.filter((c) => !name(c)).map((c) => c.outerHTML.slice(0, 60));
+    const depth = fields.find((c) => /Depth/.test(c.getAttribute('aria-label') || ''));
+    const heads = [...pm.querySelectorAll('.pm-gt')];
+    const headsOk = heads.length > 0 && heads.every((h) => h.getAttribute('role') === 'button' && h.tabIndex === 0 && h.getAttribute('aria-expanded') === 'true');
+    const icons = [...pm.querySelectorAll('.pm-actions button')];
+    const iconsOk = icons.length >= 2 && icons.every((b) => b.getAttribute('aria-label'));
+    // Enter on a heading: the group closes (not the panel's OK)
+    const h = heads[0];
+    h.focus();
+    h.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await wait(50);
+    const closedOk = h.closest('.pm-group').classList.contains('collapsed') && h.getAttribute('aria-expanded') === 'false' && a.pm?.kind === 'feature';
+    h.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+    await wait(50);
+    // Tab and Enter on the OK button: the browser's (moves the focus / presses it), not the app's shortcuts
+    const okBtn = icons[0];
+    okBtn.focus();
+    const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    okBtn.dispatchEvent(tab);
+    const ent = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    okBtn.dispatchEvent(ent);
+    const keysOk = !tab.defaultPrevented && !ent.defaultPrevented && a.pm?.kind === 'feature';
+    // F6 round the window (from nowhere in particular)
+    document.activeElement?.blur();
+    const stops = [focusRegion(1), focusRegion(1), focusRegion(1)].map((t) => (t?.closest('#pm') ? 'pm' : t?.closest('#cm-buttons') ? 'ribbon' : t?.id === 'c' ? 'view' : t?.closest('#tree') ? 'tree' : '?')).join(',');
+    a.cancelPM();
+    await wait(100);
+    // a dialog
+    const before = document.querySelector('#cm-buttons button');
+    before.focus();
+    const body = document.createElement('div');
+    body.innerHTML = '<input type="text"><select><option>a</option></select>';
+    const m = a.ui.modal('Some Dialog', 'equations', body, [{ label: 'OK', primary: true }, { label: 'Cancel' }]);
+    await wait(50);
+    const dlg = document.querySelector('.modal');
+    const named = dlg.getAttribute('role') === 'dialog' && dlg.getAttribute('aria-label') === 'Some Dialog';
+    const inside = dlg.contains(document.activeElement) && document.activeElement.tagName === 'INPUT';
+    const btns = [...dlg.querySelectorAll('button')].filter((b) => b.getClientRects().length);
+    btns[btns.length - 1].focus();
+    const t2 = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    document.activeElement.dispatchEvent(t2);
+    const wrapped = t2.defaultPrevented && dlg.contains(document.activeElement) && document.activeElement !== btns[btns.length - 1];
+    m.close();
+    await wait(50);
+    const restored = document.activeElement === before;
+    const live = document.querySelector('#status-msg').getAttribute('role') === 'status';
+    const ok = !unnamed.length && !!depth && headsOk && iconsOk && closedOk && keysOk && stops === 'pm,ribbon,view' && named && inside && wrapped && restored && live;
+    return ok ? { ok: true, detail: `${fields.length} fields named (e.g. "${depth.getAttribute('aria-label')}"), ${heads.length} headings, F6 ${stops}, dialog focus in / round / back` }
+      : { ok: false, detail: `unnamed ${JSON.stringify(unnamed)}, depth ${!!depth}, heads ${headsOk}, icons ${iconsOk}, closed ${closedOk}, keys ${keysOk} (tab ${tab.defaultPrevented}, enter ${ent.defaultPrevented}, pm ${a.pm?.kind}), F6 ${stops}, dialog named ${named} inside ${inside} wrapped ${wrapped} restored ${restored}, live ${live}` };
+  },
+
   // BOM mass and cost: a steel plate (60 × 40 × 5) and two aluminium blocks (20 × 20 × 15) with costs → masses from
   // the materials, totals 0.126 kg and 18.50; the window's column menu changes a column; on the drawing table the
   // column under a point is found, and a typed value is edited

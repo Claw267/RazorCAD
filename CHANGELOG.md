@@ -6,6 +6,14 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 08:40 — Accessibility: Property panels from the keyboard, labels for screen readers
+- **Property panels from the keyboard**: Tab goes through a panel's fields and buttons. The group headings are buttons: Enter or Space opens or closes them. The small ✕ / ▲ buttons in lists can be pressed the same way. Tab on a panel button now moves the focus (it used to hide what was under the cursor), and Enter on a button presses it (it used to OK the whole panel).
+- **F6 / Shift+F6** move the focus round the window: the Property panel (or the tree), the ribbon, the view.
+- **Screen readers**: every panel field is named by its label and unit (e.g. "Depth (mm)"), fields with an invalid value are marked so, and icon-only buttons are named by their tooltips. Panel headings are headings. The status bar and panel messages are read out as they change, and errors and pop-up messages at once.
+- **Dialogs** are named by their title. They take the focus when they open (their first field), keep Tab inside, and give the focus back when they close.
+- The keyboard focus is outlined when it comes from the keyboard.
+- Regression test: accessibility (the Extrude panel's fields named, headings open and close with Enter, Tab / Enter left to a focused button, F6 round the window, a dialog's focus in, round and back).
+
 ## 2026-10-21 08:35 — Performance tracking in the regression tests
 - `tests/run_tests.py` keeps every run's times (each part's rebuild per configuration, each drawing, each UI test, the whole run) for each machine, the last 10 of each, in `tests/perf-history.json` (not in git).
 - A **Performance** section after the results compares each time with the test's usual time (the median of its earlier runs, after 3 of them). A test markedly slower (1.5× and 300 ms more) is listed as SLOWER. The three slowest tests are listed too.

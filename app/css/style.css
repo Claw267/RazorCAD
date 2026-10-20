@@ -848,3 +848,8 @@ svg.ref-arrows { position: absolute; left: 0; top: 0; pointer-events: none; z-in
 .dc-error .dc-dot { background: #dc2626; }
 .dc-warn .dc-dot { background: #f59e0b; }
 .dc-info .dc-dot { background: #94a3b8; }
+
+/* Keyboard focus (a11y.js): shown when it came from the keyboard */
+button:focus-visible, [role="button"]:focus-visible, .pm-gt:focus-visible, select:focus-visible, a:focus-visible, .dc-item:focus-visible { outline: 2px solid var(--accent, #2b7de9); outline-offset: 1px; }
+.pm-list .x[role="button"]:focus-visible { outline-offset: 0; border-radius: 3px; }
+#c:focus-visible { outline: 2px solid var(--accent, #2b7de9); outline-offset: -2px; }
