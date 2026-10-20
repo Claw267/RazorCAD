@@ -575,3 +575,9 @@ Skipped for now (from the list of 2026-10-21):
 - 3b Sheet metal punch / forming-tool library and tab-and-slot weld preparation.
 - 5a Realistic rendering with image export; 5b animated exploded views / motion studies as video.
 - Still parked: FEA, CAM, the fan and dust collector generators.
+
+## Performance (user question 2026-10-21: "What performance upgrades can still be done? Parts like the giant golf ball still take long to load and rebuild.")
+- [x] Measured the Giant Golfball (a copy, removed after): 12.9 s rebuild = features 11.1 s (exact body boxes 4.6 s, volume checks 2.3 s, booleans 4.2 s) + mesh 1.4 s. BOP SimplifyResult only 75 ms; SetUseOBB no gain.
+- [x] Kernel: bodyRec box lazy (exact box on first use), cull box = the body's box before the cut; the "cut missed" volume check only when the face count is unchanged; updateProjections' body size only when a projection needs it. Golf ball 12.9 → 6.0 s, identical volume / area / faces / edges / triangles (checked against the previous kernel); full suite passes.
+- [ ] Further options offered (not done): incremental meshing (only the faces and edges a feature changed: an edit of the last feature 2.3 s → ~0.6 s estimated); stored B-rep of the finished part in the model cache (opening needs no background replay); several cut features done as one boolean on a full rebuild; a multi-threaded kernel build.
+

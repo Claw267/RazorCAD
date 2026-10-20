@@ -1647,7 +1647,9 @@ async function rebuild(doc, previewId = null, opts = {}) {
   const usedIds = new Set();
   const newId = (base) => { let id = base, k = 2; while (usedIds.has(id)) id = `${base}.${k++}`; usedIds.add(id); return id; };
   // `from`: the records this body comes from (default: the body with this id, or the one it was split off)
-  const bodyRec = (id, shape, last, from = null) => {
+  // (cull: a box known to hold the body, for skipping tools that can't reach it, e.g. the body's box before a cut;
+  // the exact box is only worked out when it is asked for: OpenCascade's precise box is slow on big bodies)
+  const bodyRec = (id, shape, last, from = null, cull = null) => {
     usedIds.add(id);
     const base = String(id).split('~')[0], find = (x) => solids.find((b) => b.id === x) || surfaces.find((b) => b.id === x);
     const feats = new Set();
@@ -1661,8 +1663,13 @@ async function rebuild(doc, previewId = null, opts = {}) {
     const member = prev[0]?.member || null;
     // (the appearance an imported body came with: { c, t, faces } — kept through later features)
     const look = prev[0]?.look || null;
-    return { id, shape, box: bbox(shape), last, feats: [...feats], sheet, ...(member ? { member } : {}), ...(look ? { look } : {}) };
+    const rec = { id, shape, last, feats: [...feats], sheet, ...(member ? { member } : {}), ...(look ? { look } : {}) };
+    let box = null;
+    Object.defineProperty(rec, 'box', { get: () => (box ||= bbox(shape)), set: (b) => { box = b; }, enumerable: true, configurable: true });
+    if (cull) rec.cull = cull;
+    return rec;
   };
+  const cullBox = (rec) => rec.cull || rec.box;
   let dense = false; // body contains a triangulated (STL) import with thousands of faces
   const needEdges = (what) => { if (dense) throw new Error(`${what} is not available on bodies made from dense STL meshes`); };
 
@@ -1704,7 +1711,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
       const tb = bbox(tool), tol = Math.max(1e-6, tb.diag * 1e-7);
       const next = [];
       for (const s of solids) {
-        if (!inScope(s, scope) || !boxesTouch(s.box, tb, tol)) { next.push(s); continue; }
+        if (!inScope(s, scope) || !boxesTouch(cullBox(s), tb, tol)) { next.push(s); continue; }
         if (s.sheet && !s.sheet.stale) {
           // sheet metal: the cut becomes a hole in the flat pattern, and the part is folded again
           try {
@@ -1721,13 +1728,15 @@ async function rebuild(doc, previewId = null, opts = {}) {
         }
         const pieces = solidsOf(s.shape.cut(tool)).map((shape) => ({ shape, vol: null }));
         if (pieces.length > 1) pieces.sort((x, y) => volumeOf(y) - volumeOf(x));
+        const cull = cullBox(s);
         pieces.forEach((pc, k) => {
           let last = fid;
-          if (pieces.length === 1) {
+          // (the cut missed this body: as many faces and the same volume; a cut that changed the faces hit it)
+          if (pieces.length === 1 && faceCount(pc.shape) === faceCount(s.shape)) {
             const v0 = volumeOf(s), v1 = volumeOf(pc);
-            if (Math.abs(v1 - v0) <= Math.abs(v0) * 1e-9) last = s.last; // the cut missed this body
+            if (Math.abs(v1 - v0) <= Math.abs(v0) * 1e-9) last = s.last;
           }
-          next.push(bodyRec(k ? newId(`${s.id}~${k + 1}`) : s.id, pc.shape, last));
+          next.push(bodyRec(k ? newId(`${s.id}~${k + 1}`) : s.id, pc.shape, last, null, cull));
         });
       }
       solids = next;
@@ -5297,7 +5306,9 @@ async function rebuild(doc, previewId = null, opts = {}) {
 function updateProjections(f, frame, body, sketches, surfaceShapes = []) {
   let lost = 0;
   const cache = new Map();
-  const diag = body ? bbox(body).diag : 100;
+  // (the body's size: only worked out when a projection needs it, the exact box is slow on a big body)
+  let diagV = null;
+  const diag = () => (diagV ??= body ? bbox(body).diag : 100);
   for (const k of f.constraints) {
     if (k.type !== 'projected' || !k.src) continue;
     const src = k.src;
@@ -5319,13 +5330,13 @@ function updateProjections(f, frame, body, sketches, surfaceShapes = []) {
         const key = 'e:' + src.p.join(',');
         if (!cache.has(key)) {
           const e = findEdge(body, src);
-          cache.set(key, e ? { e, prims: S.projectCurve(frame, edgeGeom(e, diag)) } : null);
+          cache.set(key, e ? { e, prims: S.projectCurve(frame, edgeGeom(e, diag())) } : null);
         }
         const hit = cache.get(key);
         if (hit) { prims = hit.prims; updateEdgeRef(src, hit.e, body); }
       } else if (src.kind === 'section') {
         // intersection curves: where the sketch plane cuts the bodies
-        if (!cache.has('section')) cache.set('section', sectionPrims([...(body ? solidsOf(body) : []), ...surfaceShapes], frame, diag));
+        if (!cache.has('section')) cache.set('section', sectionPrims([...(body ? solidsOf(body) : []), ...surfaceShapes], frame, diag()));
         prims = cache.get('section');
       } else if (src.kind === 'vertex') {
         const best = findVertex(body, src);

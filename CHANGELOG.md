@@ -6,6 +6,14 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 08:56 — Faster rebuilds of parts with many cuts
+- **Giant Golfball: 12.9 s → 6.0 s to rebuild**, with the same geometry (volume, area, 179 faces, 367 edges, the same triangles).
+- More than half of each cut's time went on bookkeeping around it, not on the cut:
+  - An exact bounding box of the whole body after every cut (OpenCascade's precise box, slow on a body with many curved faces). The box is only used to skip tools that can't reach a body, and a cut body only gets smaller, so the box from before the cut is used for that. The exact box is worked out only when something needs it.
+  - Two volume measurements of the whole body after every cut, to see whether the cut missed it. A cut that changed the faces hit the body, so the volumes are now measured only when the face count stayed the same.
+  - Every sketch worked out the body's exact box for projected edges, even with none in it. Now only when a projection needs it.
+- Editing the golf ball's last dimple: about 2.3 s, most of it meshing the whole ball again.
+
 ## 2026-10-21 08:40 — Accessibility: Property panels from the keyboard, labels for screen readers
 - **Property panels from the keyboard**: Tab goes through a panel's fields and buttons. The group headings are buttons: Enter or Space opens or closes them. The small ✕ / ▲ buttons in lists can be pressed the same way. Tab on a panel button now moves the focus (it used to hide what was under the cursor), and Enter on a button presses it (it used to OK the whole panel).
 - **F6 / Shift+F6** move the focus round the window: the Property panel (or the tree), the ribbon, the view.
