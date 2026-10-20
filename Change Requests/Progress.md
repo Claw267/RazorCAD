@@ -458,7 +458,8 @@ Work through in this order; each item tested, logged in CHANGELOG, RazorCAD.exe 
   - User (2026-10-20, during this run): "run the full installer update when all the updates from this run have been implemented." → build the installer once 6c is done.
 - [x] 3b Update check: RazorCAD says when a newer GitHub release is out.
   - Done: razorcad.py APP_VERSION (version.txt bundled by build.bat), version_key, Api.update_settings / check_update (GitHub releases API, drafts skipped, once a day unless forced, auto switch, skip version; update.json in the data folder) / open_url (RazorCAD GitHub URLs only). platform.updateSettings / checkUpdate / openUrl. ui.checkForUpdates (banner at start after 8 s; Help ▸ Check for Updates dialog), About shows the version; crashreport records it. Tested: Python against the real API (up to date, older install → newer, skip, auto off, other URL refused), version ordering, banner + dialog in the preview (stubbed), exe: "RazorCAD 0.12.0-beta started", automatic check ran.
-- [ ] 3c Loose ends: commit the right-button tool wheel change; website fallback download links and version → 0.12.0-beta.
+- [x] 3c Loose ends: commit the right-button tool wheel change; website fallback download links and version → 0.12.0-beta.
+  - Already done before this item came up: tool wheel change committed (f3495f7); website/index.html version, structured data and fallback links on 0.12.0-beta (1b02edb). Checked 2026-10-20: setup and manual links on the v0.12.0-beta release answer 200, the page's "33 MB" matches the 35,049,988-byte setup, no older version left in website/ or README. Nothing to change, so no build.
 4. Features
 - [ ] 4a Inch units (per document).
 - [ ] 4b Assembly drawings: balloons and a bill-of-materials table.
