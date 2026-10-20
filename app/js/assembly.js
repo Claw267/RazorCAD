@@ -26,6 +26,7 @@ import { hashText, packResult, unpackResult } from './modelcache.js';
 import { packMesh, unpackMesh, MESH_CACHE } from './partmeshes.js';
 import { AssemblyView } from './asmview.js';
 import { bomRows } from './bom.js';
+import { MotionTool } from './motion.js';
 import { volWithUnit, unitOf } from './units.js';
 import * as G from './geometry.js';
 
@@ -350,7 +351,9 @@ export class AssemblyEditor {
     this.dofs = new Map();
     this.cmTab = 'assembly';
     doc.explodes ||= [];
+    doc.motions ||= [];
     this.explodeTool = null;
+    this.motionTool = null;
   }
 
   // ---------------------------------------------------------------- exploded views (the display moves only)
@@ -387,6 +390,20 @@ export class AssemblyEditor {
     animateExplode((t) => { this._explodeT = t; this.buildMesh(); }, id ? 0 : 1, id ? 1 : 0, () => { this._explodeT = 1; this.doc.exploded = id || null; this.dirty = true; this.buildMesh(); this.renderAll(); });
   }
   collapseExplode() { if (this.doc.exploded) { this.doc.exploded = null; this.updateGeometry(); this.renderAll(); this.app.status('Collapsed to edit (the exploded view is kept).'); } }
+  // ---------------------------------------------------------------- motion studies (motion.js)
+  startMotion(id = null, play = false) {
+    if (this.doc.components.length < 2) { this.app.toast('Insert and mate at least two components first'); return; }
+    if (this.pm) this.cancelMate(true);
+    if (this.explodeTool) this.explodeTool.close(false);
+    this.collapseExplode();
+    this.motionTool = new MotionTool(this);
+    this.motionTool.open(id);
+    this.renderCommandManager();
+    if (play) this.motionTool.play();
+  }
+  solveView(v, opts) { return solveAssembly(v, opts); }
+  onMotionClosed() { this.motionTool = null; this.updateGeometry(); this.renderAll(); }
+  deleteMotion(id) { this.begin(); this.doc.motions = this.doc.motions.filter((x) => x.id !== id); this.change(); }
   deleteExplode(id) { this.begin(); this.doc.explodes = this.doc.explodes.filter((x) => x.id !== id); if (this.doc.exploded === id) this.doc.exploded = null; this.change(); }
   get name() { return this.filePath ? fileStem(this.filePath) : this.doc.name; }
   get vp() { return this.app.viewport; }
@@ -612,7 +629,7 @@ export class AssemblyEditor {
 
   // ---------------------------------------------------------------- undo / changes
   // (a part copy goes in by reference: it can hold megabytes of imported geometry, and copies are replaced, never changed)
-  snapshot() { return JSON.stringify({ components: this.doc.components, mates: this.doc.mates, parts: this.doc.parts.map((p) => ({ ...p, doc: this.docRef(p.doc) })), name: this.doc.name, nextId: this.doc.nextId, configs: this.doc.configs, activeConfig: this.doc.activeConfig || null, explodes: this.doc.explodes, exploded: this.doc.exploded || null }); }
+  snapshot() { return JSON.stringify({ components: this.doc.components, mates: this.doc.mates, parts: this.doc.parts.map((p) => ({ ...p, doc: this.docRef(p.doc) })), name: this.doc.name, nextId: this.doc.nextId, configs: this.doc.configs, activeConfig: this.doc.activeConfig || null, explodes: this.doc.explodes, exploded: this.doc.exploded || null, motions: this.doc.motions || [] }); }
   docRef(doc) {
     this._docKeys ||= new WeakMap(); this._docs ||= new Map();
     let k = this._docKeys.get(doc);
@@ -917,6 +934,8 @@ export class AssemblyEditor {
 
   // ---------------------------------------------------------------- viewport input (routed here by the app)
   vpEvent(kind, e) {
+    // (a motion study is open: the view only turns, pans and zooms)
+    if (this.motionTool && ['down', 'move', 'up', 'click', 'dbl', 'context'].includes(kind)) return;
     const t = this.explodeTool;
     if (t) {
       if (kind === 'down') return t.down(e);
@@ -1622,6 +1641,7 @@ export class AssemblyEditor {
   // ---------------------------------------------------------------- keys
   handleKey(e) {
     if (this.explodeTool && this.explodeTool.key(e)) return true;
+    if (this.motionTool && this.motionTool.key(e)) return true;
     const typing = e.target.closest?.('input, select, textarea');
     if (typing) { if (e.key === 'Enter' && this.pm) { this.okMate(); return true; } return false; }
     const ctrl = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
@@ -1659,6 +1679,7 @@ export class AssemblyEditor {
         'sep',
         { icon: 'explode', label: 'Exploded View', action: () => this.startExplode(), active: !!this.explodeTool },
         { icon: 'explode', label: this.doc.exploded ? 'Collapse' : 'Explode', action: () => (this.doc.exploded ? this.setExploded(null, true) : this.doc.explodes.length && this.setExploded(this.doc.explodes[this.doc.explodes.length - 1].id, true)), disabled: !this.doc.explodes.length },
+        { icon: 'motion', label: 'Motion Study', action: () => this.startMotion(), active: !!this.motionTool },
         'sep',
         { icon: 'bom', label: 'Bill of Materials', action: () => this.showBOM() },
         { icon: 'interference', label: 'Interference Check', action: () => this.checkInterference() },
@@ -1718,6 +1739,7 @@ export class AssemblyEditor {
       Tools: [
         { label: 'Bill of Materials…', icon: 'bom', action: () => this.showBOM() },
         { label: 'Interference Check…', icon: 'interference', action: () => this.checkInterference() },
+        { label: 'Motion Study…', icon: 'motion', action: () => this.startMotion() },
         { label: 'Fix Mates…', icon: 'fix', action: () => this.showBrokenMates() },
         ...(selC ? [{ label: `Open ${selC.name}`, icon: 'part', action: () => this.openPart(selC.id) }] : []),
       ],
@@ -1848,12 +1870,30 @@ export class AssemblyEditor {
         });
       }
     }
+    if (this.doc.motions?.length) {
+      const moOpen = !this._moClosed;
+      row({ ic: 'motion', label: `Motion Studies (${this.doc.motions.length})`, depth: 1, cls: 'tree-folder', twisty: moOpen ? '▼' : '▶', onTwisty: () => { this._moClosed = moOpen; this.renderTree(); } });
+      if (moOpen) for (const mo of this.doc.motions) {
+        row({
+          ic: 'motion', label: mo.name, depth: 2, title: 'Double-click to play',
+          onDbl: () => this.startMotion(mo.id, true),
+          menu: () => [
+            { label: 'Play', icon: 'motion', action: () => this.startMotion(mo.id, true) },
+            { label: 'Edit Motion Study', icon: 'edit', action: () => this.startMotion(mo.id) },
+            { label: 'Rename', icon: 'rename', action: () => this.app.ui.promptText('Rename', 'motion', 'Name', mo.name).then((v) => { if (v?.trim()) { this.begin(); mo.name = v.trim(); this.change(); } }) },
+            'sep',
+            { label: 'Delete', icon: 'trash', action: () => this.deleteMotion(mo.id) },
+          ],
+        });
+      }
+    }
     if (!this.doc.components.length) root.appendChild(el('div', { class: 'pm-hint', style: 'padding:10px 14px' }, 'Start with <b>Insert Components</b>: the first part is fixed at the origin; insert more and <b>Mate</b> them.'));
   }
 
   renderPM() {
     if (!this.isActive()) return;
     if (this.explodeTool) { this.explodeTool.renderPM(); return; }
+    if (this.motionTool) { this.motionTool.renderPM(); return; }
     const ui = this.app.ui, root = $('#pm');
     root.innerHTML = '';
     const pm = this.pm;

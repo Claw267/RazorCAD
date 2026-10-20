@@ -660,6 +660,57 @@ const UI = {
     return ok ? { ok: true, detail: `${etch.length} etch segments, ${r6(len)} mm long (line + circle ≈ ${r6(want)}); volume unchanged` } : { ok: false, detail: `dxf ${inDxf}, volume ${v0} → ${v1}, ${etch.length} segments, inside ${inside}, length ${len} (want ${want}); notes ${JSON.stringify(r.notes?.[et.id])}` };
   },
 
+  // motion studies: gear A turned two full turns (72 steps) carries gear B (−360°) and the rack (2π·10·2 mm) with
+  // it, past the half turn one jump couldn't do; a Distance mate driven from 10 to 40 mm
+  async 'motion-study'() {
+    const A = await import('/js/assembly.js');
+    const { motionFrames } = await import('/js/motion.js');
+    const THREE = await import('three');
+    const ax = (p, d, r) => ({ kind: 'axis', p, d, r });
+    const pl = (p, n) => ({ kind: 'plane', p, n });
+    const comp = (id, fixed = false, pos = [0, 0, 0]) => ({ id, part: 'p', name: id, pos, rot: [0, 0, 0, 1], fixed });
+    const doc = {
+      components: [comp('base', true), comp('ga'), comp('gb', false, [30, 0, 0]), comp('rack', false, [0, -10, 0])],
+      mates: [
+        { id: 'm1', name: 'Concentric1', type: 'concentric', a: { comp: 'base', ...ax([0, 0, 0], [0, 0, 1]) }, b: { comp: 'ga', ...ax([0, 0, 0], [0, 0, 1], 10) } },
+        { id: 'm2', name: 'Coincident1', type: 'coincident', align: 1, a: { comp: 'base', ...pl([0, 0, 0], [0, 0, 1]) }, b: { comp: 'ga', ...pl([0, 0, 0], [0, 0, 1]) } },
+        { id: 'm3', name: 'Concentric2', type: 'concentric', a: { comp: 'base', ...ax([30, 0, 0], [0, 0, 1]) }, b: { comp: 'gb', ...ax([0, 0, 0], [0, 0, 1], 20) } },
+        { id: 'm4', name: 'Coincident2', type: 'coincident', align: 1, a: { comp: 'base', ...pl([0, 0, 0], [0, 0, 1]) }, b: { comp: 'gb', ...pl([0, 0, 0], [0, 0, 1]) } },
+        { id: 'm5', name: 'Coincident3', type: 'coincident', align: 1, a: { comp: 'base', ...pl([0, 0, 0], [0, 0, 1]) }, b: { comp: 'rack', ...pl([0, 0, 0], [0, 0, 1]) } },
+        { id: 'm6', name: 'Coincident4', type: 'coincident', align: 1, a: { comp: 'base', ...pl([0, -10, 0], [0, 1, 0]) }, b: { comp: 'rack', ...pl([0, 0, 0], [0, 1, 0]) } },
+      ],
+    };
+    const byId = (id) => doc.components.find((c) => c.id === id);
+    const poseOf = (id) => { const c = byId(id); return { p: c.pos.slice(), q: new THREE.Quaternion(...c.rot) }; };
+    const worldRef = (r) => { const ps = poseOf(r.comp); const v = (x) => new THREE.Vector3(...x).applyQuaternion(ps.q).toArray(); return { kind: r.kind, p: v(r.p).map((x, i) => x + ps.p[i]), n: r.n && v(r.n), d: r.d && v(r.d), r: r.r }; };
+    const gear = { id: 'g', name: 'Gear1', type: 'gear', side: 1, value: 0.5, a: doc.mates[0].b, b: doc.mates[2].b };
+    const rack = { id: 'r', name: 'Rack1', type: 'rack', side: 1, value: 2 * Math.PI * 10, a: doc.mates[0].b, b: { comp: 'rack', ...ax([0, 0, 0], [1, 0, 0]) } };
+    gear.ref = A.mechRef(gear, poseOf, worldRef); rack.ref = A.mechRef(rack, poseOf, worldRef);
+    doc.mates.push(gear, rack);
+    A.solveAssembly(doc);
+    const study = { driver: { kind: 'turn', comp: 'ga', mate: 'm1', side: 'b', amount: 720 }, steps: 72 };
+    const r = motionFrames(doc, study, (v, o) => A.solveAssembly(v, o));
+    // gear B's total turn: summed over the frames (it passes ±180° on the way)
+    let turnB = 0;
+    const ang = (q) => 2 * Math.atan2(q[2], q[3]);
+    for (let i = 1; i < r.frames.length; i++) {
+      const qa = r.frames[i - 1].find((f) => f.id === 'gb').rot, qb = r.frames[i].find((f) => f.id === 'gb').rot;
+      let d = ang(qb) - ang(qa); while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
+      turnB += d;
+    }
+    const rackX = r.frames[r.frames.length - 1].find((f) => f.id === 'rack').pos[0];
+    // a Distance mate driven: two blocks on a rail
+    const doc2 = { components: [comp('a', true), comp('b', false, [10, 0, 0])], mates: [
+      { id: 'd1', name: 'Distance1', type: 'distance', value: 10, side: 1, align: 1, a: { comp: 'a', ...pl([0, 0, 0], [1, 0, 0]) }, b: { comp: 'b', ...pl([0, 0, 0], [1, 0, 0]) } },
+      { id: 'd2', name: 'Lock-ish', type: 'parallel', align: 1, a: { comp: 'a', ...pl([0, 0, 0], [0, 1, 0]) }, b: { comp: 'b', ...pl([0, 0, 0], [0, 1, 0]) } },
+    ] };
+    const r2 = motionFrames(doc2, { driver: { kind: 'mate', mate: 'd1', to: 40 }, steps: 10 }, (v, o) => A.solveAssembly(v, o));
+    const bx = r2.frames[r2.frames.length - 1].find((f) => f.id === 'b').pos[0];
+    const ok = !r.error && r.done === 72 && Math.abs((turnB * 180) / Math.PI + 360) < 0.01 && Math.abs(rackX - 2 * Math.PI * 10 * 2) < 0.01 && !r2.error && Math.abs(bx - 40) < 1e-4;
+    return ok ? { ok: true, detail: `720° of gear A → B ${r6((turnB * 180) / Math.PI)}°, rack ${r6(rackX)} mm; Distance mate 10 → ${r6(bx)} mm` }
+      : { ok: false, detail: `error ${r.error}, done ${r.done}, B ${(turnB * 180) / Math.PI}°, rack ${rackX}; mate: ${r2.error} b ${bx}` };
+  },
+
   // the view's mouse buttons: Shift + right-drag pans, middle-drag turns, a plain right-drag changes nothing
   async 'view-mouse-buttons'() {
     const a = window.app;

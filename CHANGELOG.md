@@ -6,6 +6,16 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 23:08 — Motion studies
+- **Assembly ▸ Motion Study** shows how an assembly moves. Choose a driver:
+  - **turning a component** about the axis of one of its mates (360°, for example);
+  - **sliding a component** along one of its mates' axes or faces;
+  - **changing a Distance or Angle mate's value** from where it is to a new one.
+- The motion is worked out step by step and the mates carry the other components along, gear and rack-pinion mates included. Turns of any size work: two full turns of a pinion slide its rack by two circumferences.
+- **Play / Stop** (also Space), back to the start, a slider to go through the steps, the number of steps, the duration and **Loop**. Where the mates can't follow, it says at which step.
+- ✔ keeps the study in the assembly's **Motion Studies** folder: double-click one to play it; right-click to edit, rename or delete it. Closing the panel puts the assembly back as it was; a motion study never moves the assembly itself.
+- Regression test: motion-study.
+
 ## 2026-10-20 23:03 — Arrow keys in the trees
 - **The feature tree, the assembly tree and the drawing tree can be used from the keyboard.** Click the tree, then:
   - **↑ / ↓** move from row to row, selecting each as a click does;
