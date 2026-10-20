@@ -29,6 +29,7 @@ import { AssemblyView } from './asmview.js';
 import { bomRows, bomPropNames, bomCell, bomTotals, bomSources, bomColumnMenu, meshVolume, massOf } from './bom.js';
 import { editCustomProps } from './custprops.js';
 import { MotionTool } from './motion.js';
+import { findCollisions } from './collide.js';
 import { t as tr } from './i18n.js';
 import { volWithUnit, lenWithUnit, unitOf } from './units.js';
 import * as G from './geometry.js';
@@ -985,6 +986,14 @@ export class AssemblyEditor {
     const ps = poseOf(ch.comp);
     const center = this.compCenter(ch.comp);
     this.drag = { comp: ch.comp, from: ch.hit.point.toArray(), n: dir, pose: ps, center, x: e.clientX, y: e.clientY, rotate: e.altKey, moved: false, before: this.snapshot() };
+    // (collision detection: the poses at the start, the last poses without a collision, and the parts that overlap
+    // already, which are left out)
+    if (this.collideMode !== 'off') {
+      this.drag.start = this.doc.components.map((c) => ({ pos: c.pos.slice(), rot: c.rot.slice() }));
+      this.drag.free = this.drag.start;
+      this.drag.overlap = new Set(findCollisions(this.collideItems()).map(([i, j]) => i + '|' + j));
+      this.clash = null;
+    }
   }
   onMove(e) {
     const d = this.drag;
@@ -1012,13 +1021,69 @@ export class AssemblyEditor {
       r = this.solve();
       if (!r.ok) Object.assign(this.doc.components, back.map((x, i) => Object.assign(this.doc.components[i], x)));
     }
+    if (d.start) this.dragCollisions(d);
     this.updateGeometry();
+  }
+  // While dragging with collision detection on: the parts that run into others shown in red, and with Stop at
+  // Collisions the components kept where they last were clear.
+  dragCollisions(d) {
+    const moving = new Set(this.doc.components.filter((c, i) => !samePose(c, d.start[i])).map((c) => c.id));
+    if (!moving.size) { this.clash = null; this.highlight(); return; }
+    const leaves = this.leaves(), pairs = findCollisions(this.collideItems(leaves), { moving, skip: d.overlap });
+    if (!pairs.length) {
+      d.free = this.doc.components.map((c) => ({ pos: c.pos.slice(), rot: c.rot.slice() }));
+      if (this.clash) { this.clash = null; this.highlight(); this.app.status(''); }
+      return;
+    }
+    this.clash = [...new Set(pairs.flat())];
+    const names = pairs.slice(0, 3).map(([i, j]) => `${leafName(leaves[i])} and ${leafName(leaves[j])}`).join('; ');
+    if (this.collideMode === 'stop') {
+      // (brought up to the collision: the way from the last clear poses to these halved a few times)
+      const to = this.doc.components.map((c) => ({ pos: c.pos.slice(), rot: c.rot.slice() }));
+      const at = (t) => this.doc.components.forEach((c, i) => {
+        const f = d.free[i], g = to[i];
+        c.pos = f.pos.map((x, k) => x + (g.pos[k] - x) * t);
+        const q = new THREE.Quaternion(...f.rot).slerp(new THREE.Quaternion(...g.rot), t);
+        c.rot = [q.x, q.y, q.z, q.w];
+      });
+      let lo = 0, hi = 1;
+      for (let k = 0; k < 10; k++) { const m = (lo + hi) / 2; at(m); if (findCollisions(this.collideItems(leaves), { moving, skip: d.overlap, first: true }).length) hi = m; else lo = m; }
+      at(lo);
+      d.free = this.doc.components.map((c) => ({ pos: c.pos.slice(), rot: c.rot.slice() }));
+      this.app.status(`Stopped at a collision: ${names}.`);
+    } else this.app.status(`Collision: ${names}.`);
+    this.highlight();
+  }
+  // ---------------------------------------------------------------- collisions
+  // 'off' | 'show' (parts that collide shown in red while dragging) | 'stop' (and the drag stops at them)
+  get collideMode() { return this.app.ui.prefs?.collide || 'off'; }
+  setCollideMode(m) {
+    const ui = this.app.ui;
+    (ui.prefs ||= {}).collide = m;
+    ui.savePrefs?.();
+    this.clash = null;
+    this.highlight();
+    this.renderCommandManager();
+    this.app.status(m === 'off' ? 'Collision detection off.' : m === 'stop' ? 'Collision detection: dragged components stop where they would run into others.' : 'Collision detection: parts that run into others are shown in red while dragging.');
+  }
+  // the parts shown, placed as their components are now (not exploded): [{ mesh, matrix, owner }] by leaf
+  collideItems(leaves = this.leaves()) {
+    const q = new THREE.Quaternion(), p = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1);
+    const tops = this.doc.components.map((c) => new THREE.Matrix4().compose(p.set(...c.pos), q.set(...c.rot).normalize(), one));
+    return leaves.map((l) => { const g = this.parts.get(l.gk); return g?.mesh && !l.hidden ? { mesh: g.mesh, matrix: tops[l.ci].clone().multiply(l.M), owner: l.comp.id } : null; });
+  }
+  // the components that collide now: [[name, name]…]
+  collisions(opts = {}) {
+    const leaves = this.leaves();
+    return findCollisions(this.collideItems(leaves), opts).map(([i, j]) => [leafName(leaves[i]), leafName(leaves[j])]);
   }
   onUp() {
     const d = this.drag;
     this.drag = null;
     if (!d) { if (this.dragNote) { this.app.status(this.dragNote); this.dragNote = null; } return; }
-    if (d.moved) { this._before = d.before; this.change(`${d.comp.name} moved.`); }
+    const clash = this.clash;
+    if (clash) { this.clash = null; this.highlight(); }
+    if (d.moved) { this._before = d.before; this.change(clash && this.collideMode === 'stop' ? `${d.comp.name} moved (stopped at a collision).` : `${d.comp.name} moved.`); }
   }
   onClick(e) {
     if (this.pm) {
@@ -1126,7 +1191,7 @@ export class AssemblyEditor {
     }
     vp.setFaceSet?.(faceInfos, 'pm');
     vp.setFaceHighlight('hover', hoverFace);
-    view.setHighlights({ selected: sel, hover: refs.length ? [] : hov, edges: edgesSel, hoverEdges });
+    view.setHighlights({ selected: sel, hover: refs.length ? [] : hov, edges: edgesSel, hoverEdges, clash: this.clash || [] });
     vp.setVertexMarkers?.(pts.length || hoverPt ? { selected: pts, hover: hoverPt } : null);
     this.updatePlanes();
   }
@@ -2065,6 +2130,7 @@ export class AssemblyEditor {
         'sep',
         { icon: 'bom', label: 'Bill of Materials', action: () => this.showBOM() },
         { icon: 'interference', label: 'Interference Check', action: () => this.checkInterference() },
+        { icon: 'collide', label: 'Collision Detection', action: () => this.setCollideMode(this.collideMode === 'off' ? 'stop' : 'off'), active: this.collideMode !== 'off' },
         { icon: 'zoomfit', label: 'Zoom to Fit', key: 'F', action: () => this.vp.zoomToFit() },
       ],
     };
@@ -2125,6 +2191,9 @@ export class AssemblyEditor {
         { label: 'Bill of Materials…', icon: 'bom', action: () => this.showBOM() },
         { label: 'Equations…', icon: 'equations', action: () => this.showEquations() },
         { label: 'Interference Check…', icon: 'interference', action: () => this.checkInterference() },
+        'sep',
+        ...[['off', 'Collision Detection Off'], ['show', 'Show Collisions While Dragging'], ['stop', 'Stop at Collisions While Dragging']].map(([m, label]) => ({ label: (this.collideMode === m ? '✓ ' : '') + label, icon: 'collide', action: () => this.setCollideMode(m) })),
+        'sep',
         { label: 'Motion Study…', icon: 'motion', action: () => this.startMotion() },
         { label: 'Fix Mates…', icon: 'fix', action: () => this.showBrokenMates() },
         ...(selC ? [{ label: `Open ${selC.name}`, icon: 'part', action: () => this.openPart(selC.id) }] : []),
@@ -2340,6 +2409,10 @@ function meshBox(m) {
   for (let i = 0; i < m.vertices.length; i += 3) for (let k = 0; k < 3; k++) { const v = m.vertices[i + k]; if (v < min[k]) min[k] = v; if (v > max[k]) max[k] = v; }
   return { min, max };
 }
+// a component's pose the same as a stored one
+function samePose(c, o) { return !!o && c.pos.every((x, k) => Math.abs(x - o.pos[k]) < 1e-9) && c.rot.every((x, k) => Math.abs(x - o.rot[k]) < 1e-12); }
+// a part shown, by its component's name (inside a sub-assembly: "Sub-assembly ▸ Component")
+function leafName(l) { return [l.comp.name, ...l.names].join(' ▸ '); }
 // a face (by its number in the part's mesh) as a mate ref
 function refOfFace(m, gi) {
   const s = m.faceGroups[gi]?.surf;

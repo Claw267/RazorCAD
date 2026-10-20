@@ -344,7 +344,7 @@ export class AssemblyView {
 
   // whole parts shown (sharing their geometry: nothing copied) and edges: { selected, hover } item indices (one
   // each, or lists: all the parts of a sub-assembly), edges: [[item index, edge number]]
-  setHighlights({ selected = [], hover = [], edges = [], hoverEdges = [] } = {}) {
+  setHighlights({ selected = [], hover = [], edges = [], hoverEdges = [], clash = [] } = {}) {
     const list = (x) => (Array.isArray(x) ? x : x >= 0 ? [x] : []);
     selected = list(selected); hover = list(hover).filter((i) => !selected.includes(i));
     this.clearHighlights();
@@ -360,6 +360,8 @@ export class AssemblyView {
     };
     for (const i of selected) comp(i, 0x2b7de9, 0.45, 3);
     for (const i of hover) comp(i, 0xf59e0b, 0.35, 3);
+    // (parts that collide, in red)
+    for (const i of clash) if (!selected.includes(i)) comp(i, 0xe53935, 0.5, 4);
     // (edges selected in blue, the one under the cursor in orange)
     for (const [list, color] of [[edges, 0x0ea5e9], [hoverEdges, 0xf59e0b]]) {
       const pts = [];

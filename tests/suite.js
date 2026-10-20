@@ -1070,6 +1070,8 @@ rc.log(b.bodies, b.errors.length);`, 'text');
     const y = (re) => [...new Set(asm.doc.components.filter((c) => re.test(c.name)).map((c) => Math.round(c.pos[1] * 1000) / 1000))].sort((p, q) => p - q).join('/');
     const stackOk = others === 3 && L === 25 && count(/^Hex Bolt/) === 4 && count(/^Washer/) === 8 && count(/^Hex Nut/) === 4 && asm.doc.mates.length === 32 && asm.solveOk
       && y(/^Hex Bolt/) === '11.6' && y(/^Hex Nut/) === '-1.6' && y(/^Washer/) === '0/10';
+    // (bolts, washers and nuts seated in clearance holes do not collide)
+    const clashes = asm.collisions();
     // a cross hole in a round bar: its end is on the curved surface, a plane of its own, kept up when the hole moves
     const bar = M.newDoc(); bar.name = 'Bar';
     const s1 = M.createFeature(bar, 'sketch', { plane: { ref: 'right' } }); Object.assign(s1, { points: [{ id: 'p1', x: 0, y: 0 }], curves: [{ id: 'c1', type: 'circle', c: 'p1', r: 15, construction: false }], constraints: [] });
@@ -1093,9 +1095,9 @@ rc.log(b.bodies, b.errors.length);`, 'text');
     await asm.loadParts();
     const after = seatMate.a.p.map((v) => Math.round(v * 1000) / 1000).join(',');
     const moved = Math.abs(seatMate.a.p[0] - before.split(',').map(Number)[0]) > 9.99 || Math.abs(seatMate.a.p[2] - before.split(',').map(Number)[2]) > 9.99;
-    const ok = !bad.length && stackOk && own && moved;
+    const ok = !bad.length && stackOk && !clashes.length && own && moved;
     return ok ? { ok: true, detail: `${S.STD_TYPES.length} types build; 4 holes × (washer, M8×${L}, washer, nut), 32 mates; bar hole end ${before} → ${after}` }
-      : { ok: false, detail: `bad ${bad.join(' | ')}; others ${others}, L ${L}, bolts ${count(/^Hex Bolt/)}, washers ${count(/^Washer/)}, nuts ${count(/^Hex Nut/)}, mates ${asm.doc.mates.length}, solved ${asm.solveOk}, y bolt ${y(/^Hex Bolt/)} nut ${y(/^Hex Nut/)} washer ${y(/^Washer/)}; own end ${own}; ${before} → ${after}` };
+      : { ok: false, detail: `bad ${bad.join(' | ')}; clashes ${JSON.stringify(clashes.slice(0, 4))}; others ${others}, L ${L}, bolts ${count(/^Hex Bolt/)}, washers ${count(/^Washer/)}, nuts ${count(/^Hex Nut/)}, mates ${asm.doc.mates.length}, solved ${asm.solveOk}, y bolt ${y(/^Hex Bolt/)} nut ${y(/^Hex Nut/)} washer ${y(/^Washer/)}; own end ${own}; ${before} → ${after}` };
   },
 
   // equations shared across an assembly: two parts made 5 thick by their own `thickness` variable are made 12
@@ -1141,6 +1143,66 @@ rc.log(b.bodies, b.errors.length);`, 'text');
     const ok = before === '5/5/5' && has === 'Left,Right' && n === 2 && after === '12/12/5' && /Left, Right/.test(txt) && /12/.test(txt) && rowsBefore === 1 && undone === '5/5/5';
     return ok ? { ok: true, detail: `heights ${before} → ${after} (thickness = 2*base drives Left, Right), undo ${undone}` }
       : { ok: false, detail: `before ${before}, has ${has}, n ${n}, after ${after}, undo ${undone}, rows ${rowsBefore}, dialog "${txt.slice(0, 200)}"` };
+  },
+
+  // collision detection: a pin in its hole (the same radius, its end inside the hole) and a block resting on the
+  // plate do not collide; the block pushed 2 mm into the plate does. Dragging with Stop at Collisions brings the
+  // block up to the plate and no further, and a motion study that lowers it stops at the step before it reaches the plate.
+  async 'collision-detection'() {
+    const a = window.app;
+    const part = (name, loops, depth) => {
+      const p = M.newDoc(); p.name = name;
+      const s = M.createFeature(p, 'sketch', { plane: { ref: 'top' } });
+      const pts = [], curves = [];
+      for (const l of loops) {
+        if (l.r) { pts.push({ id: 'q' + pts.length, x: l.c[0], y: l.c[1] }); curves.push({ id: 'k' + curves.length, type: 'circle', c: pts[pts.length - 1].id, r: l.r, construction: false }); continue; }
+        const b = pts.length;
+        l.forEach(([x, y], i) => pts.push({ id: 'q' + (b + i), x, y }));
+        l.forEach((_, i) => curves.push({ id: 'k' + curves.length, type: 'line', p1: 'q' + (b + i), p2: 'q' + (b + (i + 1) % l.length), construction: false }));
+      }
+      Object.assign(s, { points: pts, curves, constraints: [] });
+      p.features.push(s, M.createFeature(p, 'extrude', { sketch: s.id, depth }));
+      return p;
+    };
+    const rect = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+    a.newAssembly(); await wait(300); closeModals();
+    const asm = a.drawing;
+    const ps = [part('Plate', [rect(-30, -20, 30, 20), { c: [0, 0], r: 5 }], 10), part('Pin', [{ c: [0, 0], r: 5 }], 6), part('Block', [rect(15, -5, 25, 5)], 8)].map((d) => asm.addPart(d, null, null));
+    for (const p of ps) await asm.addComponent(p);
+    await until(() => asm.doc.components.every((c) => asm.geo(c)?.mesh), 30000);
+    const [plate, pin, block] = asm.doc.components;
+    const place = (c, y) => { c.pos = [0, y, 0]; c.rot = [0, 0, 0, 1]; };
+    place(plate, 0); place(pin, 2); place(block, 10);
+    const ys = asm.doc.components.map((c) => c.pos[1] + asm.geo(c).box.min[1]).join('/');
+    const clear = asm.collisions();
+    place(block, 8);
+    const hit = asm.collisions();
+    // a drag that would push it in: held where it was clear
+    const ui = a.ui, mode0 = ui.prefs?.collide;
+    (ui.prefs ||= {}).collide = 'stop';
+    place(block, 10.5);
+    const d = { start: asm.doc.components.map((c) => ({ pos: c.pos.slice(), rot: c.rot.slice() })) };
+    d.free = d.start; d.overlap = new Set();
+    block.pos = [0, 9.5, 0]; asm.dragCollisions(d);
+    const stopY = block.pos[1];
+    const okStop = Math.abs(block.pos[1] - 10) < 0.01 && (asm.clash || []).length === 2;
+    block.pos = [0, 10.2, 0]; asm.dragCollisions(d);
+    const okFree = Math.abs(block.pos[1] - 10.2) < 1e-9 && !asm.clash;
+    if (mode0 === undefined) delete ui.prefs.collide; else ui.prefs.collide = mode0;
+    // a motion study lowering the block 1 mm a step from 14: it reaches the plate at step 4 (y = 10 just touches)
+    place(block, 14);
+    const { MotionTool } = await import('/js/motion.js');
+    const mt = new MotionTool(asm);
+    mt.study = { collide: true, stopAtCollision: true };
+    mt.before = JSON.stringify({ comps: asm.doc.components, mates: asm.doc.mates });
+    const snap = (y) => asm.doc.components.map((c) => ({ id: c.id, pos: c === block ? [0, y, 0] : c.pos.slice(), rot: c.rot.slice() }));
+    mt.frames = [14, 13, 12, 11, 10, 9, 8].map(snap);
+    const cl = mt.findClashes();
+    const okMotion = mt.firstClash?.step === 5 && mt.frames.length === 5 && /Block/.test(mt.firstClash.names) && Math.abs(block.pos[1] - 14) < 1e-9 && cl.get(5)?.length === 2;
+    asm.clash = null;
+    const ok = ys === '0/2/10' && clear.length === 0 && hit.length === 1 && /Plate/.test(hit[0].join()) && /Block/.test(hit[0].join()) && okStop && okFree && okMotion;
+    return ok ? { ok: true, detail: `pin in hole and block on plate clear; block 2 mm in: ${hit[0].join(' × ')}; drag stopped at ${stopY.toFixed(3)} (the plate at 10); motion stops before step ${mt.firstClash.step}` }
+      : { ok: false, detail: `ys ${ys}; clear ${JSON.stringify(clear)}; hit ${JSON.stringify(hit)}; stop ${okStop} free ${okFree} (y ${block.pos[1]}); motion ${JSON.stringify(mt.firstClash)} frames ${mt.frames.length}` };
   },
 
   // macros in assemblies and drawings: a recording of a part inserted twice and mated plays back into a new

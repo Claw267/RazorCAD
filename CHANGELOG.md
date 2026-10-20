@@ -6,6 +6,13 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 08:07 — Collision detection while dragging and in motion studies
+- **Collision Detection** (Assembly ribbon, and Tools ▸ Collision Detection Off / Show Collisions While Dragging / Stop at Collisions While Dragging). While a component is dragged, the parts that run into others are shown in red with their names in the status bar; with Stop at Collisions the dragged component (and what its mates carry along) stops where it meets the other part, brought right up to it.
+- Faces that only touch (mated faces) are not collisions, nor a shaft in a hole of its size, nor a screw in a nut or tapped hole (threads are cosmetic, so the screw is its full diameter in a bore of about its minor diameter). Parts that overlap already when the drag starts are left out.
+- **Motion studies: Detect collisions** (on for new studies) checks every step: the parts that collide are shown in red as the motion plays, and the panel names the first collision and its step. **Stop at the first collision** ends the motion at the step before it.
+- Quick: worked out from the parts' display meshes (a tree of each part's triangles, built once), not from the solids, so it keeps up with the mouse. Interference Check still gives the exact overlap volumes.
+- Regression tests: collision-detection (pin in its hole and block on the plate clear; block 2 mm into the plate collides; the drag stops at the plate; the motion stops before step 5); standard-parts-2 now also checks that the bolts, washers and nuts seated in their holes do not collide.
+
 ## 2026-10-21 07:56 — Equations shared across an assembly
 - **Assembly ▸ Equations…** (also in the Insert ribbon): the assembly's own variables, e.g. `base = 6`, `thickness = 2*base`. A variable that **drives the parts** sets the variable of the same name in every part that has one, through the sub-assemblies, so related parts are sized together from the top (top-down design).
 - The table shows each variable's value, the parts it drives and a Drives the parts check box (off: a variable used only to work out others).

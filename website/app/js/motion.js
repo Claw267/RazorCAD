@@ -3,6 +3,8 @@
 // put back afterwards: a motion study only shows how the assembly moves.
 //
 // Stored in the assembly:  motions: [{ id, name, driver, steps, duration, loop }]
+//   collide: the steps checked for parts running into others (shown in red, reported); stopAtCollision: the motion
+//   ends at the step before the first
 //   driver: { kind: 'turn', comp, mate, side, amount (°) }   turns comp about the axis of one of its mates' references
 //           { kind: 'slide', comp, mate, side, amount (mm) } slides comp along that reference (an axis, or a face's normal)
 //           { kind: 'mate', mate, to }                      a Distance or Angle mate's value from its own to `to`
@@ -14,6 +16,7 @@
 import * as THREE from 'three';
 import { icon } from './icons.js';
 import { fmt } from './expr.js';
+import { findCollisions } from './collide.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const el = (tag, attrs = {}, html = '') => {
@@ -107,7 +110,7 @@ export class MotionTool {
     while (list.some((x) => x.id === 'mo' + k)) k++;
     const free = this.host.doc.components.find((c) => !c.fixed && !this.host.eff(c).suppressed);
     const first = free && driverRefs(this.host.view(), free.id).find((r) => r.kind === 'axis');
-    this.study = st ? JSON.parse(JSON.stringify(st)) : { id: 'mo' + k, name: `Motion${list.length + 1}`, driver: { kind: 'turn', comp: free?.id || null, mate: first?.mate || null, side: first?.side || null, amount: 360 }, steps: 72, duration: 4, loop: true };
+    this.study = st ? JSON.parse(JSON.stringify(st)) : { id: 'mo' + k, name: `Motion${list.length + 1}`, driver: { kind: 'turn', comp: free?.id || null, mate: first?.mate || null, side: first?.side || null, amount: 360 }, steps: 72, duration: 4, loop: true, collide: true, stopAtCollision: false };
     // (the assembly as it is now: put back when the panel closes)
     this.before = JSON.stringify({ comps: this.host.doc.components, mates: this.host.doc.mates });
     this.frames = null;
@@ -123,6 +126,7 @@ export class MotionTool {
   close(keep) {
     this.stop();
     this.restore();
+    this.host.clash = null;
     if (keep) {
       const list = this.host.doc.motions;
       const i = list.findIndex((x) => x.id === this.study.id);
@@ -143,7 +147,35 @@ export class MotionTool {
     this.frames = r.frames;
     this.error = r.error;
     this.frame = 0;
+    this.clashes = this.study.collide ? this.findClashes() : null;
     return r;
+  }
+  // The steps at which parts run into others (not those that overlap at the start): Map step → leaf indices, and
+  // the first one (this.firstClash: { step, names }). With stopAtCollision the motion ends just before it.
+  findClashes() {
+    const host = this.host, comps = host.doc.components, byId = new Map(comps.map((c) => [c.id, c]));
+    const leaves = host.leaves(), out = new Map();
+    this.firstClash = null;
+    if (!this.frames || this.frames.length < 2) return out;
+    const f0 = new Map(this.frames[0].map((f) => [f.id, f]));
+    const moving = new Set();
+    for (const fr of this.frames) for (const f of fr) { const o = f0.get(f.id); if (o && (f.pos.some((x, k) => Math.abs(x - o.pos[k]) > 1e-9) || f.rot.some((x, k) => Math.abs(x - o.rot[k]) > 1e-12))) moving.add(f.id); }
+    if (!moving.size) return out;
+    const at = (i) => { for (const f of this.frames[i]) { const c = byId.get(f.id); if (c) { c.pos = f.pos; c.rot = f.rot; } } return findCollisions(host.collideItems(leaves), { moving, skip: start }); };
+    const start = new Set();
+    for (const [i, j] of at(0)) start.add(i + '|' + j);
+    for (let k = 1; k < this.frames.length; k++) {
+      const pairs = at(k);
+      if (!pairs.length) continue;
+      out.set(k, [...new Set(pairs.flat())]);
+      if (!this.firstClash) {
+        const nm = (l) => [l.comp.name, ...l.names].join(' ▸ ');
+        this.firstClash = { step: k, names: pairs.slice(0, 3).map(([i, j]) => `${nm(leaves[i])} and ${nm(leaves[j])}`).join('; ') };
+        if (this.study.stopAtCollision) { this.frames = this.frames.slice(0, k); break; }
+      }
+    }
+    this.restore();
+    return out;
   }
   show(i) {
     if (!this.frames?.length) return;
@@ -151,6 +183,8 @@ export class MotionTool {
     const byId = new Map(this.host.doc.components.map((c) => [c.id, c]));
     for (const f of this.frames[this.frame]) { const c = byId.get(f.id); if (c) { c.pos = f.pos; c.rot = f.rot; } }
     this.host.buildMesh();
+    const clash = this.clashes?.get(this.frame) || null;
+    if (clash || this.host.clash) { this.host.clash = clash; this.host.highlight(); }
     const s = this.slider;
     if (s) s.value = String(this.frame);
   }
@@ -176,7 +210,7 @@ export class MotionTool {
     if (this._raf) cancelAnimationFrame(this._raf);
     this._raf = null;
   }
-  changed() { this.frames = null; this.stop(); this.restore(); this.host.buildMesh(); this.renderPM(); }
+  changed() { this.frames = null; this.clashes = null; this.firstClash = null; this.stop(); this.restore(); this.host.clash = null; this.host.buildMesh(); this.host.highlight(); this.renderPM(); }
   key(e) {
     if (!this.study) return false;
     if (e.key === 'Escape') { this.close(false); return true; }
@@ -228,6 +262,14 @@ export class MotionTool {
     const loop = el('label', {}, `<input type="checkbox" ${st.loop ? 'checked' : ''}> Loop`);
     loop.querySelector('input').onchange = (e) => { st.loop = e.target.checked; };
     g2.appendChild(loop);
+    const col = el('label', { style: 'display:block' }, `<input type="checkbox" ${st.collide ? 'checked' : ''}> Detect collisions`);
+    col.querySelector('input').onchange = (e) => { st.collide = e.target.checked; this.changed(); };
+    g2.appendChild(col);
+    if (st.collide) {
+      const stp = el('label', { style: 'display:block' }, `<input type="checkbox" ${st.stopAtCollision ? 'checked' : ''}> Stop at the first collision`);
+      stp.querySelector('input').onchange = (e) => { st.stopAtCollision = e.target.checked; this.changed(); };
+      g2.appendChild(stp);
+    }
     const bar = el('div', { class: 'mo-bar' });
     const pb = el('button', { class: 'pm-btn primary' }, this.playing ? '■ Stop' : '▶ Play');
     pb.onclick = () => { if (this.playing) { this.stop(); this.renderPM(); } else this.play(); };
@@ -241,6 +283,8 @@ export class MotionTool {
       this.slider = s;
       g2.appendChild(s);
     } else this.slider = null;
+    if (this.firstClash) g2.appendChild(el('div', { class: 'pm-msg err' }, esc(`Collision at step ${this.firstClash.step}: ${this.firstClash.names}${st.stopAtCollision ? ' (the motion stops just before it)' : ' (shown in red)'}.`)));
+    else if (this.clashes && this.frames?.length > 1) g2.appendChild(el('div', { class: 'pm-hint' }, 'No collisions.'));
     if (this.error) g2.appendChild(el('div', { class: 'pm-msg err' }, esc(this.error)));
     else if (this.frames) g2.appendChild(el('div', { class: 'pm-hint' }, `${this.frames.length - 1} steps worked out. Drag the slider to go through them; Space plays and stops.`));
     root.appendChild(el('div', { class: 'pm-hint', style: 'padding:6px 10px' }, 'The motion is worked out step by step: the mates (gear and rack-pinion mates too) carry the other components along. The assembly goes back as it was when the panel closes.'));
