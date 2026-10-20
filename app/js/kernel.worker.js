@@ -6365,7 +6365,17 @@ function featureFaces(id) {
   return out;
 }
 
-self.onmessage = async (e) => {
+// Requests are handled strictly one after another, in the order they came. A request that waits part way
+// (a STEP or 3MF import, an export being packed) would otherwise let the next one start in that pause, on a
+// half-built model and with the kernel's stack reset under it.
+let queue = Promise.resolve();
+const queueStats = { waiting: 0, done: 0 };
+self.onmessage = (e) => {
+  queueStats.waiting++;
+  queue = queue.then(() => handleMessage(e)).catch(() => { /* (each request reports its own errors) */ }).finally(() => { queueStats.waiting--; queueStats.done++; });
+};
+
+async function handleMessage(e) {
   const { id, type, data } = e.data;
   try {
     await ready;
@@ -6402,7 +6412,7 @@ self.onmessage = async (e) => {
     } else if (type === 'stats') {
       // for crash reports: kernel memory and stack state
       resetStack();
-      result = { memoryMB: Math.round(R.getOC().wasmMemory.buffer.byteLength / 1048576), stackReset: !!stack, stackRecovered: stackLost, freeing: freeStats.installed, freed: freeStats.freed };
+      result = { memoryMB: Math.round(R.getOC().wasmMemory.buffer.byteLength / 1048576), stackReset: !!stack, stackRecovered: stackLost, freeing: freeStats.installed, freed: freeStats.freed, queued: queueStats.waiting - 1, handled: queueStats.done };
     } else if (type === 'partMesh') {
       const doc = JSON.parse(data.doc);
       doc.rollbackAt = null;
@@ -6444,4 +6454,4 @@ self.onmessage = async (e) => {
   } finally {
     try { if (!kernelDead) resetStack(); } catch { /* ignore */ }
   }
-};
+}

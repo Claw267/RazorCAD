@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 21:30 — Geometry kernel: one request at a time
+- The geometry kernel now finishes each request before it starts the next, in the order they were asked. A rebuild that pauses part way (while it reads an imported STEP or 3MF file, or an export being packed) no longer lets another request (a measurement, an export, a drawing view) run in that pause on a half-built model and reset the kernel under it. Before, an export asked for during such a pause could fail with "There is no body to export" or export the previous model.
+- Crash reports also record how many kernel requests were waiting.
+- Regression test: kernel-one-at-a-time.
+
 ## 2026-10-20 21:27 — References that survive edits; Fix References
 - **Edges are found again after bigger changes.** An edge reference (fillets, chamfers, axes…) now also remembers the faces on its two sides and whether it is an outside or inside corner. When a dimension moves the edge so far that other edges lie nearer its old place, RazorCAD still finds the right one. It no longer takes a nearby edge of a different kind for it.
 - **Faces that moved are found again** (shell, draft, faces picked for other features): the face facing the same way that is clearly nearest. A reference found this way is updated in the part, so it keeps following the model.

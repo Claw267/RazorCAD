@@ -242,6 +242,36 @@ const UI = {
     return { ok: true, detail: 'renumbered face found, moved face followed, lost face reported' };
   },
 
+  // the kernel handles requests one at a time, in order: an export sent while a rebuild is reading an imported
+  // STEP file (a pause in that rebuild) waits for it and exports the new model, not the one before
+  async 'kernel-one-at-a-time'() {
+    const k = window.app.kernel;
+    const cube = M.newDoc();
+    const s = M.createFeature(cube, 'sketch', { plane: { ref: 'top' } });
+    const pts = [[-15, -15], [15, -15], [15, 15], [-15, 15]];
+    Object.assign(s, { points: pts.map(([x, y], i) => ({ id: 'p' + (i + 1), x, y })), curves: pts.map((_, i) => ({ id: 'c' + (i + 1), type: 'line', p1: 'p' + (i + 1), p2: 'p' + ((i + 1) % 4 + 1), construction: false })), constraints: [] });
+    cube.features.push(s, M.createFeature(cube, 'extrude', { sketch: s.id, depth: 30 }));
+    let r = await k.rebuild(cube, null, null);
+    if (!r.body?.bodies?.length) return { ok: false, detail: 'no cube' };
+    const step = new TextDecoder().decode(await k.request('export', { format: 'step' }));
+    const imp = M.newDoc();
+    imp.features.push(M.createFeature(imp, 'import', { format: 'step', fileName: 'cube.step', data: step }));
+    // (an empty model first, so a request run too early has nothing to export)
+    await k.rebuild(M.newDoc(), null, null);
+    // both sent at once, straight to the worker
+    const pr = k.call('rebuild', { doc: JSON.stringify(imp), previewId: null });
+    const pe = k.call('export', { format: 'stl' });
+    const [rr, stl] = await Promise.allSettled([pr, pe]);
+    if (rr.status !== 'fulfilled' || rr.value.errors?.length) return { ok: false, detail: `import: ${rr.reason?.message || JSON.stringify(rr.value.errors)}` };
+    if (stl.status !== 'fulfilled') return { ok: false, detail: `the export ran before the rebuild finished: ${stl.reason?.message}` };
+    // (a binary STL: 80-byte header, then the triangle count; a cube is 12 triangles)
+    const n = new DataView(stl.value.buffer || stl.value).getUint32(80, true);
+    const st = await k.stats();
+    // (the client's own state put back as it was: the worker's last model is the import)
+    k.lastDoc = JSON.stringify(imp);
+    return n === 12 ? { ok: true, detail: `export waited for the rebuild (12 triangles); ${st?.handled ?? '?'} requests handled` } : { ok: false, detail: `${n} triangles exported` };
+  },
+
   // the view's mouse buttons: Shift + right-drag pans, middle-drag turns, a plain right-drag changes nothing
   async 'view-mouse-buttons'() {
     const a = window.app;
