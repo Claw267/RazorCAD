@@ -6,6 +6,25 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 22:33 — Version 0.13.0-beta: installer
+- **RazorCAD-Setup-0.13.0-beta.exe** built (in "RazorCAD Install"), with everything since 0.12.0-beta:
+  - automated regression tests;
+  - references that survive edits, with Fix References / Fix Mates;
+  - the geometry kernel handling one request at a time;
+  - cosmetic threads;
+  - parts that reopen ready to edit;
+  - faster patterns of added features;
+  - code signing ready;
+  - the update check;
+  - inch units;
+  - balloons and BOM tables;
+  - exploded views on drawings;
+  - assembly interference check;
+  - gear and rack-pinion mates;
+  - command search;
+  - custom shortcuts;
+  - the Getting Started Tour.
+
 ## 2026-10-20 22:32 — Getting Started Tour
 - **A one-minute tour for new users:** eight short steps, each pointing at a part of the window: the toolbar, the feature tree, the view and its mouse buttons, how to make a first part (sketch, dimension, extrude), the command search and units. It ends with **Open the Sample Part**. Next / Back (or → / ←, Enter); Esc or Skip ends it.
 - The first time RazorCAD starts, the start window offers it ("New to RazorCAD? Take the one-minute tour"). If the start window is closed on an empty part, the tour starts by itself, once. After that it is in **Help ▸ Getting Started Tour**.

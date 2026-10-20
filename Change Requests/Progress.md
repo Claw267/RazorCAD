@@ -481,3 +481,6 @@ Work through in this order; each item tested, logged in CHANGELOG, RazorCAD.exe 
 - [x] 6c Short first-run tutorial.
   - Done: ui.startTour (8 steps, highlight hole + bubble placed below / above / beside / inside the target, keys, Skip / Back / Next / Open the Sample Part / Finish, prefs.tourDone), start window offer + one-time auto start when it closes on an empty part (prefs.tourOffered), Help ▸ Getting Started Tour, help icon, CSS; run_tests.py marks the tour done in its fresh browser. Test getting-started-tour; checked in the preview (first run offers and auto-starts it, afterwards neither).
 
+## Installer after the improvement plan (user request 2026-10-20: "run the full installer update when all the updates from this run have been implemented.")
+- [x] version.txt → 0.13.0-beta (0.12.0-beta is already released; the update check needs a higher number to tell testers). installer\build_installer.bat run once, output checked.
+
