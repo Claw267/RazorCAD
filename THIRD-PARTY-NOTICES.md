@@ -14,6 +14,7 @@ texts are linked; each one also comes with that project's source.
 | [opentype.js](https://github.com/opentypejs/opentype.js) | Font parsing for sketch text (bundled inside `replicad.js`) | [MIT](https://github.com/opentypejs/opentype.js/blob/master/LICENSE) |
 | [three.js](https://threejs.org/) r169 | 3D display (`three.module.js`) | [MIT](https://github.com/mrdoob/three.js/blob/dev/LICENSE) |
 | [three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh) | Fast picking and ray casting (`three-mesh-bvh.module.js`) | [MIT](https://github.com/gkjohnson/three-mesh-bvh/blob/master/LICENSE) |
+| [DejaVu fonts](https://dejavu-fonts.github.io/) 2.x | DejaVu Sans, Sans Mono and Serif for sketch and drawing text (`app/fonts`, unmodified) | Bitstream Vera / Arev font licence, DejaVu changes public domain (`app/fonts/LICENSE_DEJAVU`) |
 
 ### Changes to the bundled libraries
 

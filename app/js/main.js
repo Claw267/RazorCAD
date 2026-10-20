@@ -14,7 +14,7 @@ import { evaluate, evalEquations, fmt } from './expr.js';
 import { KernelClient, KernelPool } from './kernelclient.js';
 import { platform } from './platform.js';
 import { RELATION_INFO } from './solver.js';
-import { FONTS, fontFile, fontKey } from './fonts.js';
+import { FONTS, fontFile, fontKey, BUNDLED_FAMILIES, fallbackFamily } from './fonts.js';
 import { loadDxfSettings, saveDxfSettings, selectEnts, buildDXF, dxfFileName } from './dxf.js';
 import { CLAUDE_MODELS, RAZORCAD_GUIDE, describePart, parseReply, applyPlan } from './claudespec.js';
 import { DrawingEditor } from './drawingeditor.js';
@@ -348,7 +348,8 @@ class App {
     for (const f of this.doc?.features || []) for (const t of f.texts || []) need.set(fontKey(t), t);
     for (const [key, t] of need) {
       if (this.kernel.fonts.has(key)) continue;
-      const data = await platform.fontData(fontFile(t.font, t.bold, t.italic)) || await platform.fontData(fontFile('Arial', t.bold, t.italic));
+      // (a font this PC doesn't have: the bundled one most like it)
+      const data = await platform.fontData(fontFile(t.font, t.bold, t.italic)) || await platform.fontData(fontFile(fallbackFamily(t.font), t.bold, t.italic));
       if (data) await this.kernel.loadFont(key, data);
     }
   }
@@ -356,9 +357,9 @@ class App {
   // Font families this PC has (for the text tool).
   async fontFamilies() {
     if (!this._fontFamilies) {
-      const files = Object.values(FONTS).map((x) => x[0]);
+      const files = Object.entries(FONTS).filter(([k]) => !BUNDLED_FAMILIES.includes(k)).map(([, x]) => x[0]);
       const have = new Set(await platform.fontsAvailable(files).catch(() => []));
-      this._fontFamilies = Object.keys(FONTS).filter((k) => have.has(FONTS[k][0]));
+      this._fontFamilies = [...Object.keys(FONTS).filter((k) => !BUNDLED_FAMILIES.includes(k) && have.has(FONTS[k][0])), ...BUNDLED_FAMILIES];
     }
     return this._fontFamilies;
   }

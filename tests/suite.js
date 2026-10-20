@@ -1013,6 +1013,28 @@ await rc.cut(h, 10);`, 'plate');
     return ok ? { ok: true, detail: `${opened.length} characters: ${u.searchParams.get('title')}` } : { ok: false, detail: `opened ${opened}` };
   },
 
+  // the fonts that come with RazorCAD: sketch text in Arial (not there in the test browser) is made in DejaVu Sans,
+  // text in DejaVu Serif builds as it is, and drawing text in Times New Roman gets DejaVu Serif's metrics
+  async 'bundled-fonts'() {
+    const a = window.app, F = await import('/js/fonts.js'), P = (await import('/js/platform.js')).platform;
+    if (a.mode === 'drawing') { const i = a.tabs.findIndex((t) => t.kind !== 'drawing'); if (i >= 0) await a.activateTab(i); }
+    a.newDocument(); await wait(200);
+    const r = await a.macros.run(`
+const s = await rc.add('sketch', { plane: { ref: 'top' }, nextSid: 3, texts: [
+  { id: 't1', text: 'RAZOR', x: -40, y: 0, h: 12, font: 'Arial', bold: true, italic: false, angle: 0 },
+  { id: 't2', text: 'cad', x: 20, y: 0, h: 12, font: 'DejaVu Serif', bold: false, italic: true, angle: 0 }] });
+await rc.extrude(s, 2);
+const b = await rc.rebuild();
+rc.log(b.bodies, b.errors.length);`, 'text');
+    const vol = r.ok && a.result.bodies.length ? (await a.kernel.request('measure', { refs: a.result.bodies.map((b) => ({ kind: 'body', id: b.id })) })) : null;
+    const v = vol ? (vol.items || [vol]).reduce((s, x) => s + (x.volume || 0), 0) : 0;
+    const m = await F.loadDrawingFont('Times New Roman', false, (file) => P.fontData(file));
+    const fams = await a.fontFamilies();
+    const ok = r.ok && Number(r.log[0]?.split(' ')[1]) === 0 && a.result.bodies.length >= 1 && v > 100 && !!m?.metrics && F.fallbackFamily('Courier New') === 'DejaVu Sans Mono' && fams.includes('DejaVu Serif');
+    return ok ? { ok: true, detail: `text extruded (${a.result.bodies.length} bodies, ${Math.round(v)} mm³); drawing font metrics from DejaVu Serif; ${fams.length} families offered` }
+      : { ok: false, detail: `run ${JSON.stringify(r)}, bodies ${a.result.bodies.length}, volume ${v}, metrics ${!!m?.metrics}, families ${fams.join(',')}` };
+  },
+
   // the browser version's notice: above the window, as wide as it (the text wraps), gone with ✕
   async 'web-notice'() {
     const a = window.app, root = document.getElementById('app');

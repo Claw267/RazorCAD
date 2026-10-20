@@ -6,6 +6,13 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 06:18 — Fonts that come with RazorCAD
+- RazorCAD now includes the **DejaVu** fonts: Sans, Sans Mono and Serif, each in regular, bold, italic and bold italic. They are free to share, and their licence is in app/fonts.
+- They are always in the font list for sketch text, and they work everywhere: in the browser version, in the tests and on PCs without the Windows fonts.
+- A Windows font a PC (or the browser) doesn't have is drawn in the DejaVu font most like it: Times New Roman, Georgia and similar in DejaVu Serif; Consolas and Courier New in DejaVu Sans Mono; the rest in DejaVu Sans. This covers sketch text, engraving and drawing text, on screen and in PDFs.
+- The browser version no longer asks for the PC's fonts it can't have.
+- Regression test: bundled-fonts.
+
 ## 2026-10-21 00:21 — Report a problem on GitHub
 - **Help ▸ Report a Problem…** and **Report on GitHub…** in the start window's crash notice turn a crash report into a GitHub issue in one click. Help ▸ Report a Problem can also send a plain report, without a crash.
 - The report contains RazorCAD's version, Windows, what went wrong with its details, and the last lines of the session log. You see the whole text first and can edit it.

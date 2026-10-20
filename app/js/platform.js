@@ -14,6 +14,10 @@ let desktop = false;
 ready.then((d) => (desktop = d));
 
 const api = () => window.pywebview.api;
+// (the browser: the PC's fonts only where a development server offers them at _fonts/; the website doesn't, and
+// after the first miss they are not asked for again)
+let noLocalFonts = false;
+const localFonts = () => !noLocalFonts && !window.RAZORCAD_WEB;
 
 function b64(bytes) {
   let s = '';
@@ -324,11 +328,15 @@ export const platform = {
   async fontsAvailable(files) {
     if (desktop) return api().fonts_available(files);
     const out = [];
-    for (const f of files) { try { if ((await fetch('_fonts/' + f, { method: 'HEAD' })).ok) out.push(f); } catch { /* not there */ } }
+    for (const f of files) { if (!localFonts()) break; try { const r = await fetch('_fonts/' + f, { method: 'HEAD' }); if (r.ok) out.push(f); else if (r.status === 404 && !out.length) noLocalFonts = true; } catch { /* not there */ } }
     return out;
   },
 
   async fontData(file) {
+    // (the fonts that come with RazorCAD are in the app itself)
+    if (/^DejaVu[\w-]*\.ttf$/.test(String(file || ''))) {
+      try { const r = await fetch('fonts/' + file); return r.ok ? await r.arrayBuffer() : null; } catch { return null; }
+    }
     if (desktop) {
       const b64s = await api().read_font(file);
       if (!b64s) return null;
@@ -336,7 +344,8 @@ export const platform = {
       for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
       return out.buffer;
     }
-    try { const r = await fetch('_fonts/' + file); return r.ok ? await r.arrayBuffer() : null; } catch { return null; }
+    if (!localFonts()) return null;
+    try { const r = await fetch('_fonts/' + file); if (r.status === 404) noLocalFonts = true; return r.ok ? await r.arrayBuffer() : null; } catch { return null; }
   },
 
   setTitle(t) {

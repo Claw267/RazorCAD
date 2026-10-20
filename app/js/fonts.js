@@ -1,5 +1,7 @@
-// Fonts for sketch text and drawing text: the TrueType files Windows installs (C:\Windows\Fonts). They
-// are read from the PC at run time (nothing is bundled). [regular, bold, italic, bold italic]; null = not there.
+// Fonts for sketch text and drawing text: the TrueType files Windows installs (C:\Windows\Fonts), read from the
+// PC at run time, and the DejaVu fonts that come with RazorCAD (app/fonts, free to share: LICENSE_DEJAVU), which
+// are always there. [regular, bold, italic, bold italic]; null = not there. A Windows font the PC (or the browser
+// version) doesn't have is drawn in the DejaVu font most like it.
 import { parseTTF } from './ttf.js';
 
 export const FONTS = {
@@ -17,7 +19,20 @@ export const FONTS = {
   'Times New Roman': ['times.ttf', 'timesbd.ttf', 'timesi.ttf', 'timesbi.ttf'],
   'Trebuchet MS': ['trebuc.ttf', 'trebucbd.ttf', 'trebucit.ttf', 'trebucbi.ttf'],
   Verdana: ['verdana.ttf', 'verdanab.ttf', 'verdanai.ttf', 'verdanaz.ttf'],
+  'DejaVu Sans': ['DejaVuSans.ttf', 'DejaVuSans-Bold.ttf', 'DejaVuSans-Oblique.ttf', 'DejaVuSans-BoldOblique.ttf'],
+  'DejaVu Sans Mono': ['DejaVuSansMono.ttf', 'DejaVuSansMono-Bold.ttf', 'DejaVuSansMono-Oblique.ttf', 'DejaVuSansMono-BoldOblique.ttf'],
+  'DejaVu Serif': ['DejaVuSerif.ttf', 'DejaVuSerif-Bold.ttf', 'DejaVuSerif-Italic.ttf', 'DejaVuSerif-BoldItalic.ttf'],
 };
+// the fonts that come with RazorCAD (app/fonts)
+export const BUNDLED_FAMILIES = ['DejaVu Sans', 'DejaVu Sans Mono', 'DejaVu Serif'];
+export const isBundledFont = (file) => /^DejaVu[\w-]*\.ttf$/.test(String(file || ''));
+// the bundled family most like a font (serif, fixed width, or sans)
+export function fallbackFamily(family) {
+  if (BUNDLED_FAMILIES.includes(family)) return family;
+  if (/Times|Georgia|Serif|Garamond|Cambria|Book/i.test(family || '')) return 'DejaVu Serif';
+  if (/Consolas|Courier|Mono|Lucida Console/i.test(family || '')) return 'DejaVu Sans Mono';
+  return 'DejaVu Sans';
+}
 
 // The file for a style, falling back to the nearest style the family has.
 export function fontFile(family, bold, italic) {
@@ -44,7 +59,8 @@ export async function loadDrawingFont(family, bold, read) {
   if (loaded.has(key)) return loaded.get(key);
   let entry = null;
   try {
-    const data = FONTS[family] ? await read(fontFile(family, bold, false)) : null;
+    // (a font the PC doesn't have: the bundled one most like it, under the font's own name)
+    const data = (FONTS[family] ? await read(fontFile(family, bold, false)) : null) || await read(fontFile(fallbackFamily(family), bold, false));
     if (data) {
       entry = { metrics: parseTTF(data), data };
       if (typeof FontFace !== 'undefined' && typeof document !== 'undefined') {

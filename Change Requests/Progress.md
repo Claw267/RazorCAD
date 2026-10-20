@@ -530,7 +530,8 @@ In this order; each item tested (regression suite + preview / exe), logged in CH
 ## Improvement plan 3 (user request 2026-10-21: "1b, 1c, 1d, 1e, 1f, also make the columns editable where the user can add and remove columns or even select/change a column property. 2b, 2c, 3a, 3c, 3d, all of 4 (find another terms for lightweight), all of 6. make note of what we are skipping for now.")
 In this order; each item tested (regression suite + preview / exe), logged in CHANGELOG, RazorCAD.exe rebuilt and smoke-tested, committed locally. No installer, no push.
 1. Rounding off
-- [ ] 1b Fonts that come with RazorCAD (freely licensed), so sketch text, engraving and drawing text work in the browser version and the tests too.
+- [x] 1b Fonts that come with RazorCAD (freely licensed), so sketch text, engraving and drawing text work in the browser version and the tests too.
+  - Done: DejaVu Sans / Sans Mono / Serif (12 files + LICENSE_DEJAVU, copied from the matplotlib install with the user's permission) in app/fonts; fonts.js families + BUNDLED_FAMILIES / fallbackFamily (serif, mono, sans); platform.fontData reads bundled files from fonts/ (desktop and browser), no _fonts probing on the website and none after the first miss; main.ensureFonts falls back to the matching DejaVu style, fontFamilies always offers them; loadDrawingFont falls back too (registered under the requested name, used for PDF). THIRD-PARTY-NOTICES entry. Test bundled-fonts; full suite passes.
 - [ ] 1c Standard parts, round two: a fastener set in one go (bolt + washers + nut), fill all matching holes, inch fasteners, set screws, circlips, keys, rivets; the hole's end face tracked when the part changes.
 - [ ] 1d Macros in assemblies and drawings (recording their changes, not only commands).
 - [ ] 1e Auto Dimension options: baseline or ordinate style, labels spread so they don't overlap, default tolerances.
