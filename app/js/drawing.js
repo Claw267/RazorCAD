@@ -607,6 +607,7 @@ export function annPrims(dwg, a, ctx) {
     return out;
   }
   if (a.type === 'bom') return bomTablePrims(dwg, a);
+  if (a.type === 'dxf') return dxfAnnPrims(dwg, a);
   if (a.type === 'revtable') return revTablePrims(dwg, a);
   if (a.type === 'cutlist') return cutListPrims(dwg, a, ctx);
   if (a.type === 'datum' || a.type === 'fcf' || a.type === 'sfin' || a.type === 'weld') return symbolPrims(dwg, a, X);
@@ -905,6 +906,28 @@ export function bomTablePrims(dwg, a) {
   rows.forEach((r, i) => cell(i + 1, spec.map((c) => (c.key === 'name' ? '  '.repeat(r.depth) : '') + bomCell(r, c))));
   if (totals) cell(rows.length + 1, spec.map((c, i) => totals[i] ?? ''), true);
   if (!m) out.push({ t: 'text', p: [P[0] + W / 2, P[1] + rh * 1.7], text: '(the assembly is missing)', h: th, anchor: 'middle', base: 'bottom', color: '#8a94a6' });
+  return out;
+}
+
+// A DXF drawing placed on the sheet (Insert ▸ DXF Drawing): its shapes (dxfimport.js, in mm, its lower left corner
+// at the origin) drawn at the annotation's position (the lower left corner on the sheet), times a.scale.
+export function dxfAnnPrims(dwg, a) {
+  const P = annPos(dwg, a), k = a.scale || 1, out = [], w = LW.visible;
+  const T = (q) => [P[0] + q[0] * k, P[1] - q[1] * k];
+  const arcPts = (c, r, a0, a1) => { let s = a1 - a0; while (s <= 0) s += 360; const n = Math.max(8, Math.ceil(s / 6)); return Array.from({ length: n + 1 }, (_, i) => { const t = ((a0 + (s * i) / n) * Math.PI) / 180; return T([c[0] + r * Math.cos(t), c[1] + r * Math.sin(t)]); }); };
+  for (const s of a.shapes || []) {
+    if (s.line) out.push({ t: 'line', a: T(s.line[0]), b: T(s.line[1]), w });
+    else if (s.circle) out.push({ t: 'circle', c: T(s.circle.c), r: s.circle.r * k, w });
+    else if (s.arc) out.push({ t: 'poly', pts: arcPts(s.arc.c, s.arc.r, s.arc.a0, s.arc.a1), w });
+    else if (s.ellipse) {
+      const { c, major, ratio, t0, t1 } = s.ellipse, ra = Math.hypot(major[0], major[1]), u = [major[0] / ra, major[1] / ra], v = [-u[1], u[0]], rb = ra * ratio;
+      let span = t1 - t0;
+      while (span <= 0) span += 2 * Math.PI;
+      const n = 64, pts = Array.from({ length: n + 1 }, (_, i) => { const t = t0 + (span * i) / n; return T([c[0] + ra * Math.cos(t) * u[0] + rb * Math.sin(t) * v[0], c[1] + ra * Math.cos(t) * u[1] + rb * Math.sin(t) * v[1]]); });
+      out.push({ t: 'poly', pts, w });
+    } else if (s.spline) out.push({ t: 'poly', pts: s.spline.pts.map(T), closed: !!s.spline.closed, w });
+    else if (s.text) out.push({ t: 'text', p: T(s.text.p), text: s.text.s, h: s.text.h * k, anchor: 'start', base: 'bottom', rot: s.text.rot || 0 });
+  }
   return out;
 }
 

@@ -18,6 +18,7 @@ import { bomRows, bomItemOf, BOM_FIELDS, bomPropNames, bomCell, bomSources, bomC
 import { propOf } from './custprops.js';
 import { explodeOffsets } from './explode.js';
 import { autoDims, AUTO_DIM_DEFAULTS } from './autodim.js';
+import { parseDXF, dxfShapes } from './dxfimport.js';
 import { t as tr } from './i18n.js';
 
 // Assemblies this big (solids, or display triangles) are drawn with fast hidden-line removal unless a view asks
@@ -645,6 +646,13 @@ export class DrawingEditor {
       this.selected.clear(); this.selected.add(ann.id);
       if (ann.type === 'dim' || ann.type === 'note') items.push({ label: ann.type === 'dim' ? 'Edit Dimension Text…' : 'Edit Note…', icon: 'note', action: () => this.editAnn(ann) });
       if (['datum', 'fcf', 'sfin', 'weld', 'revtable'].includes(ann.type)) items.push({ label: 'Edit…', icon: 'note', action: () => this.editAnn(ann) });
+      if (ann.type === 'dxf') items.push({ label: `Scale (now ${ann.scale >= 1 ? `${+ann.scale.toFixed(3)}:1` : `1:${+(1 / ann.scale).toFixed(3)}`})…`, icon: 'dxf', action: async () => {
+        const t = await this.app.ui.promptText('DXF Scale', 'dxf', 'Scale (e.g. 1:2, 2:1 or 0.5)', ann.scale >= 1 ? `${+ann.scale.toFixed(3)}:1` : `1:${+(1 / ann.scale).toFixed(3)}`);
+        if (t == null) return;
+        const m = /^\s*([\d.]+)\s*:\s*([\d.]+)\s*$/.exec(t), v = m ? +m[1] / +m[2] : +t;
+        if (!(v > 0)) { this.app.toast('Enter a scale such as 1:2', true); return; }
+        ann.scale = v; this.changed();
+      } });
       if (ann.type === 'balloon') items.push({ label: 'Item Number…', icon: 'balloon', action: async () => { const t = await this.app.ui.promptText('Balloon', 'balloon', 'Item number', String(ann.item ?? '')); if (t != null && t.trim()) { ann.item = t.trim(); this.changed(); } } });
       if (ann.type === 'bom') {
         // (the column under the cursor: what it shows, insert, move, rename, remove; a typed value: edit it)
@@ -1540,6 +1548,41 @@ export class DrawingEditor {
     ]);
   }
 
+  // Insert ▸ DXF Drawing: a DXF file's lines, arcs, circles, polylines, splines and texts placed on the sheet as one
+  // item (move it, scale it, delete it), in the middle of the frame, at full size or a standard scale that fits.
+  async insertDXF() {
+    if (this.tool) this.cancelTool(false);
+    const f = await platform.openDXF();
+    if (!f?.text) return;
+    let shapes;
+    try { shapes = dxfShapes(parseDXF(f.text)).filter((s) => !s.point); } catch (e) { this.app.toast(`${f.name} could not be read: ${e.message}`, true); return; }
+    if (!shapes.length) { this.app.toast(`${f.name} has nothing RazorCAD can draw`, true); return; }
+    // (its lower left corner at the origin)
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    const pt = (q) => { x0 = Math.min(x0, q[0]); y0 = Math.min(y0, q[1]); x1 = Math.max(x1, q[0]); y1 = Math.max(y1, q[1]); };
+    for (const s of shapes) {
+      if (s.line) s.line.forEach(pt); else if (s.circle || s.arc) { const c = s.circle || s.arc; pt([c.c[0] - c.r, c.c[1] - c.r]); pt([c.c[0] + c.r, c.c[1] + c.r]); }
+      else if (s.ellipse) { const e = s.ellipse, ra = Math.hypot(...e.major); pt([e.c[0] - ra, e.c[1] - ra]); pt([e.c[0] + ra, e.c[1] + ra]); }
+      else if (s.spline) s.spline.pts.forEach(pt); else if (s.text) pt(s.text.p);
+    }
+    const mv = (q) => [q[0] - x0, q[1] - y0];
+    for (const s of shapes) {
+      if (s.line) s.line = s.line.map(mv); else if (s.circle) s.circle.c = mv(s.circle.c); else if (s.arc) s.arc.c = mv(s.arc.c);
+      else if (s.ellipse) s.ellipse.c = mv(s.ellipse.c); else if (s.spline) s.spline.pts = s.spline.pts.map(mv); else if (s.text) s.text.p = mv(s.text.p);
+    }
+    const W = Math.max(1e-6, x1 - x0), H = Math.max(1e-6, y1 - y0);
+    const fr = frameRect(this.sheet, this.doc.format), tb = titleBlockRect(this.sheet, this.doc.format);
+    const aw = (fr.x1 - fr.x0) * 0.9, ah = (fr.y1 - fr.y0 - (tb.y1 - tb.y0)) * 0.9;
+    const fit = Math.min(1, aw / W, ah / H), k = fit >= 1 ? 1 : [0.5, 0.4, 0.2, 0.1, 0.05, 0.02, 0.01, 0.005, 0.002, 0.001].find((x) => x <= fit) || fit;
+    const cx = (fr.x0 + fr.x1) / 2, cy = (fr.y0 + fr.y1 - (tb.y1 - tb.y0)) / 2;
+    const a = { id: D.newId(this.doc, 'a'), type: 'dxf', sheet: this.sheetId, name: f.name, scale: k, shapes, pos: [cx - (W * k) / 2, cy + (H * k) / 2] };
+    this.doc.anns.push(a);
+    this.selected.clear(); this.selected.add(a.id);
+    this.changed();
+    this.app.status(`${f.name} placed (${shapes.length} items${k !== 1 ? `, at 1:${+(1 / k).toFixed(3)}` : ''}): drag it where you want it; right-click it to scale it.`);
+    return a;
+  }
+
   addBOM() {
     if (this.tool) this.cancelTool(false);
     const v = [...this.selected].map((id) => D.findView(this.doc, id)).find(Boolean);
@@ -2403,6 +2446,7 @@ export class DrawingEditor {
         { label: 'Annotations ▸ Center Mark', icon: 'centerMark', action: () => this.startTool('cmark') },
         { label: 'Annotations ▸ Centerline', icon: 'centerline', action: () => this.startTool('cline') },
         'sep',
+        { label: 'DXF Drawing…', icon: 'dxf', action: () => this.insertDXF() },
         { label: 'Sheet', icon: 'addSheet', action: () => this.addSheet() },
       ],
       Tools: [

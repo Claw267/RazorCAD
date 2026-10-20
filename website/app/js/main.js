@@ -26,6 +26,7 @@ import { isTemplate, drawingFromTemplate } from './drawtemplates.js';
 import { bodySignature, groupBodies, sameBody } from './bodygroups.js';
 import * as D from './drawing.js';
 import { Macros } from './macros.js';
+import { igesToStep } from './igesstep.js';
 
 // Saved parts are auto-saved next to their file at most this often while they have unsaved changes.
 const AUTOSAVE_MS = 20000;
@@ -1585,6 +1586,15 @@ class App {
   // asPart: opened with File ▸ Open: always a part of its own (no question)
   async handleImport(file, { asPart = false } = {}) {
     if (!file) return;
+    // (an IGES file: translated into STEP, its faces sewn into solids when they close)
+    if (file.format === 'iges') {
+      let r;
+      try { r = igesToStep(file.data); } catch (e) { this.toast(`${file.name} could not be read: ${e.message}`, true); return; }
+      if (!r.faces && !r.solids) { this.toast(`${file.name} has no surfaces or solids RazorCAD can read`, true); return; }
+      const skipped = Object.entries(r.skipped).map(([t, n]) => `${n} × entity ${t}`).join(', ');
+      if (skipped) breadcrumb(`IGES ${file.name}: left out ${skipped}`);
+      file = { ...file, format: 'step', data: r.step, sew: true, igesNote: skipped };
+    }
     const stem = file.name.replace(/\.[^.]+$/, '');
     // a STEP file: its structure and appearances (colours, transparency) read first. An assembly opened (not
     // inserted into a part) can open as an assembly, with its sub-assemblies; otherwise the appearances go with
@@ -1685,7 +1695,7 @@ class App {
     if (this.mode === 'sketch') this.exitSketch(true);
     if (this.mode === 'sketch3d') this.exitSketch3D(true);
     if (this.pm) this.cancelPM();
-    const f = M.createFeature(this.doc, 'import', { format: file.format, fileName: file.name, data: file.data, name: file.name.replace(/\.[^.]+$/, ''), ...(appearance ? { appearance } : {}) });
+    const f = M.createFeature(this.doc, 'import', { format: file.format, fileName: file.name, data: file.data, name: file.name.replace(/\.[^.]+$/, ''), ...(appearance ? { appearance } : {}), ...(file.sew ? { sew: true } : {}) });
     M.insertFeature(this.doc, f);
     this.commit();
     this.status(`Importing ${file.name}…`);

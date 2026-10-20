@@ -46,14 +46,14 @@ STL_TYPES = ('STL Mesh (*.stl)', 'All files (*.*)')
 STEP_TYPES = ('STEP File (*.step;*.stp)', 'All files (*.*)')
 DXF_TYPES = ('DXF Drawing (*.dxf)', 'All files (*.*)')
 MACRO_TYPES = ('RazorCAD macro (*.js)', 'All files (*.*)')
-IMPORT_TYPES = ('STEP STL OBJ or 3MF (*.step;*.stp;*.stl;*.obj;*.3mf)', 'STEP File (*.step;*.stp)', 'STL Mesh (*.stl)', 'OBJ Mesh (*.obj)', '3MF Model (*.3mf)', 'All files (*.*)')
+IMPORT_TYPES = ('STEP IGES STL OBJ or 3MF (*.step;*.stp;*.igs;*.iges;*.stl;*.obj;*.3mf)', 'STEP File (*.step;*.stp)', 'IGES File (*.igs;*.iges)', 'STL Mesh (*.stl)', 'OBJ Mesh (*.obj)', '3MF Model (*.3mf)', 'All files (*.*)')
 OBJ_TYPES = ('OBJ Mesh (*.obj)', 'All files (*.*)')
 THREEMF_TYPES = ('3MF Model (*.3mf)', 'All files (*.*)')
 DXF_OPEN_TYPES = ('DXF Drawing (*.dxf)', 'All files (*.*)')
 # (pywebview only accepts letters, digits and spaces in a filter's description: no commas or dashes)
-OPEN_TYPES = ('All supported files (*.rcad;*.rasm;*.rdrw;*.rdrt;*.step;*.stp;*.stl;*.obj;*.3mf)',
+OPEN_TYPES = ('All supported files (*.rcad;*.rasm;*.rdrw;*.rdrt;*.step;*.stp;*.igs;*.iges;*.stl;*.obj;*.3mf)',
               'RazorCAD Part (*.rcad)', 'RazorCAD Assembly (*.rasm)',
-              'RazorCAD Drawing (*.rdrw)', 'RazorCAD Drawing Template (*.rdrt)', 'STEP STL OBJ or 3MF (*.step;*.stp;*.stl;*.obj;*.3mf)', 'All files (*.*)')
+              'RazorCAD Drawing (*.rdrw)', 'RazorCAD Drawing Template (*.rdrt)', 'STEP IGES STL OBJ or 3MF (*.step;*.stp;*.igs;*.iges;*.stl;*.obj;*.3mf)', 'All files (*.*)')
 
 
 def documents_dir():
@@ -844,7 +844,7 @@ class Api:
             with open(path, 'rb') as f:
                 return {'name': name, 'format': ext, 'data': base64.b64encode(f.read()).decode('ascii')}
         with open(path, encoding='utf-8', errors='replace') as f:
-            return {'name': name, 'format': 'step', 'data': f.read()}
+            return {'name': name, 'format': 'iges' if ext in ('igs', 'iges') else 'step', 'data': f.read()}
 
     def open_dxf(self):
         """A DXF file's text (for importing into a sketch), or None."""
@@ -859,7 +859,7 @@ class Api:
         path = first(self._window.create_file_dialog(webview.FileDialog.OPEN, file_types=OPEN_TYPES))
         if not path:
             return None
-        if path.lower().endswith(('.step', '.stp', '.stl', '.obj', '.3mf')):
+        if path.lower().endswith(('.step', '.stp', '.igs', '.iges', '.stl', '.obj', '.3mf')):
             return self._read_import(path)
         return self.open_path(path)
 

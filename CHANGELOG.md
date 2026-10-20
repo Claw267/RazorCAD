@@ -6,6 +6,16 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 06:59 — IGES import, DXF into drawings, exact volumes of NURBS bodies
+- **IGES files** (.igs, .iges) open and import like STEP files (File ▸ Open, Import).
+  - Read: trimmed and bounded surfaces, B-rep solids, B-spline / plane / revolved / extruded / cylinder / cone / sphere / torus surfaces, lines, arcs, B-spline curves, composite curves, polylines, and the file's units and transformations.
+  - Faces that close up are sewn into a solid; the rest come in as surface bodies.
+  - (The geometry kernel has no IGES reader of its own, so RazorCAD translates IGES into STEP for it.)
+- **Insert ▸ DXF Drawing…** on drawings places a DXF file's lines, circles, arcs, polylines (with bulges), ellipses, splines and texts on the sheet as one item. It goes in the middle of the frame at full size, or scaled down to a standard scale that fits. Drag it, right-click ▸ Scale…, or delete it; it prints and exports with the sheet.
+- DWG is left out: no free DWG reader exists that could run in RazorCAD. Save the drawing as DXF from the program that made it.
+- **Volumes are now exact for bodies with B-spline faces** (imported NURBS, IGES). The old measure could be off by up to about 1% on them; e.g. a NURBS cylinder came out 9501.6 mm³ instead of 9424.8. Bodies made of planes, cylinders and other plain faces are unchanged.
+- Regression tests: iges-import (a box of trimmed planes, a NURBS cylinder and a B-rep tetrahedron, all to their exact volumes; written by tests/make_iges.py), dxf-into-drawing.
+
 ## 2026-10-21 06:45 — Compare two versions of a part
 - **File ▸ Compare With…** compares the part in front with its last saved version, another part file, or another open part.
 - **Features and settings:**

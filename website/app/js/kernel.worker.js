@@ -273,6 +273,24 @@ function boxesTouch(a, b, tol) {
   return true;
 }
 
+// A body's volume. With faces of free-form kinds (B-spline, Bezier, offset, swept: imported NURBS, IGES) by an
+// adaptive integration to a small relative error, as the fixed rule the plain measure uses can be off by up to
+// about 1% on rational B-spline faces; otherwise the plain (exact for planes, cylinders, cones…) measure.
+const FREEFORM = new Set(['BSPLINE_SURFACE', 'BEZIER_SURFACE', 'OFFSET_SURFACE', 'REVOLUTION_SURFACE', 'EXTRUSION_SURFACE', 'OTHER_SURFACE']);
+function preciseVolume(shape) {
+  let free = false;
+  try { free = shape.faces.some((f) => FREEFORM.has(f.geomType)); } catch { free = false; }
+  if (!free) return R.measureVolume(shape);
+  try {
+    const oc = R.getOC(), props = new oc.GProp_GProps();
+    oc.BRepGProp.VolumePropertiesGK(shape.wrapped, props, 1e-9, false, false, false, false, false);
+    const v = props.Mass();
+    props.delete();
+    if (Number.isFinite(v) && v !== 0) return Math.abs(v);
+  } catch { /* the plain measure */ }
+  return R.measureVolume(shape);
+}
+
 function volumeOf(rec) {
   if (rec.vol == null) { try { rec.vol = R.measureVolume(rec.shape); } catch { rec.vol = NaN; } }
   return rec.vol;
@@ -1450,6 +1468,36 @@ function importedLooks(app, shapes) {
   return out;
 }
 
+// Faces sewn into shells (edges closer than tol joined); when nothing is left open, each shell made a solid. The
+// sewn shape (the solid, or a compound of them).
+function sewFaces(shape, tol = 0.01) {
+  const oc = R.getOC();
+  const sw = new oc.BRepBuilderAPI_Sewing(Math.max(1e-6, tol), true, true, true, false);
+  sw.Add(shape.wrapped);
+  sw.Perform(new oc.Message_ProgressRange());
+  const sewn = R.cast(sw.SewedShape());
+  const free = sw.NbFreeEdges();
+  sw.delete();
+  if (free) return sewn;
+  const solids = [];
+  for (const sh of R.iterTopo(sewn.wrapped, 'shell')) {
+    try {
+      const ms = new oc.BRepBuilderAPI_MakeSolid(sh);
+      const solid = R.cast(ms.Solid());
+      ms.delete();
+      oc.BRepLib.OrientClosedSolid(solid.wrapped);
+      if (R.measureVolume(solid) > 0) solids.push(solid);
+    } catch { /* stays a surface */ }
+  }
+  if (!solids.length) return sewn;
+  if (solids.length === 1) return solids[0];
+  const builder = new oc.TopoDS_Builder(), comp = new oc.TopoDS_Compound();
+  builder.MakeCompound(comp);
+  for (const x of solids) builder.Add(comp, x.wrapped);
+  builder.delete();
+  return R.cast(comp);
+}
+
 async function importShape(f) {
   const key = `${f.format}:${f.data.length}:${f.data.slice(0, 64)}:${f.data.slice(-64)}:${f.maxTris ?? ''}`;
   const hit = importCache.get(f.id);
@@ -2495,7 +2543,9 @@ async function rebuild(doc, previewId = null, opts = {}) {
         }
         case 'import': {
           const rec = await importShape(f);
-          const shape = rec.shape.clone();
+          let shape = rec.shape.clone();
+          // (an IGES file's faces, each on its own: sewn together, a solid where they close)
+          if (f.sew && !shape.solids.length) shape = sewFaces(shape, f.sewTolerance ?? 0.01);
           if (rec.dense) dense = true;
           // imported bodies stay separate unless "Merge touching bodies" is ticked
           const mergeBodies = f.mergeBodies === true;
@@ -5222,7 +5272,7 @@ function measureRefs(refs) {
       const b = all.find((x) => x.id === r.id);
       if (!b) throw new Error('A selected body no longer exists');
       const solid = lastSolids.includes(b);
-      return { shape: b.shape, info: { type: 'body', solid, volume: solid ? R.measureVolume(b.shape) : null, area: R.measureArea(b.shape) } };
+      return { shape: b.shape, info: { type: 'body', solid, volume: solid ? preciseVolume(b.shape) : null, area: R.measureArea(b.shape) } };
     }
     if (r.kind === 'seg') return { shape: R.makeLine(r.a, r.b), dir: unit(sub(r.b, r.a)), info: { type: 'edge', length: len(sub(r.b, r.a)), curve: 'line' } };
     if (r.kind === 'plane') return { shape: planeFace(r.o, r.n), normal: unit(r.n), info: { type: 'plane' } };
@@ -5342,7 +5392,7 @@ async function compareParts(aJson, bJson) {
   progress(null, 'Comparing the two versions…');
   const solidList = (b) => b.solids.filter((r) => r.shape && solidsOf(r.shape).length).map((r) => r.shape);
   const sa = solidList(A), sb = solidList(B);
-  const vol = (list) => list.reduce((t, s) => t + solidsOf(s).reduce((u, x) => u + R.measureVolume(x), 0), 0);
+  const vol = (list) => list.reduce((t, s) => t + solidsOf(s).reduce((u, x) => u + preciseVolume(x), 0), 0);
   const va = vol(sa), vb = vol(sb), tiny = Math.max(1e-6, Math.max(va, vb) * 1e-7);
   // (each body less every body of the other version it reaches)
   const less = (from, minus) => {

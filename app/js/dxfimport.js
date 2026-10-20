@@ -41,7 +41,8 @@ export function parseDXF(text) {
 }
 
 // Shapes in DXF coordinates: { line: [a, b] } | { arc: { c, r, a0, a1 } (degrees, counter-clockwise) } |
-// { circle: { c, r } } | { ellipse: { c, major, ratio, t0, t1 } } | { spline: { pts, closed } } | { point }
+// { circle: { c, r } } | { ellipse: { c, major, ratio, t0, t1 } } | { spline: { pts, closed } } | { point } |
+// { text: { p, h, s, rot } } (TEXT and MTEXT; a sketch leaves them out)
 export function dxfShapes(dxf) {
   const out = [];
   const one = (codes, c) => { const x = codes.find((q) => q[0] === c); return x ? +x[1] : 0; };
@@ -54,6 +55,14 @@ export function dxfShapes(dxf) {
       case 'CIRCLE': out.push({ circle: { c: P(one(C, 10), one(C, 20)), r: one(C, 40) * M.k } }); break;
       case 'ARC': out.push({ arc: { c: P(one(C, 10), one(C, 20)), r: one(C, 40) * M.k, a0: one(C, 50) + M.rot, a1: one(C, 51) + M.rot } }); break;
       case 'POINT': out.push({ point: P(one(C, 10), one(C, 20)) }); break;
+      case 'TEXT':
+      case 'MTEXT': {
+        // (MTEXT: its text in pieces, formatting codes taken out; \P a new line, kept as a space)
+        const raw = C.filter((q) => q[0] === 3 || q[0] === 1).map((q) => q[1]).join('');
+        const s = e.type === 'MTEXT' ? raw.replace(/\\P/g, ' ').replace(/\\[A-Za-z][^;\\]*;/g, '').replace(/[{}]/g, '').replace(/\\~/g, ' ') : raw;
+        if (s.trim()) out.push({ text: { p: P(one(C, 10), one(C, 20)), h: (one(C, 40) || 2.5) * M.k, s: s.trim(), rot: one(C, 50) + M.rot } });
+        break;
+      }
       case 'ELLIPSE': {
         const c = P(one(C, 10), one(C, 20)), m = M.dir([one(C, 11), one(C, 21)]);
         out.push({ ellipse: { c, major: m, ratio: one(C, 40), t0: C.some((q) => q[0] === 41) ? one(C, 41) : 0, t1: C.some((q) => q[0] === 42) ? one(C, 42) : 2 * Math.PI } });

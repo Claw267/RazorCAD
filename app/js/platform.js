@@ -255,14 +255,14 @@ export const platform = {
     return new Promise((resolve) => {
       const input = document.getElementById('file-input');
       input.value = '';
-      input.accept = '.rcad,.rasm,.rdrw,.step,.stp,.stl';
+      input.accept = '.rcad,.rasm,.rdrw,.step,.stp,.stl,.igs,.iges';
       input.onchange = async () => {
         const f = input.files[0];
         input.accept = '.rcad,.rasm,.rdrw';
         if (!f) return resolve(null);
-        if (/\.(step|stp|stl)$/i.test(f.name)) {
-          const isStl = /\.stl$/i.test(f.name);
-          return resolve({ name: f.name, format: isStl ? 'stl' : 'step', data: isStl ? b64(new Uint8Array(await f.arrayBuffer())) : await f.text() });
+        if (/\.(step|stp|stl|igs|iges)$/i.test(f.name)) {
+          const isStl = /\.stl$/i.test(f.name), isIges = /\.(igs|iges)$/i.test(f.name);
+          return resolve({ name: f.name, format: isStl ? 'stl' : isIges ? 'iges' : 'step', data: isStl ? b64(new Uint8Array(await f.arrayBuffer())) : await f.text() });
         }
         resolve({ name: f.name, content: await f.text(), path: null });
       };
@@ -276,14 +276,14 @@ export const platform = {
     return new Promise((resolve) => {
       const input = document.getElementById('file-input');
       input.value = '';
-      input.accept = '.step,.stp,.stl,.obj,.3mf';
+      input.accept = '.step,.stp,.igs,.iges,.stl,.obj,.3mf';
       input.onchange = async () => {
         const f = input.files[0];
         input.accept = '.rcad,.rasm,.rdrw';
         if (!f) return resolve(null);
         const ext = (/\.(stl|obj|3mf)$/i.exec(f.name) || [])[1]?.toLowerCase();
         const data = ext ? b64(new Uint8Array(await f.arrayBuffer())) : await f.text();
-        resolve({ name: f.name, format: ext || 'step', data });
+        resolve({ name: f.name, format: ext || (/\.(igs|iges)$/i.test(f.name) ? 'iges' : 'step'), data });
       };
       input.click();
     });

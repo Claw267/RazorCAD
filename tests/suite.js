@@ -1262,6 +1262,69 @@ await rc.cut(h, 10);`, 'plate');
       : { ok: false, detail: `diff ${JSON.stringify({ add: d.added.length, rem: d.removed.length, ch: d.changed.map((x) => x.keys) })}, kernel ${JSON.stringify(r && { added: r.added, removed: r.removed, a: r.volumeA, b: r.volumeB })}, text ${text.slice(0, 200)}` };
   },
 
+  // IGES import (tests/data, written by tests/make_iges.py): a box of six trimmed planes and a cylinder (NURBS side,
+  // planes trimmed by circles) sewn into solids, and a B-rep tetrahedron, each with the volume it should have
+  async 'iges-import'() {
+    const a = window.app, I = await import('/js/igesstep.js'), k = a.kernel;
+    const want = { 'box_trimmed.igs': 20 * 30 * 40, 'cyl_trimmed.igs': Math.PI * 100 * 30, 'tetra_brep.igs': 1000 / 6 };
+    const out = [];
+    let ok = true;
+    for (const [name, v] of Object.entries(want)) {
+      const text = await (await fetch('/tests/data/' + name)).text();
+      const t = I.igesToStep(text);
+      const d = M.newDoc(); d.name = name;
+      d.features.push(M.createFeature(d, 'import', { format: 'step', fileName: name, data: t.step, name, sew: true }));
+      const r = await k.rebuild(d, null, null);
+      const bodies = r.body?.bodies || [];
+      let vol = 0, kind = bodies.map((b) => b.kind).join(',');
+      for (const b of bodies) { const m = await k.request('measure', { refs: [{ kind: 'body', id: b.id }] }); vol += (m.items?.[0] || m).volume || 0; }
+      const good = !r.errors.length && bodies.length === 1 && kind === 'solid' && Math.abs(vol - v) < 1e-3 * v;
+      ok &&= good;
+      out.push(`${name}: ${t.faces} faces / ${t.solids} solids → ${kind || 'nothing'} ${vol.toFixed(2)} mm³${good ? '' : ` (expected ${v.toFixed(2)}; ${r.errors.map(([, m]) => m).join('; ')}; skipped ${JSON.stringify(t.skipped)})`}`);
+    }
+    // (and as File ▸ Open does it: a new part with the import, sewn)
+    if (a.mode === 'drawing') { const i = a.tabs.findIndex((t) => t.kind !== 'drawing'); if (i >= 0) await a.activateTab(i); }
+    const box = await (await fetch('/tests/data/box_trimmed.igs')).text();
+    await a.handleImport({ name: 'box_trimmed.igs', format: 'iges', data: box }, { asPart: true });
+    const imp = a.doc.features.find((f) => f.type === 'import');
+    const opened = !!imp?.sew && a.doc.name === 'box_trimmed' && (a.result.bodies || []).length === 1 && a.result.bodies[0].kind === 'solid';
+    ok &&= opened;
+    out.push(`opened as a part: ${opened}`);
+    return { ok, detail: out.join(' | ') };
+  },
+
+  // DXF into a drawing: a small DXF (line, circle, arc, polyline with a bulge, text) placed on the sheet at full
+  // size, drawn as lines / circles / curves / text; a big one is scaled down to a standard scale
+  async 'dxf-into-drawing'() {
+    const a = window.app, P = (await import('/js/platform.js')).platform;
+    const ent = (type, codes) => `0\n${type}\n8\n0\n${codes.map(([c, v]) => `${c}\n${v}`).join('\n')}`;
+    const dxf = (s) => `0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n${s.join('\n')}\n0\nENDSEC\n0\nEOF\n`;
+    const small = dxf([ent('LINE', [[10, 0], [20, 0], [11, 100], [21, 0]]), ent('CIRCLE', [[10, 50], [20, 30], [40, 10]]), ent('ARC', [[10, 50], [20, 30], [40, 20], [50, 0], [51, 90]]),
+      ent('LWPOLYLINE', [[90, 3], [70, 0], [10, 0], [20, 60], [42, 1], [10, 20], [20, 60], [10, 20], [20, 80]]), ent('TEXT', [[10, 0], [20, 90], [40, 5], [1, 'PLATE 1'], [50, 0]])]);
+    const big = dxf([ent('LINE', [[10, 0], [20, 0], [11, 3000], [21, 2000]])]);
+    const keep = P.openDXF;
+    let text = small;
+    P.openDXF = async () => ({ name: 'plate.dxf', text });
+    let ed, a1, a2;
+    try {
+      const k2 = a.ui.newDrawingSetup;
+      a.ui.newDrawingSetup = async () => ({ template: BUILTIN_TEMPLATES.find((t) => t.id === 'builtin:A3L'), name: 'DXF', props: {}, sheet: null });
+      try { await a.newDrawing(); } finally { a.ui.newDrawingSetup = k2; }
+      ed = a.drawing;
+      a1 = await ed.insertDXF();
+      text = big;
+      a2 = await ed.insertDXF();
+    } finally { P.openDXF = keep; }
+    const prims = D2.annPrims(ed.doc, a1, {});
+    const kinds = prims.reduce((m, p) => ({ ...m, [p.t]: (m[p.t] || 0) + 1 }), {});
+    const xs = prims.flatMap((p) => (p.t === 'line' ? [p.a[0], p.b[0]] : p.t === 'circle' ? [p.c[0] - p.r, p.c[0] + p.r] : p.pts ? p.pts.map((q) => q[0]) : [p.p[0]]));
+    const width = Math.max(...xs) - Math.min(...xs);
+    const ok = a1.scale === 1 && kinds.line === 2 && kinds.circle === 1 && kinds.poly === 2 && kinds.text === 1 && prims.find((p) => p.t === 'text').text === 'PLATE 1' && Math.abs(width - 100) < 1e-6
+      && a2.scale > 0 && a2.scale < 0.2 && ed.doc.anns.filter((x) => x.type === 'dxf').length === 2;
+    return ok ? { ok: true, detail: `placed at 1:1 (${JSON.stringify(kinds)}, 100 mm wide); 3000 mm line at 1:${1 / a2.scale}` }
+      : { ok: false, detail: `scale ${a1?.scale}, kinds ${JSON.stringify(kinds)}, width ${width}, big scale ${a2?.scale}` };
+  },
+
   // the browser version's notice: above the window, as wide as it (the text wraps), gone with ✕
   async 'web-notice'() {
     const a = window.app, root = document.getElementById('app');
