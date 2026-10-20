@@ -6,6 +6,12 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-20 23:52 — RazorCAD in the browser
+- **A browser version** for the website (razorcad.com/app/, "Try it in your browser" on the home page). It is the same program running in the browser: parts, sketches, assemblies, drawings, macros, all on the same geometry kernel.
+- In the browser, Save downloads the file and Open reads one from your PC; preferences stay in that browser.
+- A notice at the top says what works differently (no auto-save, no Windows fonts, no Ask Claude sign-in) and links to the Windows app; ✕ closes it for good. Closing the tab with unsaved work asks first.
+- Built by tools/build_web_app.py into website/app (also run by the website docs build). It goes online with the website, the next time that is published.
+
 ## 2026-10-20 23:47 — Part properties and BOM table columns
 - **File ▸ Properties…** in parts and assemblies: custom properties such as Part Number, Description, Vendor or Finish (common names are suggested; any name works). Undo takes a change back. A drawing of a part takes its drawing number from the Part Number.
 - **BOM table columns** on drawings: right-click the table ▸ **Columns…** (or double-click it). Each column shows one of:

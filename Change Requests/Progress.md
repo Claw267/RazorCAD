@@ -511,7 +511,8 @@ In this order; each item tested (regression suite + preview / exe), logged in CH
 - [x] 5b Parts-list options: custom columns (part number, description, mass) from part properties.
   - Done: app/js/custprops.js (doc.customProps [{ name, value }], propsOf / propOf, Properties dialog with suggestions) in the part and assembly File menus (part: commit; assembly: snapshot / restore include customProps). bom.js rows carry props + a stable key; BOM_FIELDS, bomPropNames, bomCell (field | prop:<name> | text with values by row key). drawing.js bomColumns(a) / bomTablePrims use a.cols; DrawingEditor.bomColumnsDialog (source / heading / width, move, remove, add; grid for typed values; Default Columns; right edge kept), context menu Columns… + double-click; drawing number from Part Number. Assembly BOM window + CSV: a column per property. Test bom-columns; full suite passes.
 6. Reach and polish
-- [ ] 6a Browser version for razorcad.com ("try it online"), built into the website folder (deployed only when published).
+- [x] 6a Browser version for razorcad.com ("try it online"), built into the website folder (deployed only when published).
+  - Done: tools/build_web_app.py (app/ → website/app/, window.RAZORCAD_WEB + title / description in index.html, 25 MiB per-file check: wasm 22 MB; 61 files, 26 MB), run by tools/build_website_docs.py too (sitemap lists /app/). App: main.init shows ui.showWebNotice (own grid row, #app.with-notice) and a beforeunload guard for unsaved work in the web edition only. Website: "Try it in your browser" button, _headers cache for /app/vendor/*. Tested from the local website server (kernel loads, parts build, notice layout / close); test web-notice. NOT deployed: goes online with the next website publish.
 - [ ] 6b Dark theme.
 - [ ] 6c Other languages (translation framework and translations).
 - [ ] 6d Code signing: nothing to build (ready since 0.13.0-beta; needs the user's certificate) — note only.

@@ -12,3 +12,5 @@ https://:project.razorcad.pages.dev/*
   Cache-Control: public, max-age=604800
 /favicon.*
   Cache-Control: public, max-age=604800
+/app/vendor/*
+  Cache-Control: public, max-age=86400

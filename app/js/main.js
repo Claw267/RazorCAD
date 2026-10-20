@@ -95,6 +95,11 @@ class App {
       const ext = gl.getExtension('WEBGL_debug_renderer_info');
       breadcrumb(`Graphics: ${ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)} · ${navigator.hardwareConcurrency || '?'} CPU threads`);
     } catch { /* not available */ }
+    // the browser version (razorcad.com/app): what works differently, and a warning before unsaved work is lost
+    if (!platform.desktop && window.RAZORCAD_WEB) {
+      this.ui.showWebNotice();
+      window.addEventListener('beforeunload', (e) => { if (this.anyDirty()) { e.preventDefault(); e.returnValue = ''; } });
+    }
     this.status('Loading the geometry kernel…');
     this.showProgress(null, 'Loading the geometry kernel…', 0);
     await this.setDoc(M.newDoc(), { fit: true });

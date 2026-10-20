@@ -1631,6 +1631,18 @@ export class UI {
     t.order ||= {}; t.hidden ||= {}; t.custom ||= [];
     return t;
   }
+  // The browser version's notice above the window (closed for good with ✕).
+  showWebNotice() {
+    try { if (localStorage.getItem('razorcad.webNoticeClosed') === '1') return; } catch { /* no storage */ }
+    if (document.getElementById('web-notice')) return;
+    const bar = el('div', { id: 'web-notice', role: 'note' },
+      `<span><b>RazorCAD in your browser.</b> Save downloads the file and Open reads one from your PC. There is no auto-save, Windows fonts or Ask Claude sign-in here: <a href="../#download" target="_blank" rel="noopener">get the Windows app</a> for those.</span><button class="x" title="Close">✕</button>`);
+    bar.querySelector('.x').onclick = () => { bar.remove(); document.getElementById('app').classList.remove('with-notice'); try { localStorage.setItem('razorcad.webNoticeClosed', '1'); } catch { /* no storage */ } this.app.viewport?.resize?.(); };
+    const root = document.getElementById('app');
+    root.prepend(bar);
+    root.classList.add('with-notice');
+  }
+
   savePrefs() { platform.setPrefs(this.prefs || {}).catch?.(() => {}); }
   toolbarTabs() {
     const out = [['features', 'Features'], ['sketch', 'Sketch'], ['surfaces', 'Surfaces'], ['sheetmetal', 'Sheet Metal'], ['weldments', 'Fast Structure'], ['evaluate', 'Evaluate']].map(([id, label]) => ({ id, label }));

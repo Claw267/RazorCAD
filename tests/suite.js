@@ -904,6 +904,20 @@ await rc.cut(h, 10);`, 'plate');
       : { ok: false, detail: `names ${names}; window ${win.slice(0, 120)}; table ${texts.join(' | ')}; number ${num}` };
   },
 
+  // the browser version's notice: above the window, as wide as it (the text wraps), gone with ✕
+  async 'web-notice'() {
+    const a = window.app, root = document.getElementById('app');
+    let kept = null;
+    try { kept = localStorage.getItem('razorcad.webNoticeClosed'); localStorage.removeItem('razorcad.webNoticeClosed'); } catch { /* no storage */ }
+    a.ui.showWebNotice();
+    const n = document.getElementById('web-notice');
+    const fits = !!n && n.getBoundingClientRect().width <= root.clientWidth + 1 && document.documentElement.scrollWidth <= innerWidth + 1 && root.classList.contains('with-notice');
+    n?.querySelector('.x').click();
+    const gone = !document.getElementById('web-notice') && !root.classList.contains('with-notice');
+    try { if (kept === null) localStorage.removeItem('razorcad.webNoticeClosed'); else localStorage.setItem('razorcad.webNoticeClosed', kept); } catch { /* no storage */ }
+    return fits && gone ? { ok: true, detail: 'fits the window; closes' } : { ok: false, detail: `fits ${fits}, gone ${gone}` };
+  },
+
   // the view's mouse buttons: Shift + right-drag pans, middle-drag turns, a plain right-drag changes nothing
   async 'view-mouse-buttons'() {
     const a = window.app;

@@ -310,12 +310,18 @@ def main():
         encoding="utf-8")
 
     today = datetime.date.today().isoformat()
-    urls = ["/", "/docs/"] + [f"/docs/{ch['slug']}" for ch in chapters]
+    urls = ["/", "/app/", "/docs/"] + [f"/docs/{ch['slug']}" for ch in chapters]
     sm = ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
     sm += [f"  <url>\n    <loc>{BASE}{u}</loc>\n    <lastmod>{today}</lastmod>\n  </url>" for u in urls]
     sm.append("</urlset>")
     (SITE / "sitemap.xml").write_text("\n".join(sm) + "\n", encoding="utf-8")
     print(f"{len(chapters)} chapters written to {OUT}")
+    # the browser version (razorcad.com/app/), brought up to date with the website
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("build_web_app", Path(__file__).with_name("build_web_app.py"))
+    web = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(web)
+    web.main()
 
 
 if __name__ == "__main__":
