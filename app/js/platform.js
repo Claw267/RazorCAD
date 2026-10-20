@@ -19,6 +19,45 @@ const api = () => window.pywebview.api;
 let noLocalFonts = false;
 const localFonts = () => !noLocalFonts && !window.RAZORCAD_WEB;
 
+// The browser version's store of models as last built (the desktop app keeps them on disk): in the browser's
+// own database, under the website's kernel signature (written in by tools/build_web_app.py; without one, as in
+// development, nothing is kept), the least recently used let go past WEB_STORE_MB.
+const WEB_STORE_MB = 400;
+const webKernel = () => window.RAZORCAD_WEB?.kernel || null;
+let webDb = null;
+function webStore() {
+  if (!webKernel() || typeof indexedDB === 'undefined') return Promise.resolve(null);
+  return (webDb ||= new Promise((resolve) => {
+    const rq = indexedDB.open('razorcad-models', 1);
+    rq.onupgradeneeded = () => rq.result.createObjectStore('m', { keyPath: 'key' });
+    rq.onsuccess = () => resolve(rq.result);
+    rq.onerror = () => resolve(null);
+  }));
+}
+const idb = (rq) => new Promise((resolve, reject) => { rq.onsuccess = () => resolve(rq.result); rq.onerror = () => reject(rq.error); });
+async function webRead(key) {
+  const db = await webStore();
+  if (!db) return null;
+  const st = db.transaction('m', 'readwrite').objectStore('m');
+  const e = await idb(st.get(key));
+  if (!e || e.kernel !== webKernel()) return null;
+  e.used = Date.now();
+  st.put(e);
+  return e.data;
+}
+async function webWrite(key, data) {
+  const db = await webStore();
+  if (!db) return null;
+  const st = db.transaction('m', 'readwrite').objectStore('m');
+  await idb(st.put({ key, kernel: webKernel(), data, size: data.length, used: Date.now() }));
+  // (another kernel's models, and the oldest past the limit, let go)
+  const all = (await idb(db.transaction('m', 'readonly').objectStore('m').getAll())).sort((a, b) => b.used - a.used);
+  let total = 0;
+  const del = db.transaction('m', 'readwrite').objectStore('m');
+  for (const e of all) { total += e.size; if (e.kernel !== webKernel() || total > WEB_STORE_MB * 1048576) del.delete(e.key); }
+  return true;
+}
+
 function b64(bytes) {
   let s = '';
   const chunk = 0x8000;
@@ -102,9 +141,11 @@ export const platform = {
   },
   async openTemplatesFolder() { return desktop ? api().open_templates_folder() : false; },
 
-  // The model as last built (modelcache.js), by key: base64 text or null. Desktop only.
-  async readModelCache(key) { return desktop && key ? api().read_model_cache(key) : null; },
-  async writeModelCache(key, b64) { return desktop && key ? api().write_model_cache(key, b64) : null; },
+  // The model as last built (modelcache.js), by key: base64 text or null. On disk in the desktop app; in the
+  // browser's database in the browser version (when the website build gave it a kernel signature).
+  get modelStore() { return desktop || !!webKernel(); },
+  async readModelCache(key) { if (!key) return null; if (desktop) return api().read_model_cache(key); try { return await webRead(key); } catch { return null; } },
+  async writeModelCache(key, b64) { if (!key) return null; if (desktop) return api().write_model_cache(key, b64); try { return await webWrite(key, b64); } catch { return null; } },
 
   // Files to open that Windows started RazorCAD with (double-click / Open with); [] in the browser.
   async takeOpenRequests() {

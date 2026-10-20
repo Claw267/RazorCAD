@@ -292,6 +292,9 @@ function preciseVolume(shape) {
   return R.measureVolume(shape);
 }
 
+// a body record's box: worked out when first asked for (also on a copy of a record, or one read back from the
+// feature states kept between sessions)
+function boxOf(rec) { return rec.box || (rec.box = bbox(rec.shape)); }
 function volumeOf(rec) {
   if (rec.vol == null) { try { rec.vol = R.measureVolume(rec.shape); } catch { rec.vol = NaN; } }
   return rec.vol;
@@ -579,12 +582,104 @@ function surfOf(face) {
   } catch { return { t: 'OTHER' }; } finally { ad?.delete(); }
 }
 
+// ------------------------------------------------------------ meshing only what changed
+// A feature usually leaves most of a body's faces and edges as they were: the same OpenCascade faces and edges,
+// shared by the body before and after. Their triangles and edge points are kept (by the face or edge itself:
+// the same one, in the same place, the same way round), and only the new ones are meshed and sampled.
+// replicad's mesh extractor meshes every face again each time, which on a big body (a golf ball: 114 000
+// triangles) takes over a second. Kept for the faces and edges of the last few bodies meshed.
+const FACE_MESHES = new Map(), EDGE_POINTS = new Map(); // hash → [{ shape, key, data, used }]
+let meshGen = 0;
+const KEEP_GENS = 6, KEEP_MAX = 60000;
+const hashOf = (raw) => R.getOC().ReplicadShapeHasher.HashCode(raw, R.HASH_CODE_MAX);
+function keptFind(store, raw, key) {
+  const list = store.get(hashOf(raw));
+  const hit = list?.find((x) => x.key === key && x.shape.IsEqual(raw));
+  if (hit) hit.used = meshGen;
+  return hit?.data;
+}
+function keptAdd(store, raw, key, data, copy) {
+  const h = hashOf(raw);
+  if (!store.has(h)) store.set(h, []);
+  store.get(h).push({ shape: copy(raw), key, data, used: meshGen });
+}
+// (what was not used in the last few meshings let go)
+function keptPrune(store) {
+  let n = 0;
+  for (const [h, list] of store) {
+    const keep = list.filter((x) => meshGen - x.used < KEEP_GENS);
+    for (const x of list) if (!keep.includes(x)) x.shape.delete();
+    if (keep.length) store.set(h, keep); else store.delete(h);
+    n += keep.length;
+  }
+  if (n > KEEP_MAX) { for (const list of store.values()) for (const x of list) x.shape.delete(); store.clear(); }
+}
+// A body's mesh as replicad's mesh() gives it ({ vertices, normals, triangles, faceGroups }), its faces in the
+// same order, with the faces met before taken from what was kept.
+function meshKept(shape, tol, ang) {
+  const oc = R.getOC(), T = oc.TopAbs_ShapeEnum, key = `${tol}|${ang}`;
+  const faces = exploreAll(shape.wrapped, 'TopAbs_FACE');
+  try {
+    const per = faces.map((f) => keptFind(FACE_MESHES, f, key) || null);
+    const missing = faces.filter((_, i) => !per[i]);
+    // (the new faces meshed together, as one compound)
+    let gsNew = null;
+    if (missing.length) {
+      const builder = new oc.TopoDS_Builder(), comp = new oc.TopoDS_Compound();
+      let m;
+      try {
+        builder.MakeCompound(comp);
+        for (const f of missing) builder.Add(comp, f);
+        m = R.cast(comp).mesh({ tolerance: tol, angularTolerance: ang });
+      } finally { builder.delete(); }
+      const total = m.faceGroups.reduce((n, g) => n + g.count, 0);
+      gsNew = total === m.triangles.length ? 1 : 3;
+      const byId = new Map(m.faceGroups.map((g) => [g.faceId, g]));
+      for (const f of missing) {
+        const g = byId.get(hashOf(f));
+        let data = { vertices: [], normals: [], triangles: [], gs: gsNew };
+        if (g) {
+          const t0 = g.start * gsNew, t1 = (g.start + g.count) * gsNew;
+          let lo = Infinity, hi = -1;
+          for (let k = t0; k < t1; k++) { const v = m.triangles[k]; if (v < lo) lo = v; if (v > hi) hi = v; }
+          if (hi >= lo) data = { vertices: m.vertices.slice(lo * 3, hi * 3 + 3), normals: m.normals.slice(lo * 3, hi * 3 + 3), triangles: m.triangles.slice(t0, t1).map((v) => v - lo), gs: gsNew };
+        }
+        per[faces.indexOf(f)] = data;
+        keptAdd(FACE_MESHES, f, key, data, (x) => oc.TopoDS.Face(x));
+      }
+    }
+    // (the faces one after another, as the extractor lists them)
+    const out = { vertices: [], normals: [], triangles: [], faceGroups: [] };
+    const gs = gsNew ?? per.find(Boolean)?.gs ?? 1;
+    faces.forEach((f, i) => {
+      const d = per[i], base = out.vertices.length / 3, start = out.triangles.length;
+      for (const x of d.vertices) out.vertices.push(x);
+      for (const x of d.normals) out.normals.push(x);
+      for (const x of d.triangles) out.triangles.push(x + base);
+      const n = d.triangles.length;
+      if (n) out.faceGroups.push({ start: start / gs, count: n / gs, faceId: hashOf(f) });
+    });
+    return out;
+  } finally { faces.forEach((f) => f.delete()); }
+}
+// an edge's points as shown (sampleEdge), kept like the faces' meshes
+function edgeKept(e, diagQ) {
+  const key = String(diagQ), got = keptFind(EDGE_POINTS, e.wrapped, key);
+  if (got) return got;
+  const circ = e.geomType === 'CIRCLE' ? circleOf(e) : null;
+  const data = { pts: sampleEdge(e, diagQ).flat(), mid: vec(e.pointAt(0.5)), type: e.geomType, ...(circ ? { circ } : {}) };
+  keptAdd(EDGE_POINTS, e.wrapped, key, data, (x) => R.getOC().TopoDS.Edge(x));
+  return data;
+}
+
 // (ang: the angular tolerance: 0.2 rad, or coarser for an assembly's speed mode)
 function meshPart(s, tol, diagQ, onWork, ang = 0.2) {
   const c = meshCache.get(s.shape);
   if (c && c.tol === tol && c.ang === ang && c.diagQ === diagQ && c.kind === s.kind && c.look === (s.look || null)) return c;
   onWork?.();
-  const m = (faceCount(s.shape) > 2500 && triangleFacesMesh(s.shape)) || s.shape.mesh({ tolerance: tol, angularTolerance: ang });
+  meshGen++;
+  const many = faceCount(s.shape) > 2500;
+  const m = (many && triangleFacesMesh(s.shape)) || (many ? s.shape.mesh({ tolerance: tol, angularTolerance: ang }) : meshKept(s.shape, tol, ang));
   const dense = m.faceGroups.length > 2500;
   const gs = m.faceGroups.reduce((n, g) => n + g.count, 0) === m.triangles.length ? 1 : 3;
   // a few points spread over each face (triangle centroids), for finding which feature made it
@@ -604,8 +699,7 @@ function meshPart(s, tol, diagQ, onWork, ang = 0.2) {
     const seams = seamEdges(s.shape);
     for (const e of s.shape.edges) {
       if (seams.some((x) => x.IsSame(e.wrapped))) continue;
-      const circ = e.geomType === 'CIRCLE' ? circleOf(e) : null;
-      edges.push({ pts: sampleEdge(e, diagQ).flat(), mid: vec(e.pointAt(0.5)), type: e.geomType, ...(circ ? { circ } : {}) });
+      edges.push(edgeKept(e, diagQ));
     }
   }
   // (faces as the mesh numbers them: their surfaces, for assembly mates)
@@ -631,6 +725,7 @@ function meshPart(s, tol, diagQ, onWork, ang = 0.2) {
   }
   const out = { tol, ang, diagQ, kind: s.kind, look: s.look || null, m, gs, dense, facePts, edges, surfs, faceLooks };
   meshCache.set(s.shape, out);
+  keptPrune(FACE_MESHES); keptPrune(EDGE_POINTS);
   return out;
 }
 
@@ -1664,12 +1759,13 @@ async function rebuild(doc, previewId = null, opts = {}) {
     // (the appearance an imported body came with: { c, t, faces } — kept through later features)
     const look = prev[0]?.look || null;
     const rec = { id, shape, last, feats: [...feats], sheet, ...(member ? { member } : {}), ...(look ? { look } : {}) };
-    let box = null;
-    Object.defineProperty(rec, 'box', { get: () => (box ||= bbox(shape)), set: (b) => { box = b; }, enumerable: true, configurable: true });
+    // (box: worked out on first use, then kept as a plain value; not written out with the feature states before)
+    const keep = (b) => { Object.defineProperty(rec, 'box', { value: b, writable: true, enumerable: true, configurable: true }); return b; };
+    Object.defineProperty(rec, 'box', { get: () => keep(bbox(shape)), set: keep, enumerable: false, configurable: true });
     if (cull) rec.cull = cull;
     return rec;
   };
-  const cullBox = (rec) => rec.cull || rec.box;
+  const cullBox = (rec) => rec.cull || boxOf(rec);
   let dense = false; // body contains a triangulated (STL) import with thousands of faces
   const needEdges = (what) => { if (dense) throw new Error(`${what} is not available on bodies made from dense STL meshes`); };
 
@@ -1694,7 +1790,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
         const touched = [];
         if (merge) {
           for (const s of solids) {
-            if (s.sheet || !boxesTouch(s.box, mbox, tol)) continue;
+            if (s.sheet || !boxesTouch(boxOf(s), mbox, tol)) continue;
             const r = merged.fuse(s.shape);
             if (solidsOf(r).length === 1) { merged = r; mbox = bbox(r); touched.push(s); }
           }
@@ -1753,7 +1849,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
     const tolOf = (b) => Math.max(1e-6, b.diag * 1e-7);
     const groups = new Map(), free = [];
     for (const pc of pieces) {
-      const hit = solids.filter((x) => !x.sheet && boxesTouch(x.box, pc.box, tolOf(pc.box)));
+      const hit = solids.filter((x) => !x.sheet && boxesTouch(boxOf(x), pc.box, tolOf(pc.box)));
       if (hit.length > 1) throw new Error('A copy reaches two bodies');
       if (hit.length) { if (!groups.has(hit[0])) groups.set(hit[0], []); groups.get(hit[0]).push(pc); } else free.push(pc);
     }
@@ -1777,9 +1873,9 @@ async function rebuild(doc, previewId = null, opts = {}) {
       const pool = parts.map((shape) => ({ shape, box: bbox(shape) }));
       solids = solids.map((s) => {
         let bi = 0, bd = Infinity;
-        pool.forEach((q, i) => { if (!q) return; const d = len(sub(q.box.center, s.box.center)) + Math.abs(q.box.diag - s.box.diag); if (d < bd) { bd = d; bi = i; } });
+        pool.forEach((q, i) => { if (!q) return; const d = len(sub(q.box.center, boxOf(s).center)) + Math.abs(q.box.diag - boxOf(s).diag); if (d < bd) { bd = d; bi = i; } });
         const q = pool[bi]; pool[bi] = null;
-        return bodyRec(s.id, q.shape, changedPts.some((p) => near(s.box, p)) ? cur.id : s.last);
+        return bodyRec(s.id, q.shape, changedPts.some((p) => near(boxOf(s), p)) ? cur.id : s.last);
       });
     } else solids = parts.map((shape, i) => bodyRec(solids[i]?.id ?? newId(cur.id), shape, cur.id));
     body = compoundOf(solids);
@@ -3228,7 +3324,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
           let n0 = 0, total = 0;
           for (let i = 0; i < pool.length; i++) for (let j = i + 1; j < pool.length; j++) {
             const A = pool[i], B = pool[j];
-            if (!boxesTouch(A.box, B.box, 1e-4)) continue;
+            if (!boxesTouch(boxOf(A), boxOf(B), 1e-4)) continue;
             let sec = null;
             const op = new oc.BRepAlgoAPI_Section(A.shape.wrapped, B.shape.wrapped, false);
             try { op.Build(new oc.Message_ProgressRange()); if (!op.HasErrors()) sec = R.cast(op.Shape()); } catch (e) { if (isFatal(e)) throw e; } finally { op.delete(); }

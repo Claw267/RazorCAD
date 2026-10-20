@@ -11,6 +11,9 @@ import re
 import shutil
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from kernelsig import kernel_signature  # noqa: E402
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, 'app')
 DST = os.path.join(ROOT, 'website', 'app')
@@ -36,7 +39,8 @@ def main():
     html = open(p, encoding='utf-8').read()
     main_tag = '<script type="module" src="js/main.js"></script>'
     assert html.count(main_tag) == 1, 'main.js script tag'
-    html = html.replace(main_tag, f'<script>window.RAZORCAD_WEB = {{ version: {version!r} }};</script>\n{main_tag}')
+    # (the kernel's signature: the models the browser keeps are kept per kernel)
+    html = html.replace(main_tag, f'<script>window.RAZORCAD_WEB = {{ version: {version!r}, kernel: {kernel_signature(SRC)!r} }};</script>\n{main_tag}')
     html = re.sub(r'<title>[^<]*</title>', '<title>RazorCAD in your browser</title>', html, count=1)
     if 'name="description"' not in html:
         html = html.replace('</title>', '</title>\n<meta name="description" content="RazorCAD, the free parametric 3D CAD program, running in your browser: parts, sketches, assemblies and drawings.">', 1)

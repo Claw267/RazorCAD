@@ -6,6 +6,18 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 09:24 — Meshing only what changed; opening big parts at once
+- **Editing a feature remeshes only what it changed.** A feature usually leaves most of a body's faces and edges as they were. Their triangles and edge points are now kept and reused, and only the new faces are meshed. The geometry library's mesher used to mesh every face again each time.
+  - Giant Golfball, the last dimple edited: 2.3 s → 1.15 s; its meshing 1.75 s → 0.58 s.
+  - The mesh is exactly the same as before (every vertex, normal, triangle and face).
+- **Opening a big part: the kernel picks up where it left off.** The state after each feature is kept with the stored model, so after opening the kernel doesn't build the part again.
+  - Giant Golfball: ready about 1.5 s after opening, instead of a 6 s rebuild.
+  - Keeping those states now takes 0.3 s instead of 4.5 s. Before, every body's exact box was worked out while writing them, and the kernel was busy for those 4.5 s after the first build.
+  - The stored model now shows while the states are read in, not after.
+- **Stored models survive RazorCAD updates that leave the geometry kernel alone.** They used to be thrown away with every new RazorCAD.exe. They are now kept per geometry kernel: a hash of its code (`kernelsig.py`). A new kernel still starts afresh, as it may build differently.
+- **The browser version keeps stored models too**, in the browser's own storage (up to 400 MB, the least recently used let go), so a big part opens quickly the second time there as well.
+- Regression test: incremental-mesh (a plate with five holes, the last moved: the mesh the main kernel makes from its kept faces is exactly the one a fresh kernel makes).
+
 ## 2026-10-21 08:56 — Faster rebuilds of parts with many cuts
 - **Giant Golfball: 12.9 s → 6.0 s to rebuild**, with the same geometry (volume, area, 179 faces, 367 edges, the same triangles).
 - More than half of each cut's time went on bookkeeping around it, not on the cut:

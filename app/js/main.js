@@ -153,7 +153,8 @@ class App {
   }
 
   // ------------------------------------------------------------ document
-  async setDoc(doc, { fit = true, cached = null } = {}) {
+  // (before: the background rebuild of a stored model waits for it, e.g. the feature states being restored)
+  async setDoc(doc, { fit = true, cached = null, before = null } = {}) {
     breadcrumb(`Part loaded: ${doc.name} (${doc.features.length} features)`);
     if (this.mode === 'sketch') this.sketcher.exit();
     this.mode = 'part';
@@ -173,7 +174,7 @@ class App {
       // the model as last built (unchanged since): shown now, rebuilt in the background
       this.applyResult(cached);
       this._model = { doc, r: cached };
-      this.rebuild();
+      if (before) before.then(() => { if (this.doc === doc) this.rebuild(); }); else this.rebuild();
     } else await this.rebuild();
     if (fit) {
       this.viewport.setStandardView('trimetric', false);
@@ -199,7 +200,7 @@ class App {
     // on disk, for opening it again: parts that take a while to build (all their features, including those
     // the kernel reused from its cache this time), unchanged since their file
     const cost = Math.max(r.time || 0, (r.timing?.features || []).reduce((t, x) => t + (x[1] || 0), 0));
-    if (!platform.desktop || !this.filePath || this.dirty || !this._fileKey || !full.body?.vertices || cost < 800) return;
+    if (!platform.modelStore || !(this.filePath || !platform.desktop) || this.dirty || !this._fileKey || !full.body?.vertices || cost < 800) return;
     const key = this._fileKey;
     if (this._cachedKey !== key) {
       this._cachedKey = key;
@@ -3718,18 +3719,19 @@ class App {
       doc.equations ??= [];
       M.renameLegacyNames(doc); // (features still carrying an old default name get the current one)
       doc.nextId ??= doc.features.length + 1;
-      const stored = file.path && !recovered ? await this.readModelCache(doc) : { key: null, r: null };
+      // (the browser version's files have no path: kept by their content alone)
+      const stored = (file.path || (!platform.desktop && platform.modelStore)) && !recovered ? await this.readModelCache(doc) : { key: null, r: null };
       if (file.path && M.isDefaultName(doc.name)) doc.name = M.fileStem(file.path); // (a part still called "Part1": its file's name)
       // the state after each feature as last built: the kernel picks up from it instead of building them all
-      let states = false;
-      if (stored.r) {
-        const snaps = await this.readKernelStates(stored.key);
-        if (snaps) states = await this.kernel.request('importSnaps', { snaps }).catch(() => false);
-      }
+      // (read and handed to the kernel while the stored model is shown: the kernel takes its requests in order, so
+      // the rebuild that follows picks up from them)
+      const statesP = stored.r ? this.readKernelStates(stored.key).then((snaps) => (snaps ? this.kernel.request('importSnaps', { snaps }).catch(() => false) : false)) : Promise.resolve(false);
       this.beginTab();
       this.cancelAutosave();
       this._firstBuild = { doc, t0: performance.now() };
-      await this.withProgress(`Opening ${file.name}…`, () => this.setDoc(doc, { cached: stored.r }));
+      const statesFirst = statesP.then(() => {});
+      await this.withProgress(`Opening ${file.name}…`, () => this.setDoc(doc, { cached: stored.r, before: statesFirst }));
+      const states = await statesP;
       this._fileKey = recovered ? null : stored.key;
       this._cachedKey = stored.r ? stored.key : null;
       this._statesKey = states ? stored.key : null;

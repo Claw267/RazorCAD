@@ -1512,6 +1512,37 @@ await rc.cut(h, 10);`, 'plate');
       : { ok: false, detail: `unnamed ${JSON.stringify(unnamed)}, depth ${!!depth}, heads ${headsOk}, icons ${iconsOk}, closed ${closedOk}, keys ${keysOk} (tab ${tab.defaultPrevented}, enter ${ent.defaultPrevented}, pm ${a.pm?.kind}), F6 ${stops}, dialog named ${named} inside ${inside} wrapped ${wrapped} restored ${restored}, live ${live}` };
   },
 
+  // meshing only what changed: a plate with five holes (cut one after another), its last hole moved — the main
+  // kernel meshes only the faces and edges that changed, keeping the rest; its mesh is exactly what a fresh kernel
+  // makes of the changed part (every vertex, normal, triangle, face group and edge point)
+  async 'incremental-mesh'() {
+    const a = window.app, k = a.kernel;
+    const d = M.newDoc(); d.name = 'Holes';
+    const s0 = M.createFeature(d, 'sketch', { plane: { ref: 'top' } });
+    const pts = [[-50, -30], [50, -30], [50, 30], [-50, 30]];
+    Object.assign(s0, { points: pts.map(([x, y], i) => ({ id: 'p' + (i + 1), x, y })), curves: pts.map((_, i) => ({ id: 'c' + (i + 1), type: 'line', p1: 'p' + (i + 1), p2: 'p' + ((i + 1) % 4 + 1), construction: false })), constraints: [] });
+    d.features.push(s0, M.createFeature(d, 'extrude', { sketch: s0.id, depth: 12 }));
+    for (const [i, x] of [-36, -18, 0, 18, 36].entries()) {
+      const sk = M.createFeature(d, 'sketch', { plane: { ref: 'top' } });
+      Object.assign(sk, { points: [{ id: 'q1', x, y: i % 2 ? 10 : -10 }], curves: [{ id: 'k1', type: 'circle', c: 'q1', r: 4 + i, construction: false }], constraints: [] });
+      d.features.push(sk, M.createFeature(d, 'extrude', { sketch: sk.id, op: 'cut', end: 'through2' }));
+    }
+    await k.rebuild(JSON.parse(JSON.stringify(d)), null, null);
+    const d2 = JSON.parse(JSON.stringify(d));
+    const last = d2.features.filter((f) => f.type === 'sketch').pop();
+    last.points[0].x = 40; last.rev = M.newRev();
+    const inc = await k.rebuild(d2, null, null);
+    const fresh = await a.kernelPool.request('rebuild', { doc: JSON.stringify({ ...d2, features: d2.features.map((f) => ({ ...f, rev: (f.rev || '') + '-fresh' })) }) });
+    const A = inc.body, B = fresh.body;
+    const same = (x, y) => x.length === y.length && x.every((v, i) => v === y[i]);
+    // (face ids are hash codes of where the kernel keeps each face: different in another kernel)
+    const groups = JSON.stringify(A.faceGroups.map((g) => [g.start, g.count, g.surf?.t])) === JSON.stringify(B.faceGroups.map((g) => [g.start, g.count, g.surf?.t]));
+    const edges = A.edges.length === B.edges.length && A.edges.every((e, i) => same(e.pts, B.edges[i].pts));
+    const ok = same(A.vertices, B.vertices) && same(A.triangles, B.triangles) && same(A.normals, B.normals) && groups && edges && !inc.errors.length;
+    return ok ? { ok: true, detail: `${A.faceGroups.length} faces, ${A.triangles.length / 3} triangles, ${A.edges.length} edges: the same as a fresh build (mesh ${inc.timing?.mesh} ms)` }
+      : { ok: false, detail: `vertices ${A.vertices.length}/${B.vertices.length} same ${same(A.vertices, B.vertices)}, triangles ${A.triangles.length}/${B.triangles.length} same ${same(A.triangles, B.triangles)}, normals ${same(A.normals, B.normals)}, groups ${groups}, edges ${edges}, errors ${inc.errors.length}` };
+  },
+
   // BOM mass and cost: a steel plate (60 × 40 × 5) and two aluminium blocks (20 × 20 × 15) with costs → masses from
   // the materials, totals 0.126 kg and 18.50; the window's column menu changes a column; on the drawing table the
   // column under a point is found, and a typed value is edited

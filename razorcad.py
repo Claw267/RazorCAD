@@ -29,6 +29,7 @@ mimetypes.add_type('application/wasm', '.wasm')
 import webview  # noqa: E402
 
 from crashreport import CrashReporter, _pid_alive  # noqa: E402
+from kernelsig import kernel_signature  # noqa: E402
 
 APP_NAME = 'RazorCAD'
 # RazorCAD's own file extensions (JSON inside), so Windows can open them with RazorCAD.
@@ -906,15 +907,19 @@ class Api:
         return out
 
     # --- the model as last built (app/js/modelcache.js) ------------------
-    # %LOCALAPPDATA%\RazorCAD\modelcache\<build>\<sha256>.bin: one folder per RazorCAD.exe build (a new
-    # kernel may build differently: older folders are removed), at most MODEL_CACHE_MB in all.
+    # %LOCALAPPDATA%\RazorCAD\modelcache\k<signature>\<sha256>.bin: one folder per geometry kernel (a hash of its
+    # code, kernelsig.py: a new kernel may build differently, so older folders are removed; a RazorCAD build that
+    # leaves the kernel alone keeps them), at most MODEL_CACHE_MB in all.
     def _model_cache_dir(self):
         if getattr(self, '_mcache', None):
             return self._mcache
         base = os.path.join(os.environ.get('LOCALAPPDATA') or data_dir(), APP_NAME, 'modelcache')
         if os.environ.get('RAZORCAD_DATA_DIR'):
             base = os.path.join(data_dir(), 'modelcache')  # (tests: inside their own data folder)
-        build = 'b%d' % int(os.path.getmtime(sys.executable)) if getattr(sys, 'frozen', False) else 'dev'
+        try:
+            build = 'k' + kernel_signature(os.path.join(resource_dir(), 'app'))
+        except OSError:
+            build = 'b%d' % int(os.path.getmtime(sys.executable)) if getattr(sys, 'frozen', False) else 'dev'
         folder = os.path.join(base, build)
         os.makedirs(folder, exist_ok=True)
         for old in os.listdir(base):
