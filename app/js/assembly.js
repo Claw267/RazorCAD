@@ -30,6 +30,7 @@ import { bomRows, bomPropNames, bomCell, bomTotals, bomSources, bomColumnMenu, m
 import { editCustomProps } from './custprops.js';
 import { MotionTool } from './motion.js';
 import { findCollisions } from './collide.js';
+import { HoleTool, asmPartFeatures, fastenerLength, holeDiameter } from './asmfeatures.js';
 import { t as tr } from './i18n.js';
 import { volWithUnit, lenWithUnit, unitOf } from './units.js';
 import * as G from './geometry.js';
@@ -356,8 +357,10 @@ export class AssemblyEditor {
     this.cmTab = 'assembly';
     doc.explodes ||= [];
     doc.motions ||= [];
+    doc.asmFeatures ||= [];
     this.explodeTool = null;
     this.motionTool = null;
+    this.holeTool = null;
   }
 
   // ---------------------------------------------------------------- exploded views (the display moves only)
@@ -467,7 +470,7 @@ export class AssemblyEditor {
       const e = this.eff(c), p = this.part(c.part);
       if (e.suppressed || !p) return;
       if (this.isSub(p)) walk(this.subView(p.doc, e.config), new THREE.Matrix4(), ci, c, [], `${p.id}>`, e.hidden, [], 1);
-      else out.push({ ci, comp: c, chain: [], p, cfg: e.config, gk: this.geoKey(c.part, e.config), M: new THREE.Matrix4(), hidden: e.hidden, names: [] });
+      else out.push({ ci, comp: c, chain: [], p, cfg: e.config, gk: this.geoKey(c.part, e.config) + this.cutSuffix(c.id), cut: this._cuts?.get(c.id)?.feats || null, M: new THREE.Matrix4(), hidden: e.hidden, names: [] });
     });
     return out;
   }
@@ -503,7 +506,85 @@ export class AssemblyEditor {
   // a component's geometry: { mesh, color, box } (a sub-assembly: only the box round its parts)
   geo(c) {
     if (this.isSub(this.part(c.part))) { const box = this.subBox(c); return box ? { mesh: null, box, sub: true } : null; }
-    return this.parts.get(this.geoKey(c.part, this.eff(c).config)) || null;
+    return this.parts.get(this.geoKey(c.part, this.eff(c).config) + this.cutSuffix(c.id)) || null;
+  }
+  // ---------------------------------------------------------------- assembly features (asmfeatures.js)
+  // The part features each component gets from the assembly's holes and cuts (this._cuts: component id →
+  // { sig, feats }), worked out again when the assembly changes (not while dragging: the holes go with the
+  // components then). True when they are different now.
+  updateCuts() {
+    const m = asmPartFeatures(this.doc), next = new Map();
+    for (const [id, feats] of m) { const json = JSON.stringify(feats); next.set(id, { sig: json.length + ':' + hash(json), feats }); }
+    const old = this._cuts || new Map();
+    const same = old.size === next.size && [...next].every(([id, x]) => old.get(id)?.sig === x.sig);
+    this._cuts = next;
+    return !same;
+  }
+  cutSuffix(id) { const x = this._cuts?.get(id); return x ? '|x' + x.sig : ''; }
+  startAsmFeature(type = 'hole', id = null) {
+    if (!this.doc.components.length) { this.app.toast('Insert components first'); return; }
+    if (this.pm) this.cancelMate(true);
+    if (this.explodeTool) this.explodeTool.close(false);
+    if (this.motionTool) this.motionTool.close(false);
+    this.collapseExplode();
+    this.holeTool = new HoleTool(this);
+    this.holeTool.open(id, type);
+    this.renderCommandManager();
+  }
+  onHoleToolClosed() { this.holeTool = null; this.renderAll(); }
+  toggleAsmFeature(id) { const f = this.doc.asmFeatures.find((x) => x.id === id); if (!f) return; this.begin(); f.suppressed = !f.suppressed; this.loadParts().then(() => { this.solve(); this.change(`${f.name} ${f.suppressed ? 'suppressed' : 'unsuppressed'}.`); }); }
+  deleteAsmFeature(id) { const f = this.doc.asmFeatures.find((x) => x.id === id); if (!f) return; this.begin(); this.doc.asmFeatures = this.doc.asmFeatures.filter((x) => x !== f); this.loadParts().then(() => { this.solve(); this.change(`${f.name} deleted (the fasteners in it are kept).`); }); }
+  // A fastener in each hole of an assembly hole (feature f): through the whole stack it cuts, with washers and a
+  // nut on the far side, mated in the hole. fast: { kind, washer, nut }
+  async fastenHoles(f, fast) {
+    const first = this.comp(f.comps[0]?.id), last = this.comp(f.comps[f.comps.length - 1]?.id);
+    if (!first || first.id !== f.at.comp) return 0;
+    const leaves = this._leaves || this.leaves(), li = (c) => leaves.findIndex((l) => l.comp === c && !l.chain.length);
+    const meshOf = (c) => this.parts.get(leaves[li(c)]?.gk)?.mesh;
+    const tapped = f.tapLast && last !== first, nut = fast.nut && !tapped;
+    // (the hole's round face in a component, on the axis through p along n (world), of radius r)
+    const holeIn = (c, pw, nw, r) => {
+      const m = meshOf(c);
+      if (!m) return null;
+      const pc = poseOf(c), qi = pc.q.clone().invert(), p = applyQ(qi, sub(pw, pc.p)), n = unit(applyQ(qi, nw));
+      for (let gi = 0; gi < m.faceGroups.length; gi++) {
+        const s = m.faceGroups[gi].surf;
+        if (s?.t !== 'CYLINDER' || Math.abs(s.r - r) > 1e-3 || len(cross(unit(s.d), n)) > 1e-4 || len(cross(sub(s.p, p), n)) > 1e-3) continue;
+        return { comp: c.id, kind: 'axis', p: s.p.map(r6), d: s.d.map(r6), r: r6(s.r), face: gi, gi: `${li(c)}:f${gi}`, what: 'Cylindrical face' };
+      }
+      return null;
+    };
+    const rFirst = (holeDiameter(f, 'first') || 0) / 2, rLast = (holeDiameter(f, f.comps.length > 1 ? 'last' : 'first') || 0) / 2;
+    const P = poseOf(first), nW = unit(applyQ(P.q, f.at.n));
+    let n = 0;
+    for (const p0 of f.at.pts) {
+      const pw = toWorld(P, p0);
+      const ref = holeIn(first, pw, nW, rFirst);
+      const h = ref && this.holeOf(ref);
+      if (!h) continue;
+      // (the hole's end on the clicked face first)
+      if (dot(dirWorld(P, h.end.n), nW) < 0) [h.end, h.face, h.far, h.farFace] = [h.far, h.farFace, h.end, h.face];
+      // the far end: the last component's way out (put in the first one's coordinates); into a tapped last
+      // component, its way in (the screw goes on into it)
+      const qi = P.q.clone().invert(), local = (w) => applyQ(qi, sub(w, P.p));
+      let depth = Math.abs(dot(sub(toWorld(P, h.far.p), toWorld(P, h.end.p)), nW));
+      if (last !== first) {
+        const rl = holeIn(last, pw, nW, tapped ? (holeDiameter({ ...f, holeType: 'tapped', thread: f.size }, 'first') || 0) / 2 : rLast);
+        const hl = rl && this.holeOf(rl);
+        if (hl) {
+          const L = poseOf(last), out = (e) => dot(dirWorld(L, e.n), nW) < 0;
+          const [e, fc] = tapped ? (out(hl.end) ? [hl.far, hl.farFace] : [hl.end, hl.face]) : (out(hl.end) ? [hl.end, hl.face] : [hl.far, hl.farFace]);
+          if (!tapped) { h.far = { p: local(toWorld(L, e.p)).map(r6), n: unit(applyQ(qi, dirWorld(L, e.n))).map(r6), sign: -1 }; h.farFace = fc; }
+          depth = Math.abs(dot(sub(toWorld(L, e.p), toWorld(P, h.end.p)), nW));
+        }
+      }
+      const size = f.size, opts = { washer: !!fast.washer, nut }, dNom = parseFloat(size.slice(1)) || 0;
+      // (into a tapped component: about one diameter of thread engaged)
+      const L = fastenerLength(fast.kind, size, tapped ? depth + 0.2 * dNom : depth, tapped ? { washer: opts.washer, nut: false } : opts);
+      await this.insertStdPart(fast.kind, size, L, 'steel', h, opts);
+      n++;
+    }
+    return n;
   }
 
   setActiveConfig(id) {
@@ -633,7 +714,7 @@ export class AssemblyEditor {
 
   // ---------------------------------------------------------------- undo / changes
   // (a part copy goes in by reference: it can hold megabytes of imported geometry, and copies are replaced, never changed)
-  snapshot() { return JSON.stringify({ components: this.doc.components, mates: this.doc.mates, parts: this.doc.parts.map((p) => ({ ...p, doc: this.docRef(p.doc) })), name: this.doc.name, nextId: this.doc.nextId, configs: this.doc.configs, activeConfig: this.doc.activeConfig || null, explodes: this.doc.explodes, exploded: this.doc.exploded || null, motions: this.doc.motions || [], customProps: this.doc.customProps || null, bomCols: this.doc.bomCols || null, equations: this.doc.equations || [] }); }
+  snapshot() { return JSON.stringify({ components: this.doc.components, mates: this.doc.mates, parts: this.doc.parts.map((p) => ({ ...p, doc: this.docRef(p.doc) })), name: this.doc.name, nextId: this.doc.nextId, configs: this.doc.configs, activeConfig: this.doc.activeConfig || null, explodes: this.doc.explodes, exploded: this.doc.exploded || null, motions: this.doc.motions || [], customProps: this.doc.customProps || null, bomCols: this.doc.bomCols || null, equations: this.doc.equations || [], asmFeatures: this.doc.asmFeatures || [] }); }
   docRef(doc) {
     this._docKeys ||= new WeakMap(); this._docs ||= new Map();
     let k = this._docKeys.get(doc);
@@ -649,11 +730,14 @@ export class AssemblyEditor {
     this.renderAll();
     if (msg) this.app.status(msg);
     this.app.macros?.syncEditor(this);
+    // (components moved or features changed: the holes and cuts again)
+    if (this.updateCuts()) { this.loadParts().then(() => { this.solve(); this.updateGeometry(); this.renderAll(); }); }
   }
   restore(json) {
     const s = JSON.parse(json);
     s.parts = s.parts.map((p) => ({ ...p, doc: this._docs.get(p.doc) }));
-    if (!s.equations) s.equations = []; Object.assign(this.doc, s); if (!s.customProps) delete this.doc.customProps; if (!s.bomCols) delete this.doc.bomCols;
+    if (!s.equations) s.equations = [];
+    if (!s.asmFeatures) s.asmFeatures = []; Object.assign(this.doc, s); if (!s.customProps) delete this.doc.customProps; if (!s.bomCols) delete this.doc.bomCols;
     this.dirty = true; this.loadParts(); this.updateGeometry(); this.renderAll(); this.app.macros?.syncEditor(this); }
   undo() { const s = this.undoStack.pop(); if (!s) return; this.redoStack.push(this.snapshot()); this.restore(s); }
   redo() { const s = this.redoStack.pop(); if (!s) return; this.undoStack.push(this.snapshot()); this.restore(s); }
@@ -679,24 +763,25 @@ export class AssemblyEditor {
   // them at once; the kernel builds the others one by one, and they are stored for next time.
   async loadParts() {
     this.applyEquationLinks();
+    this.updateCuts();
     let any = false;
-    // (every part shown, through the sub-assemblies)
+    // (every part shown, through the sub-assemblies; a component cut by the assembly's holes: its part with them)
     const want = new Map();
-    for (const l of this.leaves()) if (!want.has(l.gk)) want.set(l.gk, [l.p, l.cfg]);
+    for (const l of this.leaves()) if (!want.has(l.gk)) want.set(l.gk, [l.p, l.cfg, l.cut]);
     const jobs = [];
-    for (const [gk, [p, cfgId]] of want) {
+    for (const [gk, [p, cfgId, cut]] of want) {
       // (the same part copy as last time: built already, without writing out and hashing it again)
       if (this.parts.get(gk)?.from === p.doc) continue;
-      const doc = { ...p.doc, activeConfig: cfgId && (p.doc.configs || []).some((x) => x.id === cfgId) ? cfgId : null };
+      const doc = { ...p.doc, activeConfig: cfgId && (p.doc.configs || []).some((x) => x.id === cfgId) ? cfgId : null, ...(cut ? { features: [...p.doc.features, ...cut] } : {}) };
       const json = JSON.stringify(doc), key = json.length + ':' + hash(json);
       if (this.parts.get(gk)?.key === key) { this.parts.get(gk).from = p.doc; continue; }
-      jobs.push({ gk, p, cfgId, json, key });
+      jobs.push({ gk, p, cfgId, json, key, cut: !!cut });
     }
     // (colour: the part's material's, for bodies without one of their own; p.color: an older STEP import's part colour)
     const done = (j, mesh, error = null) => {
       this.parts.set(j.gk, error ? { key: j.key, from: j.p.doc, mesh: null, error } : { key: j.key, from: j.p.doc, mesh: mesh && withPartLooks(mesh, j.p.doc), color: materialById(j.p.doc.material)?.color ?? j.p.color ?? DEFAULT_BODY_COLOR, box: mesh ? meshBox(mesh) : null });
       // (its mass, for the bill of materials: the mesh's volume and the part's material)
-      if (mesh && !isAssembly(j.p.doc)) {
+      if (mesh && !isAssembly(j.p.doc) && !j.cut) {
         const kg = massOf(meshVolume(mesh), j.p.doc.material), k = j.cfgId ?? '';
         if (kg != null) { if (j.p.mass?.[k] !== +kg.toPrecision(6)) (j.p.mass ||= {})[k] = +kg.toPrecision(6); } else if (j.p.mass) delete j.p.mass[k];
       }
@@ -865,8 +950,12 @@ export class AssemblyEditor {
       return new THREE.Matrix4().compose(p, q.set(...c.rot).normalize(), one);
     });
     this._leaves = this.leaves();
+    this._shownGk ||= new Map();
     this.display.update(this._leaves.map((l) => {
-      const g = this.parts.get(l.gk);
+      // (a component whose cuts changed shows as it was until it is built again)
+      let g = this.parts.get(l.gk);
+      const key = l.chain.length ? null : l.comp.id;
+      if (g?.mesh) { if (key) this._shownGk.set(key, l.gk); } else if (key && this._shownGk.has(key)) g = this.parts.get(this._shownGk.get(key));
       if (!g?.mesh) return null;
       return { mesh: g.mesh, color: g.color ?? DEFAULT_BODY_COLOR, hidden: !!l.hidden, matrix: tops[l.ci].clone().multiply(l.M) };
     }));
@@ -957,6 +1046,11 @@ export class AssemblyEditor {
   vpEvent(kind, e) {
     // (a motion study is open: the view only turns, pans and zooms)
     if (this.motionTool && ['down', 'move', 'up', 'click', 'dbl', 'context'].includes(kind)) return;
+    if (this.holeTool) {
+      if (kind === 'click') return this.holeTool.click(e);
+      if (kind === 'hover') { const ch = this.compAt(e); this.hoverComp = ch?.comp.id || null; this.highlight(); }
+      return;
+    }
     const t = this.explodeTool;
     if (t) {
       if (kind === 'down') return t.down(e);
@@ -1193,6 +1287,7 @@ export class AssemblyEditor {
     vp.setFaceHighlight('hover', hoverFace);
     view.setHighlights({ selected: sel, hover: refs.length ? [] : hov, edges: edgesSel, hoverEdges, clash: this.clash || [] });
     vp.setVertexMarkers?.(pts.length || hoverPt ? { selected: pts, hover: hoverPt } : null);
+    if (this.holeTool) this.holeTool.markers(); // (the points of the hole or cut being made)
     this.updatePlanes();
   }
 
@@ -2087,6 +2182,7 @@ export class AssemblyEditor {
   handleKey(e) {
     if (this.explodeTool && this.explodeTool.key(e)) return true;
     if (this.motionTool && this.motionTool.key(e)) return true;
+    if (this.holeTool && this.holeTool.key(e)) return true;
     const typing = e.target.closest?.('input, select, textarea');
     if (typing) { if (e.key === 'Enter' && this.pm) { this.okMate(); return true; } return false; }
     const ctrl = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
@@ -2116,6 +2212,8 @@ export class AssemblyEditor {
         { icon: 'insertComponent', label: 'Insert Components', action: () => this.insertComponents() },
         { icon: 'stdParts', label: 'Standard Parts', action: () => this.standardParts() },
         { icon: 'equations', label: 'Equations', action: () => this.showEquations() },
+        { icon: 'asmHole', label: 'Assembly Hole', action: () => this.startAsmFeature('hole'), active: this.holeTool?.f?.type === 'hole' },
+        { icon: 'asmCut', label: 'Assembly Cut', action: () => this.startAsmFeature('cut'), active: this.holeTool?.f?.type === 'cut' },
         { icon: 'mate', label: 'Mate', key: 'M', action: () => this.startMate(), active: !!this.pm },
         'sep',
         { icon: 'fix', label: 'Fix', action: () => selC && this.setFixed(selC.id, true), disabled: !selC || selC.fixed },
@@ -2184,6 +2282,8 @@ export class AssemblyEditor {
       Insert: [
         { label: 'Components…', icon: 'insertComponent', action: () => this.insertComponents() },
         { label: 'Standard Parts…', icon: 'stdParts', action: () => this.standardParts() },
+        { label: 'Assembly Hole…', icon: 'asmHole', action: () => this.startAsmFeature('hole') },
+        { label: 'Assembly Cut…', icon: 'asmCut', action: () => this.startAsmFeature('cut') },
         { label: 'Exploded View…', icon: 'explode', action: () => this.startExplode() },
         { label: 'Mate…', icon: 'mate', key: 'M', action: () => this.startMate() },
       ],
@@ -2305,6 +2405,25 @@ export class AssemblyEditor {
         ],
       });
     }
+    if (this.doc.asmFeatures?.length) {
+      const afOpen = !this._afClosed;
+      row({ ic: 'asmHole', label: `Assembly Features (${this.doc.asmFeatures.length})`, depth: 1, cls: 'tree-folder', twisty: afOpen ? '▼' : '▶', onTwisty: () => { this._afClosed = afOpen; this.renderTree(); } });
+      if (afOpen) for (const f of this.doc.asmFeatures) {
+        row({
+          ic: f.type === 'cut' ? 'asmCut' : 'asmHole', label: f.name, depth: 2, cls: f.suppressed ? 'suppressed' : '',
+          sub: `(${f.at?.pts?.length || 0} × through ${f.comps?.length || 0})`,
+          title: `Cuts ${(f.comps || []).map((e) => this.comp(e.id)?.name || '?').join(', ')} — double-click to edit`,
+          onDbl: () => this.startAsmFeature(f.type, f.id),
+          menu: () => [
+            { label: 'Edit Feature', icon: 'edit', action: () => this.startAsmFeature(f.type, f.id) },
+            { label: f.suppressed ? 'Unsuppress' : 'Suppress', icon: 'suppress', action: () => this.toggleAsmFeature(f.id) },
+            { label: 'Rename', icon: 'rename', action: () => this.app.ui.promptText('Rename', f.type === 'cut' ? 'asmCut' : 'asmHole', 'Name', f.name).then((v) => { if (v?.trim()) { this.begin(); f.name = v.trim(); this.change(); } }) },
+            'sep',
+            { label: 'Delete', icon: 'trash', action: () => this.deleteAsmFeature(f.id) },
+          ],
+        });
+      }
+    }
     if (this.doc.explodes.length) {
       const exOpen = !this._exClosed;
       row({ ic: 'explode', label: `Exploded Views (${this.doc.explodes.length})`, depth: 1, cls: 'tree-folder', twisty: exOpen ? '▼' : '▶', onTwisty: () => { this._exClosed = exOpen; this.renderTree(); } });
@@ -2349,6 +2468,7 @@ export class AssemblyEditor {
     if (!this.isActive()) return;
     if (this.explodeTool) { this.explodeTool.renderPM(); return; }
     if (this.motionTool) { this.motionTool.renderPM(); return; }
+    if (this.holeTool) { this.holeTool.renderPM(); return; }
     const ui = this.app.ui, root = $('#pm');
     root.innerHTML = '';
     const pm = this.pm;

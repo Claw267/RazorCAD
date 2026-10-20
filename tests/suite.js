@@ -1205,6 +1205,71 @@ rc.log(b.bodies, b.errors.length);`, 'text');
       : { ok: false, detail: `ys ${ys}; clear ${JSON.stringify(clear)}; hit ${JSON.stringify(hit)}; stop ${okStop} free ${okFree} (y ${block.pos[1]}); motion ${JSON.stringify(mt.firstClash)} frames ${mt.frames.length}` };
   },
 
+  // assembly features: an M8 hole made in the assembly at two points through two stacked plates (10 and 12 thick)
+  // cuts both (Ø9), the parts' own documents unchanged; a hex bolt, washers and a nut go in each (M8×35, no
+  // collisions), and the kernel's assembly (drawings, exports) has the holes too. A rectangular cut through both
+  // takes 20×10 out of each; undo puts it back; the bottom plate moved, its holes move with the top one's.
+  async 'assembly-features'() {
+    const a = window.app, { meshVolume } = await import('/js/bom.js'), { asmPartFeatures } = await import('/js/asmcuts.js');
+    const plate = (name, t) => {
+      const p = M.newDoc(); p.name = name;
+      const s = M.createFeature(p, 'sketch', { plane: { ref: 'top' } });
+      const pts = [[-30, -20], [30, -20], [30, 20], [-30, 20]];
+      Object.assign(s, { points: pts.map(([x, y], i) => ({ id: 'p' + (i + 1), x, y })), curves: pts.map((_, i) => ({ id: 'c' + (i + 1), type: 'line', p1: 'p' + (i + 1), p2: 'p' + ((i + 1) % 4 + 1), construction: false })), constraints: [] });
+      p.features.push(s, M.createFeature(p, 'extrude', { sketch: s.id, depth: t }));
+      return p;
+    };
+    a.newAssembly(); await wait(300); closeModals();
+    const asm = a.drawing;
+    const docs = [plate('Top', 10), plate('Bottom', 12)];
+    for (const d of docs) await asm.addComponent(asm.addPart(d, null, null));
+    await until(() => asm.doc.components.every((c) => asm.geo(c)?.mesh), 30000);
+    const [top, bot] = asm.doc.components;
+    top.pos = [0, 12, 0]; bot.pos = [0, 0, 0]; top.rot = [0, 0, 0, 1]; bot.rot = [0, 0, 0, 1];
+    asm.change();
+    const built = () => asm.doc.components.every((c) => asm.geo(c)?.mesh);
+    const vol = (c) => Math.round(meshVolume(asm.geo(c).mesh));
+    asm.startAsmFeature('hole');
+    const ht = asm.holeTool;
+    ht.f.at = { comp: top.id, n: [0, 1, 0], pts: [[-20, 10, 0], [20, 10, 0]], u: [1, 0, 0] };
+    ht.fast = { kind: 'hexBolt', washer: true, nut: true };
+    ht.detect();
+    const roles = ht.f.comps.map((e) => e.role).join(',');
+    await ht.ok();
+    await until(built, 30000);
+    const cyl = (c) => asm.geo(c).mesh.faceGroups.filter((g) => g.surf?.t === 'CYLINDER').map((g) => g.surf.r.toFixed(2)).join(',');
+    const cnt = (re) => asm.doc.components.filter((c) => re.test(c.name)).length;
+    const holes = cyl(top) === '4.50,4.50' && cyl(bot) === '4.50,4.50' && Math.abs(vol(top) - (24000 - 2 * Math.PI * 4.5 ** 2 * 10)) < 10;
+    const untouched = docs.every((d) => d.features.length === 2) && asm.doc.parts.every((p) => !p.doc.features.some((f) => f.type === 'hole'));
+    const fast = cnt(/^Hex Bolt M8×35/) === 2 && cnt(/^Washer/) === 4 && cnt(/^Hex Nut/) === 2 && asm.solveOk && !asm.collisions().length;
+    const r = await (a.kernelPool || a.kernel).request('asmInterference', { doc: JSON.stringify(asm.doc) }, 'asm-parts');
+    const plates = new Set([top.id, bot.id]), kernelOk = !r.pairs.some((x) => plates.has(x.a.split('/')[0]) || plates.has(x.b.split('/')[0]));
+    // (the last component tapped: its hole is tapped M8, the first plain clearance)
+    const tl = asmPartFeatures({ ...asm.doc, asmFeatures: [{ ...asm.doc.asmFeatures[0], tapLast: true }] });
+    const tapOk = tl.get(top.id)[0].holeType === 'simple' && tl.get(bot.id)[0].holeType === 'tapped' && tl.get(bot.id)[0].thread === 'M8';
+    // a rectangular cut through both
+    const v0 = vol(top);
+    asm.startAsmFeature('cut');
+    const ct = asm.holeTool;
+    ct.f.at = { comp: top.id, n: [0, 1, 0], pts: [[0, 10, 0]], u: [1, 0, 0] };
+    ct.detect();
+    await ct.ok();
+    await until(() => built() && vol(top) !== v0, 30000);
+    const vCut = [vol(top), vol(bot)], cutOk = Math.abs(vCut[0] - (v0 - 2000)) < 2 && Math.abs(vCut[1] - (24000 * 1.2 - 2 * Math.PI * 4.5 ** 2 * 12 - 2400)) < 10;
+    asm.undo();
+    await until(() => built() && vol(top) === v0, 30000);
+    const undoOk = vol(top) === v0 && asm.doc.asmFeatures.length === 1;
+    // the bottom plate moved 5 along x: its holes are where the top one's are (undo put new components in)
+    const bot2 = asm.doc.components[1];
+    bot2.pos = [5, 0, 0];
+    asm.change();
+    await until(() => built() && /-25|15/.test(asm.geo(bot2).mesh.faceGroups.filter((g) => g.surf?.t === 'CYLINDER').map((g) => g.surf.p[0].toFixed(0)).join()), 30000);
+    const xs = asm.geo(bot2).mesh.faceGroups.filter((g) => g.surf?.t === 'CYLINDER').map((g) => Math.round(g.surf.p[0])).sort((p, q) => p - q).join(',');
+    const ok = roles === 'first,last' && holes && untouched && fast && kernelOk && tapOk && cutOk && undoOk && xs === '-25,15';
+    return ok ? { ok: true, detail: `2 × M8 normal (Ø9) through both plates, 2 × (washer, M8×35, washer, nut); cut 20×10 through both, undone; bottom moved: its holes at x ${xs}` }
+      : { ok: false, detail: `roles ${roles}; holes ${holes} (${cyl(top)} / ${cyl(bot)}, vol ${vol(top)}); untouched ${untouched}; fast ${fast} (${asm.doc.components.map((c) => c.name).join(', ')}, clashes ${JSON.stringify(asm.collisions())}); kernel ${kernelOk} ${JSON.stringify(r.pairs)}; tap ${tapOk}; cut ${cutOk} ${vCut}; undo ${undoOk}; xs ${xs}` };
+  },
+
   // macros in assemblies and drawings: a recording of a part inserted twice and mated plays back into a new
   // assembly as the same (2 components, 1 mate, solved); a note added to a drawing plays back into another drawing
   async 'macros-editors'() {

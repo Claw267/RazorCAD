@@ -9,6 +9,7 @@ import { inferPlaneType, planeRefs } from './refgeom.js';
 import { threadList, minorDiameter, nearestThread } from './threads.js';
 import * as SM from './sheetmetal.js';
 import { holeSpec, holeProfile } from './holes.js';
+import { asmPartFeatures } from './asmcuts.js';
 import { profileDims, profileSection, piercePoint } from './profiles.js';
 import { normalize3d, solve3d, splineGeom } from './sketch3dmodel.js';
 import { decimate } from './meshdecimate.js';
@@ -4638,6 +4639,29 @@ async function rebuild(doc, previewId = null, opts = {}) {
           res.notes[f.id] = `${hits.length} face${hits.length === 1 ? '' : 's'} moved ${d > 0 ? 'out' : 'in'} ${Math.abs(d)}`;
           break;
         }
+        case 'asmCut': {
+          // a rectangular cut made in an assembly (asmcuts.js): rectangles at points, w along u, l across, cut
+          // along d (into the material) through all or to a depth
+          if (!body) throw new Error('There is no body to cut');
+          const through = f.end !== 'blind', bb = bbox(body);
+          let tool = null;
+          for (const c of f.cuts || []) {
+            if (!(c.w > 0 && c.l > 0)) throw new Error('The cut needs a width and a length');
+            const d = unit(c.d), v = unit(cross(d, c.u)), u = cross(v, d);
+            const depth = through ? 2 * bb.diag + 1 + len(sub(c.o, bb.center)) : ev(f.depth);
+            if (!(depth > 0)) throw new Error('The cut depth must be greater than zero');
+            const o = sub(c.o, mul(d, 0.05));
+            const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b2]) => add(o, add(mul(u, (a * c.w) / 2), mul(v, (b2 * c.l) / 2))));
+            const one = R.basicFaceExtrusion(R.makePolygon(corners), new R.Vector(mul(d, depth + 0.05)));
+            tool = tool ? tool.fuse(one) : one;
+          }
+          if (!tool) throw new Error('The cut has no position');
+          tools.set(f.id, { shape: tool, op: 'cut', merge: true, scope: null });
+          apply('cut', tool, true, null);
+          res.features[f.id] = {};
+          res.notes[f.id] = `${f.cuts.length} cut${f.cuts.length === 1 ? '' : 's'} made in the assembly${through ? ', through all' : ''}`;
+          break;
+        }
         case 'hole': {
           // Hole: simple, counterbored, countersunk or tapped holes at sketch points / circle centres
           // or clicked points on a flat face, square into the material
@@ -4659,7 +4683,8 @@ async function rebuild(doc, previewId = null, opts = {}) {
           if (!locs.length) throw new Error('Click points on a flat face for the holes, or select a sketch with points (or circles) on the face');
           if (!body) throw new Error('There is no body to put holes in');
           const through = f.end === 'through';
-          const depth = through ? 2 * bbox(body).diag + 1 : ev(f.depth);
+          // (through: past the far side, from points on the body or, for an assembly's hole, away from it)
+          const bb = bbox(body), depth = through ? 2 * bb.diag + 1 + Math.max(0, ...locs.map((l) => len(sub(l.p, bb.center)))) : ev(f.depth);
           if (!(depth > 0)) throw new Error('The hole depth must be greater than zero');
           if (spec.type === 'cbore' && depth <= spec.cbDepth) throw new Error('The hole must be deeper than its counterbore');
           const prof = holeProfile(spec, depth, !through && f.drillPoint !== false);
@@ -5517,6 +5542,7 @@ async function assemblySolids(asm) {
   const oc = R.getOC();
   const built = asmPartsBuilt;
   const solids = [], holes = [], threads = [];
+  const cuts = asmPartFeatures(asm); // (the assembly's own holes and cuts, by top component)
   const effIn = (d, c) => {
     const o = (d.activeConfig ? (d.configs || []).find((x) => x.id === d.activeConfig) : null)?.comps?.[c.id] || {};
     return { config: 'config' in o ? o.config : (c.config ?? null), hidden: 'hidden' in o ? o.hidden : !!c.hidden, suppressed: 'suppressed' in o ? o.suppressed : !!c.suppressed };
@@ -5553,7 +5579,9 @@ async function assemblySolids(asm) {
       if (!p?.doc) continue;
       const Mc = mul(M, poseM(c)), cfg = e.config && (p.doc.configs || []).some((x) => x.id === e.config) ? e.config : null;
       if (p.doc.kind === 'assembly') { await walk({ ...p.doc, activeConfig: cfg }, Mc, `${prefix}${c.id}/`, depth + 1); continue; }
-      const pd = { ...p.doc, activeConfig: cfg, rollbackAt: null };
+      // (a top component cut by the assembly's holes and cuts: its part with them)
+      const extra = depth === 0 && cuts.get(c.id);
+      const pd = { ...p.doc, activeConfig: cfg, rollbackAt: null, ...(extra ? { features: [...p.doc.features, ...extra] } : {}) };
       const b = await builtPart(JSON.stringify(pd), p.name || pd.name);
       void built;
       for (const s of b.solids) solids.push({ ...s, id: `${prefix}${c.id}/${s.id}`, shape: placed(s.shape, Mc), comp: c.name });

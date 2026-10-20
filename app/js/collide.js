@@ -261,3 +261,42 @@ export function findCollisions(items, opts = {}) {
   }
   return out;
 }
+
+// Where a ray (o, d in the world) passes through a placed mesh's triangles: the distances along it, in order.
+export function rayHits(mesh, M, o, d) {
+  if (!mesh?.triangles?.length) return [];
+  const t = treeOf(mesh), V = mesh.vertices, T = mesh.triangles;
+  const inv = new THREE.Matrix4().copy(M).invert();
+  const lo3 = new THREE.Vector3(...o).applyMatrix4(inv), ld = new THREE.Vector3(...d).transformDirection(inv);
+  const O = lo3.toArray(), D = ld.toArray(), out = [];
+  const slab = (n) => {
+    let t0 = -Infinity, t1 = Infinity;
+    for (let k = 0; k < 3; k++) {
+      const a = t.lo[n * 3 + k] - 1e-6, b = t.hi[n * 3 + k] + 1e-6;
+      if (Math.abs(D[k]) < 1e-15) { if (O[k] < a || O[k] > b) return false; continue; }
+      let u = (a - O[k]) / D[k], v = (b - O[k]) / D[k];
+      if (u > v) [u, v] = [v, u];
+      t0 = Math.max(t0, u); t1 = Math.min(t1, v);
+      if (t0 > t1) return false;
+    }
+    return t1 >= -1e-6;
+  };
+  const stack = [0];
+  while (stack.length) {
+    const n = stack.pop();
+    if (!slab(n)) continue;
+    if (t.left[n] >= 0) { stack.push(t.left[n], t.right[n]); continue; }
+    for (let i = t.start[n]; i < t.start[n] + t.count[n]; i++) {
+      const tri = t.order[i], a = T[tri * 3] * 3, b = T[tri * 3 + 1] * 3, c = T[tri * 3 + 2] * 3;
+      const A = [V[a], V[a + 1], V[a + 2]], e1 = [V[b] - A[0], V[b + 1] - A[1], V[b + 2] - A[2]], e2 = [V[c] - A[0], V[c + 1] - A[1], V[c + 2] - A[2]];
+      const p = cross3(D, e2), det = dot3(e1, p);
+      if (Math.abs(det) < 1e-14) continue;
+      const s = sub3(O, A), u = dot3(s, p) / det;
+      if (u < -1e-9 || u > 1 + 1e-9) continue;
+      const q = cross3(s, e1), v = dot3(D, q) / det;
+      if (v < -1e-9 || u + v > 1 + 1e-9) continue;
+      out.push(dot3(e2, q) / det);
+    }
+  }
+  return out.sort((x, y) => x - y);
+}

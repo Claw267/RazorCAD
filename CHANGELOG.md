@@ -6,6 +6,14 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 08:19 — Assembly features: holes and cuts made in the assembly, with fasteners
+- **Assembly Hole** and **Assembly Cut** (Assembly ribbon, Insert menu): click points on a flat face of a component; the hole or cut goes in square from there, through all or to a depth, through every component behind it (listed in the panel, each can be left out).
+- Holes: simple, counterbore, countersink or tapped, standard sizes (ISO 273 close / normal / loose) or custom. The first component gets the hole as chosen, the ones behind it a plain hole of the drill size; **Tap the last component** makes the last one tapped for the size (a cosmetic thread). Cuts: a rectangle, width × length, turned by an angle.
+- **Fasteners**: hex bolts or socket head cap screws put in each hole as it is made, with washers and a nut on the far side if wanted, the length taken from the whole stack (a standard length), mated in the hole (into a tapped last component: a screw without a nut, about one diameter into the thread).
+- Made in the assembly only: the parts' files are not changed. Each component cut gets the feature in its copy of its part, so the assembly's drawings (hole callouts too), BOM and exports have the holes. Move a component and its holes are worked out again (they stay with the component they were clicked on).
+- The features are listed in the tree (Assembly Features): edit, suppress, rename, delete. Undo includes them.
+- Regression test: assembly-features (two M8 holes through two plates, bolts / washers / nuts with no collisions, the kernel's assembly cut too, the tapped last component, a rectangular cut through both and its undo, and the holes following a moved plate).
+
 ## 2026-10-21 08:07 — Collision detection while dragging and in motion studies
 - **Collision Detection** (Assembly ribbon, and Tools ▸ Collision Detection Off / Show Collisions While Dragging / Stop at Collisions While Dragging). While a component is dragged, the parts that run into others are shown in red with their names in the status bar; with Stop at Collisions the dragged component (and what its mates carry along) stops where it meets the other part, brought right up to it.
 - Faces that only touch (mated faces) are not collisions, nor a shaft in a hole of its size, nor a screw in a nut or tapped hole (threads are cosmetic, so the screw is its full diameter in a bore of about its minor diameter). Parts that overlap already when the drag starts are left out.
