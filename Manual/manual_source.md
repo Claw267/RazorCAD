@@ -1685,6 +1685,8 @@ Pushing a version tag (for example `v0.14.0-beta`, matching `version.txt`) runs 
 
 `python tools/build_website_docs.py` builds the online manual (`website/docs`) from this manual's source and the browser version (`tools/build_web_app.py`). The browser version is built in its own folder, `RazorCAD Web` next to the project folder, with both kernels (`website/_headers` serves it cross-origin isolated, so it runs the multi-threaded one where the browser can), and copied from there into `website/app`; it carries the geometry kernel's signature so the browser keeps stored models per kernel.
 
+`python tools/check_site.py` checks the website as it is served (razorcad.com, or another address): its pages, the browser version's isolation headers, and the browser version itself in headless Edge (it starts, and a multi-threaded kernel builds a part). GitHub runs it after each push that changes the website (`.github/workflows/site-check.yml`).
+
 ## Working on the UI
 
 Run `python serve.py` and open http://localhost:8765/ in a browser. In that mode files are downloaded instead of saved through dialogs. Set the `RAZORCAD_DATA_DIR` environment variable to keep a test run's recent-files list separate from your own. {idx:serve.py}

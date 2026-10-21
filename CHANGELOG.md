@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-22 10:19 — The website checked as it is served, after each push
+- `tools/check_site.py` checks the website at an address (razorcad.com by default): the home page, the manual and the browser version load; the browser version's files are served cross-origin isolated; in headless Edge the browser version starts, the page is isolated, and a kernel asked for 4 threads starts multi-threaded and builds a part. `--wait` first waits until the site serves the checkout's browser version (the host deploys a push a little later). Exit code 1 on any problem, each one listed.
+- GitHub runs it after each push to main that changes the website (and once a week): `.github/workflows/site-check.yml`.
+- Run against a local server of the website folder with the new headers: everything passes (the browser version's kernel multi-threaded, 8 threads). Against razorcad.com as it is now (before the push): it reports the missing isolation, as it should.
+
 ## 2026-10-22 09:21 — Convert to Sheet Metal: RazorCAD's own closed corners made again exactly
 - A body folded by RazorCAD (for example its STEP export) has its closed corners recognised when converted: each corner's bends end short of the corner point by the V cutout's relief (or at it, for a closed mitre or a butt corner) and its walls run on past them as the corner made them. From those the corner is worked out (which wall covers the other's end, or both mitred; the gap) and closed as RazorCAD closes it: the bends formed over their own strips, the relief round and the curved V lines made again. It is kept only when the folded sheet has the body's volume, area and box; any other corner is traced from the body as before.
 - The test tray (V cutout corners with their relief, gap 0.2): 63 faces as before, the volume the same (it was 67 faces); a closed mitre corner: the same faces and volume (it was 0.023 % off); a butt corner: the same volume to a millionth (it was 0.19 % off; a seam may stay where a wall's mitred run-on joins it, as the STEP file moves the wall by a ten-millionth of a mm). The flat patterns come out the size of RazorCAD's own (checked for the open, 120°, butt and mitre variants).

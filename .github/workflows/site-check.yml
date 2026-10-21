@@ -1,0 +1,27 @@
+# The website as it is served (tools/check_site.py), after each push to main that changes it: once the host has
+# deployed this push's browser version (up to 10 minutes' wait), its pages load, the browser version is served
+# cross-origin isolated (website/_headers) and starts, and a multi-threaded kernel builds a part. On Windows, whose
+# runner has Edge installed (Playwright needs no browser download).
+name: Site check
+
+on:
+  push:
+    branches: [main]
+    paths: ['website/**', 'tools/check_site.py', '.github/workflows/site-check.yml']
+  schedule:
+    - cron: '17 6 * * 1'  # (and once a week, Mondays)
+  workflow_dispatch:
+
+jobs:
+  site:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Playwright
+        run: python -m pip install --upgrade pip playwright
+      - name: Check razorcad.com
+        run: python tools/check_site.py https://razorcad.com --wait ${{ github.event_name == 'push' && 600 || 0 }}
