@@ -2404,6 +2404,72 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     }
   },
 
+  // a section view saved with the part: saved with the cut on (two planes, one picked from a face), the file opens
+  // with the same cut; the model's key leaves it out; a tab keeps its own cut (another part's tab has none, and
+  // coming back puts it on again); an assembly saved with a cut opens with it too
+  async 'section-saved'() {
+    const a = window.app, { platform } = await import('/js/platform.js'), keep = platform.saveText, THREE = await import('three');
+    const text = await (await fetch('/tests/parts/plate-features.rcad')).text();
+    let saved = null;
+    platform.saveText = async (name, t) => { saved = t; return null; };
+    const opened = [];
+    try {
+      await a.openFromFile({ content: text, name: 'Section saved.rcad', path: null });
+      opened.push(a.tabIndex);
+      for (let i = 0; i < 80 && !a.result?.bodies?.length; i++) await wait(100);
+      a.selection = null;
+      a.startSection();
+      const s = a.sectionState;
+      Object.assign(s, { plane: 'custom', custom: { o: new THREE.Vector3(1, 2, 3), n: new THREE.Vector3(0, 0, 1), name: 'Selected face' }, offset: 4.5, flip: true });
+      Object.assign(s.more[0], { on: true, plane: 'right', offset: -7, flip: false });
+      a.applySection(); a.okPM();
+      await a.saveFile();
+      const file = saved && JSON.parse(saved), fs = file?.section;
+      const inFile = fs?.plane === 'custom' && fs.offset === 4.5 && fs.flip === true && fs.custom?.o?.join() === '1,2,3' && fs.more?.[0]?.on === true && fs.more[0].offset === -7;
+      const { section: _s, ...plain } = M.stripThumbnail(JSON.parse(saved));
+      const keySame = (await a.docKey(M.stripThumbnail(file))) === (await a.docKey(plain));
+      // opened again (in a tab of its own): the same cut
+      a.clearSection();
+      await a.openFromFile({ content: saved, name: 'Section saved again.rcad', path: null });
+      opened.push(a.tabIndex);
+      const r = a.sectionState, vp = a.viewport;
+      const back = !!vp.section && vp.sectionPlanes().length === 2 && r.plane === 'custom' && r.custom.o.z === 3 && r.offset === 4.5 && r.flip && r.more[0].on && r.more[0].offset === -7 && a.pm?.kind !== 'section';
+      // another part in a tab: no cut there; back to this tab: the cut again
+      const here = a.tabIndex;
+      a.newDocument(); closeModals();
+      opened.push(a.tabIndex);
+      const noneThere = !vp.section;
+      await a.activateTab(here);
+      const tabBack = !!vp.section && vp.sectionPlanes().length === 2 && a.sectionState.offset === 4.5;
+      // an assembly saved with a cut
+      const ed = a.newAssembly(); await wait(300); closeModals();
+      opened.push(a.tabIndex);
+      Object.assign(a.sectionState, { plane: 'top', custom: null, offset: 2, flip: false }); a.sectionState.more.forEach((q) => { q.on = false; });
+      a.applySection();
+      await ed.save();
+      const asmFile = saved && JSON.parse(saved);
+      const asmSaved = asmFile?.section?.plane === 'top' && asmFile.section.offset === 2;
+      a.clearSection();
+      a.openAssemblyTab(asmFile, null); await wait(300);
+      opened.push(a.tabIndex);
+      const asmBack = !!vp.section && a.sectionState.plane === 'top' && a.sectionState.offset === 2;
+      const ok = inFile && keySame && back && noneThere && tabBack && asmSaved && asmBack;
+      return ok ? { ok: true, detail: `saved with the part (two planes, one from a face at offset 4.5, flipped), opened with the same cut; the model's key the same; another tab has none, back again it has; an assembly saved and opened with its cut` }
+        : { ok: false, detail: `in the file ${inFile} (${JSON.stringify(fs)?.slice(0, 160)}), key same ${keySame}, opened with it ${back}, none in another tab ${noneThere}, back in the tab ${tabBack}, assembly saved ${asmSaved}, opened ${asmBack}` };
+    } finally {
+      platform.saveText = keep;
+      const s = a.sectionState;
+      s.more.forEach((q) => { q.on = false; q.offset = 0; }); Object.assign(s, { plane: 'front', custom: null, offset: 0, flip: false, active: 0 });
+      if (a.pm?.kind === 'section') a.cancelPM();
+      if (a.viewport.section) a.clearSection();
+      for (const i of opened.sort((x, y) => y - x)) {
+        if (!a.tabs[i]) continue;
+        if (a.tabs[i].kind === 'drawing') a.tabs[i].drawing.dirty = false; else if (i === a.tabIndex) a.dirty = false; else a.tabs[i].dirty = false;
+        await a.closeTab(i);
+      }
+    }
+  },
+
   // Section View in an assembly: two blocks with a hole, cut on the front plane: the components clipped (faces and
   // edges), a cap for the part, nothing cut away picked; a click on a block's top face moves the cut onto it; OK keeps
   // the cut (the assembly still shown: nothing built into the view), the button opens the panel again, ✗ removes it

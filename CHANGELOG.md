@@ -6,6 +6,12 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-22 09:00 — Section views saved with the part or assembly
+- A part or assembly saved with a section view on keeps it in its file (its planes, offsets, flips, a plane picked from a face, Sections 2 and 3); opening the file puts the cut on again, as after OK (the Section View button opens its panel). Saved without a cut, the file has none. The stored model's key leaves the section out, so a part saved with one still opens from the stored model.
+- Each tab keeps its own cut: switching to another part or assembly shows that one's (or none), and coming back puts the cut on again (before, switching tabs took it away).
+- Fixed: Section View on an assembly with nothing in it yet stopped with an error.
+- Regression test section-saved (part file, the model's key, tabs, assembly file).
+
 ## 2026-10-22 08:54 — Big STEP imports meshed in several kernels at once
 - A part whose bodies are still as a big STEP import made them (kept in the store of models built) has its meshing shared out: the part's kernel meshes for a moment to see how long the rest will take, and when the pool's free kernels would finish sooner (each first reads the import: the page hands them the text it just read or wrote), the bodies are shared out by faces between it and up to 7 of them, its own share sized so all finish together. Their meshes are used as its own; one that fails leaves its bodies to the part's kernel.
 - Measured on 64 copies of a test part in one STEP (6784 faces): meshing 5.4 s alone, 1.8 s shared out (6 kernels helping); opened from the file the first time, 2.3 s instead of 6.1 s. A lighter file (64 sheet-metal trays, 1.7 s of meshing): 1.35 s. Small imports, and bodies changed by later features, are meshed as before.

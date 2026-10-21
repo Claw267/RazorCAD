@@ -187,7 +187,7 @@ class App {
 
   // ---- the model as last built, kept for opening and switching tabs at once
   // (the key: a hash of the part as in its file; the model is stored once the part is unchanged since)
-  docKey(doc) { return hashText(M.docJSON(doc, null, 0)); }
+  docKey(doc) { const { section: _s, ...d } = doc; return hashText(M.docJSON(d, null, 0)); } // (the section view is no part of the model)
   async readModelCache(doc) {
     try {
       const key = await this.docKey(doc);
@@ -1401,9 +1401,9 @@ class App {
   // The active part's state lives on the app; switching tabs stores it and loads the other one.
   storeTab() {
     const t = this.tabs[this.tabIndex];
-    if (t?.kind === 'drawing') { t.dirty = t.drawing.dirty; t.filePath = t.drawing.filePath; return; }
+    if (t?.kind === 'drawing') { t.dirty = t.drawing.dirty; t.filePath = t.drawing.filePath; t.section = this.sectionForFile(); return; }
     if (!t || !this.doc) return;
-    Object.assign(t, { doc: this.doc, history: this.history, filePath: this.filePath, dirty: this.dirty, lastAutosave: this.lastAutosave, view: this.viewport.saveView(),
+    Object.assign(t, { doc: this.doc, history: this.history, filePath: this.filePath, dirty: this.dirty, lastAutosave: this.lastAutosave, view: this.viewport.saveView(), section: this.sectionForFile(),
       model: this._model?.doc === this.doc ? this._model.r : null, fileKey: this._fileKey, cachedKey: this._cachedKey, statesKey: this._statesKey, kernel: this.kernel, kernelUsed: performance.now() });
   }
 
@@ -1443,7 +1443,7 @@ class App {
     }
     this.tabIndex = i;
     const t = this.tabs[i];
-    if (t.kind === 'drawing') { this.enterDrawing(t.drawing); return; }
+    if (t.kind === 'drawing') { this.enterDrawing(t.drawing); this.restoreSection(t.section); return; }
     this.useTabKernel(t);
     this.doc = t.doc; this.history = t.history; this.filePath = t.filePath; this.dirty = t.dirty; this.lastAutosave = t.lastAutosave;
     this._fileKey = t.fileKey || null; this._cachedKey = t.cachedKey || null; this._statesKey = t.statesKey || null; this._model = null;
@@ -1456,9 +1456,10 @@ class App {
     this.ui.renderPM();
     this.ui.refreshCommandStates();
     this.updateTitle();
-    if (this.showTabModel(t)) return;
+    if (this.showTabModel(t)) { this.restoreSection(t.section); return; }
     await this.rebuild();
     if (t.view) this.viewport.restoreView(t.view);
+    this.restoreSection(t.section);
   }
 
   // A tab's model as last built: shown now; the kernel (which holds one part at a time) catches up behind.
@@ -1540,7 +1541,9 @@ class App {
 
   // ------------------------------------------------------------ assemblies (an editor tab, like a drawing, that uses the 3D view)
   openAssemblyTab(doc, filePath = null) {
-    return this.openDrawingTab(doc, filePath, new AssemblyEditor(this, doc, filePath));
+    const ed = this.openDrawingTab(doc, filePath, new AssemblyEditor(this, doc, filePath));
+    this.restoreSection(doc.section); // (saved with a section view: the cut on again)
+    return ed;
   }
   newAssembly() {
     const names = new Set(this.tabs.filter((t) => t.kind === 'drawing').map((t) => t.drawing.name));
@@ -3796,6 +3799,28 @@ class App {
     return true;
   }
 
+  // The section view as a file keeps it (doc.section: a part or assembly saved with the cut on; a tab keeps it too):
+  // the planes, offsets and flips, a picked plane's point and normal as numbers. null when there is no cut.
+  sectionForFile() {
+    if (!this.viewport.section) return null;
+    const arr = (x) => (Array.isArray(x) ? [...x] : [x.x, x.y, x.z]);
+    const one = ({ more: _m, ...q }) => ({ ...q, custom: q.custom ? { o: arr(q.custom.o), n: arr(q.custom.n), name: q.custom.name } : null });
+    const s = this.sectionState;
+    return { ...one(s), more: (s.more || []).map(one) };
+  }
+  // A section kept in a file (or a tab) put back, as after OK: the cut on, its panel closed.
+  restoreSection(saved) {
+    if (!saved?.plane) return false;
+    const v = (x) => new THREE.Vector3(...x);
+    const one = (q, def) => ({ ...def, ...(q || {}), custom: q?.custom?.o && q.custom.n ? { o: v(q.custom.o), n: v(q.custom.n).normalize(), name: q.custom.name || 'Plane' } : null });
+    const s = this.sectionState;
+    this.sectionState = { ...one(saved, s), active: saved.active || 0, more: s.more.map((d, i) => one(saved.more?.[i], d)) };
+    if (this.pm?.kind === 'section') this.pm = null;
+    this.applySection();
+    this.ui.refreshCommandStates();
+    return true;
+  }
+
   clearSection() {
     this.viewport.setSectionArrow(null);
     this.viewport.setSection(null);
@@ -3953,6 +3978,8 @@ class App {
       this._firstBuild = { doc, t0: performance.now() };
       const statesFirst = statesP.then(() => {});
       await this.withProgress(`Opening ${file.name}…`, () => this.setDoc(doc, { cached: stored.r, before: statesFirst }));
+      // (saved with a section view: the cut on again; else none, whatever the part before had)
+      if (!this.restoreSection(doc.section) && this.viewport.section) this.clearSection();
       const states = await statesP;
       this._fileKey = recovered ? null : stored.key;
       this._cachedKey = stored.r ? stored.key : null;
@@ -4009,6 +4036,9 @@ class App {
     try {
       let thumb = null;
       try { thumb = this.viewport.snapshot(); } catch { /* saved without a preview */ }
+      // (the section view as it is: opened with the cut on again)
+      const sec = this.sectionForFile();
+      if (sec) this.doc.section = sec; else delete this.doc.section;
       const path = await platform.saveText(`${this.safeName()}${M.PART_EXT}`, M.docJSON(this.doc, thumb, 2), saveAs ? null : this.filePath, this.filePath);
       if (!path) return;
       if (platform.desktop) this.filePath = path;

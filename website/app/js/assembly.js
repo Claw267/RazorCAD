@@ -2151,6 +2151,9 @@ export class AssemblyEditor {
       }
       let thumb = null;
       try { thumb = this.vp.snapshot(); } catch { /* saved without a preview */ }
+      // (the section view as it is: opened with the cut on again)
+      const sec = this.app.sectionForFile();
+      if (sec) this.doc.section = sec; else delete this.doc.section;
       const path = await platform.saveText(`${this.safeName()}${ASM_EXT}`, docJSON(this.doc, thumb, 1), saveAs ? null : this.filePath, this.filePath, 'assembly');
       if (!path) return false;
       if (platform.desktop) this.filePath = path;

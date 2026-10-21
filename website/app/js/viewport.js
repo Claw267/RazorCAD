@@ -665,7 +665,8 @@ export class Viewport {
       this.capGroup = null;
     }
     const asm = this.asmView?.capSources?.() || null;
-    if (!this.section || (!asm && (!this.body || !this.bodyGeo))) return;
+    // (an assembly with nothing in it yet: nothing to cap)
+    if (!this.section || (!asm && (!this.body || !this.bodyGeo)) || (asm && !this.contentBox())) return;
     // (several planes: each capped where the others cut away too, as only what all of them cut away is gone)
     const planes = this.sectionPlanes();
     const grp = new THREE.Group();
