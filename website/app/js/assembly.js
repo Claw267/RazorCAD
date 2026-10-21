@@ -1071,6 +1071,19 @@ export class AssemblyEditor {
   // a component's pose now (the assembly's origin: where it is)
   poseOfId(id) { if (id === ORIGIN) return ORIGIN_POSE; const c = this.comp(id); return c ? poseOf(c) : null; }
   // a ref placed by its component's pose now
+  // Section View: started (from the flat face selected, if one is), or, with a cut on and its panel closed, the panel
+  // opened again
+  toggleSection() { if (this.vp.section && !this.app.pm) this.app.reopenSection(); else this.app.startSection(); }
+
+  // The section plane of a component's flat face (a mate reference: r, or the one selected): { plane: 'custom', custom }
+  sectionPlaneOf(r = this.sel) {
+    if (r?.kind !== 'plane' || !r.comp) return null;
+    const w = this.worldRef(r);
+    if (!w?.n) return null;
+    const v = (x) => new THREE.Vector3(...x);
+    return { plane: 'custom', custom: { o: v(w.p), n: v(w.n).normalize(), name: `${this.comp(r.comp)?.name || 'Component'}: face` } };
+  }
+
   worldRef(r) {
     const ps = this.poseOfId(r.comp);
     if (!ps) return null;
@@ -1102,6 +1115,16 @@ export class AssemblyEditor {
       if (kind === 'click') return t.click(e);
       if (kind === 'hover') { const ch = this.compAt(e); this.hoverComp = ch?.comp.id || null; this.highlight(); return; }
       return;
+    }
+    // (the Section View panel open: a click on a component's flat face cuts from it; the arrow is dragged by the app)
+    if (this.app.pm?.kind === 'section') {
+      if (kind === 'click') {
+        const r = this.entityAt(e, true), from = r && this.sectionPlaneOf(r);
+        if (from) { Object.assign(this.app.sectionState, from, { offset: 0 }); this.app.applySection(); this.app.ui.renderPM(); } else if (r) this.app.toast('Click a flat face to cut from it');
+        return;
+      }
+      if (kind === 'hover') { const on = this.vp.sectionArrowAt(e); this.vp.setSectionArrowHover(on); this.vp.canvas.style.cursor = on ? 'grab' : 'default'; return; }
+      if (kind === 'down' || kind === 'up' || kind === 'dbl' || kind === 'move') return;
     }
     if (kind === 'down') return this.onDown(e);
     if (kind === 'move') return this.onMove(e);
@@ -2272,6 +2295,7 @@ export class AssemblyEditor {
         'sep',
         { icon: 'bom', label: 'Bill of Materials', action: () => this.showBOM() },
         { icon: 'interference', label: 'Interference Check', action: () => this.checkInterference() },
+        { icon: 'section', label: 'Section View', action: () => this.toggleSection(), active: !!this.vp.section },
         { icon: 'collide', label: 'Collision Detection', action: () => this.setCollideMode(this.collideMode === 'off' ? 'stop' : 'off'), active: this.collideMode !== 'off' },
         { icon: 'speed', label: 'Speed Mode', action: () => this.setSpeedMode(!this.doc.speedMode), active: !!this.doc.speedMode },
         { icon: 'zoomfit', label: 'Zoom to Fit', key: 'F', action: () => this.vp.zoomToFit() },
@@ -2337,6 +2361,7 @@ export class AssemblyEditor {
         { label: 'Bill of Materials…', icon: 'bom', action: () => this.showBOM() },
         { label: 'Equations…', icon: 'equations', action: () => this.showEquations() },
         { label: 'Interference Check…', icon: 'interference', action: () => this.checkInterference() },
+        { label: 'Section View…', icon: 'section', action: () => this.app.startSection() },
         'sep',
         ...[['off', 'Collision Detection Off'], ['show', 'Show Collisions While Dragging'], ['stop', 'Stop at Collisions While Dragging']].map(([m, label]) => ({ label: (this.collideMode === m ? '✓ ' : '') + label, icon: 'collide', action: () => this.setCollideMode(m) })),
         'sep',
@@ -2512,6 +2537,8 @@ export class AssemblyEditor {
 
   renderPM() {
     if (!this.isActive()) return;
+    // (the Section View panel: the app's, as in a part)
+    if (this.app.pm?.kind === 'section') { const root = $('#pm'); root.innerHTML = ''; this.app.ui.showLeft('pm'); this.app.ui.renderSectionPM(root); return; }
     if (this.explodeTool) { this.explodeTool.renderPM(); return; }
     if (this.motionTool) { this.motionTool.renderPM(); return; }
     if (this.holeTool) { this.holeTool.renderPM(); return; }

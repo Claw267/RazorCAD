@@ -3476,6 +3476,15 @@ class App {
     if (pm.kind === 'sketch3d') return this.exitSketch3D(true);
     if (pm.kind === 'explode') return this.explodeTool?.close(true);
     if (pm.kind === 'selectPlane' || pm.kind === 'measure') return this.cancelPM();
+    if (pm.kind === 'section') {
+      // (a view of the model only: the cut stays, its arrow goes; nothing is built again)
+      this.pm = null;
+      this.viewport.setSectionArrow(null);
+      this.ui.renderPM();
+      this.ui.refreshCommandStates();
+      this.status('Ready');
+      return;
+    }
     clearTimeout(this._previewTimer);
     this.pm = null;
     this.hoverEdge = null;
@@ -3500,6 +3509,7 @@ class App {
     if (pm.kind === 'sketch') return this.exitSketch(false);
     if (pm.kind === 'sketch3d') return this.exitSketch3D(true);
     if (pm.kind === 'explode') return this.explodeTool?.close(false);
+    if (pm.kind === 'section') { this.clearSection(); this.status('Ready'); return; } // (the cut taken away; nothing built again)
     clearTimeout(this._previewTimer);
     this.pm = null;
     this.viewport.setFaceSet([]);
@@ -3658,8 +3668,8 @@ class App {
 
   startSection() {
     if (this.mode === 'sketch') { this.toast('Exit the sketch before using Section View'); return; }
-    // a plane or flat face selected: the section starts there
-    const from = this.sectionPlaneOf(this.selection);
+    // a plane or flat face selected: the section starts there (in an assembly: a component's flat face)
+    const from = this.mode === 'drawing' ? this.drawing?.sectionPlaneOf?.() || null : this.sectionPlaneOf(this.selection);
     if (this.pm) this.cancelPM();
     if (from) Object.assign(this.sectionState, from, { offset: 0 });
     this.pm = { kind: 'section', section: this.sectionState };
@@ -3667,6 +3677,16 @@ class App {
     this.ui.renderPM();
     this.ui.refreshCommandStates();
     this.status('Section View: drag the arrow (or set the offset); click a flat face or a plane to cut from it instead.');
+  }
+
+  // The Section View panel opened again on the cut as it is (the cut kept after OK)
+  reopenSection() {
+    if (this.pm) this.cancelPM();
+    this.pm = { kind: 'section', section: this.sectionState };
+    this.applySection();
+    this.ui.renderPM();
+    this.ui.refreshCommandStates();
+    this.status('Section View: drag the arrow (or set the offset); OK keeps the cut, ✗ removes it.');
   }
 
   // The section plane of what is selected or clicked: a standard plane, a reference plane, a sketch's plane or a
@@ -3702,10 +3722,9 @@ class App {
   }
   // how far the model reaches along the section's normal, from its plane: [lo, hi] (for the slider)
   sectionRange(s = this.sectionState) {
-    const g = this.viewport.bodyGeo;
-    if (!g) return [-100, 100];
-    g.computeBoundingBox();
-    const { o, n } = this.sectionFrame(s), b = g.boundingBox, base = n.dot(o);
+    const b = this.viewport.contentBox();
+    if (!b) return [-100, 100];
+    const { o, n } = this.sectionFrame(s), base = n.dot(o);
     let lo = Infinity, hi = -Infinity;
     for (const x of [b.min.x, b.max.x]) for (const y of [b.min.y, b.max.y]) for (const z of [b.min.z, b.max.z]) {
       const d = n.x * x + n.y * y + n.z * z - base;
@@ -3723,9 +3742,9 @@ class App {
     const normal = s.flip ? n.clone() : n.clone().negate();
     this.viewport.setSection({ normal, constant: s.flip ? -d : d });
     // the arrow (while the Section View panel is open): on the cut, across from the model's middle
-    if (this.pm?.kind === 'section' && this.viewport.bodyGeo) {
-      this.viewport.bodyGeo.computeBoundingSphere();
-      const c = this.viewport.bodyGeo.boundingSphere.center, p = c.clone().addScaledVector(n, d - n.dot(c));
+    const box = this.viewport.contentBox();
+    if (this.pm?.kind === 'section' && box) {
+      const c = box.getCenter(new THREE.Vector3()), p = c.clone().addScaledVector(n, d - n.dot(c));
       this.viewport.setSectionArrow({ p, n });
     } else this.viewport.setSectionArrow(null);
     this.ui.renderHUD();

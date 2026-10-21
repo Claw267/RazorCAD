@@ -3857,7 +3857,8 @@ export class UI {
       const r = b.getBoundingClientRect();
       this.showContext(r.left, r.bottom + 4, this.displayItems());
     }, { drop: true });
-    btn('section', 'Section View', () => (a.viewport.section && !a.pm ? a.clearSection() : a.startSection()), { on: !!a.viewport.section });
+    // (a cut on, its panel closed: the panel opened again; its ✗ removes the cut)
+    btn('section', 'Section View', () => (a.viewport.section && !a.pm ? a.reopenSection() : a.startSection()), { on: !!a.viewport.section });
     const vb = btn('eye', 'Visibility: planes, sketches, axes, points, surfaces', (e, b) => { const r = b.getBoundingClientRect(); this.showVisMenu(r.left, r.bottom + 4); }, { drop: true, on: Object.values(a.vis).some((x) => !x) || a.showPlanes });
     vb.classList.add('vis-btn');
     sep();

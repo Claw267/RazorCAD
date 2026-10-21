@@ -608,6 +608,7 @@ export class Viewport {
   setSection(sec) {
     this.section = sec;
     const planes = sec ? [new THREE.Plane(sec.normal.clone(), sec.constant)] : [];
+    this.asmView?.setClipping(planes);
     this.bodyMat.clippingPlanes = planes;
     this.bodyMat.needsUpdate = true;
     this.glassMat.clippingPlanes = planes;
@@ -663,18 +664,18 @@ export class Viewport {
   _updateSectionCaps() {
     if (this.capGroup) {
       this.scene.remove(this.capGroup);
-      this.capGroup.traverse((o) => { if (o.material) o.material.dispose(); if (o.isMesh && o.geometry !== this.body?.geometry) o.geometry.dispose(); });
+      this.capGroup.traverse((o) => { if (o.material) o.material.dispose(); if (o.isMesh && !o.userData.shared && o.geometry !== this.body?.geometry) o.geometry.dispose(); });
       this.capGroup = null;
     }
-    if (!this.section || !this.body || !this.bodyGeo) return;
+    const asm = this.asmView?.capSources?.() || null;
+    if (!this.section || (!asm && (!this.body || !this.bodyGeo))) return;
     const plane = new THREE.Plane(this.section.normal.clone(), this.section.constant);
     const grp = new THREE.Group();
     const stencilMat = (side, op) => new THREE.MeshBasicMaterial({
       side, clippingPlanes: [plane], depthWrite: false, depthTest: false, colorWrite: false,
       stencilWrite: true, stencilFunc: THREE.AlwaysStencilFunc, stencilFail: op, stencilZFail: op, stencilZPass: op,
     });
-    this.bodyGeo.computeBoundingSphere();
-    const sphere = this.bodyGeo.boundingSphere;
+    const sphere = asm ? this.contentBox().getBoundingSphere(new THREE.Sphere()) : (this.bodyGeo.computeBoundingSphere(), this.bodyGeo.boundingSphere);
     const center = new THREE.Vector3();
     plane.projectPoint(sphere.center, center);
     // the plane's own axes (the hatching is laid out in them)
@@ -688,23 +689,33 @@ export class Viewport {
     const size = this.planeSize() * 4;
     // the bodies (each a closed solid) to cap: hidden and surface bodies are left out
     // (the mesh's own triangle order: the BVH reorders the geometry's index)
-    const idx = this.mesh.triangles, V = this.mesh.vertices;
+    const idx = asm ? null : this.mesh.triangles, V = asm ? null : this.mesh.vertices;
     const outline = [];
-    const list = this.bodies.length
-      ? this.bodies.map((b, bi) => ({ b, bi })).filter(({ b, bi }) => !this.hiddenBodies?.has(bi) && b.kind !== 'surface' && b.triCount)
-      : [{ b: null, bi: 0 }];
+    // (an assembly: each part shown, with every place it is used: asmview.js)
+    const list = asm ? asm.map((src, bi) => ({ b: null, bi, src }))
+      : this.bodies.length
+        ? this.bodies.map((b, bi) => ({ b, bi })).filter(({ b, bi }) => !this.hiddenBodies?.has(bi) && b.kind !== 'surface' && b.triCount)
+        : [{ b: null, bi: 0 }];
     const N = list.length, col = new THREE.Color();
-    list.forEach(({ b, bi }, k) => {
+    list.forEach(({ b, bi, src }, k) => {
       let geo = this.bodyGeo;
       if (b) {
         geo = new THREE.BufferGeometry();
         geo.setAttribute('position', this.bodyGeo.getAttribute('position'));
         geo.setIndex(new THREE.BufferAttribute(idx.subarray(b.triStart, b.triStart + b.triCount), 1));
       }
-      const back = new THREE.Mesh(geo, stencilMat(THREE.BackSide, THREE.IncrementWrapStencilOp));
-      const front = new THREE.Mesh(geo, stencilMat(THREE.FrontSide, THREE.DecrementWrapStencilOp));
+      // (an assembly's part: its mesh drawn in every place it is used, as the view draws it)
+      const stencilMesh = (side, op) => {
+        if (!src) return new THREE.Mesh(geo, stencilMat(side, op));
+        const m = new THREE.InstancedMesh(src.geo, stencilMat(side, op), src.count);
+        m.instanceMatrix = src.instanceMatrix; m.count = src.count; m.frustumCulled = false;
+        m.userData.shared = true;
+        return m;
+      };
+      const back = stencilMesh(THREE.BackSide, THREE.IncrementWrapStencilOp);
+      const front = stencilMesh(THREE.FrontSide, THREE.DecrementWrapStencilOp);
       // its outline on the plane: its triangles cut by the plane
-      const t0 = b ? b.triStart : 0, t1 = b ? b.triStart + b.triCount : idx.length;
+      const t0 = src ? 0 : b ? b.triStart : 0, t1 = src ? 0 : b ? b.triStart + b.triCount : idx.length;
       const nx = n.x, ny = n.y, nz = n.z, c0 = plane.constant;
       for (let t = t0; t + 2 < t1; t += 3) {
         const i0 = idx[t] * 3, i1 = idx[t + 1] * 3, i2 = idx[t + 2] * 3;
@@ -720,7 +731,7 @@ export class Viewport {
       }
       const hs = hatchStyle(bi);
       const a = (hs.angle * Math.PI) / 180;
-      col.set((Array.isArray(this.bodyColors) ? this.bodyColors[bi] : this.bodyColors) ?? this.bodyColor ?? 0x8ea6c8);
+      col.set(src ? src.color : (Array.isArray(this.bodyColors) ? this.bodyColors[bi] : this.bodyColors) ?? this.bodyColor ?? 0x8ea6c8);
       const base = col.clone().lerp(new THREE.Color(0x8ea6c8), 0.25).multiplyScalar(0.92);
       const ink = col.clone().multiplyScalar(0.28);
       const cap = new THREE.Mesh(
