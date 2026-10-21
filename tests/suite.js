@@ -1776,7 +1776,8 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
   // Convert to Sheet Metal, corners: the sheet-metal tray (closed corners, V cutout) written to STEP, read back
   // as a plain body and converted: the same faces, nothing outside the body (the bends' run-ons into the corners
   // were folded flat with the walls, sticking out below the base); converted again (corners formed as V cutouts
-  // with no relief, as other CAD programs make them), exactly the same part again
+  // with no relief, as other CAD programs make them), exactly the same part again. Measuring the tray (its
+  // closed corners' B-spline faces): the exact volume, quickly (it took 16 s)
   async 'convert-sheet-corners'() {
     const pool = window.app.kernelPool, aff = 'convert-sheet-corners';
     const tray = JSON.parse(await (await fetch('/tests/parts/sheet-metal-tray.rcad')).text());
@@ -1806,14 +1807,17 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
       return { r, before, after, v0, v1: after.volume };
     };
     const inside = (a, b, tol) => a.min.every((x, k) => x >= b.min[k] - tol) && a.max.every((x, k) => x <= b.max[k] + tol);
-    const c1 = await convert(await step(await pool.request('rebuild', { doc: JSON.stringify(tray) }, aff)));
+    const r0 = await pool.request('rebuild', { doc: JSON.stringify(tray) }, aff);
+    const tm = performance.now(), m0 = await pool.request('measure', { refs: [{ kind: 'body', id: r0.body.bodies[0].id }] }, aff);
+    const measureMs = performance.now() - tm, v0 = (m0.items?.[0] || m0).volume;
+    const c1 = await convert(await step(r0));
     const c2 = await convert(await step(c1.r));
     const same = (a, b) => a.min.every((x, k) => Math.abs(x - b.min[k]) < 1e-4) && a.max.every((x, k) => Math.abs(x - b.max[k]) < 1e-4);
-    const ok = !c1.r.errors.length && !c2.r.errors.length && c1.after.sheet && c2.after.sheet
+    const ok = measureMs < 3000 && Math.abs(v0 - 23759.4208) < 1e-3 && !c1.r.errors.length && !c2.r.errors.length && c1.after.sheet && c2.after.sheet
       && c1.after.faces === c1.before.faces && inside(c1.after, c1.before, 1e-3) && Math.abs(c1.v1 - c1.v0) / c1.v0 < 1e-3
       && c2.after.faces === c2.before.faces && same(c2.after, c2.before) && Math.abs(c2.v1 - c2.v0) / c2.v0 < 1e-5;
-    return ok ? { ok: true, detail: `tray: ${c1.after.faces} faces as the body, inside it, volume ${(100 * (c1.v1 - c1.v0) / c1.v0).toFixed(3)} %; converted again: the same to ${Math.abs(c2.v1 - c2.v0).toExponential(1)} mm³` }
-      : { ok: false, detail: `errors ${JSON.stringify([...c1.r.errors, ...c2.r.errors])}; first: faces ${c1.before.faces} → ${c1.after.faces}, ${JSON.stringify([c1.before.min, c1.before.max])} → ${JSON.stringify([c1.after.min, c1.after.max].map((v) => v.map((x) => +x.toFixed(4))))}, volume ${c1.v0} → ${c1.v1}; again: faces ${c2.before.faces} → ${c2.after.faces}, volume ${c2.v0} → ${c2.v1}` };
+    return ok ? { ok: true, detail: `tray measured in ${Math.round(measureMs)} ms (${v0.toFixed(4)} mm³); converted: ${c1.after.faces} faces as the body, inside it, volume ${(100 * (c1.v1 - c1.v0) / c1.v0).toFixed(3)} %; converted again: the same to ${Math.abs(c2.v1 - c2.v0).toExponential(1)} mm³` }
+      : { ok: false, detail: `measure ${Math.round(measureMs)} ms, ${v0}; errors ${JSON.stringify([...c1.r.errors, ...c2.r.errors])}; first: faces ${c1.before.faces} → ${c1.after.faces}, ${JSON.stringify([c1.before.min, c1.before.max])} → ${JSON.stringify([c1.after.min, c1.after.max].map((v) => v.map((x) => +x.toFixed(4))))}, volume ${c1.v0} → ${c1.v1}; again: faces ${c2.before.faces} → ${c2.after.faces}, volume ${c2.v0} → ${c2.v1}` };
   },
 
   // BOM mass and cost: a steel plate (60 × 40 × 5) and two aluminium blocks (20 × 20 × 15) with costs → masses from

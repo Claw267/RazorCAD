@@ -411,7 +411,9 @@ function preciseVolume(shape) {
   if (!free) return R.measureVolume(shape);
   try {
     const oc = R.getOC(), props = new oc.GProp_GProps();
-    oc.BRepGProp.VolumePropertiesGK(shape.wrapped, props, 1e-9, false, false, false, false, false);
+    // (span by span: a B-spline face integrated as a whole made the adaptive rule refine endlessly at the joins
+    // between its knot spans, e.g. 16 s for a sheet metal tray's closed corners; 0.1 s span by span, the same volume)
+    oc.BRepGProp.VolumePropertiesGK(shape.wrapped, props, 1e-9, false, true, false, false, false);
     const v = props.Mass();
     props.delete();
     if (Number.isFinite(v) && v !== 0) return Math.abs(v);

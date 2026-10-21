@@ -6,6 +6,12 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 19:55 — Measure: sheet metal with closed corners 100× quicker
+- **Measuring a body with B-spline faces is far quicker.** The sheet metal tray (closed corners: their bend ends are B-spline faces) took 16 s to measure; now 0.15 s, with the same volume (23759.4208 mm³, the same to 0.0000001 mm³).
+- The exact volume of such bodies is worked out by an adaptive integration. It took each B-spline face as a whole, and at the joins between the face's spans (18 on these corner faces) it kept refining without end. It now integrates span by span (as the sheet metal checks already did).
+- Bodies of plain faces are measured as before. Imported NURBS bodies stay exact (the NURBS cylinder of the IGES test: 9424.78 mm³). The whole test run is about 9 s shorter, as several tests measure such bodies.
+- The convert-sheet-corners test now also measures the tray (the exact volume, in under 3 s).
+
 ## 2026-10-21 17:45 — Convert to Sheet Metal: corners as the body has them
 - **Fixed: converting a sheet metal body with closed corners spoiled its corners.** Sheet metal drawn in other CAD programs (and RazorCAD's own closed corners) forms each corner as a V cutout: the two bends run on past the corner point, each cut along a straight line in the flat up to its wall's end, so their ends are curved. The conversion folded those run-ons flat with the walls instead of round the bends:
   - small slanted faces stuck out below the base at every corner (0.79 mm on a dust collector lid of 3 mm sheet), and the bends ended square at the panel;
