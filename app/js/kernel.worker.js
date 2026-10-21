@@ -1813,14 +1813,50 @@ function sewFaces(shape, tol = 0.01) {
   return R.cast(comp);
 }
 
-async function importShape(f) {
+// Asking the page while a request runs (kernelclient.js answers): { what, data } → its answer, or null when there is
+// none in time
+const asks = new Map();
+let askSeq = 0;
+function askPage(what, data, ms = 60000) {
+  return new Promise((resolve) => {
+    const id = ++askSeq;
+    asks.set(id, resolve);
+    self.postMessage({ type: 'ask', id, what, data });
+    setTimeout(() => { if (asks.delete(id)) resolve(null); }, ms);
+  });
+}
+// A big STEP import is kept in the store of models built (the desktop app's model cache, the browser version's
+// store) in OpenCascade's own format, keyed by a hash of the file: read back about 5x faster than the STEP (a dust
+// collector of 342 bodies: 0.95 s instead of 4.6 s), wherever the part is built again (an assembly's part kernels,
+// drawing views…; a part's tab keeps its feature states anyway). Smaller files are read as they are.
+const IMPORT_STORE_MIN = 2e6; // characters of STEP
+async function stepKey(text) {
+  try {
+    const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+    return 'imp' + [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  } catch { return null; }
+}
+async function importShape(f, timing = null) {
   const key = `${f.format}:${f.data.length}:${f.data.slice(0, 64)}:${f.data.slice(-64)}:${f.maxTris ?? ''}`;
   const hit = importCache.get(f.id);
   if (hit && hit.key === key) return hit.rec;
   let shape, dense = false;
   progress(null, `Reading ${f.fileName || 'the imported file'}…`);
-  if (f.format === 'step') shape = await R.importSTEP(new Blob([f.data]));
-  else {
+  if (f.format === 'step') {
+    const sk = f.data.length >= IMPORT_STORE_MIN ? await stepKey(f.data) : null;
+    const got = sk ? await askPage('importGet', { key: sk }) : null;
+    if (got?.brep) {
+      try { shape = R.cast(R.getOC().BRepToolsWrapper.Read(got.brep)); } catch { shape = null; }
+      if (shape && !shape.faces.length) shape = null;
+    }
+    if (shape) timing?.imports.push([f.id, 'store']);
+    else {
+      shape = await R.importSTEP(new Blob([f.data]));
+      timing?.imports.push([f.id, 'file']);
+      // (written for next time only where there is a store)
+      if (got?.store) { try { self.postMessage({ type: 'ask', id: 0, what: 'importPut', data: { key: sk, brep: R.getOC().BRepToolsWrapper.Write(shape.wrapped) } }); } catch { /* not kept */ } }
+    }
+  } else {
     var open = 0, reduced = null;
     const lim = f.maxTris == null || f.maxTris === '' ? MESH_MAX_TRIS : +f.maxTris;
     if (f.format === 'obj') ({ shape, open, reduced } = trisToShape(parseOBJ(new TextDecoder().decode(b64ToBytes(f.data))), 'OBJ', lim));
@@ -2262,7 +2298,8 @@ async function rebuild(doc, previewId = null, opts = {}) {
   };
 
   // (cutsMade: the waiting cuts this rebuild really made, not taken from cutMemo or a saved state: for the tests)
-  const timing = { features: [], cutsMade: 0 }; // where the time went (for tuning)
+  // (imports: [feature id, 'file' | 'store'] for each STEP import read, for the tests)
+  const timing = { features: [], cutsMade: 0, imports: [] }; // where the time went (for tuning)
   const featureDiffs = new Map();
   const sketchBodies = new Map(); // sketch id -> { body before it, its frame }
   const nFeat = doc.features.length || 1;
@@ -2974,7 +3011,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
           break;
         }
         case 'import': {
-          const rec = await importShape(f);
+          const rec = await importShape(f, timing);
           let shape = rec.shape.clone();
           // (an IGES file's faces, each on its own: sewn together, a solid where they close)
           if (f.sew && !shape.solids.length) shape = sewFaces(shape, f.sewTolerance ?? 0.01);
@@ -7427,6 +7464,8 @@ function importSnaps(data) {
 let queue = Promise.resolve();
 const queueStats = { waiting: 0, done: 0 };
 self.onmessage = (e) => {
+  // (the page's answer to a question asked while a request runs: not a request of its own)
+  if (e.data?.type === 'answer') { const r = asks.get(e.data.id); if (r) { asks.delete(e.data.id); r(e.data.data); } return; }
   queueStats.waiting++;
   queue = queue.then(() => handleMessage(e)).catch(() => { /* (each request reports its own errors) */ }).finally(() => { queueStats.waiting--; queueStats.done++; });
 };

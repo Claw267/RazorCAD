@@ -1,3 +1,5 @@
+import { platform } from './platform.js';
+import { packText, unpackText } from './modelcache.js';
 // More geometry kernels at once, for work that doesn't touch the part being edited: an assembly's parts (built
 // side by side), drawing views, picks and cut lists. Each is a worker of its own, started when first needed, up to
 // `size` (set from what the PC has: machine.js; until that is known, a quarter of its threads, at most 4). A job
@@ -113,6 +115,7 @@ export class KernelClient {
     this.worker = worker;
     worker.onmessage = (e) => {
       if (e.data.type === 'progress') { this.onProgress?.(e.data.value, e.data.label, e.data.feature); return; }
+      if (e.data.type === 'ask') { this.answer(worker, e.data); return; }
       const { id, ok, result, error, stack, fatal } = e.data;
       const c = this.calls.get(id);
       if (!c) return;
@@ -132,6 +135,24 @@ export class KernelClient {
       if (worker.started) this.restart(worker); // later requests go to a fresh worker, not one that may be dead
     };
     return worker;
+  }
+
+  // A question from the kernel while it works: a big import as stored before ('importGet': { store, brep }), or one
+  // to store ('importPut', no answer). Kept with the models built (platform.js: the desktop app's model cache, the
+  // browser version's store), which belong to this kernel build.
+  async answer(worker, { id, what, data }) {
+    let out = null;
+    try {
+      if (what === 'importGet') {
+        const store = !!platform.modelStore;
+        const b64 = store ? await platform.readModelCache(data.key) : null;
+        out = { store, brep: b64 ? await unpackText(b64) : null };
+      } else if (what === 'importPut' && platform.modelStore) {
+        await platform.writeModelCache(data.key, await packText(data.brep));
+        if (this.onStored) this.onStored(data.key);
+      }
+    } catch { out = null; }
+    if (id) { try { worker.postMessage({ type: 'answer', id, data: out }); } catch { /* the worker is gone */ } }
   }
 
   // reject every request sent to `worker` (it is dead)

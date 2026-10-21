@@ -2149,6 +2149,42 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     return !bad.length ? { ok: true, detail: out.join('; ') } : { ok: false, detail: bad.join(' | ') };
   },
 
+  // a big STEP import kept in the store of models built (here the browser version's): read from the file the first
+  // time, by a fresh kernel then from the store (OpenCascade's own format, several times quicker), the same solid
+  // (a STEP comment makes the test tray's file big enough to be kept)
+  async 'import-store'() {
+    const a = window.app, was = window.RAZORCAD_WEB, { KernelClient } = await import('/js/kernelclient.js');
+    const tray = JSON.parse(await (await fetch('/tests/parts/sheet-metal-tray.rcad')).text());
+    const kernels = [];
+    try {
+      window.RAZORCAD_WEB = { ...(was || {}), kernel: 'test-' + Math.random().toString(36).slice(2) };
+      const r0 = await a.kernel.request('rebuild', { doc: JSON.stringify(tray) });
+      if (!r0.body?.bodies?.length) throw new Error(`the tray: no body (${JSON.stringify(r0.errors)}, ${JSON.stringify(r0.body)?.slice(0, 80)})`);
+      let step = new TextDecoder().decode(await a.kernel.request('export', { format: 'step', bodyId: r0.body.bodies[0].id }));
+      // (a comment of many short lines: the STEP reader does not take a line megabytes long)
+      step = step.replace('ISO-10303-21;', 'ISO-10303-21;\n/* ' + 'RazorCAD test padding\n'.repeat(100000) + ' */');
+      const d = M.newDoc(); d.name = 'Big import';
+      d.features.push(M.createFeature(d, 'import', { format: 'step', fileName: 'tray.step', data: step }));
+      const build = async () => {
+        const k = new KernelClient({ threads: 1 }); kernels.push(k); await k.ready;
+        let stored = false; k.onStored = () => { stored = true; };
+        const r = await k.request('rebuild', { doc: JSON.stringify(d) });
+        if (!r.body?.bodies?.length) throw new Error(`no body: ${JSON.stringify(r.errors)}`);
+        const m = await k.request('measure', { refs: [{ kind: 'body', id: r.body.bodies[0].id }] });
+        return { r, k, from: r.timing.imports?.[0]?.[1], vol: (m.items?.[0] || m).volume, faces: r.body.bodies[0].faceCount, stored: () => stored };
+      };
+      const b1 = await build();
+      for (let i = 0; i < 100 && !b1.stored(); i++) await wait(100);
+      const b2 = await build();
+      const ok = step.length > 2e6 && b1.from === 'file' && b1.stored() && b2.from === 'store' && b2.faces === b1.faces && Math.abs(b2.vol - b1.vol) < 1e-6 * b1.vol;
+      return ok ? { ok: true, detail: `${(step.length / 1e6).toFixed(1)} MB STEP: read from the file and kept, then from the store (${b2.faces} faces, volume the same)` }
+        : { ok: false, detail: `${step.length} characters; first from ${b1.from}, kept ${b1.stored()}; second from ${b2.from}; faces ${b1.faces} / ${b2.faces}, volume ${b1.vol} / ${b2.vol}` };
+    } finally {
+      kernels.forEach((k) => k.dispose());
+      if (was === undefined) delete window.RAZORCAD_WEB; else window.RAZORCAD_WEB = was;
+    }
+  },
+
   // Section View from a face, and its arrow: with a flat face selected it starts on that face's plane (offset 0);
   // dragging the arrow moves the cut along the normal (the offset box follows, the view does not turn); clicking
   // another flat face moves the section onto it; OK keeps the cut and takes the arrow away

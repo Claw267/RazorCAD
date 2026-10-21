@@ -6,6 +6,12 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 21:43 — Big STEP imports kept, and read back several times quicker
+- **A big STEP import (over 2 MB) is now kept in the store of models built** (the desktop app's model cache on disk; the browser version's store) in OpenCascade's own format, keyed by the file's contents. The next time the part is built, wherever that is (an assembly's part kernels after the part was edited, drawing views, a kernel started later…), it is read back from there instead of from the STEP: an imported dust collector (18 MB, 342 bodies) in 0.7 s instead of 5.2 s, the same solids.
+- The first time costs about 0.6 s more (writing the copy; it is stored in the background). A part's own tab already kept its feature states and is unchanged. Smaller files are read as before.
+- How: the geometry kernel can now ask the program a question while it works (here: "is this import kept?", and "keep this one"); the answers come from the same store as the models, which belongs to this kernel build.
+- Regression test: import-store (a 3 MB STEP: read from the file and kept, then by a fresh kernel from the store, the same solid).
+
 ## 2026-10-21 21:36 — Convert to Sheet Metal: every kind of corner, and no material lost
 - **Fixed: converting a part with butt corners lost a third of its material** (the sheet metal tray: 32 % less, with a warning). New tests of the conversion found it: until now it had none but the corners test.
 - **Each converted bend is now formed over its own zone in the flat** (its faces unrolled, edge by edge), not over a strip as long as its line. Its ends come out as the body has them, whatever they are: square, run on into a corner as a V cutout (the dust collector lid's), mitred into the next bend, butt. Before, run-ons were folded with the walls (corners sticking out) or, at butt and mitred corners, the bends ran into each other.

@@ -45,6 +45,21 @@ export async function packResult(r) {
   return String(url).slice(String(url).indexOf(',') + 1);
 }
 
+// A long text → base64 of it gzipped, and back (null if it can't be read).
+export async function packText(text) {
+  const z = await gzip(new TextEncoder().encode(text), 'pack');
+  const url = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(new Blob([z])); });
+  return String(url).slice(String(url).indexOf(',') + 1);
+}
+export async function unpackText(b64) {
+  try {
+    const z = new Uint8Array(await (await fetch('data:application/octet-stream;base64,' + b64)).arrayBuffer());
+    return new TextDecoder().decode(await gzip(z, 'unpack'));
+  } catch {
+    return null;
+  }
+}
+
 // base64 text → the rebuild result (null if it can't be read).
 export async function unpackResult(b64) {
   try {
