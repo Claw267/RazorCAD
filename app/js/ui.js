@@ -3787,9 +3787,31 @@ export class UI {
   }
 
   renderSectionPM(root) {
-    const a = this.app, s = a.pm.section;
+    const a = this.app, s0 = a.pm.section;
     this.pmHeader(root, 'section', 'Section View');
-    const g = this.pmGroup(root, 'Section 1', 'sec:1');
+    // Section 1, then Sections 2 and 3 (each used when ticked: only what all the planes cut away is gone, e.g. a
+    // quarter cut); the arrow and a click in the view move the one last changed
+    [s0, ...(s0.more || [])].forEach((s, i) => this.renderSectionGroup(root, s0, s, i));
+  }
+  renderSectionGroup(root, s0, s, i) {
+    const a = this.app;
+    const g = this.pmGroup(root, `Section ${i + 1}`, `sec:${i + 1}`);
+    g.classList.add('sec-group');
+    g.dataset.sec = String(i);
+    // (a change here: this one gets the arrow)
+    const touch = () => { if ((s0.active || 0) !== i) { s0.active = i; a.applySection(); } };
+    g.addEventListener('pointerdown', touch, true);
+    g.addEventListener('focusin', touch);
+    if (i) {
+      const use = el('input', { type: 'checkbox' });
+      use.checked = !!s.on;
+      use.onchange = () => { s.on = use.checked; s0.active = use.checked ? i : 0; a.applySection(); this.renderPM(); };
+      const ul = el('label');
+      ul.append(use, document.createTextNode(tr('Use this section too')));
+      g.appendChild(this.row(null, ul, 'check'));
+      if (!s.on) return;
+    }
+    if ((s0.active || 0) === i && (i === 0 || s.on)) g.appendChild(el('div', { class: 'pm-hint' }, tr('The arrow in the view moves this section.')));
     const sel = el('select');
     for (const [k, p] of Object.entries(STD_PLANES)) {
       const o = el('option', { value: k }, p.name);
@@ -3812,9 +3834,9 @@ export class UI {
     g.appendChild(this.row('Offset', offIn));
     const [lo, hi] = a.sectionRange(s);
     const slider = el('input', { type: 'range', class: 'sec-slider', min: lo, max: hi, step: 0.5, value: evaluate(s.offset, a.result?.vars || {}) });
-    slider.oninput = () => { s.offset = +slider.value; a.applySection(); const i = root.querySelector('.sec-offset input[type=text]'); if (i) i.value = slider.value; };
+    slider.oninput = () => { s.offset = +slider.value; a.applySection(); const t = g.querySelector('.sec-offset input[type=text]'); if (t) t.value = slider.value; };
     g.appendChild(this.row('', slider));
-    g.appendChild(el('div', { class: 'pm-hint' }, tr('Or drag the arrow in the view.')));
+    if (i === 0) g.appendChild(el('div', { class: 'pm-hint' }, tr('Or drag the arrow in the view.')));
     const cb = el('input', { type: 'checkbox' });
     cb.checked = s.flip;
     cb.onchange = () => { s.flip = cb.checked; a.applySection(); };
@@ -3824,8 +3846,8 @@ export class UI {
   }
 
   // the section's offset shown while its arrow is dragged (without building the panel again)
-  updateSectionOffset(v) {
-    const root = this.app.pm?.kind === 'section' ? document.querySelector('#pm') : null;
+  updateSectionOffset(v, k = 0) {
+    const root = this.app.pm?.kind === 'section' ? document.querySelector(`#pm .sec-group[data-sec="${k}"]`) : null;
     if (!root) return;
     const i = root.querySelector('.sec-offset input[type=text]'), sl = root.querySelector('.sec-slider');
     if (i && document.activeElement !== i) i.value = String(this.app.units === 'in' ? +(v / 25.4).toFixed(4) : v);

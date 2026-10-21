@@ -6,6 +6,14 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 22:26 — Section View: two or three planes at once
+- **Sections 2 and 3** in the Section View panel (tick "Use this section too"): with two or three planes, only what all of them cut away is removed: a quarter cut of a housing, a corner cut. Each plane has its own plane, offset and flip, and each cut face its own hatched cap (the hatch turned from plane to plane, so they read apart).
+- The arrow, and a click on a flat face or a plane, move the section changed last (the panel says which). In parts and in assemblies.
+- What any of the planes still shows can be picked; what all of them cut away can't.
+- User manual: the section view paragraph.
+- Regression test: section-planes (front and right planes on the test plate: only what both cut away is gone, both capped, nothing cut away picked, the arrow moves Section 2 only, unticked: one plane).
+- (Looked at and left out: showing a huge import in an assembly first as a coarse mesh. On the plant layout's 64 MB import it would show 8 s sooner but be complete 17 s later: making the coarse mesh costs most of what the full one does.)
+
 ## 2026-10-21 22:16 — Dragging along a direction that points at you
 - The Section View arrow, and items dragged in an exploded view, move along their direction as the screen shows it, as before. When that direction points (nearly) straight at you, so that it hardly shows on the screen, moving the mouse up the screen now moves them toward you and down away from you. Before, the drag barely moved them, or moved them unpredictably, until the view was turned.
 - One rule for both (Viewport.dragAlong).

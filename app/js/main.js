@@ -67,7 +67,9 @@ class App {
     this.hoverPlane = null;
     this.hoverFaceKey = null;
     // (plane: a standard plane, or 'custom': the plane of a face or plane picked, custom = { o, n, name })
-    this.sectionState = { plane: 'front', offset: 0, flip: false, custom: null };
+    // (more: Sections 2 and 3, used when ticked; active: the one the arrow and a click in the view move, 0 = Section 1)
+    this.sectionState = { plane: 'front', offset: 0, flip: false, custom: null, active: 0,
+      more: [{ on: false, plane: 'top', offset: 0, flip: false, custom: null }, { on: false, plane: 'right', offset: 0, flip: false, custom: null }] };
     this.dirty = false;
     this.ui = new UI(this);
     this.filePath = null;
@@ -2608,7 +2610,7 @@ class App {
       if (!sel) return;
       const from = this.sectionPlaneOf(sel);
       if (!from) { this.toast('Click a flat face or a plane to cut from it'); return; }
-      Object.assign(this.sectionState, from, { offset: 0 });
+      Object.assign(this.activeSection(), from, { offset: 0 });
       this.applySection();
       this.ui.renderPM();
       return;
@@ -3671,7 +3673,7 @@ class App {
     // a plane or flat face selected: the section starts there (in an assembly: a component's flat face)
     const from = this.mode === 'drawing' ? this.drawing?.sectionPlaneOf?.() || null : this.sectionPlaneOf(this.selection);
     if (this.pm) this.cancelPM();
-    if (from) Object.assign(this.sectionState, from, { offset: 0 });
+    if (from) Object.assign(this.sectionState, from, { offset: 0, active: 0 });
     this.pm = { kind: 'section', section: this.sectionState };
     this.applySection();
     this.ui.renderPM();
@@ -3733,17 +3735,26 @@ class App {
     return [Math.floor(lo - 1), Math.ceil(hi + 1)];
   }
 
+  // The section the arrow and a click in the view move (Section 1, or 2 / 3 when ticked)
+  activeSection(s = this.sectionState) {
+    const q = s.active ? s.more?.[s.active - 1] : null;
+    return q?.on ? q : s;
+  }
+
   applySection() {
     const s = this.pm?.kind === 'section' ? this.pm.section : this.sectionState;
     this.sectionState = s;
-    const off = this.sectionOffset(s);
-    const { o, n } = this.sectionFrame(s);
-    const d = n.dot(o) + off;
-    const normal = s.flip ? n.clone() : n.clone().negate();
-    this.viewport.setSection({ normal, constant: s.flip ? -d : d });
-    // the arrow (while the Section View panel is open): on the cut, across from the model's middle
+    // each plane: what is on its back side is cut away (with several, only what all of them cut away)
+    const one = (q) => {
+      const { o, n } = this.sectionFrame(q), d = n.dot(o) + this.sectionOffset(q);
+      return { n, d, normal: q.flip ? n.clone() : n.clone().negate(), constant: q.flip ? -d : d };
+    };
+    const all = [s, ...(s.more || []).filter((q) => q.on)].map(one);
+    this.viewport.setSection({ normal: all[0].normal, constant: all[0].constant, more: all.slice(1).map(({ normal, constant }) => ({ normal, constant })) });
+    // the arrow (while the Section View panel is open): on the active cut, across from the model's middle
     const box = this.viewport.contentBox();
     if (this.pm?.kind === 'section' && box) {
+      const { n, d } = one(this.activeSection(s));
       const c = box.getCenter(new THREE.Vector3()), p = c.clone().addScaledVector(n, d - n.dot(c));
       this.viewport.setSectionArrow({ p, n });
     } else this.viewport.setSectionArrow(null);
@@ -3753,11 +3764,11 @@ class App {
   // Dragging the section arrow: the offset follows the mouse along the section's normal, in round steps.
   sectionDragDown(e) {
     if (this.pm?.kind !== 'section' || e.button !== 0 || !this.viewport.sectionArrowAt(e)) return false;
-    const vp = this.viewport, { n } = this.sectionFrame();
+    const vp = this.viewport, q = this.activeSection(), { n } = this.sectionFrame(q);
     vp.controls.drag = null; // (the press moves the cut: no view rotation)
     try { vp.canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     // (dragged along the normal as the screen shows it; seen end on, up the screen is toward the viewer: dragAlong)
-    this._secDrag = { n: n.clone().normalize(), o: vp._secArrow.group.position.clone(), from: { clientX: e.clientX, clientY: e.clientY }, off0: this.sectionOffset() };
+    this._secDrag = { q, n: n.clone().normalize(), o: vp._secArrow.group.position.clone(), from: { clientX: e.clientX, clientY: e.clientY }, off0: this.sectionOffset(q) };
     return true;
   }
   sectionDragMove(e) {
@@ -3766,10 +3777,10 @@ class App {
     const vp = this.viewport;
     const step = 10 ** Math.ceil(Math.log10(Math.max(1e-6, vp.worldPerPixel())));
     const off = Math.round(Math.round((d.off0 + vp.dragAlong(d.n, d.o, d.from, e)) / step) * step * 1e6) / 1e6;
-    if (off !== this.sectionState.offset) {
-      this.sectionState.offset = off;
+    if (off !== d.q.offset) {
+      d.q.offset = off;
       this.applySection();
-      this.ui.updateSectionOffset?.(off);
+      this.ui.updateSectionOffset?.(off, d.q === this.sectionState ? 0 : this.sectionState.more.indexOf(d.q) + 1);
     }
     return true;
   }

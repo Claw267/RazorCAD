@@ -2268,6 +2268,60 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     }
   },
 
+  // Section View with two planes (a quarter cut): Section 1 on the front plane and Section 2 on the right plane, both
+  // at 0: only what both cut away is gone (a point in front of both), what only one cuts away is still there; both
+  // capped; nothing cut away picked; the arrow moves the section last changed (Section 2) only; unticked, one plane
+  async 'section-planes'() {
+    const a = window.app;
+    const text = await (await fetch('/tests/parts/plate-features.rcad')).text();
+    await a.openFromFile({ content: text, name: 'Quarter test.rcad', path: null });
+    for (let i = 0; i < 80 && !a.result?.bodies?.length; i++) await wait(100);
+    const { vp, fire, R, toScreen } = viewEvents();
+    try {
+      a.selection = null;
+      a.startSection();
+      const s = a.sectionState;
+      Object.assign(s, { plane: 'front', offset: 0, flip: false });
+      Object.assign(s.more[0], { on: true, plane: 'right', offset: 0, flip: false });
+      s.active = 1;
+      a.applySection(); a.ui.renderPM();
+      const two = vp.sectionPlanes().length === 2 && vp.bodyMat.clipIntersection === true && vp.capGroup?.children.length >= 6;
+      // (front plane: z, right plane: x; the plate lies in x, z)
+      const V3 = vp.camera.position.constructor;
+      const both = !vp._sectionKeeps(new V3(30, 6, 20)), onlyOne = vp._sectionKeeps(new V3(30, 6, -20)) && vp._sectionKeeps(new V3(-30, 6, 20));
+      let picks = 0, cutAway = 0;
+      vp.setStandardView('iso', false); vp.zoomToFit(null, false); vp.camera.updateMatrixWorld();
+      for (let fx = 0.1; fx < 0.95; fx += 0.05) for (let fy = 0.1; fy < 0.95; fy += 0.05) {
+        const h = vp.pickBody({ clientX: R.left + R.width * fx, clientY: R.top + R.height * fy });
+        if (h) { picks++; if (!vp._sectionKeeps(h.point)) cutAway++; }
+      }
+      // the arrow: on Section 2's plane; dragged, it moves Section 2 only
+      vp.setStandardView('top', false); vp.zoomToFit(null, false); vp.camera.updateMatrixWorld(); vp._secArrow.place();
+      const g = vp._secArrow.group, n = a.sectionFrame(s.more[0]).n, wpp = vp.worldPerPixel();
+      const onRight = Math.abs(g.position.x) < 1e-6;
+      const [x, y] = toScreen(g.position.clone().addScaledVector(n, 40 * wpp)), [tx, ty] = toScreen(g.position.clone().addScaledVector(n, 100 * wpp));
+      const L = Math.hypot(tx - x, ty - y), u = [(tx - x) / L, (ty - y) / L], b = { button: 0, buttons: 1 };
+      fire('pointerdown', x, y, b);
+      for (let k = 1; k <= 10; k++) { fire('pointermove', x - u[0] * 10 * k, y - u[1] * 10 * k, b); await wait(5); }
+      fire('pointerup', x - u[0] * 100, y - u[1] * 100, { ...b, buttons: 0 }); await wait(50);
+      const moved = s.more[0].offset < -1 && s.offset === 0;
+      const field = document.querySelector('#pm .sec-group[data-sec="1"] .sec-offset input')?.value;
+      // unticked: one plane again
+      s.more[0].on = false; a.applySection();
+      const one = vp.sectionPlanes().length === 1 && vp.bodyMat.clipIntersection === false;
+      const ok = two && both && onlyOne && picks > 0 && !cutAway && onRight && moved && Number(field) === s.more[0].offset && one;
+      return ok ? { ok: true, detail: `two planes: only what both cut away gone, both capped; ${picks} picks, none cut away; the arrow moved Section 2 to ${s.more[0].offset} mm (Section 1 stayed at 0); unticked: one plane` }
+        : { ok: false, detail: `two ${two} (caps ${vp.capGroup?.children.length}), both cut ${both}, one cut kept ${onlyOne}, picks ${picks} (cut away ${cutAway}), arrow on Section 2 ${onRight}, moved ${moved} (${s.more[0].offset}, ${s.offset}, field ${field}), one plane ${one}` };
+    } finally {
+      const s = a.sectionState;
+      s.more.forEach((q) => { q.on = false; q.offset = 0; }); s.active = 0;
+      if (a.pm?.kind === 'section') a.cancelPM();
+      if (vp.section) a.clearSection();
+      a.dirty = false;
+      await a.closeTab(a.tabIndex);
+    }
+  },
+
   // Section View in an assembly: two blocks with a hole, cut on the front plane: the components clipped (faces and
   // edges), a cap for the part, nothing cut away picked; a click on a block's top face moves the cut onto it; OK keeps
   // the cut (the assembly still shown: nothing built into the view), the button opens the panel again, ✗ removes it
