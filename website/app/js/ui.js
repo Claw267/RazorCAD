@@ -5103,7 +5103,7 @@ export class UI {
       ...own.map(([combo, b]) => [`${esc(b.label)} <small>(yours)</small>`, esc(combo)]),
       ['Search commands', 'Ctrl+K or /'],
       ['Move through the tree', 'Click the tree, then ↑ / ↓ · ← / → close / open folders · Enter opens · Home / End'],
-      ['Rotate view (free, about the model center)', 'Middle-drag (or left-drag outside sketches)'], ['Pan', 'Shift + right-drag, or Ctrl + middle-drag'],
+      ['Rotate view (free, about the point under the cursor)', 'Middle-drag (or left-drag outside sketches)'], ['Pan', 'Shift + right-drag, or Ctrl + middle-drag'],
       ['Zoom', 'Mouse wheel (toward the cursor), or Shift + middle-drag'], ['Roll', 'Alt + middle-drag, or Alt + ←/→'],
       ['Rotate in steps', 'Arrow keys 15° · Shift + arrows 90°'], ['Pan in steps', 'Ctrl + arrow keys'],
       ['Zoom to fit', 'F'], ['Standard views', 'Ctrl+1 … Ctrl+7'], ['Normal to', 'Ctrl+8'],

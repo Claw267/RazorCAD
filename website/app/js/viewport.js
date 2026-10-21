@@ -90,6 +90,8 @@ export class Viewport {
 
     this.controls = new CadControls(this.camera, canvas, {
       getPivot: () => this.rotationPivot(),
+      pickPivot: (ev) => this.pivotAt(ev),
+      onPivot: (p) => this.showPivot(p),
       onChange: () => { this.anim = null; },
     });
     this.setLeftRotate(true);
@@ -1173,6 +1175,28 @@ export class Viewport {
 
   // ------------------------------------------------------------ views
   // Rotation center: the middle of the model (or of the sketches).
+  // The point a rotation drag turns about, from where it started (ev: clientX / clientY): the model's surface
+  // under the cursor (a part's bodies, an assembly's components; what a section view cuts away left out), or,
+  // over empty space, that spot at the depth of the model's center.
+  pivotAt(ev) {
+    const hit = this.asmView ? this.asmView.pick(ev) : this.pickBody(ev);
+    if (hit?.point) return hit.point.clone();
+    const c = this.rotationPivot(), n = new THREE.Vector3(0, 0, 1).applyQuaternion(this.camera.quaternion);
+    return this.rayPlane(ev, { n, o: c });
+  }
+  // A small dot at the rotation pivot while a drag lasts (p: the point, or null to hide it).
+  showPivot(p) {
+    if (!this._pivotDot) {
+      const geo = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3));
+      this._pivotDot = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xe11d48, size: 7, sizeAttenuation: false, depthTest: false, transparent: true }));
+      this._pivotDot.renderOrder = 10;
+      this._pivotDot.visible = false;
+      this.scene.add(this._pivotDot);
+    }
+    this._pivotDot.visible = !!p;
+    if (p) this._pivotDot.position.copy(p);
+  }
+
   rotationPivot() {
     const box = new THREE.Box3(), content = this.contentBox();
     if (content) box.union(content);
