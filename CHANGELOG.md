@@ -6,6 +6,12 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 15:05 — Version 0.15.0-beta: installer, user manual and website
+- **RazorCAD-Setup-0.15.0-beta.exe** built (in "RazorCAD Install", 45 MB: both geometry kernels), with everything since 0.14.0-beta: the multi-threaded geometry kernel, cuts made together, faster edits on big parts, and the fix for overlapping pattern copies.
+- **User manual** 0.15.0-beta (revision history), the PDF and the online manual rebuilt.
+- **Website**: version 0.15.0-beta on the home page and its download links; the geometry question says the Windows app runs the kernel multi-threaded; the browser version rebuilt (single-thread kernel).
+- Published on GitHub as a pre-release with the setup and the manual. 0.14.0-beta users get it through Update Now.
+
 ## 2026-10-21 14:52 — Cuts made together
 - **A run of cut features is now made in one boolean** instead of one cut after another, each on a body with more faces than the last.
   - Giant Golfball (178 dimples in 24 cut features): full rebuild 4.7 s → 2.5 s, and the cutting itself 3.4 s → 0.4 s.
