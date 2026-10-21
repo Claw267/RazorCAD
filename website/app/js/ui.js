@@ -3796,25 +3796,40 @@ export class UI {
       if (s.plane === k) o.selected = true;
       sel.appendChild(o);
     }
-    sel.onchange = () => { s.plane = sel.value; a.applySection(); };
+    // (the face or plane picked)
+    if (s.custom) {
+      const o = el('option', { value: 'custom' }, s.custom.name || 'Selected face');
+      if (s.plane === 'custom') o.selected = true;
+      sel.appendChild(o);
+    }
+    sel.onchange = () => { s.plane = sel.value; a.applySection(); this.renderPM(); };
     const wrap = el('div', { class: 'pm-input' });
     wrap.appendChild(sel);
     g.appendChild(this.row('Plane', wrap));
-    g.appendChild(this.row('Offset', this.exprInput(s.offset, 'mm', (v) => { s.offset = v; a.applySection(); })));
-    const slider = el('input', { type: 'range', min: -100, max: 100, step: 0.5, value: evaluate(s.offset, a.result?.vars || {}) });
-    slider.oninput = () => { s.offset = +slider.value; a.applySection(); const i = root.querySelector('.pm-input input[type=text]'); if (i) i.value = slider.value; };
-    if (a.viewport.bodyGeo) {
-      a.viewport.bodyGeo.computeBoundingSphere();
-      const r = Math.ceil(a.viewport.bodyGeo.boundingSphere.radius + 1);
-      slider.min = -r; slider.max = r;
-    }
+    g.appendChild(el('div', { class: 'pm-hint' }, tr('Or click a flat face or a plane in the view to cut from it.')));
+    const offIn = this.exprInput(s.offset, 'mm', (v) => { s.offset = v; a.applySection(); });
+    offIn.classList.add('sec-offset');
+    g.appendChild(this.row('Offset', offIn));
+    const [lo, hi] = a.sectionRange(s);
+    const slider = el('input', { type: 'range', class: 'sec-slider', min: lo, max: hi, step: 0.5, value: evaluate(s.offset, a.result?.vars || {}) });
+    slider.oninput = () => { s.offset = +slider.value; a.applySection(); const i = root.querySelector('.sec-offset input[type=text]'); if (i) i.value = slider.value; };
     g.appendChild(this.row('', slider));
+    g.appendChild(el('div', { class: 'pm-hint' }, tr('Or drag the arrow in the view.')));
     const cb = el('input', { type: 'checkbox' });
     cb.checked = s.flip;
     cb.onchange = () => { s.flip = cb.checked; a.applySection(); };
     const lab = el('label');
     lab.append(cb, document.createTextNode('Flip side to view'));
     g.appendChild(this.row(null, lab, 'check'));
+  }
+
+  // the section's offset shown while its arrow is dragged (without building the panel again)
+  updateSectionOffset(v) {
+    const root = this.app.pm?.kind === 'section' ? document.querySelector('#pm') : null;
+    if (!root) return;
+    const i = root.querySelector('.sec-offset input[type=text]'), sl = root.querySelector('.sec-slider');
+    if (i && document.activeElement !== i) i.value = String(this.app.units === 'in' ? +(v / 25.4).toFixed(4) : v);
+    if (sl) sl.value = String(v);
   }
 
   // ------------------------------------------------------------ viewport chrome

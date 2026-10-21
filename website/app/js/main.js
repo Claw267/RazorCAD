@@ -66,7 +66,8 @@ class App {
     this.filters = new Set(); // selection filter: empty = pick whatever is under the cursor
     this.hoverPlane = null;
     this.hoverFaceKey = null;
-    this.sectionState = { plane: 'front', offset: 0, flip: false };
+    // (plane: a standard plane, or 'custom': the plane of a face or plane picked, custom = { o, n, name })
+    this.sectionState = { plane: 'front', offset: 0, flip: false, custom: null };
     this.dirty = false;
     this.ui = new UI(this);
     this.filePath = null;
@@ -1855,6 +1856,7 @@ class App {
   // What the open Property panel wants picked on the model: 'edge', 'vertex' or 'face'.
   pickMode() {
     if (this.pm?.kind === 'measure') return 'measure';
+    if (this.pm?.kind === 'section') return 'section';
     const f = this.pm?.kind === 'feature' ? this.pm.feature : null;
     if (!f) return null;
     if (f.type === 'plane') return 'ref'; // vertices, edges, faces and planes
@@ -2547,9 +2549,9 @@ class App {
     const vp = this.viewport;
     const asm = () => (this.mode === 'drawing' && this.drawing?.vpEvent ? this.drawing : null);
     const exT = () => (this.pm?.kind === 'explode' ? this.explodeTool : null);
-    vp.onPointerDown = (e) => { if (asm()) asm().vpEvent('down', e); else if (exT()) exT().down(e); else if (this.mode === 'sketch') this.sketcher.pointerDown(e); else if (this.mode === 'sketch3d') this.sketch3d.pointerDown(e); };
-    vp.onPointerMoveImmediate = (e) => { if (asm()) asm().vpEvent('move', e); else if (exT()?.drag) exT().move(e); else if (this.mode === 'sketch' && !this.toolWheel.isOpen) this.sketcher.pointerMove(e); else if (this.mode === 'sketch3d') this.sketch3d.pointerMove(e); };
-    vp.onPointerUp = (e) => { if (asm()) asm().vpEvent('up', e); else if (exT()?.drag) exT().up(e); else if (this.mode === 'sketch' && e.button === 0) this.sketcher.pointerUp(e); else if (this.mode === 'sketch3d' && e.button === 0) this.sketch3d.pointerUp(e); };
+    vp.onPointerDown = (e) => { if (this.sectionDragDown(e)) return; if (asm()) asm().vpEvent('down', e); else if (exT()) exT().down(e); else if (this.mode === 'sketch') this.sketcher.pointerDown(e); else if (this.mode === 'sketch3d') this.sketch3d.pointerDown(e); };
+    vp.onPointerMoveImmediate = (e) => { if (this.sectionDragMove(e)) return; if (asm()) asm().vpEvent('move', e); else if (exT()?.drag) exT().move(e); else if (this.mode === 'sketch' && !this.toolWheel.isOpen) this.sketcher.pointerMove(e); else if (this.mode === 'sketch3d') this.sketch3d.pointerMove(e); };
+    vp.onPointerUp = (e) => { if (this.sectionDragUp(e)) return; if (asm()) asm().vpEvent('up', e); else if (exT()?.drag) exT().up(e); else if (this.mode === 'sketch' && e.button === 0) this.sketcher.pointerUp(e); else if (this.mode === 'sketch3d' && e.button === 0) this.sketch3d.pointerUp(e); };
     vp.onDoubleClick = (e) => { if (asm()) asm().vpEvent('dbl', e); else if (this.mode === 'sketch') this.sketcher.doubleClick(); else if (this.mode === 'sketch3d') this.sketch3d.doubleClick(); };
     vp.onLeave = () => {
       if (asm()) { asm().vpEvent('leave'); return; }
@@ -2599,6 +2601,18 @@ class App {
     }
     this.clearCycle();
     const mode = this.pickMode();
+    if (mode === 'section') {
+      // a flat face or a plane: the section moves onto it
+      const p = this.pickAt(e);
+      const sel = p?.kind === 'face' ? { kind: 'face', face: this.viewport.faceInfo(p.hit.face) } : p?.kind === 'plane' ? { kind: 'plane', id: p.id } : null;
+      if (!sel) return;
+      const from = this.sectionPlaneOf(sel);
+      if (!from) { this.toast('Click a flat face or a plane to cut from it'); return; }
+      Object.assign(this.sectionState, from, { offset: 0 });
+      this.applySection();
+      this.ui.renderPM();
+      return;
+    }
     if (mode === 'ref') {
       // reference plane: vertex, then edge, then face or plane under the cursor
       const vp = this.viewport;
@@ -2727,6 +2741,11 @@ class App {
 
   handleHover(e) {
     const vp = this.viewport;
+    if (this.pm?.kind === 'section') {
+      const on = vp.sectionArrowAt(e);
+      vp.setSectionArrowHover(on);
+      if (on) { vp.setFaceHighlight('hover', null); this.hoverFaceKey = null; vp.canvas.style.cursor = 'grab'; return; }
+    }
     const mode = this.showHiddenMode ? 'body' : this.pickMode();
     if (mode === 'body') {
       const fh = this.faceAt(e);
@@ -3462,6 +3481,7 @@ class App {
     this.hoverEdge = null;
     this.hoverVertex = null;
     this.viewport.setFaceSet([]);
+    if (pm.kind === 'section') this.viewport.setSectionArrow(null); // (the section stays on; its arrow goes)
     if (pm.kind === 'feature') {
       breadcrumb(`OK feature: ${pm.feature.name} ${JSON.stringify(pm.feature).slice(0, 300)}`);
       this.commit();
@@ -3638,25 +3658,117 @@ class App {
 
   startSection() {
     if (this.mode === 'sketch') { this.toast('Exit the sketch before using Section View'); return; }
+    // a plane or flat face selected: the section starts there
+    const from = this.sectionPlaneOf(this.selection);
     if (this.pm) this.cancelPM();
+    if (from) Object.assign(this.sectionState, from, { offset: 0 });
     this.pm = { kind: 'section', section: this.sectionState };
     this.applySection();
     this.ui.renderPM();
     this.ui.refreshCommandStates();
+    this.status('Section View: drag the arrow (or set the offset); click a flat face or a plane to cut from it instead.');
+  }
+
+  // The section plane of what is selected or clicked: a standard plane, a reference plane, a sketch's plane or a
+  // flat face ({ plane, custom }); null for anything else.
+  sectionPlaneOf(sel) {
+    if (!sel) return null;
+    const v = (x) => (x?.isVector3 ? x.clone() : new THREE.Vector3(...x));
+    if (sel.kind === 'plane') {
+      if (G.STD_PLANES[sel.id]) return { plane: sel.id, custom: null };
+      const fr = this.result?.planes?.get(sel.id);
+      return fr ? { plane: 'custom', custom: { o: v(fr.o), n: v(fr.n).normalize(), name: this.doc.features.find((x) => x.id === sel.id)?.name || 'Plane' } } : null;
+    }
+    if (sel.kind === 'feature') {
+      const fr = this.result?.planes?.get(sel.id) || this.result?.sketches?.get(sel.id)?.frame;
+      const f = this.doc.features.find((x) => x.id === sel.id);
+      return fr ? { plane: 'custom', custom: { o: v(fr.o), n: v(fr.n).normalize(), name: f?.name || 'Plane' } } : null;
+    }
+    if (sel.kind === 'face' && sel.face?.planar) {
+      const fr = this.faceFrame(sel.face);
+      return { plane: 'custom', custom: { o: fr.o.clone(), n: fr.n.clone().normalize(), name: 'Selected face' } };
+    }
+    return null;
+  }
+
+  // The section's plane before its offset: { o (a point on it), n } (THREE.Vector3)
+  sectionFrame(s = this.sectionState) {
+    if (s.plane === 'custom' && s.custom) return { o: s.custom.o, n: s.custom.n };
+    const f = G.stdFrame(s.plane);
+    return { o: f.o, n: f.n };
+  }
+  sectionOffset(s = this.sectionState) {
+    try { return evaluate(s.offset, this.result?.vars || {}); } catch { return 0; }
+  }
+  // how far the model reaches along the section's normal, from its plane: [lo, hi] (for the slider)
+  sectionRange(s = this.sectionState) {
+    const g = this.viewport.bodyGeo;
+    if (!g) return [-100, 100];
+    g.computeBoundingBox();
+    const { o, n } = this.sectionFrame(s), b = g.boundingBox, base = n.dot(o);
+    let lo = Infinity, hi = -Infinity;
+    for (const x of [b.min.x, b.max.x]) for (const y of [b.min.y, b.max.y]) for (const z of [b.min.z, b.max.z]) {
+      const d = n.x * x + n.y * y + n.z * z - base;
+      lo = Math.min(lo, d); hi = Math.max(hi, d);
+    }
+    return [Math.floor(lo - 1), Math.ceil(hi + 1)];
   }
 
   applySection() {
     const s = this.pm?.kind === 'section' ? this.pm.section : this.sectionState;
     this.sectionState = s;
-    let off = 0;
-    try { off = evaluate(s.offset, this.result?.vars || {}); } catch { /* keep 0 */ }
-    const n = G.stdFrame(s.plane).n;
+    const off = this.sectionOffset(s);
+    const { o, n } = this.sectionFrame(s);
+    const d = n.dot(o) + off;
     const normal = s.flip ? n.clone() : n.clone().negate();
-    this.viewport.setSection({ normal, constant: s.flip ? -off : off });
+    this.viewport.setSection({ normal, constant: s.flip ? -d : d });
+    // the arrow (while the Section View panel is open): on the cut, across from the model's middle
+    if (this.pm?.kind === 'section' && this.viewport.bodyGeo) {
+      this.viewport.bodyGeo.computeBoundingSphere();
+      const c = this.viewport.bodyGeo.boundingSphere.center, p = c.clone().addScaledVector(n, d - n.dot(c));
+      this.viewport.setSectionArrow({ p, n });
+    } else this.viewport.setSectionArrow(null);
     this.ui.renderHUD();
   }
 
+  // Dragging the section arrow: the offset follows the mouse along the section's normal, in round steps.
+  sectionDragDown(e) {
+    if (this.pm?.kind !== 'section' || e.button !== 0 || !this.viewport.sectionArrowAt(e)) return false;
+    const vp = this.viewport, { n } = this.sectionFrame(), cam = new THREE.Vector3();
+    vp.camera.getWorldDirection(cam);
+    // the plane holding the normal that faces the view most
+    let pn = cam.clone().sub(n.clone().multiplyScalar(cam.dot(n)));
+    if (pn.length() < 1e-6) pn = new THREE.Vector3(0, 1, 0).cross(n);
+    if (pn.length() < 1e-6) pn = new THREE.Vector3(1, 0, 0).cross(n);
+    pn.normalize();
+    const o = vp._secArrow.group.position.clone();
+    vp.controls.drag = null; // (the press moves the cut: no view rotation)
+    try { vp.canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    this._secDrag = { n, pn, o, from: vp.rayPlane(e, { n: pn, o }), off0: this.sectionOffset() };
+    return true;
+  }
+  sectionDragMove(e) {
+    const d = this._secDrag;
+    if (!d) return false;
+    const vp = this.viewport, p = vp.rayPlane(e, { n: d.pn, o: d.o });
+    const step = 10 ** Math.ceil(Math.log10(Math.max(1e-6, vp.worldPerPixel())));
+    const off = Math.round(Math.round((d.off0 + p.clone().sub(d.from).dot(d.n)) / step) * step * 1e6) / 1e6;
+    if (off !== this.sectionState.offset) {
+      this.sectionState.offset = off;
+      this.applySection();
+      this.ui.updateSectionOffset?.(off);
+    }
+    return true;
+  }
+  sectionDragUp() {
+    if (!this._secDrag) return false;
+    this._secDrag = null;
+    this.ui.renderPM();
+    return true;
+  }
+
   clearSection() {
+    this.viewport.setSectionArrow(null);
     this.viewport.setSection(null);
     if (this.pm?.kind === 'section') this.pm = null;
     this.ui.renderPM();
