@@ -28,7 +28,7 @@ import * as D from './drawing.js';
 import { Macros } from './macros.js';
 import { igesToStep } from './igesstep.js';
 import { installA11y, onControl } from './a11y.js';
-import { machineInfo, kernelBudget, memoryFor } from './machine.js';
+import { machineInfo, kernelBudget, memoryFor, threadsPerKernel } from './machine.js';
 
 // Saved parts are auto-saved next to their file at most this often while they have unsaved changes.
 const AUTOSAVE_MS = 20000;
@@ -71,7 +71,8 @@ class App {
     this.ui = new UI(this);
     this.filePath = null;
     installCrashHandlers(this);
-    this.kernel = new KernelClient();
+    // (a part's kernel: multi-threaded where the PC and the page allow it; the pool's kernels work on whole parts side by side)
+    this.kernel = new KernelClient({ threads: threadsPerKernel() });
     this.kernelPool = new KernelPool(this.kernel); // (more kernels for assemblies and drawings)
     // (the kernels at once: from the PC's threads and free memory; a kernel for each open part, up to tabKernelMax)
     this.tabKernelMax = 1;
@@ -85,6 +86,8 @@ class App {
       this.drawing?.render?.();
     });
     this.wireKernel(this.kernel);
+    // (which kernel this is, in the session log and crash reports)
+    this.kernel.ready.then(() => this.kernel.stats()).then((st) => st && breadcrumb(`Geometry kernel ready: ${st.build === 'replicad_multi' ? `multi-threaded, ${st.threads} threads` : 'single-threaded'}`)).catch(() => {});
     this.result = { vars: {}, ev: (x) => evaluate(x, {}), errors: new Map(), eqErrors: new Map(), sketches: new Map(), planes: new Map(), consumed: new Set(), body: null, time: 0 };
     this.wireViewport();
     this.wireKeys();
@@ -1324,7 +1327,8 @@ class App {
       this.kernelPool.size = Math.max(1, n - 1);
       this.tabKernelMax = Math.max(1, Math.min(8, Math.ceil(n / 2)));
       this.warmSpareKernel();
-      breadcrumb(`Geometry kernels: up to ${n} at once (${m.threads} threads${m.freeMB != null ? `, ${(m.freeMB / 1024).toFixed(1)} GB free` : m.totalMB != null ? `, about ${Math.round(m.totalMB / 1024)} GB` : ''}): ${this.kernelPool.size} for assemblies and drawings, ${this.tabKernelMax} for open parts`);
+      const tpk = threadsPerKernel(m.threads);
+      breadcrumb(`Geometry kernels: up to ${n} at once (${m.threads} threads${m.freeMB != null ? `, ${(m.freeMB / 1024).toFixed(1)} GB free` : m.totalMB != null ? `, about ${Math.round(m.totalMB / 1024)} GB` : ''}): ${this.kernelPool.size} for assemblies and drawings, ${this.tabKernelMax} for open parts${tpk > 1 ? `, each with ${tpk} threads` : ', single-threaded'}`);
     } catch { /* keep the defaults */ }
   }
   wireKernel(k) {
@@ -1347,7 +1351,7 @@ class App {
     clearTimeout(this._spareTimer);
     this._spareTimer = setTimeout(() => {
       if (this._spareKernel || this.liveKernels().size >= this.tabKernelMax || (this.machine && !memoryFor(this.machine, this.liveKernels().size))) return;
-      this._spareKernel = this.wireKernel(new KernelClient({ fonts: this.kernel.fonts }));
+      this._spareKernel = this.wireKernel(new KernelClient({ fonts: this.kernel.fonts, threads: threadsPerKernel(this.machine?.threads) }));
     }, 300);
   }
   // A kernel for a part coming to the front (tab: its tab, or a new one): its own if it still has one; else a
@@ -1364,7 +1368,7 @@ class App {
     if (live.size < this.tabKernelMax && (!this.machine || memoryFor(this.machine, live.size))) {
       // (the free memory looked at again for next time)
       machineInfo().then((m) => { this.machine = m; this.warmSpareKernel(); }).catch(() => {});
-      return (tab.kernel = this.wireKernel(new KernelClient({ fonts: this.kernel.fonts })));
+      return (tab.kernel = this.wireKernel(new KernelClient({ fonts: this.kernel.fonts, threads: threadsPerKernel(this.machine?.threads) })));
     }
     const others = this.tabs.filter((t) => t !== tab && t.kernel && !t.kernel.disposed && t.kernel !== this.kernel).sort((a, b) => (a.kernelUsed || 0) - (b.kernelUsed || 0));
     const from = others[0];

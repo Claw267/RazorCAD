@@ -1612,6 +1612,8 @@ Kinds of report: `ui-error`, `kernel-error`, `kernel-worker-crash`, `python-exce
 
 How many geometry kernels work at once comes from the PC RazorCAD runs on: one per processor thread beyond two (left for the window and the rest of the PC), and about 1 GB of free memory each beyond 2 GB, read from Windows when RazorCAD starts; at least 2, at most 16. Assemblies build their parts side by side in them, drawings draw their views in them, and each open part keeps one (up to half of them). Kernels that are idle for a few minutes are stopped to give their memory back. Crash reports note the figures, for example "up to 12 at once (24 threads, 14.8 GB free)". {idx:geometry kernels}{idx:performance}
 
+Each open part's kernel is **multi-threaded**: Open CASCADE splits booleans (cuts, joins and the features built on them) and meshing over several threads, half the processor threads beyond two, from 2 to 8; more don't make it faster, only slower to start. A part full of cuts builds markedly faster (a sheet metal tray in 2.0 s instead of 4.5 s, the Giant Golfball in 4.7 s instead of 6.0 s); small parts are about the same. A PC with fewer than 6 threads keeps the single-thread kernel. The kernels for assemblies and drawings stay single-threaded, since they already work on several parts side by side. The session log says which kernel started ("Geometry kernel ready: multi-threaded, 8 threads"). {idx:multi-threaded kernel}
+
 Editing a feature meshes again only the faces and edges it changed, and a part reopened from the model cache picks up where it left off without being built again.
 
 ## Common problems
@@ -1672,9 +1674,13 @@ This rebuilds the test parts in `tests/parts` with the real geometry kernel in h
 
 Pushing a version tag (for example `v0.14.0-beta`, matching `version.txt`) runs `.github/workflows/release.yml`: the tests, then RazorCAD.exe and the setup are built and a draft release is made with the setup, its read-me, checksums and notes from `CHANGELOG.md` (`tools/release_notes.py`). A version that already has a release is left alone. See `installer/RELEASING.md`. {idx:releases}
 
+## The geometry kernel builds
+
+`app/vendor/replicad` holds two builds of the same Open CASCADE bindings from replicad (commit a0bc495): `replicad_single` (one thread) and `replicad_multi` (threads, with shared memory). The kernel worker loads the multi-threaded one when the app asks for more than one thread and the page is cross-origin isolated: the desktop app's server, `serve.py` and the tests' server send `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` for that. `tools/patch_replicad_multi.py` makes RazorCAD's changes to the published `replicad_multi.js`. The browser version leaves the multi-threaded build out. {idx:kernel builds}
+
 ## The website and the browser version
 
-`python tools/build_website_docs.py` builds the online manual (`website/docs`) from this manual's source and the browser version (`tools/build_web_app.py`: `app/` into `website/app`, with the geometry kernel's signature so the browser keeps stored models per kernel).
+`python tools/build_website_docs.py` builds the online manual (`website/docs`) from this manual's source and the browser version (`tools/build_web_app.py`). The browser version is built in its own folder, `RazorCAD Web` next to the project folder, always with the single-thread kernel, and copied from there into `website/app`; it carries the geometry kernel's signature so the browser keeps stored models per kernel.
 
 ## Working on the UI
 

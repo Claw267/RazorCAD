@@ -27,6 +27,23 @@ mimetypes.add_type('text/javascript', '.js')
 mimetypes.add_type('application/wasm', '.wasm')
 
 import webview  # noqa: E402
+import webview.http as _webview_http  # noqa: E402
+
+
+# The window's pages are cross-origin isolated (the multi-threaded geometry kernel needs shared memory): every file
+# pywebview's server sends carries the headers for it. The pages only load RazorCAD's own files.
+def _isolated_static_file(*args, _orig=_webview_http.bottle.static_file, **kwargs):
+    r = _orig(*args, **kwargs)
+    try:
+        r.set_header('Cross-Origin-Opener-Policy', 'same-origin')
+        r.set_header('Cross-Origin-Embedder-Policy', 'require-corp')
+        r.set_header('Cross-Origin-Resource-Policy', 'same-origin')
+    except AttributeError:
+        pass
+    return r
+
+
+_webview_http.bottle.static_file = _isolated_static_file
 
 from crashreport import CrashReporter, _pid_alive  # noqa: E402
 from kernelsig import kernel_signature  # noqa: E402

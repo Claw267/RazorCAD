@@ -1,6 +1,10 @@
 // Geometry kernel worker: replays the feature history with OpenCascade (via
 // replicad) and returns render meshes, exact edge data and solved sketches.
-import Module from '../vendor/replicad/replicad_single.js';
+// The geometry library: replicad's multi-threaded build when this kernel may use threads (?threads=N, given by the
+// app from the PC: machine.js) and the page is cross-origin isolated (shared memory), else the single-thread one.
+const THREADS = Math.max(1, Math.min(64, Math.round(Number(new URL(self.location.href).searchParams.get('threads')) || 1)));
+const MULTI = THREADS > 1 && !!self.crossOriginIsolated && typeof SharedArrayBuffer !== 'undefined';
+const KERNEL_BUILD = MULTI ? 'replicad_multi' : 'replicad_single';
 import * as R from '../vendor/replicad/replicad.js';
 import { evaluate, evalEquations } from './expr.js';
 import * as S from './sketchmodel.js';
@@ -36,9 +40,9 @@ let stackLost = 0;     // bytes of kernel stack recovered so far (for crash repo
 let kernelDead = null; // why the kernel stopped (abort); the worker must then be replaced
 
 // emscripten_stack_get_current / _emscripten_stack_restore: plain names in unminified builds,
-// 'Ra' / 'Pa' in the bundled replicad_single.wasm. Checked before use.
+// 'Ra' / 'Pa' in the bundled replicad_single.wasm, 'lb' / 'jb' in replicad_multi.wasm. Checked before use.
 function findStackFns(x) {
-  const pairs = [['emscripten_stack_get_current', '_emscripten_stack_restore'], ['Ra', 'Pa']];
+  const pairs = [['emscripten_stack_get_current', '_emscripten_stack_restore'], ...(MULTI ? [['lb', 'jb']] : [['Ra', 'Pa']])];
   for (const [g, s] of pairs) {
     const get = x[g], set = x[s];
     if (typeof get !== 'function' || typeof set !== 'function' || get.length !== 0 || set.length !== 1) continue;
@@ -69,11 +73,14 @@ function isFatal(e) {
   return /Maximum call stack|Aborted\(|memory access out of bounds|unreachable|table index is out of bounds|Out of memory/i.test(msg);
 }
 
-const wasmUrl = new URL('../vendor/replicad/replicad_single.wasm', import.meta.url);
+const wasmUrl = new URL(`../vendor/replicad/${KERNEL_BUILD}.wasm`, import.meta.url);
+let kernelThreads = 1; // (threads the kernel runs with: for the status and crash reports)
 const ready = (async () => {
   let exportsOf = null;
+  const Module = (await import(`../vendor/replicad/${KERNEL_BUILD}.js`)).default;
   const oc = await new Promise((resolve, reject) => {
     Module({
+      ...(MULTI ? { razorcadThreads: THREADS } : {}),
       instantiateWasm(imports, done) {
         WebAssembly.instantiateStreaming(fetch(wasmUrl), imports)
           .catch(() => fetch(wasmUrl).then((r) => r.arrayBuffer()).then((b) => WebAssembly.instantiate(b, imports)))
@@ -87,6 +94,10 @@ const ready = (async () => {
   // (type information and vtables are static data, below the stack)
   installRealDelete(oc, exportsOf, stack?.top ?? 12 * 1048576);
   R.setOC(oc);
+  // (with threads: OpenCascade's booleans and the algorithms built on them split their work over the threads)
+  if (MULTI) {
+    try { oc.BOPAlgo_Options.SetParallelMode(true); kernelThreads = THREADS; } catch (e) { console.warn('RazorCAD: parallel mode not set', e); }
+  }
 })();
 
 // Progress for long operations (value 0..1, or null when it can't be measured).
@@ -7210,7 +7221,7 @@ async function handleMessage(e) {
     } else if (type === 'stats') {
       // for crash reports: kernel memory and stack state
       resetStack();
-      result = { memoryMB: Math.round(R.getOC().wasmMemory.buffer.byteLength / 1048576), stackReset: !!stack, stackRecovered: stackLost, freeing: freeStats.installed, freed: freeStats.freed, queued: queueStats.waiting - 1, handled: queueStats.done };
+      result = { memoryMB: Math.round(R.getOC().wasmMemory.buffer.byteLength / 1048576), stackReset: !!stack, stackRecovered: stackLost, freeing: freeStats.installed, freed: freeStats.freed, queued: queueStats.waiting - 1, handled: queueStats.done, build: KERNEL_BUILD, threads: kernelThreads };
     } else if (type === 'partMesh') {
       const doc = JSON.parse(data.doc);
       doc.rollbackAt = null;

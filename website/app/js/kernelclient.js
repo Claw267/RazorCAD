@@ -61,7 +61,9 @@ export class KernelPool {
 const RECYCLE_MB = 3600; // the kernel can address 4 GB
 
 export class KernelClient {
-  constructor({ fonts = null } = {}) {
+  // threads: how many threads the kernel may use (more than 1: the multi-threaded kernel, where the page allows it)
+  constructor({ fonts = null, threads = 1 } = {}) {
+    this.threads = threads;
     this.seq = 0;
     this.calls = new Map();
     this.busy = false;
@@ -74,7 +76,9 @@ export class KernelClient {
   }
 
   spawn() {
-    const worker = new Worker(new URL('./kernel.worker.js', import.meta.url), { type: 'module' });
+    const url = new URL('./kernel.worker.js', import.meta.url);
+    if (this.threads > 1) url.searchParams.set('threads', String(this.threads));
+    const worker = new Worker(url, { type: 'module' });
     this.worker = worker;
     worker.onmessage = (e) => {
       if (e.data.type === 'progress') { this.onProgress?.(e.data.value, e.data.label, e.data.feature); return; }

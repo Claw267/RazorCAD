@@ -9,6 +9,10 @@
 //                    free memory each beyond 2 GB; at least 2 (a drawing or assembly never waits on the part), at
 //                    most 16
 //   memoryFor(m, n)  whether there is free memory for n more kernels
+//   threadsPerKernel(threads)  threads for a part's kernel (the multi-threaded kernel, where the page is cross-origin
+//                    isolated): half the threads beyond two, 2 to 8 (a golf ball with 179 faces: 6.0 s on one
+//                    thread, 4.9 s on 4, 4.7 s on 8, no faster on 16 or 22, which only start slower); 1 on a PC with
+//                    fewer than 6 threads or where threads can't be used
 
 import { platform } from './platform.js';
 
@@ -31,6 +35,12 @@ export function kernelBudget(m) {
   const byCpu = Math.max(1, (m.threads || 4) - 2);
   const byMem = Math.max(1, Math.floor((freeOf(m) - 2048) / 1024));
   return Math.max(2, Math.min(16, byCpu, byMem));
+}
+
+export function threadsPerKernel(threads = navigator.hardwareConcurrency || 4, isolated = !!globalThis.crossOriginIsolated) {
+  // (the browser version on the website comes with the single-thread kernel only: tools/build_web_app.py)
+  if (!isolated || typeof SharedArrayBuffer === 'undefined' || threads < 6 || globalThis.RAZORCAD_WEB) return 1;
+  return Math.max(2, Math.min(8, Math.floor((threads - 2) / 2)));
 }
 
 export function memoryFor(m, n = 1) {
