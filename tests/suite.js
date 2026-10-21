@@ -1713,6 +1713,21 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
       : { ok: false, detail: `removed ${removedReally.toFixed(1)}, preview ${shown.toFixed(1)} (${(near * 100).toFixed(1)}%), missed ${pp.preview?.missed}; last preview ${!!pl.preview?.remove}, cuts made ${pl.timing.cutsMade}; errors ${JSON.stringify([...pp.errors, ...pl.errors])}` };
   },
 
+  // a flat face's centre (kept in assembly mates) by the quicker plain integration: on these test parts the same as
+  // the adaptive one to well under 1e-6 mm, and every coordinate the same to the 6 decimals mates keep, so mates
+  // (and the components they hold) don't move
+  async 'flat-face-centres'() {
+    const pool = window.app.kernelPool, aff = 'flat-face-centres', out = [], bad = [];
+    for (const name of ['plate-features', 'holes', 'sheet-metal', 'shell-box', 'frame-members', 'multibody-combine']) {
+      const doc = JSON.parse(await (await fetch(`/tests/parts/${name}.rcad`)).text());
+      await pool.request('rebuild', { doc: JSON.stringify(doc) }, aff);
+      const c = await pool.request('centreCheck', {}, aff);
+      out.push(`${name} ${c.faces}`);
+      if (!(c.faces > 0) || c.worst > 1e-7 || c.roundDiff) bad.push(`${name}: ${c.faces} faces, worst ${c.worst}, ${c.roundDiff} differ at 6 decimals`);
+    }
+    return !bad.length ? { ok: true, detail: `flat faces the same centre to 1e-7 mm (6 decimals all the same): ${out.join(', ')}` } : { ok: false, detail: bad.join('; ') };
+  },
+
   // the part's size for meshing, from quick face boxes and the precise box of only the faces that reach furthest:
   // exactly the box of every face's precise box, on parts with lofts and sweeps (B-spline faces), revolves (tori),
   // a thickened surface, several bodies and a dimple pattern

@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 22:33 — Flat faces described four times quicker (meshing big parts)
+- Every flat face's centre of area is worked out when a part is meshed (assemblies keep it in their mates). It is now worked out by the plain integration instead of the adaptive one: the same centre to about 0.00000001 mm, four times quicker (an imported dust collector's 3081 flat faces: 0.5 s instead of 2 s).
+- Mates don't move: they find their faces by the plane (to 0.00001 mm) and keep the centre to 6 decimals, which come out the same (on the dust collector and the test parts, every one).
+- Regression test: flat-face-centres (six test parts: every flat face the same centre to 1e-7 mm, and the same at 6 decimals).
+
 ## 2026-10-21 22:26 — Section View: two or three planes at once
 - **Sections 2 and 3** in the Section View panel (tick "Use this section too"): with two or three planes, only what all of them cut away is removed: a quarter cut of a housing, a corner cut. Each plane has its own plane, offset and flip, and each cut face its own hatched cap (the hatch turned from plane to plane, so they read apart).
 - The arrow, and a click on a flat face or a plane, move the section changed last (the panel says which). In parts and in assemblies.
