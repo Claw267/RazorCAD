@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-22 10:27 — Regression tests: 30 s side by side
+- The heaviest tests did most of the waiting. Tests that start kernels of their own (import-store, import-mesh-helpers) now give them the page's share of the processor threads, not 8 each (four pages at once had far more threads busy than the PC has); import-mesh-helpers uses 12 trays instead of 24 (10 MB of STEP, still a big import) and no longer builds a third time to show the automatic choice, which is measured rather than tested.
+- import-store split into import-store-step and import-store-stl, and convert-sheet-variants into the corner variants and convert-sheet-others (the hem refused, two bodies), so they can run in different pages.
+- 35–37 s → 30 s with 4 pages (three runs in a row, all passed); one page (`--jobs 1`) passes too.
+
 ## 2026-10-22 10:19 — The website checked as it is served, after each push
 - `tools/check_site.py` checks the website at an address (razorcad.com by default): the home page, the manual and the browser version load; the browser version's files are served cross-origin isolated; in headless Edge the browser version starts, the page is isolated, and a kernel asked for 4 threads starts multi-threaded and builds a part. `--wait` first waits until the site serves the checkout's browser version (the host deploys a push a little later). Exit code 1 on any problem, each one listed.
 - GitHub runs it after each push to main that changes the website (and once a week): `.github/workflows/site-check.yml`.

@@ -5,6 +5,7 @@
 //  - UI: a few things done the way a user does them (real pointer events on the view): sketch, dimension
 //    and extrude; a drawing from the part; an assembly; the mouse buttons on the view.
 import * as M from '/js/model.js';
+import { threadsPerKernel } from '/js/machine.js';
 import { BUILTIN_TEMPLATES } from '/js/drawtemplates.js';
 import * as D2 from '/js/drawing.js';
 import { checkDrawing } from '/js/drawcheck.js';
@@ -61,6 +62,155 @@ function viewEvents() {
     fire('pointerdown', x, y, b); await wait(30); fire('pointerup', x, y, { ...b, buttons: 0 }); await wait(60);
   };
   return { vp, cv, R, fire, toScreen, click };
+}
+
+// big imports kept in the store of models built (here the browser version's): read from the file the first time, by
+// a fresh kernel then from the store (OpenCascade's own format, several times quicker), the same solid: a STEP (a
+// comment makes the test tray's file big enough to be kept) and an STL (a finely divided sphere, made here)
+async function importStore(which) {
+  const a = window.app, was = window.RAZORCAD_WEB, { KernelClient, forgetImportTexts } = await import('/js/kernelclient.js');
+  const tray = JSON.parse(await (await fetch('/tests/parts/sheet-metal-tray.rcad')).text());
+  const kernels = [];
+  try {
+    window.RAZORCAD_WEB = { ...(was || {}), kernel: 'test-' + Math.random().toString(36).slice(2) };
+    const docs = [];
+    if (which === 'STEP') {
+    const r0 = await a.kernel.request('rebuild', { doc: JSON.stringify(tray) });
+    if (!r0.body?.bodies?.length) throw new Error(`the tray: no body (${JSON.stringify(r0.errors)}, ${JSON.stringify(r0.body)?.slice(0, 80)})`);
+    let step = new TextDecoder().decode(await a.kernel.request('export', { format: 'step', bodyId: r0.body.bodies[0].id }));
+    // (a comment of many short lines: the STEP reader does not take a line megabytes long)
+    step = step.replace('ISO-10303-21;', 'ISO-10303-21;\n/* ' + 'RazorCAD test padding\n'.repeat(100000) + ' */');
+    const d = M.newDoc(); d.name = 'Big import';
+    d.features.push(M.createFeature(d, 'import', { format: 'step', fileName: 'tray.step', data: step }));
+    docs.push(['STEP', d, step.length]);
+    } else {
+    // a binary STL: a sphere of 120 × 130 quads (31 200 triangles), as base64
+    const nu = 130, nv = 120, rad = 40, P = (i, j) => { const th = (2 * Math.PI * i) / nu, ph = (Math.PI * j) / nv; return [rad * Math.sin(ph) * Math.cos(th), rad * Math.sin(ph) * Math.sin(th), rad * Math.cos(ph)]; };
+    const tris = [];
+    for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) {
+      const a0 = P(i, j), b0 = P(i + 1, j), c0 = P(i + 1, j + 1), d0 = P(i, j + 1);
+      if (j > 0) tris.push([a0, b0, c0]);
+      if (j < nv - 1) tris.push([a0, c0, d0]);
+    }
+    const stl = new DataView(new ArrayBuffer(84 + 50 * tris.length));
+    stl.setUint32(80, tris.length, true);
+    tris.forEach((t, k) => t.forEach((q, v) => q.forEach((x, c) => stl.setFloat32(84 + 50 * k + 12 + 12 * v + 4 * c, x, true))));
+    const bytes = new Uint8Array(stl.buffer);
+    let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    const dm = M.newDoc(); dm.name = 'Big mesh';
+    dm.features.push(M.createFeature(dm, 'import', { format: 'stl', fileName: 'sphere.stl', data: btoa(bin) }));
+    docs.push(['STL', dm, dm.features[0].data.length]);
+    }
+    const build = async (d) => {
+      const k = new KernelClient({ threads: threadsPerKernel() }); kernels.push(k); await k.ready;
+      let stored = false; k.onStored = () => { stored = true; };
+      const r = await k.request('rebuild', { doc: JSON.stringify(d) });
+      if (!r.body?.bodies?.length) throw new Error(`${d.name}: no body: ${JSON.stringify(r.errors)}`);
+      // (the volume from the mesh: a precise measure of 30 000 faces takes a while)
+      const V = r.body.vertices, T = r.body.triangles;
+      let v6 = 0;
+      for (let i = 0; i < T.length; i += 3) {
+        const [p, q, w] = [0, 1, 2].map((j) => 3 * T[i + j]);
+        v6 += V[p] * (V[q + 1] * V[w + 2] - V[q + 2] * V[w + 1]) - V[p + 1] * (V[q] * V[w + 2] - V[q + 2] * V[w]) + V[p + 2] * (V[q] * V[w + 1] - V[q + 1] * V[w]);
+      }
+      return { r, k, from: r.timing.imports?.[0]?.[1], vol: Math.abs(v6 / 6), faces: r.body.bodies[0].faceCount, stored: () => stored };
+    };
+    const out = [], bad = [];
+    for (const [name, doc, size] of docs) {
+      const b1 = await build(doc);
+      for (let i = 0; i < 150 && !b1.stored(); i++) await wait(100);
+      forgetImportTexts();
+      const b2 = await build(doc);
+      const ok = size > 2e6 && b1.from === 'file' && b1.stored() && b2.from === 'store' && b2.faces === b1.faces && Math.abs(b2.vol - b1.vol) < 1e-6 * b1.vol;
+      if (ok) out.push(`${(size / 1e6).toFixed(1)} MB ${name}: from the file and kept, then from the store (${b2.faces} faces, volume the same)`);
+      else bad.push(`${name}, ${size} characters: first from ${b1.from}, kept ${b1.stored()}; second from ${b2.from}; faces ${b1.faces} / ${b2.faces}, volume ${b1.vol} / ${b2.vol}`);
+    }
+    return !bad.length ? { ok: true, detail: out.join('; ') } : { ok: false, detail: bad.join('; ') };
+  } finally {
+    kernels.forEach((k) => k.dispose());
+    if (was === undefined) delete window.RAZORCAD_WEB; else window.RAZORCAD_WEB = was;
+  }
+}
+
+// Convert to Sheet Metal, kinds of sheet: the tray (written to STEP, read back as a plain body and converted from its
+// base) with open corners and with 120° flanges comes out exactly as made (faces, volume, flat pattern); with
+// butt corners and with mitred bends at closed corners, inside the body and within 0.5 % (the closed corners'
+// bends run into each other; butt corners lost a third of the material); with a hem, a clear message; and one
+// body of two converted, the other left as it was
+async function convertSheetVariants(part) {
+  // (the part's own kernel, with its threads: six sheet metal parts built, converted and flattened)
+  const k = window.app.kernel, pool = { request: (type, data) => k.request(type, data) }, aff = null;
+  const tray = JSON.parse(await (await fetch('/tests/parts/sheet-metal-tray.rcad')).text());
+  const base = () => { const d = JSON.parse(JSON.stringify(tray)); d.features = d.features.slice(0, 3); return d; };
+  const meshOf = (r, b) => {
+    const V = r.body.vertices, T = r.body.triangles, min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+    let v6 = 0;
+    for (let k = b.triStart; k < b.triStart + b.triCount; k++) for (let j = 0; j < 3; j++) { const x = V[3 * T[k] + j]; min[j] = Math.min(min[j], x); max[j] = Math.max(max[j], x); }
+    for (let k = b.triStart; k < b.triStart + b.triCount; k += 3) {
+      const [a, c, e] = [0, 1, 2].map((j) => 3 * T[k + j]);
+      v6 += V[a] * (V[c + 1] * V[e + 2] - V[c + 2] * V[e + 1]) - V[a + 1] * (V[c] * V[e + 2] - V[c + 2] * V[e]) + V[a + 2] * (V[c] * V[e + 1] - V[c + 1] * V[e]);
+    }
+    return { faces: b.faceCount, min, max, vol: Math.abs(v6 / 6) };
+  };
+  const flatSize = async (id) => (await pool.request('sheetFlat', { bodyId: id }, aff)).size.map((x) => +x.toFixed(3)).sort((x, y) => x - y).join(' × ');
+  // a part's bodies to STEP, read back, the tray converted from its base (the flat face at y = 0)
+  const convert = async (d) => {
+    const r0 = await pool.request('rebuild', { doc: JSON.stringify(d) }, aff);
+    const tray0 = r0.body.bodies.find((b) => b.sheet);
+    const flat0 = tray0 ? await flatSize(tray0.id) : null;
+    const step = new TextDecoder().decode(await pool.request('export', { format: 'step' }, aff));
+    const di = M.newDoc(); di.name = 'Converted';
+    di.features.push(M.createFeature(di, 'import', { format: 'step', fileName: 'tray.step', data: step }));
+    const r1 = await pool.request('rebuild', { doc: JSON.stringify(di) }, aff);
+    di.features.push(M.createFeature(di, 'smConvert', { face: { p: [0, 0, 0], n: [0, -1, 0] } }));
+    const r2 = await pool.request('rebuild', { doc: JSON.stringify(di) }, aff);
+    const conv = r2.body.bodies.find((b) => b.sheet);
+    const before = r1.body.bodies.map((b) => meshOf(r1, b)), after = r2.body.bodies.map((b) => meshOf(r2, b));
+    const i = conv ? r2.body.bodies.indexOf(conv) : -1;
+    return { r2, conv, before, after, i, flat0, flat1: conv ? await flatSize(conv.id) : null };
+  };
+  const inside = (a, b) => a.min.every((x, k) => x >= b.min[k] - 1e-3) && a.max.every((x, k) => x <= b.max[k] + 1e-3);
+  const cases = {
+    open: { set: (d) => { d.features[2].corner = 'open'; }, exact: true },
+    angle120: { set: (d) => { Object.assign(d.features[2], { corner: 'open', angle: 120, edges: d.features[2].edges.slice(0, 2) }); }, exact: true },
+    // (RazorCAD's own corners made again as it made them: a butt corner's run-ons may join their walls along a seam)
+    butt: { set: (d) => { d.features[2].corner = 'butt'; }, within: 1e-6 },
+    mitre: { set: (d) => { d.features[2].cornerBend = 'mitre'; }, exact: true },
+  };
+  const out = [], bad = [];
+  for (const [name, c] of part === 'corners' ? Object.entries(cases) : []) {
+    const d = base(); c.set(d);
+    const x = await convert(d);
+    const a = x.before[0], b = x.after[x.i] || {}, dv = (b.vol - a.vol) / a.vol;
+    const ok = !x.r2.errors.length && x.conv && inside(b, a) && x.flat1 === x.flat0
+      && (c.exact ? b.faces === a.faces && Math.abs(dv) < 1e-6 : Math.abs(dv) < c.within);
+    out.push(`${name} ${(dv * 100).toFixed(c.exact ? 3 : 6)} %${b.faces !== a.faces ? ` (${a.faces} → ${b.faces} faces)` : ''}`);
+    if (!ok) bad.push(`${name}: errors ${JSON.stringify(x.r2.errors)}, faces ${a.faces} → ${b.faces}, volume ${a.vol.toFixed(2)} → ${b.vol?.toFixed(2)}, inside ${x.conv && inside(b, a)}, flat ${x.flat0} → ${x.flat1}`);
+  }
+  // a hem: not converted, with the reason
+  if (part === 'others') {
+    const d = base();
+    Object.assign(d.features[2], { corner: 'open', edges: d.features[2].edges.slice(0, 1) });
+    d.features.push(M.createFeature(d, 'smHem', { edges: [{ p: [0, 1.5, -40] }], hemType: 'closed', length: 8 }));
+    const x = await convert(d);
+    const msg = x.r2.errors.map((e) => e[1]).join(' ');
+    if (x.conv || !/hem/i.test(msg)) bad.push(`hem: converted ${!!x.conv}, message "${msg}"`); else out.push('hem: refused');
+  }
+  // two bodies (the tray and a block beside it): the tray converted, the block as it was
+  if (part === 'others') {
+    const d = base();
+    d.features[2].corner = 'open';
+    const sk = M.createFeature(d, 'sketch', { plane: { ref: 'top' } });
+    const pts = [[100, -10], [120, -10], [120, 10], [100, 10]];
+    Object.assign(sk, { points: pts.map(([px, py], k) => ({ id: 'p' + k, x: px, y: py })), curves: pts.map((_, k) => ({ id: 'c' + k, type: 'line', p1: 'p' + k, p2: 'p' + ((k + 1) % 4), construction: false })), constraints: [] });
+    d.features.push(sk, M.createFeature(d, 'extrude', { sketch: sk.id, depth: 12, merge: false }));
+    const x = await convert(d);
+    const blockBefore = x.before.find((m) => m.max[0] > 90), blockAfter = x.after.find((m, k) => k !== x.i && m.max[0] > 90);
+    const ok = x.r2.body.bodies.length === 2 && x.conv && blockAfter && Math.abs(blockAfter.vol - blockBefore.vol) < 1e-6 && blockAfter.faces === blockBefore.faces;
+    if (!ok) bad.push(`two bodies: ${x.r2.body.bodies.length} bodies, converted ${!!x.conv}, block ${blockBefore?.vol} → ${blockAfter?.vol}`); else out.push('two bodies: one converted');
+  }
+  return !bad.length ? { ok: true, detail: out.join('; ') } : { ok: false, detail: bad.join(' | ') };
 }
 
 const UI = {
@@ -2096,150 +2246,9 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     return pans && still && turns ? { ok: true, detail: 'pan / no-op / rotate' } : { ok: false, detail: `pan ${pans}, plain right-drag unchanged ${still}, middle rotates ${turns}` };
   },
 
-  // Convert to Sheet Metal, kinds of sheet: the tray (written to STEP, read back as a plain body and converted from its
-  // base) with open corners and with 120° flanges comes out exactly as made (faces, volume, flat pattern); with
-  // butt corners and with mitred bends at closed corners, inside the body and within 0.5 % (the closed corners'
-  // bends run into each other; butt corners lost a third of the material); with a hem, a clear message; and one
-  // body of two converted, the other left as it was
-  async 'convert-sheet-variants'() {
-    // (the part's own kernel, with its threads: six sheet metal parts built, converted and flattened)
-    const k = window.app.kernel, pool = { request: (type, data) => k.request(type, data) }, aff = null;
-    const tray = JSON.parse(await (await fetch('/tests/parts/sheet-metal-tray.rcad')).text());
-    const base = () => { const d = JSON.parse(JSON.stringify(tray)); d.features = d.features.slice(0, 3); return d; };
-    const meshOf = (r, b) => {
-      const V = r.body.vertices, T = r.body.triangles, min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
-      let v6 = 0;
-      for (let k = b.triStart; k < b.triStart + b.triCount; k++) for (let j = 0; j < 3; j++) { const x = V[3 * T[k] + j]; min[j] = Math.min(min[j], x); max[j] = Math.max(max[j], x); }
-      for (let k = b.triStart; k < b.triStart + b.triCount; k += 3) {
-        const [a, c, e] = [0, 1, 2].map((j) => 3 * T[k + j]);
-        v6 += V[a] * (V[c + 1] * V[e + 2] - V[c + 2] * V[e + 1]) - V[a + 1] * (V[c] * V[e + 2] - V[c + 2] * V[e]) + V[a + 2] * (V[c] * V[e + 1] - V[c + 1] * V[e]);
-      }
-      return { faces: b.faceCount, min, max, vol: Math.abs(v6 / 6) };
-    };
-    const flatSize = async (id) => (await pool.request('sheetFlat', { bodyId: id }, aff)).size.map((x) => +x.toFixed(3)).sort((x, y) => x - y).join(' × ');
-    // a part's bodies to STEP, read back, the tray converted from its base (the flat face at y = 0)
-    const convert = async (d) => {
-      const r0 = await pool.request('rebuild', { doc: JSON.stringify(d) }, aff);
-      const tray0 = r0.body.bodies.find((b) => b.sheet);
-      const flat0 = tray0 ? await flatSize(tray0.id) : null;
-      const step = new TextDecoder().decode(await pool.request('export', { format: 'step' }, aff));
-      const di = M.newDoc(); di.name = 'Converted';
-      di.features.push(M.createFeature(di, 'import', { format: 'step', fileName: 'tray.step', data: step }));
-      const r1 = await pool.request('rebuild', { doc: JSON.stringify(di) }, aff);
-      di.features.push(M.createFeature(di, 'smConvert', { face: { p: [0, 0, 0], n: [0, -1, 0] } }));
-      const r2 = await pool.request('rebuild', { doc: JSON.stringify(di) }, aff);
-      const conv = r2.body.bodies.find((b) => b.sheet);
-      const before = r1.body.bodies.map((b) => meshOf(r1, b)), after = r2.body.bodies.map((b) => meshOf(r2, b));
-      const i = conv ? r2.body.bodies.indexOf(conv) : -1;
-      return { r2, conv, before, after, i, flat0, flat1: conv ? await flatSize(conv.id) : null };
-    };
-    const inside = (a, b) => a.min.every((x, k) => x >= b.min[k] - 1e-3) && a.max.every((x, k) => x <= b.max[k] + 1e-3);
-    const cases = {
-      open: { set: (d) => { d.features[2].corner = 'open'; }, exact: true },
-      angle120: { set: (d) => { Object.assign(d.features[2], { corner: 'open', angle: 120, edges: d.features[2].edges.slice(0, 2) }); }, exact: true },
-      // (RazorCAD's own corners made again as it made them: a butt corner's run-ons may join their walls along a seam)
-      butt: { set: (d) => { d.features[2].corner = 'butt'; }, within: 1e-6 },
-      mitre: { set: (d) => { d.features[2].cornerBend = 'mitre'; }, exact: true },
-    };
-    const out = [], bad = [];
-    for (const [name, c] of Object.entries(cases)) {
-      const d = base(); c.set(d);
-      const x = await convert(d);
-      const a = x.before[0], b = x.after[x.i] || {}, dv = (b.vol - a.vol) / a.vol;
-      const ok = !x.r2.errors.length && x.conv && inside(b, a) && x.flat1 === x.flat0
-        && (c.exact ? b.faces === a.faces && Math.abs(dv) < 1e-6 : Math.abs(dv) < c.within);
-      out.push(`${name} ${(dv * 100).toFixed(c.exact ? 3 : 6)} %${b.faces !== a.faces ? ` (${a.faces} → ${b.faces} faces)` : ''}`);
-      if (!ok) bad.push(`${name}: errors ${JSON.stringify(x.r2.errors)}, faces ${a.faces} → ${b.faces}, volume ${a.vol.toFixed(2)} → ${b.vol?.toFixed(2)}, inside ${x.conv && inside(b, a)}, flat ${x.flat0} → ${x.flat1}`);
-    }
-    // a hem: not converted, with the reason
-    {
-      const d = base();
-      Object.assign(d.features[2], { corner: 'open', edges: d.features[2].edges.slice(0, 1) });
-      d.features.push(M.createFeature(d, 'smHem', { edges: [{ p: [0, 1.5, -40] }], hemType: 'closed', length: 8 }));
-      const x = await convert(d);
-      const msg = x.r2.errors.map((e) => e[1]).join(' ');
-      if (x.conv || !/hem/i.test(msg)) bad.push(`hem: converted ${!!x.conv}, message "${msg}"`); else out.push('hem: refused');
-    }
-    // two bodies (the tray and a block beside it): the tray converted, the block as it was
-    {
-      const d = base();
-      d.features[2].corner = 'open';
-      const sk = M.createFeature(d, 'sketch', { plane: { ref: 'top' } });
-      const pts = [[100, -10], [120, -10], [120, 10], [100, 10]];
-      Object.assign(sk, { points: pts.map(([px, py], k) => ({ id: 'p' + k, x: px, y: py })), curves: pts.map((_, k) => ({ id: 'c' + k, type: 'line', p1: 'p' + k, p2: 'p' + ((k + 1) % 4), construction: false })), constraints: [] });
-      d.features.push(sk, M.createFeature(d, 'extrude', { sketch: sk.id, depth: 12, merge: false }));
-      const x = await convert(d);
-      const blockBefore = x.before.find((m) => m.max[0] > 90), blockAfter = x.after.find((m, k) => k !== x.i && m.max[0] > 90);
-      const ok = x.r2.body.bodies.length === 2 && x.conv && blockAfter && Math.abs(blockAfter.vol - blockBefore.vol) < 1e-6 && blockAfter.faces === blockBefore.faces;
-      if (!ok) bad.push(`two bodies: ${x.r2.body.bodies.length} bodies, converted ${!!x.conv}, block ${blockBefore?.vol} → ${blockAfter?.vol}`); else out.push('two bodies: one converted');
-    }
-    return !bad.length ? { ok: true, detail: out.join('; ') } : { ok: false, detail: bad.join(' | ') };
-  },
 
-  // big imports kept in the store of models built (here the browser version's): read from the file the first time, by
-  // a fresh kernel then from the store (OpenCascade's own format, several times quicker), the same solid: a STEP (a
-  // comment makes the test tray's file big enough to be kept) and an STL (a finely divided sphere, made here)
-  async 'import-store'() {
-    const a = window.app, was = window.RAZORCAD_WEB, { KernelClient, forgetImportTexts } = await import('/js/kernelclient.js');
-    const tray = JSON.parse(await (await fetch('/tests/parts/sheet-metal-tray.rcad')).text());
-    const kernels = [];
-    try {
-      window.RAZORCAD_WEB = { ...(was || {}), kernel: 'test-' + Math.random().toString(36).slice(2) };
-      const r0 = await a.kernel.request('rebuild', { doc: JSON.stringify(tray) });
-      if (!r0.body?.bodies?.length) throw new Error(`the tray: no body (${JSON.stringify(r0.errors)}, ${JSON.stringify(r0.body)?.slice(0, 80)})`);
-      let step = new TextDecoder().decode(await a.kernel.request('export', { format: 'step', bodyId: r0.body.bodies[0].id }));
-      // (a comment of many short lines: the STEP reader does not take a line megabytes long)
-      step = step.replace('ISO-10303-21;', 'ISO-10303-21;\n/* ' + 'RazorCAD test padding\n'.repeat(100000) + ' */');
-      const d = M.newDoc(); d.name = 'Big import';
-      d.features.push(M.createFeature(d, 'import', { format: 'step', fileName: 'tray.step', data: step }));
-      // a binary STL: a sphere of 120 × 130 quads (31 200 triangles), as base64
-      const nu = 130, nv = 120, rad = 40, P = (i, j) => { const th = (2 * Math.PI * i) / nu, ph = (Math.PI * j) / nv; return [rad * Math.sin(ph) * Math.cos(th), rad * Math.sin(ph) * Math.sin(th), rad * Math.cos(ph)]; };
-      const tris = [];
-      for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) {
-        const a0 = P(i, j), b0 = P(i + 1, j), c0 = P(i + 1, j + 1), d0 = P(i, j + 1);
-        if (j > 0) tris.push([a0, b0, c0]);
-        if (j < nv - 1) tris.push([a0, c0, d0]);
-      }
-      const stl = new DataView(new ArrayBuffer(84 + 50 * tris.length));
-      stl.setUint32(80, tris.length, true);
-      tris.forEach((t, k) => t.forEach((q, v) => q.forEach((x, c) => stl.setFloat32(84 + 50 * k + 12 + 12 * v + 4 * c, x, true))));
-      const bytes = new Uint8Array(stl.buffer);
-      let bin = '';
-      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-      const dm = M.newDoc(); dm.name = 'Big mesh';
-      dm.features.push(M.createFeature(dm, 'import', { format: 'stl', fileName: 'sphere.stl', data: btoa(bin) }));
-      const build = async (d) => {
-        const k = new KernelClient({ threads: 8 }); kernels.push(k); await k.ready;
-        let stored = false; k.onStored = () => { stored = true; };
-        const r = await k.request('rebuild', { doc: JSON.stringify(d) });
-        if (!r.body?.bodies?.length) throw new Error(`${d.name}: no body: ${JSON.stringify(r.errors)}`);
-        // (the volume from the mesh: a precise measure of 30 000 faces takes a while)
-        const V = r.body.vertices, T = r.body.triangles;
-        let v6 = 0;
-        for (let i = 0; i < T.length; i += 3) {
-          const [p, q, w] = [0, 1, 2].map((j) => 3 * T[i + j]);
-          v6 += V[p] * (V[q + 1] * V[w + 2] - V[q + 2] * V[w + 1]) - V[p + 1] * (V[q] * V[w + 2] - V[q + 2] * V[w]) + V[p + 2] * (V[q] * V[w + 1] - V[q + 1] * V[w]);
-        }
-        return { r, k, from: r.timing.imports?.[0]?.[1], vol: Math.abs(v6 / 6), faces: r.body.bodies[0].faceCount, stored: () => stored };
-      };
-      const out = [], bad = [];
-      for (const [name, doc, size] of [['STEP', d, step.length], ['STL', dm, dm.features[0].data.length]]) {
-        const b1 = await build(doc);
-        for (let i = 0; i < 150 && !b1.stored(); i++) await wait(100);
-        forgetImportTexts();
-        const b2 = await build(doc);
-        const ok = size > 2e6 && b1.from === 'file' && b1.stored() && b2.from === 'store' && b2.faces === b1.faces && Math.abs(b2.vol - b1.vol) < 1e-6 * b1.vol;
-        if (ok) out.push(`${(size / 1e6).toFixed(1)} MB ${name}: from the file and kept, then from the store (${b2.faces} faces, volume the same)`);
-        else bad.push(`${name}, ${size} characters: first from ${b1.from}, kept ${b1.stored()}; second from ${b2.from}; faces ${b1.faces} / ${b2.faces}, volume ${b1.vol} / ${b2.vol}`);
-      }
-      return !bad.length ? { ok: true, detail: out.join('; ') } : { ok: false, detail: bad.join('; ') };
-    } finally {
-      kernels.forEach((k) => k.dispose());
-      if (was === undefined) delete window.RAZORCAD_WEB; else window.RAZORCAD_WEB = was;
-    }
-  },
 
-  // a big STEP import's bodies meshed in the pool's free kernels too (kernel.worker.js meshHelped): 24 copies of the
+  // a big STEP import's bodies meshed in the pool's free kernels too (kernel.worker.js meshHelped): 12 copies of the
   // test tray in one file; a part kernel reading it from the store shares the meshing out, and its mesh is exactly
   // the one a kernel makes alone (every vertex, triangle, face and edge, and the faces' surfaces)
   async 'import-mesh-helpers'() {
@@ -2252,15 +2261,15 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
       const id = r0.body?.bodies?.[0]?.id;
       if (!id) throw new Error('the tray: no body');
       const many = JSON.parse(JSON.stringify(tray));
-      many.features.push(M.createFeature(many, 'moveBody', { bodies: [id], copy: true, copies: 23, dx: 400 }));
+      many.features.push(M.createFeature(many, 'moveBody', { bodies: [id], copy: true, copies: 11, dx: 400 }));
       const r1 = await a.kernel.request('rebuild', { doc: JSON.stringify(many) });
-      if (r1.body?.bodies?.length !== 24) throw new Error(`24 trays: ${r1.body?.bodies?.length} bodies (${JSON.stringify(r1.errors)})`);
+      if (r1.body?.bodies?.length !== 12) throw new Error(`12 trays: ${r1.body?.bodies?.length} bodies (${JSON.stringify(r1.errors)})`);
       let step = new TextDecoder().decode(await a.kernel.request('export', { format: 'step' }));
       if (step.length < 2e6) step = step.replace('ISO-10303-21;', 'ISO-10303-21;\n/* ' + 'RazorCAD test padding\n'.repeat(100000) + ' */');
       const d = M.newDoc(); d.name = 'Many trays';
       d.features.push(M.createFeature(d, 'import', { format: 'step', fileName: 'trays.step', data: step }));
       const build = async (helped, meshHelp = null) => {
-        const k = new KernelClient({ threads: 8 }); kernels.push(k); await k.ready;
+        const k = new KernelClient({ threads: threadsPerKernel() }); kernels.push(k); await k.ready;
         if (helped) a.wireKernel(k);
         let stored = false; k.onStored = () => { stored = true; };
         const t0 = performance.now();
@@ -2271,8 +2280,8 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
       const b0 = await build(false);
       for (let i = 0; i < 200 && !b0.stored(); i++) await wait(100);
       if (!b0.stored()) return { ok: false, detail: 'the import was not kept' };
-      // (helpers made to help, whatever the times; and left to decide)
-      const alone = await build(false), helped = await build(true, 'always'), auto = await build(true);
+      // (helpers made to help, whatever the times)
+      const alone = await build(false), helped = await build(true, 'always');
       const A = alone.r.body, H = helped.r.body, bad = [];
       if (!A || !H) return { ok: false, detail: 'no mesh' };
       const n = helped.r.timing.meshHelpers;
@@ -2285,13 +2294,21 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
       if (fg(A) !== fg(H)) bad.push(`faces ${A.faceGroups.length} / ${H.faceGroups.length}`);
       if (JSON.stringify(A.edges) !== JSON.stringify(H.edges)) bad.push(`edges ${A.edges.length} / ${H.edges.length}`);
       if (JSON.stringify(A.bodies) !== JSON.stringify(H.bodies)) bad.push('bodies differ');
-      const detail = `${(step.length / 1e6).toFixed(1)} MB STEP, 24 bodies, ${A.faceGroups.length} faces: meshed in ${n + 1} kernels, the same mesh (${A.triangles.length / 3} triangles, ${A.edges.length} edges); mesh ${alone.r.timing.mesh} ms alone, ${helped.r.timing.mesh} ms helped; left to decide: ${auto.r.timing.meshHelpers ? `${auto.r.timing.meshHelpers} helped` : 'alone'}, ${auto.r.timing.mesh} ms`;
+      const detail = `${(step.length / 1e6).toFixed(1)} MB STEP, 12 bodies, ${A.faceGroups.length} faces: meshed in ${n + 1} kernels, the same mesh (${A.triangles.length / 3} triangles, ${A.edges.length} edges); mesh ${alone.r.timing.mesh} ms alone, ${helped.r.timing.mesh} ms helped`;
       return !bad.length ? { ok: true, detail } : { ok: false, detail: bad.join('; ') + ' — ' + detail };
     } finally {
       kernels.forEach((k) => k.dispose());
       if (was === undefined) delete window.RAZORCAD_WEB; else window.RAZORCAD_WEB = was;
     }
   },
+
+  // (convertSheetVariants: the corner variants, and the hem and two bodies, each in a test of its own)
+  'convert-sheet-variants'() { return convertSheetVariants('corners'); },
+  'convert-sheet-others'() { return convertSheetVariants('others'); },
+
+  // (importStore: a STEP, and an STL, each in a test of its own)
+  'import-store-step'() { return importStore('STEP'); },
+  'import-store-stl'() { return importStore('STL'); },
 
   // Section View from a face, and its arrow: with a flat face selected it starts on that face's plane (offset 0);
   // dragging the arrow moves the cut along the normal (the offset box follows, the view does not turn); clicking
