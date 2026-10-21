@@ -14,3 +14,10 @@ https://:project.razorcad.pages.dev/*
   Cache-Control: public, max-age=604800
 /app/vendor/*
   Cache-Control: public, max-age=86400
+
+# The browser version cross-origin isolated (shared memory), so its geometry kernel can run multi-threaded, as in the
+# Windows app
+/app/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
+  Cross-Origin-Resource-Policy: same-origin

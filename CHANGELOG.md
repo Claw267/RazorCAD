@@ -6,6 +6,12 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-22 08:16 — The browser version runs the multi-threaded kernel
+- razorcad.com/app is served cross-origin isolated (`website/_headers`: COOP, COEP, CORP for `/app/*`), which shared memory needs, so each open part's kernel there is the multi-threaded one, as in the Windows app (half the processor threads beyond two, 2 to 8; a PC or browser that can't keeps the single-thread kernel).
+- The browser version now carries both kernels (the multi-threaded one is 22 MB, under the host's 25 MiB a file).
+- Checked in the browser build: the part kernel starts as replicad_multi with 8 threads, test parts rebuild with no errors; the website's other pages are not isolated, and the app loads nothing from other sites.
+- Manual: the speed paragraph and the browser version's build.
+
 ## 2026-10-22 07:28 — Version 0.16.0-beta: installer, user manual and website
 - **RazorCAD-Setup-0.16.0-beta.exe** built (in "RazorCAD Install", 45 MB, unsigned), with everything since 0.15.0-beta:
   - Section View: from a selected face or plane, a click moves it, an arrow to drag, in assemblies, two or three planes at once (quarter cuts), its panel opened again from the button;

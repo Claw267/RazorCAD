@@ -38,8 +38,8 @@ export function kernelBudget(m) {
 }
 
 export function threadsPerKernel(threads = navigator.hardwareConcurrency || 4, isolated = !!globalThis.crossOriginIsolated) {
-  // (the browser version on the website comes with the single-thread kernel only: tools/build_web_app.py)
-  if (!isolated || typeof SharedArrayBuffer === 'undefined' || threads < 6 || globalThis.RAZORCAD_WEB) return 1;
+  // (the browser version too, where the website serves it cross-origin isolated: website/_headers)
+  if (!isolated || typeof SharedArrayBuffer === 'undefined' || threads < 6) return 1;
   return Math.max(2, Math.min(8, Math.floor((threads - 2) / 2)));
 }
 

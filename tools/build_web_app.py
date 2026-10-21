@@ -5,8 +5,9 @@ the browser, and there is no auto-save, no Windows fonts and no automatic updati
 links to the Windows app). It is published with the rest of the website, only when the website is.
 
 It is built in its own folder, "RazorCAD Web" next to this project's folder (kept apart from the desktop app's
-work, and always on the single-thread geometry kernel: the multi-threaded one needs cross-origin isolation, which
-the website's host may not give), and copied from there into website/app for publishing. Without that folder
+work), with both geometry kernels: the website serves the app cross-origin isolated (website/_headers), so the
+browser runs the multi-threaded kernel where it can, and the single-thread one where it can't. It is copied from
+there into website/app for publishing. Without that folder
 (another PC, GitHub), it is built straight into website/app.
 
     python tools/build_web_app.py
@@ -24,8 +25,7 @@ SRC = os.path.join(ROOT, 'app')
 SITE_APP = os.path.join(ROOT, 'website', 'app')
 WEB_HOME = os.path.join(os.path.dirname(ROOT), 'RazorCAD Web')
 DST = os.path.join(WEB_HOME, 'app') if os.path.isdir(WEB_HOME) else SITE_APP
-# (left out of the browser version: the multi-threaded kernel)
-SKIP = ('__pycache__', '*.map', '*.bak', 'Thumbs.db', '.DS_Store', 'replicad_multi.*', '_perf_*')
+SKIP = ('__pycache__', '*.map', '*.bak', 'Thumbs.db', '.DS_Store', '_perf_*')
 # the host serves files up to 25 MiB
 MAX_FILE = 25 * 1024 * 1024
 
