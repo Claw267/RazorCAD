@@ -2169,7 +2169,8 @@ async function rebuild(doc, previewId = null, opts = {}) {
     throw new Error('Use flat, cylindrical, conical or spherical faces for mates');
   };
 
-  const timing = { features: [] }; // where the time went (for tuning)
+  // (cutsMade: the waiting cuts this rebuild really made, not taken from cutMemo or a saved state: for the tests)
+  const timing = { features: [], cutsMade: 0 }; // where the time went (for tuning)
   const featureDiffs = new Map();
   const sketchBodies = new Map(); // sketch id -> { body before it, its frame }
   const nFeat = doc.features.length || 1;
@@ -2249,6 +2250,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
         cutMemo.delete(memoKey); cutMemo.set(memoKey, hit);
       } else try {
         apply('cut', list.length === 1 ? list[0].tool : compoundOf(list.map((x) => ({ shape: x.tool }))), true, null);
+        timing.cutsMade += list.length;
         cutMemo.set(memoKey, { solids: [...solids], body, applied: [...applied] });
         while (cutMemo.size > 8) cutMemo.delete(cutMemo.keys().next().value);
       } catch (e) {

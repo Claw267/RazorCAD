@@ -603,3 +603,6 @@ Skipped for now (from the list of 2026-10-21):
 ## Release 0.15.0-beta (user request 2026-10-21: "Build and publish installer and update website.")
 - [x] version.txt 0.15.0-beta; manual revision history row; PDF (77 pages) and website docs rebuilt; home page 0.15.0-beta (+ multi-threaded kernel in the geometry answer); browser version rebuilt (RazorCAD Web -> website/app). Full suite: one failure in the first run that did not come back in three more runs (all passed; most likely a timing-dependent test). Installer built (RazorCAD Install/RazorCAD-Setup-0.15.0-beta.exe, unsigned) with the manual PDF and release notes; smoke test of the exe: 0.15.0-beta, multi-threaded kernel ready. Committed, pushed, GitHub release v0.15.0-beta (pre-release).
 
+## The flaky test (user: "Track it down.")
+- [x] 10 full runs, output kept: runs 1 and 4 failed, both cuts-together ("groups []": geometry identical, edit result identical). Cause: the test found the edit's own timing entries by skipping those equal (name + ms) to the first build's; integer-ms entries (0-8 ms) matched by chance. Fix: timing.cutsMade (cuts really made in this rebuild, memo hits and saved states not counted); the test checks the first build made at least 3 and the edit exactly 1. 12/12 runs alone, 5/5 full runs.
+

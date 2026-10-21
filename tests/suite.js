@@ -1642,10 +1642,9 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     // the last cut edited: only its own cut made again
     const d2 = JSON.parse(JSON.stringify(dT)); d2.features.find((f) => f.id === lastSk.id).curves[0].r = 3; d2.features.find((f) => f.id === lastSk.id).rev = M.newRev();
     const e1 = await k.rebuild(d2, null, null);
-    // (the edit's own entries: those after the ones carried over from the saved state)
-    let same0 = 0;
-    while (same0 < e1.timing.features.length && JSON.stringify(e1.timing.features[same0]) === JSON.stringify(together.timing.features[same0])) same0++;
-    const groups = e1.timing.features.slice(same0).filter(([n]) => /made together/.test(n));
+    // (the cuts the edit really made: its own only, the others remembered; counted by the kernel, as timing entries
+    // carried over from the saved state can't be told from new ones)
+    const madeByEdit = e1.timing.cutsMade;
     const e0 = await pool.request('rebuild', { doc: JSON.stringify(fresh(d2)), batchCuts: false }, 'cuts-together');
     const same2 = (await props(k, e1)) === (await props(pool, e0, 'cuts-together'));
     // a cut feature's faces (highlighting), and a sketch's section, as one by one
@@ -1656,9 +1655,9 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     const sec0 = await pool.request('sectionCurves', { sketchId: bossSketch.id }, 'cuts-together').catch((e) => ({ err: e.message }));
     const n = (x) => (Array.isArray(x) ? x.length : -1);
     const ok = t1 === t0 && made.length >= 2 && made.some((m) => m >= 5) && noneOneByOne && same2 && !together.errors.length
-      && groups.length === 1 && groups[0][0].startsWith('(1 cut') && n(ff1) > 0 && n(ff1) === n(ff0) && n(sec1) > 0 && n(sec1) === n(sec0);
+      && together.timing.cutsMade >= 3 && madeByEdit === 1 && n(ff1) > 0 && n(ff1) === n(ff0) && n(sec1) > 0 && n(sec1) === n(sec0);
     return ok ? { ok: true, detail: `made together: ${made.join(' + ')}; same as one by one (${t1}); edit: only its own cut; faces ${n(ff1)}, section ${n(sec1)}` }
-      : { ok: false, detail: `together ${t1} | one by one ${t0}; made ${made}; oneByOne clean ${noneOneByOne}; edit same ${same2}, groups ${JSON.stringify(groups)}; faces ${n(ff1)}/${n(ff0)}; section ${n(sec1)}/${n(sec0)} ${JSON.stringify(sec1).slice(0, 80)}; errors ${JSON.stringify(together.errors)}` };
+      : { ok: false, detail: `together ${t1} | one by one ${t0}; made ${made}; oneByOne clean ${noneOneByOne}; edit same ${same2}, cuts made ${together.timing.cutsMade} then ${madeByEdit}; faces ${n(ff1)}/${n(ff0)}; section ${n(sec1)}/${n(sec0)} ${JSON.stringify(sec1).slice(0, 80)}; errors ${JSON.stringify(together.errors)}` };
   },
 
   // BOM mass and cost: a steel plate (60 × 40 × 5) and two aluminium blocks (20 × 20 × 15) with costs → masses from

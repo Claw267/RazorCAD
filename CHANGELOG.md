@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 15:31 — A test that failed now and then: fixed
+- The **cuts-together** regression test failed about 1 run in 5 (2 of 10 full runs). RazorCAD was right every time: the geometry matched the one-by-one build in the failing runs too.
+- The test's check that editing the last cut redoes only its own cut told the edit's timing entries from the ones carried over from the saved state by name and milliseconds. These are small whole numbers, so they sometimes matched by chance, and the edit's own entry was skipped.
+- The kernel now counts the cuts a rebuild really makes (not those remembered or carried over), and the test checks that number: the first build makes them, and the edit makes exactly 1. It passed 12 runs on its own and 5 full runs in a row.
+
 ## 2026-10-21 15:05 — Version 0.15.0-beta: installer, user manual and website
 - **RazorCAD-Setup-0.15.0-beta.exe** built (in "RazorCAD Install", 45 MB: both geometry kernels), with everything since 0.14.0-beta: the multi-threaded geometry kernel, cuts made together, faster edits on big parts, and the fix for overlapping pattern copies.
 - **User manual** 0.15.0-beta (revision history), the PDF and the online manual rebuilt.
