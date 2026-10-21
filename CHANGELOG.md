@@ -6,6 +6,14 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 20:49 — Section View: from a face or plane, and an arrow to drag
+- **Section View starts from what is selected:** a flat face, a standard or reference plane, or a sketch (its plane). The cut starts on it (offset 0), and the offset is measured from it. Without a selection it opens on the plane used last, as before.
+- **While the panel is open, clicking a flat face or a plane moves the cut onto it.** The Plane list then shows it ("Selected face", or the plane's name) next to the standard planes.
+- **A blue arrow on the cut, dragged to move it** along its normal: the offset box and slider follow, in round steps (1 mm, or finer when zoomed in). It stays the same size on the screen, turns amber under the cursor, and the view doesn't turn while it is dragged. It shows while the Section View panel is open; OK keeps the cut and takes the arrow away.
+- The slider's range now runs over the model from the chosen plane, whichever plane it is.
+- User manual: the section view paragraph.
+- Regression test: section-from-face (starts on a selected side face; the arrow dragged 150 px moves the cut by that much, the view unchanged; a click on the top face moves the cut onto it; OK keeps the cut, without the arrow).
+
 ## 2026-10-21 20:31 — The view turns about the point under the cursor
 - **Rotating the view now turns about the point under the cursor where the drag starts**, instead of the model's centre. Zoomed in on part of a large model, what you are looking at stays where it is while it turns, rather than swinging off the screen.
   - Started on the model: the point on its surface under the cursor (a part's bodies or an assembly's components; in a section view, only what is still shown).

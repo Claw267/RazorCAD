@@ -2066,6 +2066,56 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     return pans && still && turns ? { ok: true, detail: 'pan / no-op / rotate' } : { ok: false, detail: `pan ${pans}, plain right-drag unchanged ${still}, middle rotates ${turns}` };
   },
 
+  // Section View from a face, and its arrow: with a flat face selected it starts on that face's plane (offset 0);
+  // dragging the arrow moves the cut along the normal (the offset box follows, the view does not turn); clicking
+  // another flat face moves the section onto it; OK keeps the cut and takes the arrow away
+  async 'section-from-face'() {
+    const a = window.app;
+    const text = await (await fetch('/tests/parts/plate-features.rcad')).text();
+    await a.openFromFile({ content: text, name: 'Section test.rcad', path: null });
+    for (let i = 0; i < 80 && !a.result?.bodies?.length; i++) await wait(100);
+    const { vp, fire, R, toScreen } = viewEvents();
+    const faceWith = (k) => { for (let i = 0; i < 1000; i++) { const f = vp.faceInfo(i); if (!f) return null; if (f.planar && f.normal.getComponent(k) > 0.99) return f; } return null; };
+    try {
+      const side = faceWith(0);
+      a.selection = { kind: 'face', face: side };
+      a.startSection();
+      const s = a.sectionState;
+      const started = a.pm?.kind === 'section' && s.plane === 'custom' && s.custom.n.x > 0.999 && Math.abs(vp.section.constant - side.d) < 1e-6 && !!vp._secArrow;
+      // drag the arrow 150 px back into the part, seen from the front
+      vp.setStandardView('front', false); vp.zoomToFit(null, false); vp.camera.updateMatrixWorld(); vp._secArrow.place();
+      const n = a.sectionFrame().n, wpp = vp.worldPerPixel(), g = vp._secArrow.group;
+      const [x, y] = toScreen(g.position.clone().addScaledVector(n, 40 * wpp)), [tx, ty] = toScreen(g.position.clone().addScaledVector(n, 100 * wpp));
+      const L = Math.hypot(tx - x, ty - y), u = [(tx - x) / L, (ty - y) / L];
+      const q0 = vp.camera.quaternion.clone(), b = { button: 0, buttons: 1 };
+      fire('pointerdown', x, y, b);
+      for (let k = 1; k <= 10; k++) { fire('pointermove', x - u[0] * 15 * k, y - u[1] * 15 * k, b); await wait(5); }
+      fire('pointerup', x - u[0] * 150, y - u[1] * 150, { ...b, buttons: 0 }); await wait(50);
+      const step = 10 ** Math.ceil(Math.log10(wpp)), want = -150 * wpp;
+      const field = document.querySelector('#pm .sec-offset input')?.value;
+      const dragOff = s.offset;
+      const dragged = Math.abs(s.offset - want) <= step && Math.abs(vp.section.constant - (side.d + s.offset)) < 1e-6 && q0.angleTo(vp.camera.quaternion) < 1e-9 && Number(field) === s.offset;
+      // click the top face: the section moves onto it
+      vp.setStandardView('iso', false); vp.zoomToFit(null, false); vp.camera.updateMatrixWorld();
+      let at = null;
+      for (let fx = 0.2; fx < 0.8 && !at; fx += 0.02) for (let fy = 0.2; fy < 0.8 && !at; fy += 0.02) {
+        const e = { clientX: R.left + R.width * fx, clientY: R.top + R.height * fy }, p = a.pickAt(e);
+        if (p?.kind === 'face' && vp.faceInfo(p.hit.face).normal.y > 0.99 && !vp.sectionArrowAt(e)) at = [e.clientX, e.clientY, vp.faceInfo(p.hit.face).d];
+      }
+      if (at) { fire('pointerdown', at[0], at[1], b); fire('pointerup', at[0], at[1], { ...b, buttons: 0 }); await wait(50); }
+      const moved = !!at && s.custom.n.y > 0.999 && s.offset === 0 && Math.abs(vp.section.constant - at[2]) < 1e-6;
+      await a.okPM();
+      const kept = !a.pm && !!vp.section && !vp._secArrow;
+      const ok = started && dragged && moved && kept;
+      return ok ? { ok: true, detail: `started on the side face (x = ${side.d}); arrow dragged 150 px: offset ${dragOff} mm (${want.toFixed(2)} by the drag), the view unchanged; clicked the top face: cut at y = ${at[2]}; OK: cut kept, arrow gone` }
+        : { ok: false, detail: `started ${started}, dragged ${dragged} (offset ${s.offset}, want ${want.toFixed(2)}, field ${field}), moved ${moved}, kept ${kept}` };
+    } finally {
+      a.clearSection();
+      a.dirty = false;
+      await a.closeTab(a.tabIndex);
+    }
+  },
+
   // turning the view about the cursor: zoomed in off the part's centre, a middle-drag started on the part turns
   // about the point under the cursor (it stays there, and a dot shows it while dragging), one started over empty
   // space about that spot at the part's depth; the arrow keys still turn about the part's centre

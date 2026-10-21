@@ -617,6 +617,45 @@ export class Viewport {
     this._updateSectionCaps();
   }
 
+  // The section view's arrow: at p on the cut, along n (both THREE.Vector3; null hides it), drawn over the model
+  // at the same size on the screen whatever the zoom. Dragged to move the cut (main.js).
+  setSectionArrow(a) {
+    if (!a) {
+      if (this._secArrow) { this.scene.remove(this._secArrow.group); this.frameCallbacks.delete(this._secArrow.place); this._secArrow.group.traverse((o) => { o.geometry?.dispose(); o.material?.dispose(); }); this._secArrow = null; }
+      return;
+    }
+    if (!this._secArrow) {
+      const group = new THREE.Group(), mat = new THREE.MeshBasicMaterial({ color: 0x2b7de9, depthTest: false, transparent: true, opacity: 0.95 });
+      // (in pixels: a shaft from the cut to a head, pointing along +y, turned onto n below)
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 52, 12).translate(0, 26, 0), mat);
+      const head = new THREE.Mesh(new THREE.ConeGeometry(8, 22, 20).translate(0, 63, 0), mat);
+      const base = new THREE.Mesh(new THREE.SphereGeometry(4.5, 16, 10), mat);
+      // (a fatter invisible shape to catch the mouse)
+      const grip = new THREE.Mesh(new THREE.CylinderGeometry(9, 9, 80, 8).translate(0, 36, 0), new THREE.MeshBasicMaterial({ visible: false }));
+      for (const m of [shaft, head, base]) m.renderOrder = 12;
+      group.add(shaft, head, base, grip);
+      const place = () => { const k = this.worldPerPixel(); group.scale.set(k, k, k); group.updateMatrixWorld(true); };
+      this._secArrow = { group, mat, grip, place };
+      this.frameCallbacks.add(place);
+      this.scene.add(group);
+    }
+    const { group } = this._secArrow;
+    group.position.copy(a.p);
+    group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), a.n.clone().normalize());
+    this._secArrow.place();
+  }
+  // whether the section arrow is under the cursor
+  sectionArrowAt(ev) {
+    const sa = this._secArrow;
+    if (!sa) return false;
+    sa.place();
+    this.aimRay(ev);
+    return this.raycaster.intersectObject(sa.group, true).length > 0;
+  }
+  setSectionArrowHover(on) {
+    if (this._secArrow) this._secArrow.mat.color.setHex(on ? 0xf59e0b : 0x2b7de9);
+  }
+
   // Solid caps on the cut face using the stencil buffer: back faces increment,
   // front faces decrement; where the count is non-zero we're inside the solid.
   // One cap per body (component), in its colour with section lines: the angle alternates and the

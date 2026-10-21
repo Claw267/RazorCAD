@@ -325,7 +325,7 @@ Lines, arcs and circles are exact; other curves become fine polylines. The file 
 
 ## Section view
 
-**Tools ▸ Section View…** (or the Evaluate tab) cuts the model open on a plane so you can see inside. Choose the plane, an offset (equations are allowed) and flip the side kept. Each cut body or component gets its own cap in its colour, outlined and hatched with section lines; the hatch angle and spacing change from body to body so touching parts read apart. Close the Property panel to remove the section. Section View can't be used inside a sketch. {idx:section view}
+**Tools ▸ Section View…** (or the Evaluate tab) cuts the model open on a plane so you can see inside. Choose the plane, an offset (equations are allowed) and flip the side kept. With a flat face, a plane or a sketch selected when you start, the cut starts on it; while the panel is open, click a flat face or a plane to cut from it instead. Drag the blue arrow on the cut to move it along its normal (the offset follows, in round steps). Each cut body or component gets its own cap in its colour, outlined and hatched with section lines; the hatch angle and spacing change from body to body so touching parts read apart. Close the Property panel to remove the section. Section View can't be used inside a sketch. {idx:section view}
 
 # Selecting
 
