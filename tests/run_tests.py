@@ -217,10 +217,14 @@ def main():
         ci_args = ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'] if os.environ.get('CI') else []
         browser = p.chromium.launch(channel='msedge', headless=not args.headed, args=ci_args)
         page = browser.new_page(viewport={'width': 1400, 'height': 900})
-        page.on('console', lambda m: console_errors.append(m.text) if m.type == 'error' else None)
+        # (with where it came from: a worker's failed load says nothing else). Not counted: the app's one look for
+        # the PC's fonts at _fonts/ (platform.js: a server without them answers 404, and they are not asked for
+        # again; the desktop app serves them itself), which the browser always reports as a failed load.
+        font_probe = lambda url: '/_fonts/' in (url or '')
+        page.on('console', lambda m: None if m.type != 'error' or font_probe((m.location or {}).get('url')) else console_errors.append(m.text + (f"  [{m.location.get('url', '')}:{m.location.get('lineNumber', '')}]" if m.location and m.location.get('url') else '')))
         page.on('pageerror', lambda e: console_errors.append(str(e)))
         # (the browser's "Failed to load resource" doesn't say which: the address too)
-        page.on('response', lambda r: console_errors.append(f'  ({r.status} for {r.url})') if r.status >= 400 else None)
+        page.on('response', lambda r: console_errors.append(f'  ({r.status} for {r.url})') if r.status >= 400 and not (r.status == 404 and font_probe(r.url)) else None)
         # (a fresh browser is a first run: no Getting Started Tour over the tests)
         page.add_init_script("try { const p = JSON.parse(localStorage.getItem('razorcad.prefs') || '{}'); p.tourDone = true; localStorage.setItem('razorcad.prefs', JSON.stringify(p)); } catch (e) {}")
         ready = "window.app && window.app.doc && !window.app.kernel.pending && document.querySelector('#status-msg')?.textContent === 'Ready'"

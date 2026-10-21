@@ -6,6 +6,10 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 21:18 — Test runs: the one console error explained
+- Every test run reported one browser console error, "Failed to load resource: 404". It was the app looking once for the PC's fonts at _fonts/ (Arial Bold, for a text): outside the desktop app it asks the server once, and on a 404 uses its own fonts and stops asking. That is by design, and nothing was missing.
+- The test runner now leaves that one look out of its error list, and shows where every other console error came from (the file and line; a worker's failed load said nothing else). A test run now ends with no console errors, so a new one stands out.
+
 ## 2026-10-21 20:57 — A geometry kernel that fails to start is tried again; steadier GitHub tests
 - **A kernel that fails while starting is started again**, up to three times (e.g. when the memory for it is not there just then). Before, that kernel stayed dead: the app looked ready but nothing built in it, and an assembly's parts built in a dead extra kernel came back empty. A kernel that keeps failing (missing files) is given up on as before, not restarted in a loop.
 - An extra kernel that could not start is dropped, so the next job starts a fresh one instead of waiting on the dead one.

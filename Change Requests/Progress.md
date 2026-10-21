@@ -624,3 +624,6 @@ Skipped for now (from the list of 2026-10-21):
 ## Section View from a face, and a drag arrow (user request 2026-10-21)
 - [x] sectionState.plane 'custom' + custom { o, n, name } (from sectionPlaneOf: std plane, reference plane, sketch, flat face); startSection uses the selection; pickMode 'section': a click on a flat face / plane moves the cut; sectionFrame / sectionOffset / sectionRange; applySection with a base point. Viewport setSectionArrow / sectionArrowAt / setSectionArrowHover (constant screen size via frameCallbacks, drawn on top, invisible grip). Drag in main (sectionDragDown/Move/Up before the other pointer handlers; controls.drag cleared so the view doesn't turn); offset rounded to 10^ceil(log10(world per pixel)). Checked in the browser (screenshot: plate cut at mid-thickness with the arrow); no console errors. Manual paragraph. Test section-from-face (crashes on the old code).
 
+## Next improvements (user 2026-10-21: "implement those other fixes you recommended in the order that is best"; the kernel build in a separate session)
+- [x] 5. The test-run console 404: _fonts/arialbd.ttf, the app's one look for the PC's fonts (platform.js, by design). run_tests.py leaves that look out and shows each console error's file and line. Full run: no console errors.
+
