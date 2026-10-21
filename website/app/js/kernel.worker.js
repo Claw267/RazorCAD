@@ -242,32 +242,42 @@ function bbox(shape) {
 // feature leaves most faces as they were, so only the new ones are worked out: OpenCascade's precise box of a whole
 // big body takes a while). null for anything with loose edges or vertices (they are boxed the usual way).
 function faceBoxUnion(shape) {
-  const oc = R.getOC(), T = oc.TopAbs_ShapeEnum, raw = shape.wrapped;
-  for (const [t, avoid] of [['TopAbs_EDGE', 'TopAbs_FACE'], ['TopAbs_VERTEX', 'TopAbs_EDGE']]) {
-    const ex = new oc.TopExp_Explorer(raw, T[t], T[avoid]);
-    const loose = ex.More();
-    ex.delete();
-    if (loose) return null;
-  }
+  const raw = shape.wrapped;
+  if (hasLooseEdges(raw)) return null;
   const faces = exploreAll(raw, 'TopAbs_FACE');
   if (!faces.length) return null;
   const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
   try {
     for (const f of faces) {
-      let b = keptFind(FACE_BOXES, f, 'box');
-      if (b === undefined) {
-        const bx = new oc.Bnd_Box();
-        try {
-          oc.BRepBndLib.AddOptimal(f, bx, false, false);
-          if (bx.IsVoid()) b = null;
-          else { const lo = bx.CornerMin(), hi = bx.CornerMax(); b = [[lo.X(), lo.Y(), lo.Z()], [hi.X(), hi.Y(), hi.Z()]]; lo.delete(); hi.delete(); }
-        } finally { bx.delete(); }
-        keptAdd(FACE_BOXES, f, 'box', b, (x) => oc.TopoDS.Face(x));
-      }
+      const b = faceBox(f);
       if (b) for (let k = 0; k < 3; k++) { if (b[0][k] < min[k]) min[k] = b[0][k]; if (b[1][k] > max[k]) max[k] = b[1][k]; }
     }
   } finally { faces.forEach((f) => f.delete()); }
   return min[0] <= max[0] ? [min, max] : null;
+}
+// (edges outside any face, or vertices outside any edge)
+function hasLooseEdges(raw) {
+  const oc = R.getOC(), T = oc.TopAbs_ShapeEnum;
+  for (const [t, avoid] of [['TopAbs_EDGE', 'TopAbs_FACE'], ['TopAbs_VERTEX', 'TopAbs_EDGE']]) {
+    const ex = new oc.TopExp_Explorer(raw, T[t], T[avoid]);
+    const loose = ex.More();
+    ex.delete();
+    if (loose) return true;
+  }
+  return false;
+}
+// a face's precise box ([min, max], null when empty), kept with the face
+function faceBox(f) {
+  let b = keptFind(FACE_BOXES, f, 'box');
+  if (b !== undefined) return b;
+  const oc = R.getOC(), bx = new oc.Bnd_Box();
+  try {
+    oc.BRepBndLib.AddOptimal(f, bx, false, false);
+    if (bx.IsVoid()) b = null;
+    else { const lo = bx.CornerMin(), hi = bx.CornerMax(); b = [[lo.X(), lo.Y(), lo.Z()], [hi.X(), hi.Y(), hi.Z()]]; lo.delete(); hi.delete(); }
+  } finally { bx.delete(); }
+  keptAdd(FACE_BOXES, f, 'box', b, (x) => oc.TopoDS.Face(x));
+  return b;
 }
 
 // Smallest possible distance from point p to anything inside box (0 when p is inside).
@@ -282,6 +292,62 @@ function bboxOfAll(shapes) {
   const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
   for (const s of shapes) { const b = bbox(s); for (let i = 0; i < 3; i++) { min[i] = Math.min(min[i], b.min[i]); max[i] = Math.max(max[i], b.max[i]); } }
   return { min, max, center: mul(add(min, max), 0.5), diag: len(sub(max, min)) };
+}
+// The same box as bboxOfAll, worked out with less: each face's quick box first (it holds the face; OpenCascade's
+// usual box), and the precise box only for the faces whose quick box reaches past the precise boxes found so far.
+// The bodies' own boxes are left to be worked out when needed. (A big imported part, 342 bodies of 6642 faces:
+// its size for meshing in about 0.1 s instead of 2.4 s.) The quick box is trusted to hold the face only for
+// surfaces it is worked out exactly for (planes, cylinders, cones, spheres, tori, B-spline and Bezier patches);
+// other faces get their precise box straight away.
+function bboxOfAllQuick(shapes, fresh = false) {
+  const oc = R.getOC(), ST = oc.GeomAbs_SurfaceType;
+  const sure = new Set(['GeomAbs_Plane', 'GeomAbs_Cylinder', 'GeomAbs_Cone', 'GeomAbs_Sphere', 'GeomAbs_Torus', 'GeomAbs_BezierSurface', 'GeomAbs_BSplineSurface'].map((k) => ST[k]));
+  const known = [], quick = []; // known: precise boxes; quick: { f, b } (a face and its quick box)
+  const faces = [];
+  const flat = (s) => ((!fresh && bboxCache.has(s)) || !s._parts ? [s] : s._parts.flatMap(flat));
+  try {
+    for (const s of shapes.flatMap(flat)) {
+      const c = fresh ? null : bboxCache.get(s);
+      if (c) { known.push([c.min, c.max]); continue; }
+      const fs = hasLooseEdges(s.wrapped) ? [] : exploreAll(s.wrapped, 'TopAbs_FACE');
+      if (!fs.length) { const b = bbox(s); known.push([b.min, b.max]); continue; }
+      for (const f of fs) {
+        faces.push(f);
+        const kept = keptFind(FACE_BOXES, f, 'box');
+        if (kept !== undefined) { if (kept) known.push(kept); continue; }
+        let b = null;
+        const fc = oc.TopoDS.Face(f), ad = new oc.BRepAdaptor_Surface(fc, false);
+        const ok = sure.has(ad.GetType());
+        ad.delete(); fc.delete();
+        if (ok) {
+          const bx = new oc.Bnd_Box();
+          try {
+            oc.BRepBndLib.Add(f, bx, false);
+            if (!bx.IsVoid()) { const lo = bx.CornerMin(), hi = bx.CornerMax(); b = [[lo.X(), lo.Y(), lo.Z()], [hi.X(), hi.Y(), hi.Z()]]; lo.delete(); hi.delete(); }
+          } finally { bx.delete(); }
+        }
+        if (b && b.flat().every(Number.isFinite)) quick.push({ f, b });
+        else { const p = faceBox(f); if (p) known.push(p); }
+      }
+    }
+    const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+    const take = (b) => { for (let k = 0; k < 3; k++) { if (b[0][k] < min[k]) min[k] = b[0][k]; if (b[1][k] > max[k]) max[k] = b[1][k]; } };
+    known.forEach(take);
+    // each side in turn: the faces whose quick box reaches furthest, until none could reach past what is found
+    for (let k = 0; k < 3; k++) {
+      for (const hi of [false, true]) {
+        const order = quick.filter((q) => !q.done).sort((a, b) => (hi ? b.b[1][k] - a.b[1][k] : a.b[0][k] - b.b[0][k]));
+        for (const q of order) {
+          if (hi ? q.b[1][k] <= max[k] : q.b[0][k] >= min[k]) break;
+          q.done = true;
+          const p = faceBox(q.f);
+          if (p) take(p);
+        }
+      }
+    }
+    if (!(min[0] <= max[0])) return bboxOfAll(shapes);
+    return { min, max, center: mul(add(min, max), 0.5), diag: len(sub(max, min)) };
+  } finally { faces.forEach((f) => f.delete()); }
 }
 
 // ------------------------------------------------------------ solid bodies
@@ -729,8 +795,8 @@ function meshKept(shape, tol, ang) {
 function edgeKept(e, diagQ) {
   const key = String(diagQ), got = keptFind(EDGE_POINTS, e.wrapped, key);
   if (got) return got;
-  const circ = e.geomType === 'CIRCLE' ? circleOf(e) : null;
-  const data = { pts: sampleEdge(e, diagQ).flat(), mid: vec(e.pointAt(0.5)), type: e.geomType, ...(circ ? { circ } : {}) };
+  const type = e.geomType, circ = type === 'CIRCLE' ? circleOf(e) : null;
+  const data = { pts: sampleEdge(e, diagQ, type).flat(), mid: curvePoints(e, 2)[1], type, ...(circ ? { circ } : {}) };
   keptAdd(EDGE_POINTS, e.wrapped, key, data, (x) => R.getOC().TopoDS.Edge(x));
   return data;
 }
@@ -943,15 +1009,27 @@ function findVertex(body, ref) {
   return choices.length ? choices[0].best : null;
 }
 
-function sampleEdge(e, diag) {
-  const type = e.geomType;
-  if (type === 'LINE') return [vec(e.startPoint), vec(e.endPoint)];
+function sampleEdge(e, diag, type = e.geomType) {
+  if (type === 'LINE') return curvePoints(e, 1, true);
   const L = e.length;
   // (free-form curves, e.g. a closed corner's lens, get more points: drawn with few they look kinked up close)
   const nMin = type === 'BSPLINE_CURVE' || type === 'BEZIER_CURVE' || type === 'OTHER_CURVE' ? 160 : 24;
   const n = Math.max(nMin, Math.min(128, Math.ceil(L / Math.max(diag * 0.004, 0.05))));
-  const pts = [];
-  for (let i = 0; i <= n; i++) pts.push(vec(e.pointAt(i / n)));
+  return curvePoints(e, n);
+}
+// An edge's points at i/n of its parameter range (i = 0..n): the same points as e.pointAt(i / n), from one curve
+// adaptor (pointAt makes one per point: a fifth of the time of meshing a big imported part went there). ends: the
+// last point at the end parameter itself, as e.endPoint gives it (u0 + (u1 - u0) can differ from u1 in the last bit)
+function curvePoints(e, n, ends = false) {
+  const c = new (R.getOC()).BRepAdaptor_Curve(e.wrapped), pts = [];
+  try {
+    const u0 = c.FirstParameter(), u1 = c.LastParameter();
+    for (let i = 0; i <= n; i++) {
+      const p = c.Value(ends && i === n ? u1 : u0 + (u1 - u0) * (i / n));
+      pts.push([p.X(), p.Y(), p.Z()]);
+      p.delete();
+    }
+  } finally { c.delete(); }
   return pts;
 }
 
@@ -1859,10 +1937,11 @@ async function rebuild(doc, previewId = null, opts = {}) {
     const fid = cur.id;
     if (op === 'add') {
       for (const t of solidsOf(tool)) {
-        let merged = t, mbox = bbox(t);
-        const tol = Math.max(1e-6, mbox.diag * 1e-7);
+        // (the box only when there are bodies it could merge with)
+        let merged = t, mbox = merge && solids.length ? bbox(t) : null;
+        const tol = mbox ? Math.max(1e-6, mbox.diag * 1e-7) : 0;
         const touched = [];
-        if (merge) {
+        if (mbox) {
           for (const s of solids) {
             if (s.sheet || !boxesTouch(boxOf(s), mbox, tol)) continue;
             const r = merged.fuse(s.shape);
@@ -5518,7 +5597,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
   const transfer = [];
   if (body || surfaces.length) {
     const parts = [...(solids.length ? solids : body ? [{ id: 'body', shape: body, last: null }] : []).map((x) => ({ ...x, kind: 'solid' })), ...surfaces.map((x) => ({ ...x, kind: 'surface' }))];
-    const b = bboxOfAll(parts.map((s) => s.shape));
+    const b = bboxOfAllQuick(parts.map((s) => s.shape));
     // tolerances in steps of 2x, so they (and the cached meshes) only change when the model size really does
     // (opts.coarse: a simplified display mesh, for an assembly's speed mode: the same faces and edges, fewer triangles)
     const tol = 2 ** Math.round(Math.log2(Math.max(0.005, b.diag * (opts.coarse ? 0.005 : 0.0004)))), ang = opts.coarse ? 0.7 : 0.2;
@@ -7433,6 +7512,19 @@ async function handleMessage(e) {
       result = importSnaps(data.snaps);
     } else if (type === 'ping') {
       result = 'ready';
+    } else if (type === 'boxCheck') {
+      // (for the tests: the quick box of the bodies last built, against the box of every face's precise box)
+      const shapes = [...lastSolids, ...lastSurfaces].map((r) => r.shape).filter(Boolean), oc = R.getOC();
+      FACE_BOXES.clear();
+      let t = performance.now();
+      const quick = bboxOfAllQuick(shapes, true), quickMs = performance.now() - t;
+      const precise = FACE_BOXES.size;
+      FACE_BOXES.clear();
+      const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+      t = performance.now();
+      let nf = 0;
+      for (const sh of shapes) for (const f of exploreAll(sh.wrapped, 'TopAbs_FACE')) { const b = faceBox(f); nf++; if (b) for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k], b[0][k]); max[k] = Math.max(max[k], b[1][k]); } f.delete(); }
+      result = { quick: [quick.min, quick.max], full: [min, max], faces: nf, precise, quickMs: Math.round(quickMs), fullMs: Math.round(performance.now() - t) };
     } else if (type === 'ocHas') {
       // (diagnostics) which kernel classes this build has
       const oc = R.getOC();
