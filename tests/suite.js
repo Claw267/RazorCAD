@@ -1587,6 +1587,80 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     } finally { a.tabKernelMax = keep; }
   },
 
+  // cuts made together: a plate with a run of cuts (holes, a slot, a linear pattern of a hole, a hole feature at
+  // sketch points), then a boss (which needs the body: the waiting cuts are made first) and one more cut. Built with
+  // the cuts made together and one by one (another kernel): the same volume, area, faces and edges. Editing the last
+  // cut makes only its own cut again (the others remembered); a cut feature's faces are still found (highlighting);
+  // the section of a sketch drawn while cuts were waiting is the same.
+  async 'cuts-together'() {
+    const a = window.app, k = a.kernel, pool = a.kernelPool;
+    const d = M.newDoc(); d.name = 'Cuts';
+    const rect = (sk, x0, y0, x1, y1) => {
+      const pts = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], b = sk.points.length;
+      sk.points.push(...pts.map(([x, y], i) => ({ id: 'p' + (b + i), x, y })));
+      sk.curves.push(...pts.map((_, i) => ({ id: 'c' + (b + i), type: 'line', p1: 'p' + (b + i), p2: 'p' + (b + (i + 1) % 4), construction: false })));
+    };
+    const sketch = (fill) => { const sk = M.createFeature(d, 'sketch', { plane: { ref: 'top' } }); Object.assign(sk, { points: [], curves: [], constraints: [] }); fill(sk); d.features.push(sk); return sk; };
+    const circle = (sk, x, y, r) => { const id = 'q' + sk.points.length; sk.points.push({ id, x, y }); sk.curves.push({ id: 'k' + sk.curves.length, type: 'circle', c: id, r, construction: false }); };
+    const base = sketch((sk) => rect(sk, -50, -30, 50, 30));
+    d.features.push(M.createFeature(d, 'extrude', { sketch: base.id, depth: 20 }));
+    const cuts = [];
+    for (const [i, x] of [-40, -25, -10, 5, 20].entries()) {
+      const sk = sketch((s2) => circle(s2, x, i % 2 ? 12 : -12, 2.5 + i * 0.5));
+      const c = M.createFeature(d, 'extrude', { sketch: sk.id, op: 'cut', end: 'through2' });
+      d.features.push(c); cuts.push(c);
+    }
+    const slot = sketch((sk) => rect(sk, 30, -20, 45, -5));
+    d.features.push(M.createFeature(d, 'extrude', { sketch: slot.id, op: 'cut', depth: 6, reverse: true }));
+    d.features.push(M.createFeature(d, 'lpattern', { feature: cuts[0].id, dir1: 'x', dist1: 4, count1: 3, dir2: 'none' }));
+    const hp = sketch((sk) => { sk.points.push({ id: 'h1', x: 35, y: 15 }, { id: 'h2', x: 42, y: 15 }); });
+    d.features.push(M.createFeature(d, 'hole', { sketch: hp.id, holeType: 'simple', size: 'custom', diameter: 3, end: 'through' }));
+    // (a boss: needs the body, so the cuts so far are made first)
+    const bs = sketch((sk) => rect(sk, -10, -5, 10, 5));
+    const bossSketch = bs;
+    d.features.push(M.createFeature(d, 'extrude', { sketch: bs.id, depth: 30 }));
+    const lastSk = sketch((sk) => circle(sk, 0, 0, 2));
+    const last = M.createFeature(d, 'extrude', { sketch: lastSk.id, op: 'cut', end: 'through2' });
+    d.features.push(last);
+    const props = async (kern, r, aff) => {
+      const out = [];
+      for (const b of r.body.bodies) {
+        const m = aff ? await pool.request('measure', { refs: [{ kind: 'body', id: b.id }] }, aff) : await kern.request('measure', { refs: [{ kind: 'body', id: b.id }] });
+        const x = m.items?.[0] || m;
+        out.push(`${x.volume.toFixed(4)}/${x.area.toFixed(4)}/${b.faceCount}/${b.edgeCount}`);
+      }
+      return out.join(' ');
+    };
+    const fresh = (doc) => { const c = JSON.parse(JSON.stringify(doc)); c.features[0].rev = M.newRev(); return c; };
+    const dT = fresh(d);
+    const together = await k.rebuild(JSON.parse(JSON.stringify(dT)), null, null);
+    const t1 = await props(k, together);
+    const made = together.timing.features.filter(([n]) => /made together/.test(n)).map(([n]) => +n.match(/\d+/)[0]);
+    const one = await pool.request('rebuild', { doc: JSON.stringify(fresh(d)), batchCuts: false }, 'cuts-together');
+    const t0 = await props(pool, one, 'cuts-together');
+    const noneOneByOne = !one.timing.features.some(([n]) => /made together/.test(n));
+    // the last cut edited: only its own cut made again
+    const d2 = JSON.parse(JSON.stringify(dT)); d2.features.find((f) => f.id === lastSk.id).curves[0].r = 3; d2.features.find((f) => f.id === lastSk.id).rev = M.newRev();
+    const e1 = await k.rebuild(d2, null, null);
+    // (the edit's own entries: those after the ones carried over from the saved state)
+    let same0 = 0;
+    while (same0 < e1.timing.features.length && JSON.stringify(e1.timing.features[same0]) === JSON.stringify(together.timing.features[same0])) same0++;
+    const groups = e1.timing.features.slice(same0).filter(([n]) => /made together/.test(n));
+    const e0 = await pool.request('rebuild', { doc: JSON.stringify(fresh(d2)), batchCuts: false }, 'cuts-together');
+    const same2 = (await props(k, e1)) === (await props(pool, e0, 'cuts-together'));
+    // a cut feature's faces (highlighting), and a sketch's section, as one by one
+    const ff1 = await k.request('featureFaces', { id: cuts[2].id });
+    const sec1 = await k.request('sectionCurves', { sketchId: bossSketch.id }).catch((e) => ({ err: e.message }));
+    await pool.request('rebuild', { doc: JSON.stringify(fresh(d2)), batchCuts: false }, 'cuts-together');
+    const ff0 = await pool.request('featureFaces', { id: cuts[2].id }, 'cuts-together');
+    const sec0 = await pool.request('sectionCurves', { sketchId: bossSketch.id }, 'cuts-together').catch((e) => ({ err: e.message }));
+    const n = (x) => (Array.isArray(x) ? x.length : -1);
+    const ok = t1 === t0 && made.length >= 2 && made.some((m) => m >= 5) && noneOneByOne && same2 && !together.errors.length
+      && groups.length === 1 && groups[0][0].startsWith('(1 cut') && n(ff1) > 0 && n(ff1) === n(ff0) && n(sec1) > 0 && n(sec1) === n(sec0);
+    return ok ? { ok: true, detail: `made together: ${made.join(' + ')}; same as one by one (${t1}); edit: only its own cut; faces ${n(ff1)}, section ${n(sec1)}` }
+      : { ok: false, detail: `together ${t1} | one by one ${t0}; made ${made}; oneByOne clean ${noneOneByOne}; edit same ${same2}, groups ${JSON.stringify(groups)}; faces ${n(ff1)}/${n(ff0)}; section ${n(sec1)}/${n(sec0)} ${JSON.stringify(sec1).slice(0, 80)}; errors ${JSON.stringify(together.errors)}` };
+  },
+
   // BOM mass and cost: a steel plate (60 × 40 × 5) and two aluminium blocks (20 × 20 × 15) with costs → masses from
   // the materials, totals 0.126 kg and 18.50; the window's column menu changes a column; on the drawing table the
   // column under a point is found, and a typed value is edited

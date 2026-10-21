@@ -6,6 +6,24 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 14:52 — Cuts made together
+- **A run of cut features is now made in one boolean** instead of one cut after another, each on a body with more faces than the last.
+  - Giant Golfball (178 dimples in 24 cut features): full rebuild 4.7 s → 2.5 s, and the cutting itself 3.4 s → 0.4 s.
+  - The result is exactly the same (volume, area, faces and edges).
+- **What waits:** extrude and revolve cuts with a blind, mid-plane or through end, holes (not tapped ones), and patterns and mirrors of cuts. Sketches go on in between.
+  - A feature that needs the body as it really is makes the waiting cuts first: fillets, chamfers, shells, bosses, holes or ends that pick a face, revolves about a model edge, sheet metal.
+  - So does the feature being previewed, and the end of the rebuild.
+- **Edits stay quick:** the cuts are made in two steps, the last feature's apart from the others, and the result of each is remembered. Editing the last cut redoes only its own cut, and the faces left as they were keep their meshes: the golf ball's last dimple, about 0.7 s, as before.
+- **Kept working:**
+  - the state saved after each feature (the waiting cuts are part of it);
+  - previews;
+  - a feature's faces highlighted from the tree (found from its own tool);
+  - section curves of a sketch drawn while cuts were waiting;
+  - fillets that recompute earlier features;
+  - a cut that fails (they are then made one by one, so the failing feature is named).
+- **Fixed:** pattern copies that overlap each other (for example holes closer than their diameter) left material where they overlapped, because all the copies were cut as one compound. Several tools are now handed to Open CASCADE as a list, so overlaps are cut right, in patterns and in cuts made together.
+- Regression test: cuts-together (a plate with holes, a slot, a pattern of overlapping holes and a hole feature, then a boss and one more cut: made together it is identical to one by one; editing the last cut redoes only its own cut; highlighting and section curves as before).
+
 ## 2026-10-21 14:35 — Faster edits on big parts
 - **Editing a feature on a big part is about a third quicker.** Giant Golfball, its last dimple moved: about 0.75 s instead of 1.15 s.
   - **Body boxes from their faces:** a body's precise bounding box is now the union of its faces' boxes, each kept with its face, so after a feature only the new faces are boxed. The result is identical (checked on the golf ball: the same box to the last digit). It used to take 0.3 s on the golf ball every time it was meshed: 0.7 ms now.

@@ -1614,6 +1614,8 @@ How many geometry kernels work at once comes from the PC RazorCAD runs on: one p
 
 Each open part's kernel is **multi-threaded**: Open CASCADE splits booleans (cuts, joins and the features built on them) and meshing over several threads, half the processor threads beyond two, from 2 to 8; more don't make it faster, only slower to start. A part full of cuts builds markedly faster (a sheet metal tray in 2.0 s instead of 4.5 s, the Giant Golfball in 4.7 s instead of 6.0 s); small parts are about the same. A PC with fewer than 6 threads keeps the single-thread kernel. The kernels for assemblies and drawings stay single-threaded, since they already work on several parts side by side. The session log says which kernel started ("Geometry kernel ready: multi-threaded, 8 threads"). {idx:multi-threaded kernel}
 
+**Cuts made together**: a run of cut features (extrude and revolve cuts with a blind, mid-plane or through end, holes other than tapped ones, and patterns and mirrors of cuts) is made in one boolean instead of one after another, each on a body with more faces than the last. The cuts wait until a feature needs the body as it really is (a fillet, a hole ending on a face, anything that picks model geometry) or the rebuild ends. The Giant Golfball (178 dimples) rebuilds in 2.5 s instead of 4.7 s, with exactly the same result. Editing the last cut feature makes only its own cut again: the rest is remembered. {idx:cuts made together}
+
 Editing a feature meshes again only the faces and edges it changed, and a part reopened from the model cache picks up where it left off without being built again.
 
 ## Common problems

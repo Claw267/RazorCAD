@@ -232,11 +232,42 @@ function bbox(shape) {
   let r = bboxCache.get(shape);
   if (!r && shape._parts) { r = bboxOfAll(shape._parts); bboxCache.set(shape, r); }
   if (!r) {
-    const b = shape.boundingBox.bounds;
+    const b = faceBoxUnion(shape) || shape.boundingBox.bounds;
     r = { min: b[0], max: b[1], center: mul(add(b[0], b[1]), 0.5), diag: len(sub(b[1], b[0])) };
     bboxCache.set(shape, r);
   }
   return r;
+}
+// The precise box of a shape made of faces, as the union of its faces' precise boxes, each kept with its face (a
+// feature leaves most faces as they were, so only the new ones are worked out: OpenCascade's precise box of a whole
+// big body takes a while). null for anything with loose edges or vertices (they are boxed the usual way).
+function faceBoxUnion(shape) {
+  const oc = R.getOC(), T = oc.TopAbs_ShapeEnum, raw = shape.wrapped;
+  for (const [t, avoid] of [['TopAbs_EDGE', 'TopAbs_FACE'], ['TopAbs_VERTEX', 'TopAbs_EDGE']]) {
+    const ex = new oc.TopExp_Explorer(raw, T[t], T[avoid]);
+    const loose = ex.More();
+    ex.delete();
+    if (loose) return null;
+  }
+  const faces = exploreAll(raw, 'TopAbs_FACE');
+  if (!faces.length) return null;
+  const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+  try {
+    for (const f of faces) {
+      let b = keptFind(FACE_BOXES, f, 'box');
+      if (b === undefined) {
+        const bx = new oc.Bnd_Box();
+        try {
+          oc.BRepBndLib.AddOptimal(f, bx, false, false);
+          if (bx.IsVoid()) b = null;
+          else { const lo = bx.CornerMin(), hi = bx.CornerMax(); b = [[lo.X(), lo.Y(), lo.Z()], [hi.X(), hi.Y(), hi.Z()]]; lo.delete(); hi.delete(); }
+        } finally { bx.delete(); }
+        keptAdd(FACE_BOXES, f, 'box', b, (x) => oc.TopoDS.Face(x));
+      }
+      if (b) for (let k = 0; k < 3; k++) { if (b[0][k] < min[k]) min[k] = b[0][k]; if (b[1][k] > max[k]) max[k] = b[1][k]; }
+    }
+  } finally { faces.forEach((f) => f.delete()); }
+  return min[0] <= max[0] ? [min, max] : null;
 }
 
 // Smallest possible distance from point p to anything inside box (0 when p is inside).
@@ -278,6 +309,23 @@ function compoundOf(list) {
   const c = R.cast(comp);
   c._parts = list.map((b) => b.shape); // per-body caches (edges, faces, meshes) stay valid
   return c;
+}
+
+// shape cut by several tools at once, given to Open CASCADE as a list (tools may overlap each other), the result
+// simplified as replicad's cut does
+function cutByList(shape, toolShapes) {
+  const oc = R.getOC();
+  const builder = new oc.BRepAlgoAPI_Cut(), args = new oc.NCollection_List_TopoDS_Shape(), tl = new oc.NCollection_List_TopoDS_Shape(), progress = new oc.Message_ProgressRange();
+  try {
+    args.Append(shape.wrapped);
+    for (const t of toolShapes) tl.Append(t.wrapped);
+    builder.SetArguments(args);
+    builder.SetTools(tl);
+    builder.Build(progress);
+    if (!builder.IsDone()) throw new Error('The cut could not be made');
+    builder.SimplifyResult(true, true, 0.001);
+    return R.cast(builder.Shape());
+  } finally { builder.delete(); args.delete(); tl.delete(); progress.delete(); }
 }
 
 function boxesTouch(a, b, tol) {
@@ -528,6 +576,8 @@ function findFace(body, ref) {
 
 // ------------------------------------------------------------ meshes of bodies (cached per body)
 const KERNEL_SESSION = Math.random().toString(36).slice(2, 10); // mesh keys from an earlier kernel never match
+// cuts made together (rebuild's flushCuts), by the bodies and tools they were made of: their results, the latest few
+const cutMemo = new Map();
 const shapeIds = new WeakMap();
 let shapeSeq = 0;
 const shapeId = (s) => { let id = shapeIds.get(s); if (!id) { id = ++shapeSeq; shapeIds.set(s, id); } return id; };
@@ -599,7 +649,7 @@ function surfOf(face) {
 // the same one, in the same place, the same way round), and only the new ones are meshed and sampled.
 // replicad's mesh extractor meshes every face again each time, which on a big body (a golf ball: 114 000
 // triangles) takes over a second. Kept for the faces and edges of the last few bodies meshed.
-const FACE_MESHES = new Map(), EDGE_POINTS = new Map(); // hash → [{ shape, key, data, used }]
+const FACE_MESHES = new Map(), EDGE_POINTS = new Map(), FACE_BOXES = new Map(); // hash → [{ shape, key, data, used }]
 let meshGen = 0;
 const KEEP_GENS = 6, KEEP_MAX = 60000;
 const hashOf = (raw) => R.getOC().ReplicadShapeHasher.HashCode(raw, R.HASH_CODE_MAX);
@@ -607,7 +657,7 @@ function keptFind(store, raw, key) {
   const list = store.get(hashOf(raw));
   const hit = list?.find((x) => x.key === key && x.shape.IsEqual(raw));
   if (hit) hit.used = meshGen;
-  return hit?.data;
+  return hit ? hit.data : undefined;
 }
 function keptAdd(store, raw, key, data, copy) {
   const h = hashOf(raw);
@@ -736,7 +786,7 @@ function meshPart(s, tol, diagQ, onWork, ang = 0.2) {
   }
   const out = { tol, ang, diagQ, kind: s.kind, look: s.look || null, m, gs, dense, facePts, edges, surfs, faceLooks };
   meshCache.set(s.shape, out);
-  keptPrune(FACE_MESHES); keptPrune(EDGE_POINTS);
+  keptPrune(FACE_MESHES); keptPrune(EDGE_POINTS); keptPrune(FACE_BOXES);
   return out;
 }
 
@@ -1793,6 +1843,8 @@ async function rebuild(doc, previewId = null, opts = {}) {
   const inScope = (s, scope) => !scope || scope.some((b) => s.id === b || s.id.startsWith(b + '~'));
   const apply = (op, tool, merge = true, scope = null) => {
     applied.push({ op, tool });
+    // (a cut that can wait: made with the others, in one boolean, when the body is next needed)
+    if (op === 'cut' && deferNow && !scope && solids.length) { pending.push({ tool, fid: cur.id }); return; }
     const fid = cur.id;
     if (op === 'add') {
       for (const t of solidsOf(tool)) {
@@ -1833,7 +1885,10 @@ async function rebuild(doc, previewId = null, opts = {}) {
             // fall back to an ordinary cut; the flat pattern no longer matches (see below)
           }
         }
-        const pieces = solidsOf(s.shape.cut(tool)).map((shape) => ({ shape, vol: null }));
+        // (a tool of several solids, e.g. a pattern's copies or cuts made together: cut as a list, so copies that
+        // overlap each other are cut right; in one compound the overlap would be left standing)
+        const parts = solidsOf(tool);
+        const pieces = solidsOf(parts.length > 1 ? cutByList(s.shape, parts) : s.shape.cut(tool)).map((shape) => ({ shape, vol: null }));
         if (pieces.length > 1) pieces.sort((x, y) => volumeOf(y) - volumeOf(x));
         const cull = cullBox(s);
         pieces.forEach((pc, k) => {
@@ -2009,6 +2064,8 @@ async function rebuild(doc, previewId = null, opts = {}) {
   let blendChain = null;
   // every solid-changing feature so far, so blends can be recomputed in a different order
   const steps = [];
+  let pending = []; // cuts waiting to be made together: [{ tool, fid }] (see flushCuts)
+  let deferNow = false; // the feature being built may leave its cuts waiting
   let blendStep = null;
 
   // replace a solid body by the pieces of `shape` (largest keeps the id)
@@ -2122,7 +2179,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
   // preview or an edit only recomputes the feature being changed and what comes after it.
   const copyMap = (to, from) => { to.clear(); for (const [a, b] of from) to.set(a, b); };
   const takeSnap = () => ({
-    body, solids: [...solids], surfaces: [...surfaces], dense, blendChain, steps: [...steps],
+    body, solids: [...solids], surfaces: [...surfaces], dense, blendChain, steps: [...steps], pending: [...pending],
     planes: new Map(planes), sketches: new Map(sketches), axes: new Map(axes), points: new Map(points), tools: new Map(tools), curves: new Map(curves),
     usedIds: new Set(usedIds), featureDiffs: new Map(featureDiffs), sketchBodies: new Map(sketchBodies),
     res: { errors: [...res.errors], sketches: { ...res.sketches }, planes: { ...res.planes }, axes: { ...res.axes }, points: { ...res.points }, curves: { ...res.curves }, notes: { ...res.notes }, detected: { ...res.detected }, features: { ...res.features }, threads: { ...res.threads }, missing: { ...res.missing } },
@@ -2131,6 +2188,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
   const restoreSnap = (s) => {
     ({ body, dense, blendChain } = s);
     solids = [...s.solids]; surfaces = [...s.surfaces];
+    pending = [...(s.pending || [])];
     steps.length = 0; steps.push(...s.steps);
     copyMap(planes, s.planes); copyMap(sketches, s.sketches); copyMap(axes, s.axes); copyMap(points, s.points); copyMap(tools, s.tools); copyMap(curves, s.curves);
     copyMap(featureDiffs, s.featureDiffs); copyMap(sketchBodies, s.sketchBodies);
@@ -2138,6 +2196,79 @@ async function rebuild(doc, previewId = null, opts = {}) {
     res.errors = [...s.res.errors];
     for (const key of ['sketches', 'planes', 'axes', 'points', 'curves', 'notes', 'detected', 'features', 'threads', 'missing']) res[key] = { ...s.res[key] };
     timing.features = [...s.timing];
+  };
+  // ---- cuts made together
+  // A run of cut features (cuts in sketch-shaped extrudes and revolves, holes, patterns and mirrors of cuts) only
+  // takes material away from the body: one cut after another, each on a body with more faces than the last, takes
+  // much longer than all of them at once (a golf ball's 178 dimples: 3.4 s one by one, 0.4 s together). So these
+  // cuts wait (`pending`) while the features after them don't need the body; the next feature that does (a fillet,
+  // a hole ending on a face, anything that picks model geometry), and the end of the rebuild, makes them in one
+  // boolean. The waiting cuts are part of each feature's saved state.
+  const DEFER_ENDS = new Set(['blind', 'midplane', 'through', 'through2']);
+  // (opts.batchCuts false: every cut made as its feature comes, as before; for comparisons in the tests)
+  const canDefer = (f) => {
+    if (opts.batchCuts === false || f.id === previewId || dense || !solids.length || solids.some((x) => x.sheet)) return false;
+    if (f.type === 'sketch') return !(f.constraints || []).some((k) => k.type === 'projected' && ['edge', 'vertex', 'section'].includes(k.src?.kind));
+    if ((f.type === 'extrude' || f.type === 'revolve') && f.op === 'cut') {
+      if (f.scopeAll === false) return false;
+      if (f.type === 'extrude' && !DEFER_ENDS.has(f.end || 'blind')) return false;
+      if (f.type === 'revolve' && (f.axis === 'edge' || f.axis === 'face')) return false;
+      return true;
+    }
+    if (f.type === 'hole') return f.holeType !== 'tapped'; // (a tapped hole finds its thread's length in the body)
+    if (['lpattern', 'cpattern', 'mirror', 'spattern'].includes(f.type)) { const t = tools.get(f.feature); return !!t && t.op === 'cut' && !t.scope; }
+    return false;
+  };
+  // The waiting cuts made: in one boolean (if that fails, one by one, so the feature that fails is named). Made in
+  // two steps, the cuts of the last feature apart from the others: that feature is the one most often edited, and
+  // then "all the others" is the same as last time (cutMemo), so only its own cut is made again and the faces left
+  // as they were keep their meshes.
+  const flushCuts = () => {
+    if (!pending.length) return;
+    const lastFid = pending[pending.length - 1].fid;
+    const earlier = pending.filter((x) => x.fid !== lastFid), own = pending.filter((x) => x.fid === lastFid);
+    pending = [];
+    if (earlier.length) cutTogether(earlier);
+    cutTogether(own);
+  };
+  const cutTogether = (list) => {
+    const t0 = performance.now();
+    const keep = { cur, applied, deferNow };
+    deferNow = false;
+    const before = body, solidsBefore = solids, lastId = list[list.length - 1].fid;
+    const featOf = (id) => doc.features.find((x) => x.id === id) || { id, type: 'cut', name: id };
+    // (the same bodies and the same tools as a cut made before: its result, with the same faces)
+    const memoKey = solids.map((r) => `${r.id}:${shapeId(r.shape)}`).join(',') + '|' + list.map((x) => `${x.fid}:${shapeId(x.tool)}`).join(',');
+    try {
+      cur = featOf(lastId);
+      applied = [];
+      const hit = cutMemo.get(memoKey);
+      if (hit) {
+        solids = [...hit.solids]; body = hit.body; applied = [...hit.applied];
+        for (const r of solids) usedIds.add(r.id);
+        cutMemo.delete(memoKey); cutMemo.set(memoKey, hit);
+      } else try {
+        apply('cut', list.length === 1 ? list[0].tool : compoundOf(list.map((x) => ({ shape: x.tool }))), true, null);
+        cutMemo.set(memoKey, { solids: [...solids], body, applied: [...applied] });
+        while (cutMemo.size > 8) cutMemo.delete(cutMemo.keys().next().value);
+      } catch (e) {
+        if (isFatal(e)) throw e;
+        solids = solidsBefore; body = compoundOf(solids); applied = [];
+        for (const x of list) {
+          cur = featOf(x.fid);
+          try { apply('cut', x.tool, true, null); } catch (e2) { if (isFatal(e2)) throw e2; res.errors.push([x.fid, e2?.message || 'The geometry kernel could not compute this cut']); }
+        }
+      }
+      if (body !== before) {
+        // (each body changed counts every feature cut together, for its feature list; each feature keeps its own
+        // tool, so its faces can be told apart; one step for features recomputed later)
+        const ids = [...new Set(list.map((x) => x.fid))];
+        for (const r of solids) if (!solidsBefore.includes(r)) for (const id of ids) if (!r.feats.includes(id)) r.feats.push(id);
+        steps.push({ before, applied: [...applied], blend: null, opaque: false });
+        for (const x of list) featureDiffs.set(x.fid, { before, after: body, tool: x.tool });
+      }
+    } finally { ({ cur, applied, deferNow } = keep); }
+    timing.features.push([`(${list.length} cut${list.length === 1 ? '' : 's'} made together)`, Math.round(performance.now() - t0)]);
   };
   // ---- patterns: instance transforms { pt, dir, shape } and running them
   const xMove = (t) => ({ pt: (p) => add(p, t), dir: (n) => n, shape: (sh) => sh.translate(t) });
@@ -2266,6 +2397,9 @@ async function rebuild(doc, previewId = null, opts = {}) {
     if (!opts.partial) progressFeature = f.id;
     progress((0.8 * fi) / nFeat, `Rebuilding ${f.name}…`);
     if (f.suppressed) { if (entries) entries[fi] = { id: f.id, json: fjson[fi], snap: takeSnap() }; continue; }
+    // (a feature that needs the body as it really is: the waiting cuts made first)
+    deferNow = canDefer(f);
+    if (!deferNow) { try { flushCuts(); } catch (e) { if (isFatal(e)) throw e; } }
     const bodyIn = body, solidsIn = solids, surfacesIn = surfaces;
     const tf = performance.now();
     cur = f;
@@ -2340,7 +2474,8 @@ async function rebuild(doc, previewId = null, opts = {}) {
       switch (f.type) {
         case 'sketch': {
           const frame = orientFrame(resolveFrame(f.plane.ref, f.plane), f.plane.rot);
-          sketchBodies.set(f.id, { body, frame, surfaces: surfaces.map((x) => x.shape) });
+          // (with cuts waiting: the body it was drawn on is worked out only if asked for, by sectionCurves)
+          sketchBodies.set(f.id, pending.length ? { body: null, lazy: { base: body, tools: pending.map((x) => x.tool) }, frame, surfaces: surfaces.map((x) => x.shape) } : { body, frame, surfaces: surfaces.map((x) => x.shape) });
           if (f.entities) S.migrateSketch(f, vars);
           const lost = updateProjections(f, frame, dense ? null : body, sketches, surfaces.map((x) => x.shape));
           const sol = solveSketch(f, ev);
@@ -5346,6 +5481,14 @@ async function rebuild(doc, previewId = null, opts = {}) {
     }
     if (entries) entries[fi] = { id: f.id, json: fjson[fi], snap: takeSnap() };
   }
+  // (the waiting cuts made; the last feature's saved state then holds the body as it is)
+  if (pending.length) {
+    deferNow = false;
+    flushCuts();
+    const k = entries ? entries.length - 1 : -1;
+    if (k >= 0 && entries[k]) entries[k] = { ...entries[k], snap: takeSnap() };
+  }
+  deferNow = false;
   if (useCache) rebuildCache = { eqKey, entries };
 
 
@@ -7002,7 +7145,15 @@ function featureFaces(id) {
       return { face, lo: b[0].map((x) => x - onTol), hi: b[1].map((x) => x + onTol), key: `${c.map((x) => Math.round(x * 1e5)).join(',')},${Math.round(R.measureArea(face) * 1e5)}` };
     }) : []);
     const before = boxed(d.before), had = new Set(before.map((f) => f.key));
-    d.cache = { after: boxed(d.after).filter((f) => !had.has(f.key)), before };
+    let after = boxed(d.after).filter((f) => !had.has(f.key));
+    // (cuts made together: only the faces on this feature's own tool)
+    if (d.tool) {
+      after = after.filter((f) => {
+        const q = new R.DistanceQuery(f.face);
+        try { return q.distanceTo(d.tool) <= onTol; } catch (e) { if (isFatal(e)) throw e; return true; } finally { q.delete?.(); }
+      });
+    }
+    d.cache = { after, before };
   }
   if (!d.cache.after.length) return [];
   // distance from p to the nearest of the faces whose box holds it (Infinity: none near)
@@ -7192,7 +7343,7 @@ async function handleMessage(e) {
     resetStack();
     let result, transfer = [];
     if (type === 'rebuild') {
-      ({ res: result, transfer } = await rebuild(JSON.parse(data.doc), data.previewId || null, { haveMesh: data.haveMesh || null }));
+      ({ res: result, transfer } = await rebuild(JSON.parse(data.doc), data.previewId || null, { haveMesh: data.haveMesh || null, batchCuts: data.batchCuts }));
       for (const k of ['add', 'remove', 'tool']) {
         const m = result.preview?.[k];
         if (m) transfer.push(m.vertices.buffer, m.normals.buffer, m.triangles.buffer);
@@ -7215,6 +7366,12 @@ async function handleMessage(e) {
       result = measureRefs(data.refs || []);
     } else if (type === 'sectionCurves') {
       const sb = lastSketchBodies.get(data.sketchId);
+      if (sb && !sb.body && sb.lazy) {
+        const { base, tools: ts } = sb.lazy;
+        const parts = ts.flatMap((x) => solidsOf(x));
+        try { sb.body = base ? (parts.length > 1 ? cutByList(base, parts) : base.cut(ts[0])) : null; } catch (e) { if (isFatal(e)) throw e; sb.body = base; }
+        sb.lazy = null;
+      }
       const shapes = [...(sb?.body ? solidsOf(sb.body) : []), ...(sb?.surfaces || [])];
       if (!shapes.length) throw new Error('There is no body or surface for the sketch plane to cut');
       result = sectionPrims(shapes, sb.frame, bboxOfAll(shapes).diag);
