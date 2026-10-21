@@ -7,12 +7,21 @@ import * as THREE from 'three';
 import { wireColor } from './theme.js';
 
 // Edge lines drawn once per instance: three.js instances only meshes, so the lines use their own small shader.
+// (with the section view's clipping)
 const EDGE_VERT = `
 attribute mat4 iMatrix;
-void main() { gl_Position = projectionMatrix * modelViewMatrix * iMatrix * vec4(position, 1.0); }`;
+#include <clipping_planes_pars_vertex>
+void main() {
+  vec4 mvPosition = modelViewMatrix * iMatrix * vec4(position, 1.0);
+  gl_Position = projectionMatrix * mvPosition;
+  #include <clipping_planes_vertex>
+}`;
 const EDGE_FRAG = `
 uniform vec3 color;
-void main() { gl_FragColor = vec4(color, 1.0);
+#include <clipping_planes_pars_fragment>
+void main() {
+  #include <clipping_planes_fragment>
+  gl_FragColor = vec4(color, 1.0);
 #include <colorspace_fragment>
 }`;
 
@@ -85,8 +94,19 @@ export class AssemblyView {
     this.batches = new Map(); // part mesh → { faces: InstancedMesh, lines: LineSegments, comps: [component index], cap }
     this.items = [];          // per item (a part shown, through the sub-assemblies): { mesh, color, matrix, hidden } (as last given)
     this.mats = new Map();    // opacity → face material (colours come from the geometry)
-    this.edgeMat = new THREE.ShaderMaterial({ vertexShader: EDGE_VERT, fragmentShader: EDGE_FRAG, uniforms: { color: { value: new THREE.Color(0x14181f) } } });
+    this.edgeMat = new THREE.ShaderMaterial({ vertexShader: EDGE_VERT, fragmentShader: EDGE_FRAG, uniforms: { color: { value: new THREE.Color(0x14181f) } }, clipping: true });
     this.style = vp.displayStyle;
+    this.clipping = []; // (the section view's planes)
+  }
+
+  // ---- section view: the components cut by the viewport's planes; the caps on the cut drawn by the viewport
+  setClipping(planes) {
+    this.clipping = planes;
+    for (const m of [...this.mats.values(), this.edgeMat]) { m.clippingPlanes = planes; m.needsUpdate = true; }
+  }
+  // each part shown, for the caps: its mesh, where it is used, its colour
+  capSources() {
+    return [...this.batches].filter(([, b]) => b.faces.count).map(([mesh, b]) => ({ geo: this.gpu.get(mesh).geo, instanceMatrix: b.faces.instanceMatrix, count: b.faces.count, color: this.gpu.get(mesh).color ?? 0x8ea6c8 }));
   }
 
   dispose() {
@@ -108,6 +128,7 @@ export class AssemblyView {
       m = new THREE.MeshPhongMaterial({ color: 0xffffff, vertexColors: true, specular: b.specular, shininess: b.shininess, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1, side: THREE.DoubleSide,
         ...(op < 1 ? { transparent: true, opacity: op } : {}) });
       m.userData.op = op;
+      if (this.clipping?.length) m.clippingPlanes = this.clipping;
       this.mats.set(op, m);
       this.styleMat(m);
     }
@@ -177,6 +198,8 @@ export class AssemblyView {
       b.lines.geometry.instanceCount = n;
       im.needsUpdate = true;
     }
+    // (the section's caps follow the components)
+    if (this.vp.section) this.vp._updateSectionCaps();
   }
 
   // ---- display styles (the viewport's: shaded with edges, shaded, hidden lines removed, wireframe)
@@ -215,7 +238,8 @@ export class AssemblyView {
     const vp = this.vp, objs = [...this.batches.values()].map((b) => b.faces);
     if (!objs.length) return null;
     vp.aimRay(ev);
-    const hits = vp.raycaster.intersectObjects(objs, false);
+    // (what a section view cuts away is not there)
+    const hits = vp.raycaster.intersectObjects(objs, false).filter((h) => !vp.section || vp._sectionKeeps(h.point));
     for (const h of hits) {
       const entry = [...this.batches].find(([, b]) => b.faces === h.object);
       if (!entry) continue;

@@ -6,6 +6,13 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 21:49 — Section View in assemblies, and its panel opened again
+- **Section View now works in assemblies** (Evaluate ▸ Section View, Tools ▸ Section View…): every component is cut (faces and edges) and capped on the cut, hatched; what is cut away can't be picked; a click on a component's flat face (or one selected when you start) cuts from it; the arrow drags the cut, as in a part. Before, it set a cut the assembly didn't show.
+- **The Section View button opens the panel again** when a cut is on and its panel was closed with ✓ (it used to take the cut away). ✓ keeps the cut, ✗ removes it.
+- OK and Cancel of Section View no longer rebuild anything (a section only changes the view); in an assembly tab that rebuild would have shown the last part instead of the assembly.
+- User manual: the section view paragraph.
+- Regression test: section-assembly (two blocks with a hole cut on the front plane: clipped, capped, nothing cut away picked; a top face clicked moves the cut; OK keeps it with the assembly still shown; the button opens the panel again; ✗ removes it).
+
 ## 2026-10-21 21:43 — Big STEP imports kept, and read back several times quicker
 - **A big STEP import (over 2 MB) is now kept in the store of models built** (the desktop app's model cache on disk; the browser version's store) in OpenCascade's own format, keyed by the file's contents. The next time the part is built, wherever that is (an assembly's part kernels after the part was edited, drawing views, a kernel started later…), it is read back from there instead of from the STEP: an imported dust collector (18 MB, 342 bodies) in 0.7 s instead of 5.2 s, the same solids.
 - The first time costs about 0.6 s more (writing the copy; it is stored in the background). A part's own tab already kept its feature states and is unchanged. Smaller files are read as before.

@@ -2235,6 +2235,65 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     }
   },
 
+  // Section View in an assembly: two blocks with a hole, cut on the front plane: the components clipped (faces and
+  // edges), a cap for the part, nothing cut away picked; a click on a block's top face moves the cut onto it; OK keeps
+  // the cut (the assembly still shown: nothing built into the view), the button opens the panel again, ✗ removes it
+  async 'section-assembly'() {
+    const a = window.app, vp = a.viewport;
+    const part = M.newDoc(); part.name = 'Block';
+    const sk = M.createFeature(part, 'sketch', { plane: { ref: 'top' } });
+    const pts = [[0, 0], [40, 0], [40, 30], [0, 30]];
+    Object.assign(sk, { points: pts.map(([x, y], i) => ({ id: 'p' + i, x, y })), curves: pts.map((_, i) => ({ id: 'c' + i, type: 'line', p1: 'p' + i, p2: 'p' + ((i + 1) % 4), construction: false })), constraints: [] });
+    const hsk = M.createFeature(part, 'sketch', { plane: { ref: 'top' } });
+    Object.assign(hsk, { points: [{ id: 'q0', x: 20, y: 15 }], curves: [{ id: 'k0', type: 'circle', c: 'q0', r: 6, construction: false }], constraints: [] });
+    part.features.push(sk, M.createFeature(part, 'extrude', { sketch: sk.id, depth: 20 + Math.random() }), hsk, M.createFeature(part, 'extrude', { sketch: hsk.id, op: 'cut', end: 'through2' }));
+    const asm = { kind: 'assembly', version: 1, name: 'Section test', nextId: 4, parts: [{ id: 'pt1', name: 'Block', path: null, doc: part }], components: [
+      { id: 'c1', part: 'pt1', name: 'Block<1>', config: null, pos: [0, 0, 0], rot: [0, 0, 0, 1], fixed: true, hidden: false },
+      { id: 'c2', part: 'pt1', name: 'Block<2>', config: null, pos: [50, 0, 0], rot: [0, 0, 0, 1], fixed: true, hidden: false }], mates: [], configs: [], explodes: [] };
+    await a.openFromFile({ content: JSON.stringify(asm), name: 'Section test.rasm', path: null });
+    const ed = a.tabs[a.tabIndex].drawing;
+    for (let w = 0; w < 150 && !(ed.parts?.size && [...ed.parts.values()].every((x) => x.mesh)); w++) await wait(100);
+    const { fire, R } = viewEvents();
+    try {
+      ed.toggleSection();
+      Object.assign(a.sectionState, { plane: 'front', offset: -15, flip: false });
+      a.applySection(); a.ui.renderPM();
+      const panel = a.pm?.kind === 'section' && !document.querySelector('#pm').hidden && /Section View/.test(document.querySelector('#pm').innerText);
+      const clipped = [...ed.display.mats.values()].every((m) => m.clippingPlanes?.length === 1) && ed.display.edgeMat.clippingPlanes?.length === 1;
+      const caps = vp.capGroup?.children.length >= 3;
+      // nothing cut away is picked: every hit kept by the cut
+      let picks = 0, cutAway = 0;
+      for (let fx = 0.1; fx < 0.95; fx += 0.05) for (let fy = 0.1; fy < 0.95; fy += 0.05) {
+        const h = ed.display.pick({ clientX: R.left + R.width * fx, clientY: R.top + R.height * fy });
+        if (h) { picks++; if (!vp._sectionKeeps(h.point)) cutAway++; }
+      }
+      // a click on a block's top face (y = the block's height)
+      vp.setStandardView('iso', false); vp.zoomToFit(null, false); vp.camera.updateMatrixWorld();
+      let at = null;
+      for (let fx = 0.15; fx < 0.9 && !at; fx += 0.02) for (let fy = 0.15; fy < 0.9 && !at; fy += 0.02) {
+        const e = { clientX: R.left + R.width * fx, clientY: R.top + R.height * fy }, r = !vp.sectionArrowAt(e) && ed.entityAt(e, true);
+        const w = r?.kind === 'plane' && ed.worldRef(r);
+        if (w?.n && w.n[1] > 0.99) at = [e.clientX, e.clientY, w.p[1]];
+      }
+      if (at) { fire('pointerdown', at[0], at[1], { button: 0, buttons: 1 }); fire('pointerup', at[0], at[1], { button: 0, buttons: 0 }); await wait(60); }
+      const moved = !!at && a.sectionState.plane === 'custom' && a.sectionState.custom.n.y > 0.99 && Math.abs(vp.section.constant - at[2]) < 1e-6;
+      await a.okPM();
+      const kept = !a.pm && !!vp.section && !vp._secArrow && !!vp.asmView && ed.display.batches.size > 0 && a.mode === 'drawing';
+      ed.toggleSection();
+      const reopened = a.pm?.kind === 'section' && a.sectionState.plane === 'custom' && !!vp._secArrow;
+      a.cancelPM();
+      const removed = !a.pm && !vp.section && [...ed.display.mats.values()].every((m) => !m.clippingPlanes?.length);
+      const ok = panel && clipped && caps && picks > 0 && !cutAway && moved && kept && reopened && removed;
+      return ok ? { ok: true, detail: `panel shown; components clipped, capped; ${picks} picks, none cut away; a top face clicked: cut at y = ${at[2].toFixed(2)}; OK kept it, the button opened the panel again, ✗ removed it` }
+        : { ok: false, detail: `panel ${panel}, clipped ${clipped}, caps ${caps}, picks ${picks} (cut away ${cutAway}), moved ${moved} (${!!at}), kept ${kept}, reopened ${reopened}, removed ${removed}` };
+    } finally {
+      if (a.pm?.kind === 'section') a.cancelPM();
+      if (vp.section) a.clearSection();
+      ed.dirty = false;
+      await a.closeTab(a.tabIndex);
+    }
+  },
+
   // turning the view about the cursor: zoomed in off the part's centre, a middle-drag started on the part turns
   // about the point under the cursor (it stays there, and a dot shows it while dragging), one started over empty
   // space about that spot at the part's depth; the arrow keys still turn about the part's centre
