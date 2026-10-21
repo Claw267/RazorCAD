@@ -6,6 +6,17 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-22 07:28 — Version 0.16.0-beta: installer, user manual and website
+- **RazorCAD-Setup-0.16.0-beta.exe** built (in "RazorCAD Install", 45 MB, unsigned), with everything since 0.15.0-beta:
+  - Section View: from a selected face or plane, a click moves it, an arrow to drag, in assemblies, two or three planes at once (quarter cuts), its panel opened again from the button;
+  - the view turns about the point under the cursor;
+  - faster: previews of cuts, big imported parts and assemblies, big imports (STEP, STL, OBJ, 3MF) kept and read back several times quicker, Measure on sheet metal, flat-face descriptions;
+  - Convert to Sheet Metal: corners as the body has them (exact for parts drawn as sheet metal elsewhere), no material lost at butt corners;
+  - the browser version keeps an assembly's parts.
+- **User manual** 0.16.0-beta (revision history; the section view paragraph), the PDF and the online manual rebuilt.
+- **Website**: version 0.16.0-beta on the home page and its download links; the browser version rebuilt.
+- Published on GitHub as a pre-release with the setup and the manual. 0.15.0-beta users get it through Update Now.
+
 ## 2026-10-21 22:33 — Flat faces described four times quicker (meshing big parts)
 - Every flat face's centre of area is worked out when a part is meshed (assemblies keep it in their mates). It is now worked out by the plain integration instead of the adaptive one: the same centre to about 0.00000001 mm, four times quicker (an imported dust collector's 3081 flat faces: 0.5 s instead of 2 s).
 - Mates don't move: they find their faces by the plane (to 0.00001 mm) and keep the centre to 6 decimals, which come out the same (on the dust collector and the test parts, every one).
