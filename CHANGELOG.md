@@ -6,6 +6,19 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 13:56 — Multi-threaded geometry kernel
+- **Each open part's kernel now runs multi-threaded.** Open CASCADE splits booleans (cuts, joins and the features built on them) and meshing over several threads. It uses replicad's multi-threaded build of the same kernel (the same Open CASCADE bindings, commit a0bc495), so parts build exactly as before: the same volumes, areas, faces and edges.
+  - Measured: a sheet metal tray 4.5 s → 2.0 s; the feature-states test (13 parts) 8.4 s → 4.5 s; the Giant Golfball 6.0 s → 4.7 s; the whole regression run 56 s → 51 s. Small parts are about the same.
+  - Threads per kernel come from the PC: half its threads beyond two, 2 to 8. On the golf ball 4 threads gave 4.9 s and 8 gave 4.7 s; 16 or 22 were no faster and only slower to start. A PC with fewer than 6 threads keeps the single-thread kernel.
+  - The kernels for assemblies and drawings stay single-threaded: they already build several parts side by side.
+  - A multi-threaded kernel takes longer to start (about 3.8 s with 8 threads, against 1.3 s) and an idle one uses about 210 MB instead of 90 MB. The spare kernel started ahead hides most of the start.
+- Threads need shared memory, so RazorCAD's pages are now **cross-origin isolated**: the desktop app's built-in server, `serve.py` and the tests' server send the headers for it. Where a page isn't isolated, the single-thread kernel is used, as before.
+- The browser version on the website keeps the single-thread kernel (built in its own folder, RazorCAD Web), so nothing changes there.
+- The session log and crash reports say which kernel started ("Geometry kernel ready: multi-threaded, 8 threads").
+- RazorCAD.exe carries both kernels (34 MB instead of 27 MB). `tools/patch_replicad_multi.py` makes RazorCAD's changes to replicad's published `replicad_multi.js` (the same two memory hooks as the single-thread one, and the thread count); THIRD-PARTY-NOTICES lists them.
+- User manual: Speed on your PC and the kernel builds (For Developers).
+- Rolling back: the 0.14.0-beta build with the single-thread kernel is in RazorCAD Backups, with how to roll back.
+
 ## 2026-10-21 13:33 — The browser version built in its own folder
 - `tools/build_web_app.py` now builds the browser version in **RazorCAD Web** (next to the project folder, outside it) and copies it from there into website/app for publishing. It always uses the single-thread geometry kernel: a multi-threaded kernel needs cross-origin isolation, which the website's host may not give. Without that folder (another PC, GitHub) it builds straight into website/app, as before.
 - A backup of 0.14.0-beta (RazorCAD.exe, the setup, the kernel files and the source as a git bundle) is in **RazorCAD Backups**, with how to roll back.
