@@ -435,6 +435,10 @@ function wrapLoopTool(b, t, loop, smooth = 0) {
 // curve from one bend round the corner point to the other, no sharp corner.
 const RELIEF_FADE = 0.5; // × the bend's length: where the set-back has faded into the V line
 function vcutRelief(t, gap) { return Math.max(gap || 0, 0.075 * t, 0.1); }
+// a corner's own relief and V line: a converted corner keeps the body's (relief 0, each V line straight from the
+// corner point to its own wall's end, as the body was formed); otherwise the usual set-back and the shared slope
+const cornerReliefOf = (c, t) => (c.relief != null ? c.relief : vcutRelief(t, c.gap));
+const cornerMid = (c, top) => (c.straight ? top : Math.min(c.ea ?? 0, c.eb ?? 0));
 function cornerReliefRound(A, B, t, r) {
   const at = cornerUV(A, B);
   if (!at) return null;
@@ -615,7 +619,7 @@ export function toSolid(sheet) {
     for (const [bd, top] of [[la.b, c.ea ?? 0], [lb.b, c.eb ?? 0]]) {
       if (!vcuts.has(bd.id)) vcuts.set(bd.id, []);
       // the V line runs from the start of the bend at the corner point (set back by the relief) up to the wall
-      vcuts.get(bd.id).push({ X: pair.X, top, mid: Math.min(c.ea ?? 0, c.eb ?? 0), relief: vcutRelief(t, c.gap) });
+      vcuts.get(bd.id).push({ X: pair.X, top, mid: cornerMid(c, top), relief: cornerReliefOf(c, t) });
     }
   }
   const linkCount = new Map();
@@ -640,13 +644,13 @@ export function toSolid(sheet) {
         // (only bends cut into pieces by slots get their run-on as a separate solid, without the set-back)
         for (const [bd, top] of [[la.b, c.ea], [lb.b, c.eb]].filter(([bd]) => !doneV.has(bd.id))) {
           let p = null;
-          try { p = vcutRunOn(bd, t, pair.X, top ?? 0, Math.min(c.ea ?? 0, c.eb ?? 0)); } catch { p = null; }
+          try { p = vcutRunOn(bd, t, pair.X, top ?? 0, cornerMid(c, top ?? 0)); } catch { p = null; }
           if (p) parts.push(applyM(p, la.A.M));
         }
         // both bends set back: the round at the corner point joins them through the panel
         const ps = panelSol.get(la.A);
-        if (ps && doneV.has(la.b.id) && doneV.has(lb.b.id)) {
-          try { const rd = cornerReliefRound(la.b, lb.b, t, vcutRelief(t, c.gap)); if (rd) panelSol.set(la.A, ps.cut(applyM(rd, la.A.M))); } catch { /* keep */ }
+        if (ps && doneV.has(la.b.id) && doneV.has(lb.b.id) && cornerReliefOf(c, t) > 0) {
+          try { const rd = cornerReliefRound(la.b, lb.b, t, cornerReliefOf(c, t)); if (rd) panelSol.set(la.A, ps.cut(applyM(rd, la.A.M))); } catch { /* keep */ }
         }
       }
       continue;
@@ -1357,20 +1361,22 @@ export function flatRegion(sheet) {
     const pair = cornerPairs({ bends: [A, B], t })[0];
     const at = cornerUV(A, B);
     if (!pair || !at) continue;
-    const mid = Math.min(c.ea ?? 0, c.eb ?? 0), h = vcutRelief(t, c.gap);
+    const h = cornerReliefOf(c, t);
     let next = region;
     try {
       for (const [bd, top] of [[A, c.ea ?? 0], [B, c.eb ?? 0]]) {
         if (!(top > 1e-6)) continue;
-        const { face: beyond, pt, far } = vcutFlatBeyond(bd, t, pair.X, top, mid, h);
+        const { face: beyond, pt, far } = vcutFlatBeyond(bd, t, pair.X, top, cornerMid(c, top), h);
         // the run-on (past the bend's end, up to the V line) and the set-back (before its end)
         const runOn = bop('cut', polyFace([pt(0, 0), pt(far, 0), pt(far, bd.ba), pt(0, bd.ba)]), beyond);
         next = bop('fuse', next, runOn);
-        next = bop('cut', next, bop('common', beyond, polyFace([pt(-2 * h, 0), pt(0, 0), pt(0, bd.ba), pt(-2 * h, bd.ba)])));
+        if (h > 0) next = bop('cut', next, bop('common', beyond, polyFace([pt(-2 * h, 0), pt(0, 0), pt(0, bd.ba), pt(-2 * h, bd.ba)])));
       }
       // the round at the corner point, out of the panel the two bends start from
-      const quarter = bop('common', circleFace(at(0, 0), h), polyFace([at(0, 0), at(-2 * h, 0), at(-2 * h, -2 * h), at(0, -2 * h)]));
-      next = bop('cut', next, quarter);
+      if (h > 0) {
+        const quarter = bop('common', circleFace(at(0, 0), h), polyFace([at(0, 0), at(-2 * h, 0), at(-2 * h, -2 * h), at(0, -2 * h)]));
+        next = bop('cut', next, quarter);
+      }
       if (next) region = next;
     } catch { /* keep the region without this corner */ }
   }
@@ -3104,6 +3110,7 @@ export function fromFaces(faces, fixed, { t, R: R0, K, connectedOnly = false, li
   const trims = new Map(); // face index → list of rect trims (flat coords, applied to its image)
   const shifts = new Map([[fixed, IDENT]]);
   const bendFaces = [], realBend = new Set(); // unrolled faces of real bends; their ids
+  const runOns = new Map(); // real bend id → { from: the face it starts from, a / b: run-on past each end }
   while (queue.length) {
     const i = queue.shift();
     // real bends: face j turned about the bend's axis into face i's plane, then moved on by the bend
@@ -3136,6 +3143,12 @@ export function fromFaces(faces, fixed, { t, R: R0, K, connectedOnly = false, li
       T.set(j, mulM(transM([d[0] * ba, d[1] * ba, 0]), mulM(Ti, rot)));
       realBend.add('b' + nextBend);
       bends.push({ id: 'b' + nextBend++, p0: pa, e, d, w, ba, ang, up: L.outer, R: L.R });
+      // (how far the bend runs on past each end of its line where it reaches face j: a corner formed as a V
+      // cutout; see the corners below)
+      {
+        const u3 = unit3(sub3(L.bi, L.ai)), w3 = len3(sub3(L.bi, L.ai));
+        runOns.set(bends[bends.length - 1].id, { from: i, a: dot3(sub3(L.ai, L.aj), u3), b: dot3(sub3(L.bj, L.ai), u3) - w3 });
+      }
       // unroll: a point of the bend goes to its place along the bend line, and across by the share of
       // the bend's angle it has turned through
       const radial = (p) => { const r = sub3(p, o); return sub3(r, mul3(ax, dot3(r, ax))); };
@@ -3210,10 +3223,37 @@ export function fromFaces(faces, fixed, { t, R: R0, K, connectedOnly = false, li
   // sharp edges: the whole bend zone; real bends: their own faces, unrolled
   for (const b of bends) if (!realBend.has(b.id)) region = bop('fuse', region, stripFace(b));
   for (const f of bendFaces) region = bop('fuse', region, f);
+  // V cutout corners, as the body has them: two bends from the same face meet at a corner, and each runs on
+  // past the corner point, up to its wall's end, along a straight line in the flat (the run-on that makes the
+  // bend's end curve, rather than square). Kept as corners (the bends' zones stay square: toSolid and the flat
+  // pattern add the run-ons), with no relief and each V line straight, so the part is formed as the body was.
+  const corners = [];
+  const real = bends.filter((b) => realBend.has(b.id));
+  for (const { A, B, X } of cornerPairs({ bends: real, t })) {
+    const ra = runOns.get(A.id), rb = runOns.get(B.id);
+    if (!ra || !rb || ra.from !== rb.from || A.up !== B.up || Math.abs(A.R - B.R) > tol) continue;
+    const runAt = (b, r) => (d2(s2(X, b.p0), b.e) > b.w / 2 ? r.b : r.a);
+    const ea = runAt(A, ra), eb = runAt(B, rb);
+    if (!(ea > tol || eb > tol) || ea < -tol || eb < -tol) continue;
+    const c = { a: A.id, b: B.id, gap: 0, type: 'overlap', bend: 'vcut', ea: Math.max(0, ea), eb: Math.max(0, eb), relief: 0, straight: true, converted: true };
+    // (the run-ons out of the region: the corner makes them)
+    let next = region;
+    try {
+      for (const [bd, top] of [[A, c.ea], [B, c.eb]]) {
+        if (!(top > tol)) continue;
+        // (only as far as the run-on reaches: further on, beside the bend zone, is the other wall's end)
+        const { pt } = vcutLine(bd, t, X, top, top, 0);
+        next = bop('cut', next, polyFace([pt(0, 0), pt(top, 0), pt(top, bd.ba), pt(0, bd.ba)]));
+      }
+    } catch { continue; }
+    if (!next) continue;
+    region = next;
+    corners.push(c);
+  }
   // the fixed face's middle (not a corner: corners end up in bend zones)
   const c = facesOf(fixedFace)[0]?.center;
   const cc = !c ? [0, 0] : Array.isArray(c) ? c : c.toTuple ? c.toTuple() : [c.x, c.y];
-  return { t, K, R: R0, frame: fr0, region, bends, rootPt: insidePoint(fixedFace || region, [cc[0], cc[1]]), flat: null, stale: null, nextBend };
+  return { t, K, R: R0, frame: fr0, region, bends, rootPt: insidePoint(fixedFace || region, [cc[0], cc[1]]), flat: null, stale: null, nextBend, ...(corners.length ? { corners } : {}) };
 }
 function planeFrame(p, n) {
   n = unit3(n);
