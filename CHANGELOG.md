@@ -6,6 +6,14 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 17:45 — Convert to Sheet Metal: corners as the body has them
+- **Fixed: converting a sheet metal body with closed corners spoiled its corners.** Sheet metal drawn in other CAD programs (and RazorCAD's own closed corners) forms each corner as a V cutout: the two bends run on past the corner point, each cut along a straight line in the flat up to its wall's end, so their ends are curved. The conversion folded those run-ons flat with the walls instead of round the bends:
+  - small slanted faces stuck out below the base at every corner (0.79 mm on a dust collector lid of 3 mm sheet), and the bends ended square at the panel;
+  - the lid came out with 54 faces and 628 edges instead of 38 and 76, up to 3 mm from the body at the corners.
+- **Now** such corners become V cutout corners of the converted part, with no relief and each V line straight, as the body was formed. The lid converts to the same part: the same 38 faces (each of the same kind and size, to 0.001 mm²), the same volume and area, every point within 0.0004 mm (the fit of the curved bend ends). Its flat pattern is unchanged.
+- RazorCAD's own closed corners (which have a small relief and a curved V line) convert much closer too: 63 faces as the body instead of 271, nothing outside it, within 0.28 mm at the corners instead of 1.5 mm.
+- Regression test: convert-sheet-corners (the sheet metal tray written to STEP, read back and converted: the same faces, nothing outside the body; converted again: exactly the same part).
+
 ## 2026-10-21 17:12 — Big imported parts and assemblies open faster
 - **Big imported parts build about 30-45% quicker.** Measured on copies of a real plant layout:
   - a 64 MB imported assembly in it (719 000 triangles): 33 s instead of 59.5 s;

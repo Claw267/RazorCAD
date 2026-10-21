@@ -1773,6 +1773,49 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     } finally { pool.request = orig; if (was === undefined) delete window.RAZORCAD_WEB; else window.RAZORCAD_WEB = was; }
   },
 
+  // Convert to Sheet Metal, corners: the sheet-metal tray (closed corners, V cutout) written to STEP, read back
+  // as a plain body and converted: the same faces, nothing outside the body (the bends' run-ons into the corners
+  // were folded flat with the walls, sticking out below the base); converted again (corners formed as V cutouts
+  // with no relief, as other CAD programs make them), exactly the same part again
+  async 'convert-sheet-corners'() {
+    const pool = window.app.kernelPool, aff = 'convert-sheet-corners';
+    const tray = JSON.parse(await (await fetch('/tests/parts/sheet-metal-tray.rcad')).text());
+    const step = async (r) => new TextDecoder().decode(await pool.request('export', { format: 'step', bodyId: r.body.bodies[0].id }, aff));
+    const shape = (r) => {
+      const b = r.body.bodies.find((x) => x.sheet) || r.body.bodies[0], V = r.body.vertices, T = r.body.triangles;
+      const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+      for (let k = b.triStart; k < b.triStart + b.triCount; k++) for (let j = 0; j < 3; j++) { const x = V[3 * T[k] + j]; min[j] = Math.min(min[j], x); max[j] = Math.max(max[j], x); }
+      // (the volume from the mesh: the precise measure of these curved corners takes many seconds)
+      let v6 = 0;
+      for (let k = b.triStart; k < b.triStart + b.triCount; k += 3) {
+        const [a, c, e] = [0, 1, 2].map((j) => 3 * T[k + j]);
+        v6 += V[a] * (V[c + 1] * V[e + 2] - V[c + 2] * V[e + 1]) - V[a + 1] * (V[c] * V[e + 2] - V[c + 2] * V[e]) + V[a + 2] * (V[c] * V[e + 1] - V[c + 1] * V[e]);
+      }
+      return { id: b.id, faces: b.faceCount, min, max, sheet: b.sheet, volume: Math.abs(v6 / 6) };
+    };
+    // a STEP body converted from its base (the flat face at y = 0)
+    const convert = async (text) => {
+      const d = M.newDoc(); d.name = 'Converted';
+      const imp = M.createFeature(d, 'import', { format: 'step', fileName: 'tray.step', data: text });
+      d.features.push(imp);
+      const r0 = await pool.request('rebuild', { doc: JSON.stringify(d) }, aff);
+      const before = shape(r0), v0 = before.volume;
+      d.features.push(M.createFeature(d, 'smConvert', { face: { p: [0, 0, 0], n: [0, -1, 0], body: before.id } }));
+      const r = await pool.request('rebuild', { doc: JSON.stringify(d) }, aff);
+      const after = shape(r);
+      return { r, before, after, v0, v1: after.volume };
+    };
+    const inside = (a, b, tol) => a.min.every((x, k) => x >= b.min[k] - tol) && a.max.every((x, k) => x <= b.max[k] + tol);
+    const c1 = await convert(await step(await pool.request('rebuild', { doc: JSON.stringify(tray) }, aff)));
+    const c2 = await convert(await step(c1.r));
+    const same = (a, b) => a.min.every((x, k) => Math.abs(x - b.min[k]) < 1e-4) && a.max.every((x, k) => Math.abs(x - b.max[k]) < 1e-4);
+    const ok = !c1.r.errors.length && !c2.r.errors.length && c1.after.sheet && c2.after.sheet
+      && c1.after.faces === c1.before.faces && inside(c1.after, c1.before, 1e-3) && Math.abs(c1.v1 - c1.v0) / c1.v0 < 1e-3
+      && c2.after.faces === c2.before.faces && same(c2.after, c2.before) && Math.abs(c2.v1 - c2.v0) / c2.v0 < 1e-5;
+    return ok ? { ok: true, detail: `tray: ${c1.after.faces} faces as the body, inside it, volume ${(100 * (c1.v1 - c1.v0) / c1.v0).toFixed(3)} %; converted again: the same to ${Math.abs(c2.v1 - c2.v0).toExponential(1)} mm³` }
+      : { ok: false, detail: `errors ${JSON.stringify([...c1.r.errors, ...c2.r.errors])}; first: faces ${c1.before.faces} → ${c1.after.faces}, ${JSON.stringify([c1.before.min, c1.before.max])} → ${JSON.stringify([c1.after.min, c1.after.max].map((v) => v.map((x) => +x.toFixed(4))))}, volume ${c1.v0} → ${c1.v1}; again: faces ${c2.before.faces} → ${c2.after.faces}, volume ${c2.v0} → ${c2.v1}` };
+  },
+
   // BOM mass and cost: a steel plate (60 × 40 × 5) and two aluminium blocks (20 × 20 × 15) with costs → masses from
   // the materials, totals 0.126 kg and 18.50; the window's column menu changes a column; on the drawing table the
   // column under a point is found, and a typed value is edited
