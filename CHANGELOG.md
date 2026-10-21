@@ -6,6 +6,21 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 16:41 — Faster previews of cuts
+- **Previews of cut features are 2-3x quicker.** Giant Golfball:
+  - the last dimple opened for editing: about 0.9 s instead of 2.9 s, and about 0.35 s for each preview while it is edited;
+  - a pattern of 19 dimples in the middle of the tree: about 1.4 s instead of 3.3 s.
+- **How:**
+  - The material a pattern or several tools remove (shown solid red) is now found in one intersection with all the tools, given to the geometry kernel as a list, instead of one intersection per tool. The body is prepared once, not once per tool: 1.7 s -> 0.2 s for the 19 dimples.
+  - Previewing a feature now makes the cuts waiting before it in one step. That is the same step a full rebuild makes for "all but the last feature", so the preview takes it from there instead of making those cuts again. It also stays the same at every preview while the feature is edited.
+  - The preview's mesh size now comes from the body before the feature, whose size is already known. Working out the size of the body after the cut took 0.3 s on the golf ball.
+- **Fixed:** where pattern copies overlap each other, the preview showed a little too much removed material (the overlap counted once per copy: 7% too much in the test part). It now shows exactly what the pattern removes.
+- **Development server:** it now also answers on the PC's IPv6 loopback address. Opened as "localhost", every connection used to wait about 0.3 s before reaching it, and pages and geometry kernels took 1.6-3.5 s to start. They start in about 0.15 s now. The program itself was never affected: it uses 127.0.0.1, and its kernels start in about 0.15 s.
+- **Looked at and left out (no gain worth the code):**
+  - warming up a new kernel, and compiling the geometry library once for all kernels: a kernel starts in about 0.15 s and its first rebuild is within 0.1 s of later ones;
+  - cutting with all the tools as one compound instead of a list: 2-3x quicker on the golf ball, but wrong where tools overlap inside the body, and this kernel build has no quick way to check that. Possible with a future kernel build.
+- Regression test: preview-cuts (a pattern of overlapping holes: its preview shows what it really removes, within 3%; the last cut previewed after a rebuild makes no waiting cut again).
+
 ## 2026-10-21 15:31 — A test that failed now and then: fixed
 - The **cuts-together** regression test failed about 1 run in 5 (2 of 10 full runs). RazorCAD was right every time: the geometry matched the one-by-one build in the failing runs too.
 - The test's check that editing the last cut redoes only its own cut told the edit's timing entries from the ones carried over from the saved state by name and milliseconds. These are small whole numbers, so they sometimes matched by chance, and the edit's own entry was skipped.

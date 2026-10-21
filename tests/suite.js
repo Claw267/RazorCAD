@@ -1660,6 +1660,57 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
       : { ok: false, detail: `together ${t1} | one by one ${t0}; made ${made}; oneByOne clean ${noneOneByOne}; edit same ${same2}, cuts made ${together.timing.cutsMade} then ${madeByEdit}; faces ${n(ff1)}/${n(ff0)}; section ${n(sec1)}/${n(sec0)} ${JSON.stringify(sec1).slice(0, 80)}; errors ${JSON.stringify(together.errors)}` };
   },
 
+  // previews of cuts: a pattern of overlapping holes previewed, the material it removes (one intersection with all
+  // its copies) is what the pattern really removes (the body with and without it); previewing the last cut after a
+  // full rebuild takes the other waiting cuts from it (none made again)
+  async 'preview-cuts'() {
+    const pool = window.app.kernelPool, aff = 'preview-cuts';
+    const d = M.newDoc(); d.name = 'Preview cuts';
+    const sketch = (fill) => { const sk = M.createFeature(d, 'sketch', { plane: { ref: 'top' } }); Object.assign(sk, { points: [], curves: [], constraints: [] }); fill(sk); d.features.push(sk); return sk; };
+    const circle = (sk, x, y, r) => { const id = 'q' + sk.points.length; sk.points.push({ id, x, y }); sk.curves.push({ id: 'k' + sk.curves.length, type: 'circle', c: id, r, construction: false }); };
+    const base = sketch((sk) => {
+      const pts = [[-50, -30], [50, -30], [50, 30], [-50, 30]];
+      sk.points.push(...pts.map(([x, y], i) => ({ id: 'p' + i, x, y })));
+      sk.curves.push(...pts.map((_, i) => ({ id: 'c' + i, type: 'line', p1: 'p' + i, p2: 'p' + ((i + 1) % 4), construction: false })));
+    });
+    d.features.push(M.createFeature(d, 'extrude', { sketch: base.id, depth: 20 }));
+    const hole = M.createFeature(d, 'extrude', { sketch: sketch((sk) => circle(sk, -40, -12, 2.5)).id, op: 'cut', end: 'through2' });
+    d.features.push(hole);
+    const pat = M.createFeature(d, 'lpattern', { feature: hole.id, dir1: 'x', dist1: 4, count1: 4, dir2: 'none' });
+    d.features.push(pat);
+    const last = M.createFeature(d, 'extrude', { sketch: sketch((sk) => circle(sk, 20, 12, 3)).id, op: 'cut', end: 'through2' });
+    d.features.push(last);
+    const fresh = (doc) => { const c = JSON.parse(JSON.stringify(doc)); c.features[0].rev = M.newRev(); return c; };
+    const build = (doc, previewId = null) => pool.request('rebuild', { doc: JSON.stringify(doc), previewId }, aff);
+    const volume = async (r) => {
+      const m = await pool.request('measure', { refs: [{ kind: 'body', id: r.body.bodies[0].id }] }, aff);
+      return (m.items?.[0] || m).volume;
+    };
+    const mvol = (m) => {
+      if (!m) return 0;
+      const v = m.vertices, t = m.triangles; let s6 = 0;
+      for (let i = 0; i < t.length; i += 3) {
+        const a = 3 * t[i], b = 3 * t[i + 1], c = 3 * t[i + 2];
+        s6 += v[a] * (v[b + 1] * v[c + 2] - v[b + 2] * v[c + 1]) - v[a + 1] * (v[b] * v[c + 2] - v[b + 2] * v[c]) + v[a + 2] * (v[b] * v[c + 1] - v[b + 1] * v[c]);
+      }
+      return Math.abs(s6 / 6);
+    };
+    const dn = fresh(d); dn.features.find((f) => f.id === pat.id).suppressed = true;
+    const without = await volume(await build(dn));
+    const full = fresh(d);
+    const withIt = await volume(await build(full));
+    const removedReally = without - withIt;
+    // (the last cut first: a preview keeps the saved states up to its feature only)
+    const pl = await build(JSON.parse(JSON.stringify(full)), last.id);
+    const pp = await build(JSON.parse(JSON.stringify(full)), pat.id);
+    const shown = mvol(pp.preview?.remove);
+    // (the copies overlap: counted once each they would show a third more)
+    const near = Math.abs(shown - removedReally) / removedReally;
+    const ok = removedReally > 100 && near < 0.03 && pp.preview && !pp.preview.missed && pl.preview?.remove && pl.timing.cutsMade === 0 && !pp.errors.length && !pl.errors.length;
+    return ok ? { ok: true, detail: `pattern removes ${removedReally.toFixed(1)} mm³, its preview shows ${shown.toFixed(1)}; last cut previewed with no waiting cut made again` }
+      : { ok: false, detail: `removed ${removedReally.toFixed(1)}, preview ${shown.toFixed(1)} (${(near * 100).toFixed(1)}%), missed ${pp.preview?.missed}; last preview ${!!pl.preview?.remove}, cuts made ${pl.timing.cutsMade}; errors ${JSON.stringify([...pp.errors, ...pl.errors])}` };
+  },
+
   // BOM mass and cost: a steel plate (60 × 40 × 5) and two aluminium blocks (20 × 20 × 15) with costs → masses from
   // the materials, totals 0.126 kg and 18.50; the window's column menu changes a column; on the drawing table the
   // column under a point is found, and a typed value is edited

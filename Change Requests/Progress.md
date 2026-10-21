@@ -606,3 +606,9 @@ Skipped for now (from the list of 2026-10-21):
 ## The flaky test (user: "Track it down.")
 - [x] 10 full runs, output kept: runs 1 and 4 failed, both cuts-together ("groups []": geometry identical, edit result identical). Cause: the test found the edit's own timing entries by skipping those equal (name + ms) to the first build's; integer-ms entries (0-8 ms) matched by chance. Fix: timing.cutsMade (cuts really made in this rebuild, memo hits and saved states not counted); the test checks the first build made at least 3 and the edit exactly 1. 12/12 runs alone, 5/5 full runs.
 
+## More performance (user: "What more can we do for the performance?" / "Yeah go ahead in that order.")
+- [x] (2)+(3) kernel warm-up and one shared compile: measured first. In the real app (127.0.0.1) a kernel starts in ~0.15 s (1 or 8 threads); the 1.6-3.5 s measured before came from the dev server, reached as "localhost": IPv6 tried first, ~0.3 s per connection. Cold vs warm first rebuild: within 0.1 s. Not done (no gain); serve.py now also listens on ::1.
+- [x] Side finding: a cut with all tools as one compound is 2-3x faster than the list (golf ball 8 threads 1.05 -> 0.59 s, 1 thread 4.97 -> 1.46 s), same volume there, but wrong where tools overlap inside the body; no cheap check in this kernel build (no solid classifier / self-intersection checker; exact distances cost 1.25 s). Shelved for a future kernel build.
+- [x] (1) Faster previews: removed material in one common with the tools as a list (boolByList); a previewed feature makes the waiting cuts in one step (cut memo hit from the full rebuild); preview size from the body before. Golf ball: last dimple 2.9 -> 0.9 s (0.35 s while edited), CirPattern5 3.3 -> 1.4 s; removed volumes identical. Overlapping copies no longer double-counted in the preview. Test preview-cuts (fails on the old code: 7.4% too much, 2 cuts made again).
+- [ ] (4) Profiling pass of drawings and assemblies on copies of real files.
+

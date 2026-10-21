@@ -313,16 +313,18 @@ function compoundOf(list) {
 
 // shape cut by several tools at once, given to Open CASCADE as a list (tools may overlap each other), the result
 // simplified as replicad's cut does
-function cutByList(shape, toolShapes) {
+function cutByList(shape, toolShapes) { return boolByList('cut', shape, toolShapes); }
+// (the same for the material the tools have in common with the shape: kind 'common')
+function boolByList(kind, shape, toolShapes) {
   const oc = R.getOC();
-  const builder = new oc.BRepAlgoAPI_Cut(), args = new oc.NCollection_List_TopoDS_Shape(), tl = new oc.NCollection_List_TopoDS_Shape(), progress = new oc.Message_ProgressRange();
+  const builder = kind === 'common' ? new oc.BRepAlgoAPI_Common() : new oc.BRepAlgoAPI_Cut(), args = new oc.NCollection_List_TopoDS_Shape(), tl = new oc.NCollection_List_TopoDS_Shape(), progress = new oc.Message_ProgressRange();
   try {
     args.Append(shape.wrapped);
     for (const t of toolShapes) tl.Append(t.wrapped);
     builder.SetArguments(args);
     builder.SetTools(tl);
     builder.Build(progress);
-    if (!builder.IsDone()) throw new Error('The cut could not be made');
+    if (!builder.IsDone()) throw new Error(kind === 'common' ? 'The intersection could not be made' : 'The cut could not be made');
     builder.SimplifyResult(true, true, 0.001);
     return R.cast(builder.Shape());
   } finally { builder.delete(); args.delete(); tl.delete(); progress.delete(); }
@@ -813,7 +815,9 @@ function meshData(shapes, diag) {
 
 // Preview geometry for the feature being edited: material it adds (yellow) and removes (red).
 function makePreview(f, before, after, applied, pair = null) {
-  const ref = after || before;
+  // (the size from the body before: its faces' boxes are known already; the body after is new, and boxing its big
+  // faces took 0.3 s on the golf ball)
+  const ref = before || after;
   const diag = ref ? bbox(ref).diag : 100;
   const tryOp = (fn) => { try { return fn(); } catch (e) { if (isFatal(e)) throw e; return null; } };
   if (pair) { before = pair.before; after = pair.after; } // only the body that changed
@@ -831,7 +835,14 @@ function makePreview(f, before, after, applied, pair = null) {
   // material a cut removes (solid red), plus the cut volume itself (faint red) so the cut is
   // visible even where it misses the solid. Very long tools (Through All) are clipped to the model.
   // (`inside`: the tool is known to lie in the material, e.g. a thread, so it is shown as it is.)
-  const removed = meshData(cuts.map((a, i) => (a.inside ? cutTools[i] : before ? tryOp(() => before.intersect(a.tool)) : null)), diag);
+  // (the tools that may miss the material in one intersection, given as a list: the body is prepared once, not once
+  // per tool, e.g. 1.7 s -> 0.2 s for a pattern of 19 dimples on a golf ball; one by one if that fails)
+  const loose = cuts.filter((a) => !a.inside), parts = loose.flatMap((a) => solidsOf(a.tool));
+  const together = before && loose.length && parts.length > 1 && loose.every((a) => a.tool.solids.length)
+    ? tryOp(() => boolByList('common', before, parts)) : null;
+  const removed = meshData(together
+    ? [...cuts.map((a, i) => (a.inside ? cutTools[i] : null)), together]
+    : cuts.map((a, i) => (a.inside ? cutTools[i] : before ? tryOp(() => before.intersect(a.tool)) : null)), diag);
   let clip = null;
   if (before) {
     const b = bbox(before), m = b.diag * 0.05;
@@ -2224,10 +2235,12 @@ async function rebuild(doc, previewId = null, opts = {}) {
   // two steps, the cuts of the last feature apart from the others: that feature is the one most often edited, and
   // then "all the others" is the same as last time (cutMemo), so only its own cut is made again and the faces left
   // as they were keep their meshes.
-  const flushCuts = () => {
+  // whole: in one step (for the feature being previewed, which needs the body as it is before it: then the same
+  // step as "all the others" of the last feature in a full rebuild, and the same at each preview while it is edited)
+  const flushCuts = (whole = false) => {
     if (!pending.length) return;
     const lastFid = pending[pending.length - 1].fid;
-    const earlier = pending.filter((x) => x.fid !== lastFid), own = pending.filter((x) => x.fid === lastFid);
+    const earlier = whole ? [] : pending.filter((x) => x.fid !== lastFid), own = whole ? pending : pending.filter((x) => x.fid === lastFid);
     pending = [];
     if (earlier.length) cutTogether(earlier);
     cutTogether(own);
@@ -2401,7 +2414,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
     if (f.suppressed) { if (entries) entries[fi] = { id: f.id, json: fjson[fi], snap: takeSnap() }; continue; }
     // (a feature that needs the body as it really is: the waiting cuts made first)
     deferNow = canDefer(f);
-    if (!deferNow) { try { flushCuts(); } catch (e) { if (isFatal(e)) throw e; } }
+    if (!deferNow) { try { flushCuts(f.id === previewId); } catch (e) { if (isFatal(e)) throw e; } }
     const bodyIn = body, solidsIn = solids, surfacesIn = surfaces;
     const tf = performance.now();
     cur = f;
