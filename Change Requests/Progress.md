@@ -632,4 +632,5 @@ Skipped for now (from the list of 2026-10-21):
 
 ## More improvements (user 2026-10-21: "Do all": mesh imports kept, section arrow, huge imports in assemblies, several section planes, face descriptions, release 0.16.0-beta)
 - [x] 1. Mesh imports kept: importShape stores every import >= 2e6 characters (key: SHA-256 of format | triangle limit | data), with its notes (dense, open, reduced) as a JSON line before the BREP. 3DBenchy import 17.3 -> 2.6 s (BREP read 1.1 s vs import 8.1 s on a quiet run). Test import-store: + a generated STL sphere (31 200 triangles).
+- [x] 3. Section arrow end on: Viewport.dragAlong (screen projection of the direction; seen shorter than 1/4: up the screen = toward the viewer), used by the section arrow and the exploded view's drag. Test section-from-face: + an end-on drag (right view).
 

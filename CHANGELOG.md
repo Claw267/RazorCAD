@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 22:16 — Dragging along a direction that points at you
+- The Section View arrow, and items dragged in an exploded view, move along their direction as the screen shows it, as before. When that direction points (nearly) straight at you, so that it hardly shows on the screen, moving the mouse up the screen now moves them toward you and down away from you. Before, the drag barely moved them, or moved them unpredictably, until the view was turned.
+- One rule for both (Viewport.dragAlong).
+- The section-from-face test now also drags the arrow seen end on.
+
 ## 2026-10-21 22:13 — Big mesh imports (STL, OBJ, 3MF) kept too
 - Big mesh imports are now kept in the store of models built as well, like big STEP imports: their triangles simplified and joined into a solid once, then read back from the store wherever the part is built again. 3DBenchy (225,706 triangles, simplified to 79,448): the import 2.6 s instead of 17.3 s, the whole build 9.7 s instead of 25.7 s; the same solid, and the note of how it was simplified kept.
 - Kept with the triangle limit set in the import: a different limit makes a different solid, so it is read from the file again.

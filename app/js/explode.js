@@ -189,22 +189,17 @@ export class ExplodeTool {
     if (e.button !== 0 || this.pickDir) return false;
     const id = this.host.itemAt(e);
     if (!id || !this.sel.has(id)) return false;
-    const dir = new THREE.Vector3(...this.dir), cam = new THREE.Vector3();
-    this.vp.camera.getWorldDirection(cam);
-    // the plane holding the direction that faces the view most
-    let n = cam.clone().sub(dir.clone().multiplyScalar(cam.dot(dir)));
-    if (n.length() < 1e-6) n = new THREE.Vector3(0, 1, 0).cross(dir);
-    n.normalize();
+    const dir = new THREE.Vector3(...this.dir).normalize();
     const off = this.offsets().get(id) || [0, 0, 0];
     const o = new THREE.Vector3(...this.host.itemCenter(id).map((x, i) => x + off[i]));
-    this.drag = { n, o, dir, from: this.vp.rayPlane(e, { n, o }), dist0: Number(this.dist) || 0, x: e.clientX, y: e.clientY };
+    // (dragged along the direction as the screen shows it; seen end on, up the screen is toward the viewer)
+    this.drag = { o, dir, from: { clientX: e.clientX, clientY: e.clientY }, dist0: Number(this.dist) || 0, x: e.clientX, y: e.clientY };
     return true;
   }
   move(e) {
     const d = this.drag;
     if (!d) return false;
-    const p = this.vp.rayPlane(e, { n: d.n, o: d.o });
-    const s = p.clone().sub(d.from).dot(d.dir);
+    const s = this.vp.dragAlong(d.dir, d.o, d.from, e);
     const step = Math.max(0.5, this.vp.worldPerPixel() * 4);
     this.dist = Math.round((d.dist0 + s) / step) * step;
     this.dist = Math.round(this.dist * 1000) / 1000;

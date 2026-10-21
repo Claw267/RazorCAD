@@ -3753,25 +3753,19 @@ class App {
   // Dragging the section arrow: the offset follows the mouse along the section's normal, in round steps.
   sectionDragDown(e) {
     if (this.pm?.kind !== 'section' || e.button !== 0 || !this.viewport.sectionArrowAt(e)) return false;
-    const vp = this.viewport, { n } = this.sectionFrame(), cam = new THREE.Vector3();
-    vp.camera.getWorldDirection(cam);
-    // the plane holding the normal that faces the view most
-    let pn = cam.clone().sub(n.clone().multiplyScalar(cam.dot(n)));
-    if (pn.length() < 1e-6) pn = new THREE.Vector3(0, 1, 0).cross(n);
-    if (pn.length() < 1e-6) pn = new THREE.Vector3(1, 0, 0).cross(n);
-    pn.normalize();
-    const o = vp._secArrow.group.position.clone();
+    const vp = this.viewport, { n } = this.sectionFrame();
     vp.controls.drag = null; // (the press moves the cut: no view rotation)
     try { vp.canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
-    this._secDrag = { n, pn, o, from: vp.rayPlane(e, { n: pn, o }), off0: this.sectionOffset() };
+    // (dragged along the normal as the screen shows it; seen end on, up the screen is toward the viewer: dragAlong)
+    this._secDrag = { n: n.clone().normalize(), o: vp._secArrow.group.position.clone(), from: { clientX: e.clientX, clientY: e.clientY }, off0: this.sectionOffset() };
     return true;
   }
   sectionDragMove(e) {
     const d = this._secDrag;
     if (!d) return false;
-    const vp = this.viewport, p = vp.rayPlane(e, { n: d.pn, o: d.o });
+    const vp = this.viewport;
     const step = 10 ** Math.ceil(Math.log10(Math.max(1e-6, vp.worldPerPixel())));
-    const off = Math.round(Math.round((d.off0 + p.clone().sub(d.from).dot(d.n)) / step) * step * 1e6) / 1e6;
+    const off = Math.round(Math.round((d.off0 + vp.dragAlong(d.n, d.o, d.from, e)) / step) * step * 1e6) / 1e6;
     if (off !== this.sectionState.offset) {
       this.sectionState.offset = off;
       this.applySection();

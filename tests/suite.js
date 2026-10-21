@@ -2240,6 +2240,13 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
       const field = document.querySelector('#pm .sec-offset input')?.value;
       const dragOff = s.offset;
       const dragged = Math.abs(s.offset - want) <= step && Math.abs(vp.section.constant - (side.d + s.offset)) < 1e-6 && q0.angleTo(vp.camera.quaternion) < 1e-9 && Number(field) === s.offset;
+      // seen end on (looking along the arrow, from the side it points to): 100 px up the screen moves it toward the viewer
+      vp.setStandardView('right', false); vp.zoomToFit(null, false); vp.camera.updateMatrixWorld(); vp._secArrow.place();
+      const [ex, ey] = toScreen(g.position), wpp2 = vp.worldPerPixel(), step2 = 10 ** Math.ceil(Math.log10(wpp2)), off1 = s.offset;
+      fire('pointerdown', ex, ey, b);
+      for (let k = 1; k <= 10; k++) { fire('pointermove', ex, ey - 10 * k, b); await wait(5); }
+      fire('pointerup', ex, ey - 100, { ...b, buttons: 0 }); await wait(50);
+      const endOn = Math.abs(s.offset - off1 - 100 * wpp2) <= step2;
       // click the top face: the section moves onto it
       vp.setStandardView('iso', false); vp.zoomToFit(null, false); vp.camera.updateMatrixWorld();
       let at = null;
@@ -2251,9 +2258,9 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
       const moved = !!at && s.custom.n.y > 0.999 && s.offset === 0 && Math.abs(vp.section.constant - at[2]) < 1e-6;
       await a.okPM();
       const kept = !a.pm && !!vp.section && !vp._secArrow;
-      const ok = started && dragged && moved && kept;
-      return ok ? { ok: true, detail: `started on the side face (x = ${side.d}); arrow dragged 150 px: offset ${dragOff} mm (${want.toFixed(2)} by the drag), the view unchanged; clicked the top face: cut at y = ${at[2]}; OK: cut kept, arrow gone` }
-        : { ok: false, detail: `started ${started}, dragged ${dragged} (offset ${s.offset}, want ${want.toFixed(2)}, field ${field}), moved ${moved}, kept ${kept}` };
+      const ok = started && dragged && endOn && moved && kept;
+      return ok ? { ok: true, detail: `started on the side face (x = ${side.d}); arrow dragged 150 px: offset ${dragOff} mm (${want.toFixed(2)} by the drag), the view unchanged; end on, up the screen moves it toward the viewer; clicked the top face: cut at y = ${at[2]}; OK: cut kept, arrow gone` }
+        : { ok: false, detail: `started ${started}, dragged ${dragged} (offset ${dragOff}, want ${want.toFixed(2)}, field ${field}), end on ${endOn} (${s.offset}), moved ${moved}, kept ${kept}` };
     } finally {
       a.clearSection();
       a.dirty = false;

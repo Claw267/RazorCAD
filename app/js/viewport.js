@@ -1066,6 +1066,22 @@ export class Viewport {
     return this.raycaster;
   }
 
+  // How far along dir (unit, THREE.Vector3) the pointer has dragged something at `at` (a point), from `from` to `ev`
+  // (client coordinates): the movement along dir as the screen shows it; or, when dir points (nearly) at the viewer
+  // (seen shorter than a quarter of its length), the movement up the screen, toward the viewer
+  dragAlong(dir, at, from, ev) {
+    const cam = this.camera;
+    cam.updateMatrixWorld();
+    const R = this.canvas.getBoundingClientRect(), wpp = this.worldPerPixel();
+    const p0 = at.clone().project(cam), p1 = at.clone().addScaledVector(dir, wpp).project(cam);
+    // (pixels on the screen for one pixel's length along dir)
+    const sx = ((p1.x - p0.x) * R.width) / 2, sy = (-(p1.y - p0.y) * R.height) / 2, L = Math.hypot(sx, sy);
+    const mx = ev.clientX - from.clientX, my = ev.clientY - from.clientY;
+    if (L >= 0.25) return ((mx * sx + my * sy) / (L * L)) * wpp;
+    const toward = dir.dot(new THREE.Vector3(0, 0, 1).applyQuaternion(cam.quaternion)) >= 0 ? 1 : -1;
+    return -my * wpp * toward;
+  }
+
   rayPlane(ev, frame) {
     this.aimRay(ev);
     const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(frame.n, frame.o);
