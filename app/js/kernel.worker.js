@@ -232,11 +232,42 @@ function bbox(shape) {
   let r = bboxCache.get(shape);
   if (!r && shape._parts) { r = bboxOfAll(shape._parts); bboxCache.set(shape, r); }
   if (!r) {
-    const b = shape.boundingBox.bounds;
+    const b = faceBoxUnion(shape) || shape.boundingBox.bounds;
     r = { min: b[0], max: b[1], center: mul(add(b[0], b[1]), 0.5), diag: len(sub(b[1], b[0])) };
     bboxCache.set(shape, r);
   }
   return r;
+}
+// The precise box of a shape made of faces, as the union of its faces' precise boxes, each kept with its face (a
+// feature leaves most faces as they were, so only the new ones are worked out: OpenCascade's precise box of a whole
+// big body takes a while). null for anything with loose edges or vertices (they are boxed the usual way).
+function faceBoxUnion(shape) {
+  const oc = R.getOC(), T = oc.TopAbs_ShapeEnum, raw = shape.wrapped;
+  for (const [t, avoid] of [['TopAbs_EDGE', 'TopAbs_FACE'], ['TopAbs_VERTEX', 'TopAbs_EDGE']]) {
+    const ex = new oc.TopExp_Explorer(raw, T[t], T[avoid]);
+    const loose = ex.More();
+    ex.delete();
+    if (loose) return null;
+  }
+  const faces = exploreAll(raw, 'TopAbs_FACE');
+  if (!faces.length) return null;
+  const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+  try {
+    for (const f of faces) {
+      let b = keptFind(FACE_BOXES, f, 'box');
+      if (b === undefined) {
+        const bx = new oc.Bnd_Box();
+        try {
+          oc.BRepBndLib.AddOptimal(f, bx, false, false);
+          if (bx.IsVoid()) b = null;
+          else { const lo = bx.CornerMin(), hi = bx.CornerMax(); b = [[lo.X(), lo.Y(), lo.Z()], [hi.X(), hi.Y(), hi.Z()]]; lo.delete(); hi.delete(); }
+        } finally { bx.delete(); }
+        keptAdd(FACE_BOXES, f, 'box', b, (x) => oc.TopoDS.Face(x));
+      }
+      if (b) for (let k = 0; k < 3; k++) { if (b[0][k] < min[k]) min[k] = b[0][k]; if (b[1][k] > max[k]) max[k] = b[1][k]; }
+    }
+  } finally { faces.forEach((f) => f.delete()); }
+  return min[0] <= max[0] ? [min, max] : null;
 }
 
 // Smallest possible distance from point p to anything inside box (0 when p is inside).
@@ -599,7 +630,7 @@ function surfOf(face) {
 // the same one, in the same place, the same way round), and only the new ones are meshed and sampled.
 // replicad's mesh extractor meshes every face again each time, which on a big body (a golf ball: 114 000
 // triangles) takes over a second. Kept for the faces and edges of the last few bodies meshed.
-const FACE_MESHES = new Map(), EDGE_POINTS = new Map(); // hash → [{ shape, key, data, used }]
+const FACE_MESHES = new Map(), EDGE_POINTS = new Map(), FACE_BOXES = new Map(); // hash → [{ shape, key, data, used }]
 let meshGen = 0;
 const KEEP_GENS = 6, KEEP_MAX = 60000;
 const hashOf = (raw) => R.getOC().ReplicadShapeHasher.HashCode(raw, R.HASH_CODE_MAX);
@@ -607,7 +638,7 @@ function keptFind(store, raw, key) {
   const list = store.get(hashOf(raw));
   const hit = list?.find((x) => x.key === key && x.shape.IsEqual(raw));
   if (hit) hit.used = meshGen;
-  return hit?.data;
+  return hit ? hit.data : undefined;
 }
 function keptAdd(store, raw, key, data, copy) {
   const h = hashOf(raw);
@@ -736,7 +767,7 @@ function meshPart(s, tol, diagQ, onWork, ang = 0.2) {
   }
   const out = { tol, ang, diagQ, kind: s.kind, look: s.look || null, m, gs, dense, facePts, edges, surfs, faceLooks };
   meshCache.set(s.shape, out);
-  keptPrune(FACE_MESHES); keptPrune(EDGE_POINTS);
+  keptPrune(FACE_MESHES); keptPrune(EDGE_POINTS); keptPrune(FACE_BOXES);
   return out;
 }
 

@@ -6,6 +6,12 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 14:35 — Faster edits on big parts
+- **Editing a feature on a big part is about a third quicker.** Giant Golfball, its last dimple moved: about 0.75 s instead of 1.15 s.
+  - **Body boxes from their faces:** a body's precise bounding box is now the union of its faces' boxes, each kept with its face, so after a feature only the new faces are boxed. The result is identical (checked on the golf ball: the same box to the last digit). It used to take 0.3 s on the golf ball every time it was meshed: 0.7 ms now.
+  - **Faces and edges listed quickly:** listing a shape's faces, edges or vertices compared each one with every one met before (the golf ball's 367 edges: about 270 000 comparisons, 0.16 s). They are now grouped by hash code first: the same list, in the same order, in a few milliseconds. This helps everywhere the kernel lists topology.
+- What is left of an edit is mostly meshing the faces the feature changed. On the golf ball that is the ball's big face with every dimple hole in it (17 500 triangles, 0.43 s), meshed by Open CASCADE as one face.
+
 ## 2026-10-21 13:56 — Multi-threaded geometry kernel
 - **Each open part's kernel now runs multi-threaded.** Open CASCADE splits booleans (cuts, joins and the features built on them) and meshing over several threads. It uses replicad's multi-threaded build of the same kernel (the same Open CASCADE bindings, commit a0bc495), so parts build exactly as before: the same volumes, areas, faces and edges.
   - Measured: a sheet metal tray 4.5 s → 2.0 s; the feature-states test (13 parts) 8.4 s → 4.5 s; the Giant Golfball 6.0 s → 4.7 s; the whole regression run 56 s → 51 s. Small parts are about the same.

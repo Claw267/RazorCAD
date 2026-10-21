@@ -1210,13 +1210,19 @@ var definitions = () => {
 var asTopo = (entity) => definitions().shapeEnum[entity];
 var downcastTo = (shape, entity) => definitions().downcast[entity](shape);
 function* iterTopo(shape, topo) {
-	const explorer = new (getOC()).TopExp_Explorer(shape, asTopo(topo), asTopo("shape"));
+	const oc = getOC();
+	const explorer = new oc.TopExp_Explorer(shape, asTopo(topo), asTopo("shape"));
 	try {
-		const seen = [];
+		// RazorCAD: the items met so far grouped by hash code (the same for the same item), so each new one is
+		// compared only with those of its hash, not with every one before (367 edges: 270 000 comparisons)
+		const seen = new Map();
 		while (explorer.More()) {
 			const item = explorer.Current();
-			if (!seen.some((s) => s.IsSame(item))) {
-				seen.push(item);
+			const h = oc.ReplicadShapeHasher.HashCode(item, HASH_CODE_MAX);
+			let bucket = seen.get(h);
+			if (!bucket) seen.set(h, bucket = []);
+			if (!bucket.some((s) => s.IsSame(item))) {
+				bucket.push(item);
 				yield downcastTo(item, topo);
 			}
 			explorer.Next();

@@ -27,7 +27,8 @@ Each change is marked with a `RazorCAD:` comment or uses a `razorcad` name.
   of threads a kernel starts, and the processor count Open CASCADE sees, taken from `razorcadThreads`. The changes
   are made by `tools/patch_replicad_multi.py` from the published file (replicad commit a0bc495).
 - `app/vendor/replicad/replicad.js` and `casting-rs4QjB74.js` (replicad, MIT): temporary objects are freed
-  straight after use.
+  straight after use. `iterTopo` in `casting-rs4QjB74.js` groups the shapes it has met by hash code, so
+  listing faces and edges doesn't compare each with all the others.
 
 `replicad_single.wasm` and `replicad_multi.wasm` (Open CASCADE) are not modified. As the LGPL requires, you may replace these library
 files with your own modified versions: they are plain files in this repository, and `build.bat` bundles them
