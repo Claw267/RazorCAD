@@ -227,7 +227,9 @@ function runsFace(runs, tol = 1e-3) {
     else edges.push(R.makeBSplineApproximation(P.map((q) => P3(q)), { tolerance: tol, degMax: 5 }));
   }
   if (edges.length < 2) return null;
-  const face = R.makeFace(R.assembleWire(edges));
+  // (runs whose ends don't quite meet: null, and the caller traces the outline as points)
+  let face;
+  try { face = R.makeFace(R.assembleWire(edges)); } catch { return null; }
   return face && R.measureArea(face) > 1e-12 ? upFaces(face) : null;
 }
 
@@ -2860,7 +2862,7 @@ export function fromSolid(solid, picked, { R: R0, K, t: tSet = null, Rset = null
   const idx = new Map([...planes.map((F, k) => [F, k]), ...jl.map((J, k) => [J, planes.length + k])]);
   for (const L of links) { L.i = idx.get(L.i); L.j = idx.get(L.j); }
   const radius = Rset ?? (links.length ? links[0].R : R0);
-  const sheet = fromFaces(faces, idx.get(P0), { t: tUse, R: Rset ?? R0, K, connectedOnly: true, links, joints: jl.map((J) => ({ n: J.n })) });
+  let sheet = fromFaces(faces, idx.get(P0), { t: tUse, R: Rset ?? R0, K, connectedOnly: true, links, joints: jl.map((J) => ({ n: J.n })) });
   // what the body has (shown in the feature's panel): its thickness, the inside radii of its bends, and
   // how many sharp edges became bends
   const radii = [];
@@ -2868,7 +2870,125 @@ export function fromSolid(solid, picked, { R: R0, K, t: tSet = null, Rset = null
   const sharp = sheet.bends.length - links.length;
   const detected = { kind: 'solid', t, radii, bends: links.length, sharp };
   // exact: the body's own thickness and bends throughout, so the sheet should hold just the body's material
-  return { sheet: { ...sheet, R: radius }, exact: !sharp && tSet == null && Rset == null, detected };
+  const exact = !sharp && tSet == null && Rset == null;
+  // (corners closed by RazorCAD itself: made again exactly as it made them, when the body is one of its own)
+  const own = exact ? exactCorners(sheet, solid) : null;
+  if (own) { sheet = own; detected.corners = own.corners.length; }
+  return { sheet: { ...sheet, R: radius }, exact, detected };
+}
+
+// Closed corners as RazorCAD makes them (Edge Flange's and Closed Corner's), converted exactly. A body that was
+// folded by RazorCAD comes out of the conversion with each corner bend ending short of the corner point by the V
+// cutout's relief (or at it: a closed mitre or butt corner) and its wall running on past it as the corner made it.
+// From those each corner is worked out (which wall covers the other's end, or both mitred; the gap), its bends
+// lengthened to the corner point and formed as usual (no zone of their own), the corner closed as closedCorner
+// closes it. Kept only when the folded solid is the body (its volume, area and box); else null, and the corners
+// stay as traced from the body. (A butt corner read from a STEP file may keep a seam where a wall's mitred run-on
+// joins it: the file moves the wall by a ten-millionth of a mm.)
+const CORNER_TOL = 1e-4;
+// (volume and area to 3 parts in a million: OpenCascade's measure of a curved corner's B-spline faces is no closer;
+// a corner made with a gap 0.01 mm off differs ten times as much)
+const EXACT_TOL = 3e-6;
+export function exactCorners(sheet, solid) {
+  const t = sheet.t;
+  const pairs = cornerPairs(sheet).filter(({ A, B }) => A.zone && B.zone && A.up === B.up && Math.abs(A.R - B.R) < 1e-9
+    && Math.abs(A.ang - Math.PI / 2) < 1e-3 && Math.abs(B.ang - Math.PI / 2) < 1e-3 && Math.abs(d2(A.e, B.d)) > 0.999 && Math.abs(d2(B.e, A.d)) > 0.999);
+  if (!pairs.length) return null;
+  const fs = facesOf(sheet.region);
+  // a bend lengthened to the corner point Q at its corner end (it ends short of it by the relief)
+  const toQ = (b, X, Q) => {
+    const atEnd = d2(s2(X, b.p0), b.e) > b.w / 2;
+    const dq = atEnd ? d2(s2(Q, b.p0), b.e) - b.w : -d2(s2(Q, b.p0), b.e);
+    return { dq, atEnd, b: atEnd ? { ...b, w: b.w + dq } : { ...b, p0: a2(b.p0, m2(b.e, -dq)), w: b.w + dq } };
+  };
+  // how far a bend's wall runs on past the bend's corner end (measured half way up the wall)
+  const runOn = (b, atEnd) => {
+    const h = wallHeight(sheet.region, b);
+    if (!(h > 1e-6)) return null;
+    const Pe = a2(b.p0, m2(b.e, atEnd ? b.w : 0)), dir = m2(b.e, atEnd ? 1 : -1), at = (x) => a2(a2(Pe, m2(dir, x)), m2(b.d, b.ba + h / 2));
+    if (!faceAt(fs, at(-1e-4))) return null;
+    let lo = -1e-4, hi = 4 * (b.R + t) + 10;
+    if (faceAt(fs, at(hi))) return null;
+    for (let i = 0; i < 60; i++) { const m = (lo + hi) / 2; if (faceAt(fs, at(m))) lo = m; else hi = m; }
+    return { ext: Math.max(0, lo), h, Pe, dir };
+  };
+  const bends = new Map(sheet.bends.map((b) => [b.id, b]));
+  const found = [];
+  for (const pr of pairs) {
+    const Q = cornerUV(pr.A, pr.B)?.(0, 0);
+    if (!Q) return null;
+    const a = toQ(bends.get(pr.A.id), pr.X, Q), b = toQ(bends.get(pr.B.id), pr.X, Q);
+    if (a.dq < -CORNER_TOL || b.dq < -CORNER_TOL || Math.abs(a.dq - b.dq) > CORNER_TOL) return null;
+    const A = a.b, B = b.b, wa = runOn(A, a.atEnd), wb = runOn(B, b.atEnd);
+    if (!wa || !wb) return null;
+    // the walls' ends as closedCorner puts them: to the other's outer face (covering its end), or its inner face
+    const reach = (w, O, extra) => (O.R + extra - d2(s2(w.Pe, O.p0), O.d)) / d2(w.dir, O.d);
+    const outerA = reach(wa, B, t), innerA = reach(wa, B, 0), outerB = reach(wb, A, t), innerB = reach(wb, A, 0);
+    let rec = null;
+    if (Math.abs(wa.ext - outerA) < CORNER_TOL && innerB - wb.ext > -CORNER_TOL) rec = { A, B, gap: Math.max(0, innerB - wb.ext), type: 'overlap' };
+    else if (Math.abs(wb.ext - outerB) < CORNER_TOL && innerA - wa.ext > -CORNER_TOL) rec = { A: B, B: A, gap: Math.max(0, innerA - wa.ext), type: 'overlap' };
+    else if (Math.abs((innerA - wa.ext) - (innerB - wb.ext)) < CORNER_TOL && innerA + t - wa.ext > -CORNER_TOL) rec = { A, B, gap: Math.max(0, innerA + t - wa.ext) * Math.SQRT2, type: 'butt' };
+    if (!rec) return null;
+    rec.gap = Math.round(rec.gap * 1e5) / 1e5;
+    // a V cutout: the bends end short of the corner point by its relief; a closed mitre or butt corner: at it
+    rec.bend = rec.type === 'butt' ? 'vcut' : a.dq > CORNER_TOL ? 'vcut' : 'mitre';
+    if (rec.type !== 'butt' && rec.bend === 'vcut' && Math.abs(a.dq - vcutRelief(t, rec.gap)) > CORNER_TOL) return null;
+    if (rec.type === 'butt' && a.dq > CORNER_TOL) return null;
+    rec.ha = (rec.A === A ? wa : wb).h; rec.hb = (rec.A === A ? wb : wa).h;
+    found.push(rec);
+    bends.set(A.id, A); bends.set(B.id, B);
+  }
+  // (a bend at two corners: lengthened at both ends, its final version used for both)
+  for (const c of found) { c.A = bends.get(c.A.id); c.B = bends.get(c.B.id); }
+  // each corner as closedCorner closes it: how far each wall runs on in the flat (to the other's outer face, or its
+  // inner face less the gap; a butt corner's both to the inner face less the mitre's share of the gap)
+  const records = found.map((c) => {
+    const Q = cornerUV(c.A, c.B)(0, 0);
+    const end = (b) => { const atEnd = d2(s2(Q, b.p0), b.e) > b.w / 2; return { Pe: a2(b.p0, m2(b.e, atEnd ? b.w : 0)), dir: m2(b.e, atEnd ? 1 : -1) }; };
+    const ea = end(c.A), eb = end(c.B), c45 = c.gap / Math.SQRT2, butt = c.type === 'butt';
+    const extA = (c.B.R + (butt ? 0 : t) - d2(s2(ea.Pe, c.B.p0), c.B.d)) / d2(ea.dir, c.B.d) - (butt ? c45 : 0);
+    const extB = (c.A.R - d2(s2(eb.Pe, c.A.p0), c.A.d)) / d2(eb.dir, c.A.d) - (butt ? c45 : c.gap);
+    return { c, ea, eb, extA, extB, rec: { a: c.A.id, b: c.B.id, gap: c.gap, type: butt ? 'butt' : 'overlap', bend: c.bend, ea: extA, eb: extB, ...(butt ? { ha: c.ha, hb: c.hb } : {}) } };
+  });
+  // the corner bends formed as usual, over their strips: the pattern without their traced zones, with the strips;
+  // the panel's corner filled where the V cutout's round took it away (the round is made again when folding); a butt
+  // corner's walls cut back to where the flat pattern ends them (the mitred rest is added when folding)
+  let region = sheet.region.clone();
+  const done = new Set();
+  for (const { c, ea, eb, extA, extB } of records) {
+    for (const bd of [c.A, c.B]) {
+      if (done.has(bd.id)) continue;
+      done.add(bd.id);
+      const old = sheet.bends.find((x) => x.id === bd.id);
+      region = bop('cut', region, old.zone.clone());
+      const { zone: _z, ...plain } = bd;
+      bends.set(bd.id, plain);
+      region = bop('fuse', region, stripFace(bd));
+    }
+    if (c.type === 'butt') {
+      for (const [bd, e, ext, h] of [[c.A, ea, extA, c.ha], [c.B, eb, extB, c.hb]]) {
+        region = bop('cut', region, rectFace(a2(a2(e.Pe, m2(e.dir, ext)), m2(bd.d, bd.ba)), e.dir, bd.d, 4 * (bd.R + t) + 10, h + 1));
+      }
+    } else if (c.bend === 'vcut') {
+      const at = cornerUV(c.A, c.B), s = 2 * vcutRelief(t, c.gap) + t;
+      region = bop('fuse', region, polyFace([at(0, 0), at(-s, 0), at(-s, -s), at(0, -s)]));
+    }
+  }
+  // (the pattern's faces that meet merged: each panel one face, folded in one piece)
+  const merged = clean(region);
+  if (merged !== region) { free(region); region = merged; }
+  const out = { ...sheet, bends: sheet.bends.map((b) => bends.get(b.id)), region, corners: [...(sheet.corners || []), ...records.map((r) => r.rec)] };
+  // kept only when it folds into the body: the same volume and area (EXACT_TOL) and box (a boolean between the two
+  // would be no test: on faces that lie on each other it goes wrong)
+  let sol = null;
+  try {
+    sol = toSolid(out);
+    const v0 = R.measureVolume(solid), v1 = R.measureVolume(sol), A0 = R.measureArea(solid), A1 = R.measureArea(sol);
+    const b0 = solid.boundingBox.bounds, b1 = sol.boundingBox.bounds;
+    if (!(Math.abs(v1 - v0) <= EXACT_TOL * v0) || !(Math.abs(A1 - A0) <= EXACT_TOL * A0)) return null;
+    if (!b0.every((p, i) => p.every((x, k) => Math.abs(x - b1[i][k]) <= 1e-5))) return null;
+    return out;
+  } catch { return null; } finally { free(sol); }
 }
 
 // ------------------------------------------------------------ convert a curved surface (a rolled sheet)

@@ -1083,6 +1083,7 @@ Turns an ordinary body into sheet metal. Pick a flat face of a thin-walled body 
 - Sharp-cornered bodies (shelled boxes) get bends of the chosen radius at every edge between two flat faces.
 - The panel shows what was found in the body, for example "thickness 3 mm · bend radii R300, R227, R13 (inside, 3 bends)" or "4 sharp edges".
 - **Use the body's thickness** and **Use the body's bend radii** are on by default. Untick either to set your own value (pre-filled with the detected one).
+- A body that RazorCAD folded itself (for example its STEP export) gets its closed corners back as RazorCAD made them: the corner type, which flange covers which and the gap are worked out from the body, and the relief and curved V lines are made again exactly. Other corners are traced from the body as they are.
 - After converting, the sheet's volume is compared with the body's. The feature note warns when they differ by more than 0.5 % (for example a nut or motor part that isn't sheet metal).
 - A **curved surface** that is curved one way only (a cylinder, or a profile swept straight) is converted into a rolled sheet: its section is followed by smoothly joined arcs, each a bend of its own radius. **Arc fit tolerance** (default 0.05 mm) sets how closely it follows the surface. **Thickness** goes behind the surface, in front of it, or both sides.
 - **Trim where the sheet would run into itself** (on by default) trims a rolled sheet back where its two ends would meet, leaving a small clearance.

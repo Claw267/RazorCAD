@@ -6,6 +6,12 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-22 09:21 — Convert to Sheet Metal: RazorCAD's own closed corners made again exactly
+- A body folded by RazorCAD (for example its STEP export) has its closed corners recognised when converted: each corner's bends end short of the corner point by the V cutout's relief (or at it, for a closed mitre or a butt corner) and its walls run on past them as the corner made them. From those the corner is worked out (which wall covers the other's end, or both mitred; the gap) and closed as RazorCAD closes it: the bends formed over their own strips, the relief round and the curved V lines made again. It is kept only when the folded sheet has the body's volume, area and box; any other corner is traced from the body as before.
+- The test tray (V cutout corners with their relief, gap 0.2): 63 faces as before, the volume the same (it was 67 faces); a closed mitre corner: the same faces and volume (it was 0.023 % off); a butt corner: the same volume to a millionth (it was 0.19 % off; a seam may stay where a wall's mitred run-on joins it, as the STEP file moves the wall by a ten-millionth of a mm). The flat patterns come out the size of RazorCAD's own (checked for the open, 120°, butt and mitre variants).
+- Fixed: converting a body straight after modelling it (not through a STEP file) could stop with "disconnected wire" where a bend's traced outline didn't quite close; the outline is then traced as points.
+- Tests: convert-sheet-corners (the four corners known, the same faces and volume), convert-sheet-variants (mitre exact, butt to a millionth).
+
 ## 2026-10-22 09:00 — Section views saved with the part or assembly
 - A part or assembly saved with a section view on keeps it in its file (its planes, offsets, flips, a plane picked from a face, Sections 2 and 3); opening the file puts the cut on again, as after OK (the Section View button opens its panel). Saved without a cut, the file has none. The stored model's key leaves the section out, so a part saved with one still opens from the stored model.
 - Each tab keeps its own cut: switching to another part or assembly shows that one's (or none), and coming back puts the cut on again (before, switching tabs took it away).

@@ -1803,11 +1803,9 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
   },
 
   // Convert to Sheet Metal, corners: the sheet-metal tray (closed corners, V cutout) written to STEP, read back
-  // as a plain body and converted: nothing outside the body (the bends' run-ons into the corners were folded flat
-  // with the walls, sticking out below the base), the same volume to 0.1 % (RazorCAD's corners have a small relief
-  // the conversion leaves out); converted again (corners as formed, with no relief, as other CAD programs make
-  // them), the same part again: the same faces, box and volume. Measuring the tray (its
-  // closed corners' B-spline faces): the exact volume, quickly (it took 16 s)
+  // as a plain body and converted: its four corners known for RazorCAD's own and made again as it made them (the
+  // relief, the curved V lines): the same faces and volume, nothing outside the body; converted again, the same part
+  // again. Measuring the tray (its closed corners' B-spline faces): the exact volume, quickly (it took 16 s)
   async 'convert-sheet-corners'() {
     // (the part's own kernel, with its threads)
     const k = window.app.kernel, pool = { request: (type, data) => k.request(type, data) }, aff = null;
@@ -1832,10 +1830,11 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
       d.features.push(imp);
       const r0 = await pool.request('rebuild', { doc: JSON.stringify(d) }, aff);
       const before = shape(r0), v0 = before.volume;
-      d.features.push(M.createFeature(d, 'smConvert', { face: { p: [0, 0, 0], n: [0, -1, 0], body: before.id } }));
+      const cf = M.createFeature(d, 'smConvert', { face: { p: [0, 0, 0], n: [0, -1, 0], body: before.id } });
+      d.features.push(cf);
       const r = await pool.request('rebuild', { doc: JSON.stringify(d) }, aff);
       const after = shape(r);
-      return { r, before, after, v0, v1: after.volume };
+      return { r, before, after, v0, v1: after.volume, corners: r.detected?.[cf.id]?.corners || 0 };
     };
     const inside = (a, b, tol) => a.min.every((x, k) => x >= b.min[k] - tol) && a.max.every((x, k) => x <= b.max[k] + tol);
     const r0 = await pool.request('rebuild', { doc: JSON.stringify(tray) }, aff);
@@ -1845,10 +1844,10 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     const c2 = await convert(await step(c1.r));
     const same = (a, b) => a.min.every((x, k) => Math.abs(x - b.min[k]) < 1e-4) && a.max.every((x, k) => Math.abs(x - b.max[k]) < 1e-4);
     const ok = measureMs < 3000 && Math.abs(v0 - 23759.4208) < 1e-3 && !c1.r.errors.length && !c2.r.errors.length && c1.after.sheet && c2.after.sheet
-      && inside(c1.after, c1.before, 1e-3) && Math.abs(c1.v1 - c1.v0) / c1.v0 < 1e-3
+      && inside(c1.after, c1.before, 1e-3) && Math.abs(c1.v1 - c1.v0) / c1.v0 < 1e-5 && c1.after.faces === c1.before.faces && c1.corners === 4 && c2.corners === 4
       && c2.after.faces === c2.before.faces && same(c2.after, c2.before) && Math.abs(c2.v1 - c2.v0) / c2.v0 < 1e-5;
-    return ok ? { ok: true, detail: `tray measured in ${Math.round(measureMs)} ms (${v0.toFixed(4)} mm³); converted: ${c1.before.faces} → ${c1.after.faces} faces, inside the body, volume ${(100 * (c1.v1 - c1.v0) / c1.v0).toFixed(3)} %; converted again: the same to ${Math.abs(c2.v1 - c2.v0).toExponential(1)} mm³` }
-      : { ok: false, detail: `measure ${Math.round(measureMs)} ms, ${v0}; errors ${JSON.stringify([...c1.r.errors, ...c2.r.errors])}; first: faces ${c1.before.faces} → ${c1.after.faces}, ${JSON.stringify([c1.before.min, c1.before.max])} → ${JSON.stringify([c1.after.min, c1.after.max].map((v) => v.map((x) => +x.toFixed(4))))}, volume ${c1.v0} → ${c1.v1}; again: faces ${c2.before.faces} → ${c2.after.faces}, volume ${c2.v0} → ${c2.v1}` };
+    return ok ? { ok: true, detail: `tray measured in ${Math.round(measureMs)} ms (${v0.toFixed(4)} mm³); converted: its ${c1.corners} corners as RazorCAD made them, ${c1.before.faces} → ${c1.after.faces} faces, inside the body, volume ${(100 * (c1.v1 - c1.v0) / c1.v0).toFixed(6)} %; converted again: the same to ${Math.abs(c2.v1 - c2.v0).toExponential(1)} mm³` }
+      : { ok: false, detail: `measure ${Math.round(measureMs)} ms, ${v0}; corners ${c1.corners} / ${c2.corners}; errors ${JSON.stringify([...c1.r.errors, ...c2.r.errors])}; first: faces ${c1.before.faces} → ${c1.after.faces}, ${JSON.stringify([c1.before.min, c1.before.max])} → ${JSON.stringify([c1.after.min, c1.after.max].map((v) => v.map((x) => +x.toFixed(4))))}, volume ${c1.v0} → ${c1.v1}; again: faces ${c2.before.faces} → ${c2.after.faces}, volume ${c2.v0} → ${c2.v1}` };
   },
 
   // BOM mass and cost: a steel plate (60 × 40 × 5) and two aluminium blocks (20 × 20 × 15) with costs → masses from
@@ -2138,8 +2137,9 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     const cases = {
       open: { set: (d) => { d.features[2].corner = 'open'; }, exact: true },
       angle120: { set: (d) => { Object.assign(d.features[2], { corner: 'open', angle: 120, edges: d.features[2].edges.slice(0, 2) }); }, exact: true },
-      butt: { set: (d) => { d.features[2].corner = 'butt'; }, within: 0.005 },
-      mitre: { set: (d) => { d.features[2].cornerBend = 'mitre'; }, within: 0.005 },
+      // (RazorCAD's own corners made again as it made them: a butt corner's run-ons may join their walls along a seam)
+      butt: { set: (d) => { d.features[2].corner = 'butt'; }, within: 1e-6 },
+      mitre: { set: (d) => { d.features[2].cornerBend = 'mitre'; }, exact: true },
     };
     const out = [], bad = [];
     for (const [name, c] of Object.entries(cases)) {
@@ -2148,7 +2148,7 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
       const a = x.before[0], b = x.after[x.i] || {}, dv = (b.vol - a.vol) / a.vol;
       const ok = !x.r2.errors.length && x.conv && inside(b, a) && x.flat1 === x.flat0
         && (c.exact ? b.faces === a.faces && Math.abs(dv) < 1e-6 : Math.abs(dv) < c.within);
-      out.push(`${name} ${(dv * 100).toFixed(3)} %`);
+      out.push(`${name} ${(dv * 100).toFixed(c.exact ? 3 : 6)} %${b.faces !== a.faces ? ` (${a.faces} → ${b.faces} faces)` : ''}`);
       if (!ok) bad.push(`${name}: errors ${JSON.stringify(x.r2.errors)}, faces ${a.faces} → ${b.faces}, volume ${a.vol.toFixed(2)} → ${b.vol?.toFixed(2)}, inside ${x.conv && inside(b, a)}, flat ${x.flat0} → ${x.flat1}`);
     }
     // a hem: not converted, with the reason
