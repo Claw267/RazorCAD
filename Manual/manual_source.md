@@ -293,7 +293,7 @@ Lines, arcs and circles are exact; other curves become fine polylines. The file 
 
 | Action | Mouse / keys |
 |---|---|
-| Rotate (free, about the model centre) | Middle-drag, or left-drag on the model outside a sketch |
+| Rotate (free, about the point under the cursor where the drag starts: a red dot shows it) | Middle-drag, or left-drag on the model outside a sketch |
 | Pan | [[Shift]] + right-drag, or [[Ctrl]] + middle-drag |
 | Zoom | Mouse wheel (toward the cursor), or [[Shift]] + middle-drag |
 | Roll | [[Alt]] + middle-drag, or [[Alt]] + ← / → |

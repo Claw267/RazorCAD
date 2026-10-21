@@ -9,15 +9,17 @@
 //   a plain right click stays a right click (the context menu)
 //   Arrow keys ......... rotate 15° (Shift: 90°), Alt+←/→ roll, Ctrl+arrows pan
 //
-// Rotation pivots about `getPivot()` (the model's center), so the part spins in place
-// even after panning.
+// A drag rotates (and rolls) about the point under the cursor where it started (`pickPivot`: the model's
+// surface there, or that spot at the model's depth), so a part zoomed in on turns about what is being looked
+// at; `onPivot` shows it while dragging. The arrow keys (and a drag without pickPivot) rotate about
+// `getPivot()` (the model's center), so the part spins in place even after panning.
 import * as THREE from 'three';
 
 const ROTATE_PER_PIXEL = Math.PI / 600; // ~0.3° per pixel
 const HOLD_MS = 220;                      // right-button hold time before onButtonHold fires
 
 export class CadControls {
-  constructor(camera, dom, { getPivot, onChange } = {}) {
+  constructor(camera, dom, { getPivot, pickPivot, onPivot, onChange } = {}) {
     this.camera = camera;
     this.dom = dom;
     this.target = new THREE.Vector3();
@@ -25,6 +27,8 @@ export class CadControls {
     this.minZoom = 1e-9; // (no real limit out: a site layout tens of metres across still fits)
     this.maxZoom = 400;
     this.getPivot = getPivot || (() => this.target);
+    this.pickPivot = pickPivot || null; // (pointer event) => the point to rotate about, or null
+    this.onPivot = onPivot || (() => {}); // (point | null): the pivot while a rotation drag lasts
     this.onChange = onChange || (() => {});
     this.drag = null;
     this.onButtonHold = null; // (event) => true if it took over the press (the right button)
@@ -60,16 +64,16 @@ export class CadControls {
 
   // Screen-space rotation: horizontal motion turns about the screen's vertical axis,
   // vertical motion about the screen's horizontal axis.
-  rotateScreen(angleH, angleV) {
+  rotateScreen(angleH, angleV, pivot) {
     const { right, up } = this.axes();
     const q = new THREE.Quaternion().setFromAxisAngle(up, -angleH);
     q.multiply(new THREE.Quaternion().setFromAxisAngle(right, -angleV));
-    this.rotateAbout(q);
+    this.rotateAbout(q, pivot || undefined);
   }
 
-  roll(angle) {
+  roll(angle, pivot) {
     const { back } = this.axes();
-    this.rotateAbout(new THREE.Quaternion().setFromAxisAngle(back, angle));
+    this.rotateAbout(new THREE.Quaternion().setFromAxisAngle(back, angle), pivot || undefined);
   }
 
   worldPerPixel() {
@@ -157,18 +161,25 @@ export class CadControls {
         clearTimeout(d.hold);
         try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
         d.x = e.clientX; d.y = e.clientY;
+        // (the pivot: what was under the cursor where the drag started; found once the drag really starts, so
+        // a plain click costs nothing)
+        if ((d.mode === 'rotate' || d.mode === 'roll') && this.pickPivot) {
+          try { d.pivot = this.pickPivot({ clientX: d.sx, clientY: d.sy }) || null; } catch { d.pivot = null; }
+          if (d.pivot) this.onPivot(d.pivot);
+        }
       }
       const dx = e.clientX - d.x, dy = e.clientY - d.y;
       d.x = e.clientX; d.y = e.clientY;
-      if (d.mode === 'rotate') this.rotateScreen(dx * ROTATE_PER_PIXEL, dy * ROTATE_PER_PIXEL);
+      if (d.mode === 'rotate') this.rotateScreen(dx * ROTATE_PER_PIXEL, dy * ROTATE_PER_PIXEL, d.pivot);
       else if (d.mode === 'pan') this.pan(dx, dy);
       else if (d.mode === 'zoom') this.zoomAt(Math.exp(-dy * 0.01), d.sx, d.sy);
-      else if (d.mode === 'roll') this.roll(dx * ROTATE_PER_PIXEL);
+      else if (d.mode === 'roll') this.roll(dx * ROTATE_PER_PIXEL, d.pivot);
     });
     const end = (e) => {
       if (this.drag && e.pointerId === this.drag.id) {
         clearTimeout(this.drag.hold);
         try { el.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+        if (this.drag.pivot) this.onPivot(null);
         this.drag = null;
       }
     };

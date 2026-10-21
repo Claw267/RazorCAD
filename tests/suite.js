@@ -2065,6 +2065,53 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     a.ui.closeContext?.();
     return pans && still && turns ? { ok: true, detail: 'pan / no-op / rotate' } : { ok: false, detail: `pan ${pans}, plain right-drag unchanged ${still}, middle rotates ${turns}` };
   },
+
+  // turning the view about the cursor: zoomed in off the part's centre, a middle-drag started on the part turns
+  // about the point under the cursor (it stays there, and a dot shows it while dragging), one started over empty
+  // space about that spot at the part's depth; the arrow keys still turn about the part's centre
+  async 'rotate-about-cursor'() {
+    const a = window.app;
+    const text = await (await fetch('/tests/parts/plate-features.rcad')).text();
+    await a.openFromFile({ content: text, name: 'Rotate test.rcad', path: null });
+    for (let i = 0; i < 80 && !a.result?.bodies?.length; i++) await wait(100);
+    const { vp, fire, R, toScreen } = viewEvents();
+    try {
+      vp.zoomToFit(null, false);
+      vp.controls.zoomAt(4, R.left + R.width * 0.7, R.top + R.height * 0.4);
+      // a spot on the part far from the middle of the view, and one over empty space
+      let on = null, off = null;
+      for (let fx = 0.1; fx < 0.95; fx += 0.05) {
+        for (let fy = 0.1; fy < 0.95; fy += 0.05) {
+          const x = R.left + R.width * fx, y = R.top + R.height * fy, far = Math.hypot(fx - 0.5, fy - 0.5);
+          const slot = vp.pickBody({ clientX: x, clientY: y }) ? 'on' : 'off';
+          const cur = slot === 'on' ? on : off;
+          if (!cur || far > cur.far) { if (slot === 'on') on = { x, y, far }; else off = { x, y, far }; }
+        }
+      }
+      if (!on || !off) return { ok: false, detail: `no spot found on the part (${!!on}) or off it (${!!off})` };
+      const turn = async ({ x, y }) => {
+        const p = vp.pivotAt({ clientX: x, clientY: y }), b = { button: 1, buttons: 4 };
+        const q0 = vp.camera.quaternion.clone();
+        fire('pointerdown', x, y, b);
+        for (let i = 1; i <= 8; i++) { fire('pointermove', x + i * 15, y - i * 8, b); await wait(10); }
+        const dot = !!vp._pivotDot?.visible;
+        fire('pointerup', x + 120, y - 64, { ...b, buttons: 0 }); await wait(30);
+        const [sx, sy] = toScreen(p);
+        return { stays: Math.hypot(sx - x, sy - y), dot, gone: !vp._pivotDot?.visible, turned: q0.angleTo(vp.camera.quaternion) > 0.1 };
+      };
+      const r1 = await turn(on), r2 = await turn(off);
+      // the arrow keys: about the part's centre
+      const c = vp.rotationPivot(), [cx, cy] = toScreen(c);
+      vp.controls.key({ key: 'ArrowLeft' });
+      const [kx, ky] = toScreen(c), keyStays = Math.hypot(kx - cx, ky - cy);
+      const ok = [r1, r2].every((r) => r.stays < 0.5 && r.dot && r.gone && r.turned) && keyStays < 0.5;
+      return ok ? { ok: true, detail: `on the part: the point stays under the cursor (${r1.stays.toFixed(3)} px); empty space: ${r2.stays.toFixed(3)} px; the pivot shown while dragging; arrow keys about the centre` }
+        : { ok: false, detail: `on the part ${JSON.stringify(r1)}; empty space ${JSON.stringify(r2)}; arrow key moved the centre ${keyStays.toFixed(2)} px` };
+    } finally {
+      a.dirty = false;
+      await a.closeTab(a.tabIndex);
+    }
+  },
 };
 
 // Drawings against stored output: these test parts drawn in the standard views by the kernel (hidden lines

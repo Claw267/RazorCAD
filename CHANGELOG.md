@@ -6,6 +6,15 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 20:31 — The view turns about the point under the cursor
+- **Rotating the view now turns about the point under the cursor where the drag starts**, instead of the model's centre. Zoomed in on part of a large model, what you are looking at stays where it is while it turns, rather than swinging off the screen.
+  - Started on the model: the point on its surface under the cursor (a part's bodies or an assembly's components; in a section view, only what is still shown).
+  - Started over empty space: that spot, at the depth of the model's centre.
+  - A small red dot shows the pivot while dragging.
+- The same for middle-drag, left-drag (outside sketches) and Alt + middle-drag (roll). The arrow keys still turn about the model's centre.
+- The user manual's and the shortcut list's descriptions updated.
+- Regression test: rotate-about-cursor (zoomed in off the part's centre: the point under the cursor stays there to 0.5 px, on the part and over empty space; the dot shown while dragging; the arrow keys about the centre).
+
 ## 2026-10-21 19:55 — Measure: sheet metal with closed corners 100× quicker
 - **Measuring a body with B-spline faces is far quicker.** The sheet metal tray (closed corners: their bend ends are B-spline faces) took 16 s to measure; now 0.15 s, with the same volume (23759.4208 mm³, the same to 0.0000001 mm³).
 - The exact volume of such bodies is worked out by an adaptive integration. It took each B-spline face as a whole, and at the joins between the face's spans (18 on these corner faces) it kept refining without end. It now integrates span by span (as the sheet metal checks already did).
