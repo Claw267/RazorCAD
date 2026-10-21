@@ -698,12 +698,25 @@ function triangleFacesMesh(shape) {
 
 // What a face is, for mates: { t: 'PLANE', p, n } (n the face's outward normal), { t: 'CYLINDER' | 'CONE', p, d, r }
 // (a point on the axis, its direction), { t: 'SPHERE', p, r } or { t: 'OTHER' }.
+// A flat face's centre of area by the plain integration (the faces' boundaries, with fixed Gauss points): the same
+// centre as the adaptive one (face.center) to about 1e-8 mm, four times quicker (2 s → 0.5 s for a dust collector's
+// 3081 flat faces); the adaptive one for a face of no area
+function flatCentre(face) {
+  const oc = R.getOC(), pr = new oc.GProp_GProps();
+  try {
+    oc.BRepGProp.SurfaceProperties(face.wrapped, pr, false, false);
+    if (!(Math.abs(pr.Mass()) > 1e-12)) return vec(face.center);
+    const c = pr.CentreOfMass(), out = [c.X(), c.Y(), c.Z()];
+    c.delete();
+    return out;
+  } finally { pr.delete(); }
+}
 function surfOf(face) {
   const oc = R.getOC();
   let ad = null;
   try {
     const t = face.geomType;
-    if (t === 'PLANE') return { t, p: vec(face.center), n: unit(vec(face.normalAt())) };
+    if (t === 'PLANE') return { t, p: flatCentre(face), n: unit(vec(face.normalAt())) };
     ad = new oc.BRepAdaptor_Surface(face.wrapped, true);
     const ax = (a) => { const L = a.Location(), D = a.Direction(); return { p: [L.X(), L.Y(), L.Z()], d: unit([D.X(), D.Y(), D.Z()]) }; };
     if (t === 'CYLINDER' || t === 'CYLINDRE') { const c = ad.Cylinder(); return { t: 'CYLINDER', ...ax(c.Axis()), r: c.Radius() }; }
@@ -7572,6 +7585,17 @@ async function handleMessage(e) {
       let nf = 0;
       for (const sh of shapes) for (const f of exploreAll(sh.wrapped, 'TopAbs_FACE')) { const b = faceBox(f); nf++; if (b) for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k], b[0][k]); max[k] = Math.max(max[k], b[1][k]); } f.delete(); }
       result = { quick: [quick.min, quick.max], full: [min, max], faces: nf, precise, quickMs: Math.round(quickMs), fullMs: Math.round(performance.now() - t) };
+    } else if (type === 'centreCheck') {
+      // (for the tests: each flat face's centre as the meshes give it, against the adaptive one)
+      const faces = lastSolids.flatMap((r) => r.shape.faces).filter((f) => f.geomType === 'PLANE');
+      const r6 = (x) => Math.round(x * 1e6) / 1e6;
+      let worst = 0, roundDiff = 0;
+      for (const f of faces) {
+        const a = vec(f.center), b = flatCentre(f);
+        worst = Math.max(worst, Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]));
+        if (a.some((x, k) => r6(x) !== r6(b[k]))) roundDiff++;
+      }
+      result = { faces: faces.length, worst, roundDiff };
     } else if (type === 'ocHas') {
       // (diagnostics) which kernel classes this build has
       const oc = R.getOC();
