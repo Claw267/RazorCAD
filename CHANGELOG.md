@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 22:13 — Big mesh imports (STL, OBJ, 3MF) kept too
+- Big mesh imports are now kept in the store of models built as well, like big STEP imports: their triangles simplified and joined into a solid once, then read back from the store wherever the part is built again. 3DBenchy (225,706 triangles, simplified to 79,448): the import 2.6 s instead of 17.3 s, the whole build 9.7 s instead of 25.7 s; the same solid, and the note of how it was simplified kept.
+- Kept with the triangle limit set in the import: a different limit makes a different solid, so it is read from the file again.
+- The import-store test now also checks an STL (a finely divided sphere made in the test).
+
 ## 2026-10-21 21:49 — Section View in assemblies, and its panel opened again
 - **Section View now works in assemblies** (Evaluate ▸ Section View, Tools ▸ Section View…): every component is cut (faces and edges) and capped on the cut, hatched; what is cut away can't be picked; a click on a component's flat face (or one selected when you start) cuts from it; the arrow drags the cut, as in a part. Before, it set a cut the assembly didn't show.
 - **The Section View button opens the panel again** when a cut is on and its panel was closed with ✓ (it used to take the cut away). ✓ keeps the cut, ✗ removes it.

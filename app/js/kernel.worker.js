@@ -1825,14 +1825,15 @@ function askPage(what, data, ms = 60000) {
     setTimeout(() => { if (asks.delete(id)) resolve(null); }, ms);
   });
 }
-// A big STEP import is kept in the store of models built (the desktop app's model cache, the browser version's
-// store) in OpenCascade's own format, keyed by a hash of the file: read back about 5x faster than the STEP (a dust
-// collector of 342 bodies: 0.95 s instead of 4.6 s), wherever the part is built again (an assembly's part kernels,
-// drawing views…; a part's tab keeps its feature states anyway). Smaller files are read as they are.
-const IMPORT_STORE_MIN = 2e6; // characters of STEP
-async function stepKey(text) {
+// A big import is kept in the store of models built (the desktop app's model cache, the browser version's store) in
+// OpenCascade's own format, keyed by a hash of the file (and, for a mesh, the triangle limit): read back several times
+// quicker than the file (a dust collector's STEP, 342 bodies: 0.95 s instead of 4.6 s; 3DBenchy's STL, simplified and
+// joined into a solid: 1.1 s instead of 8.1 s), wherever the part is built again (an assembly's part kernels, drawing
+// views…; a part's tab keeps its feature states anyway). Smaller files are read as they are.
+const IMPORT_STORE_MIN = 2e6; // characters of the file's text (a mesh's: base64)
+async function importKey(text, extra) {
   try {
-    const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+    const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(extra + '|' + text));
     return 'imp' + [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
   } catch { return null; }
 }
@@ -1840,31 +1841,36 @@ async function importShape(f, timing = null) {
   const key = `${f.format}:${f.data.length}:${f.data.slice(0, 64)}:${f.data.slice(-64)}:${f.maxTris ?? ''}`;
   const hit = importCache.get(f.id);
   if (hit && hit.key === key) return hit.rec;
-  let shape, dense = false;
   progress(null, `Reading ${f.fileName || 'the imported file'}…`);
-  if (f.format === 'step') {
-    const sk = f.data.length >= IMPORT_STORE_MIN ? await stepKey(f.data) : null;
-    const got = sk ? await askPage('importGet', { key: sk }) : null;
-    if (got?.brep) {
-      try { shape = R.cast(R.getOC().BRepToolsWrapper.Read(got.brep)); } catch { shape = null; }
-      if (shape && !shape.faces.length) shape = null;
-    }
-    if (shape) timing?.imports.push([f.id, 'store']);
-    else {
-      shape = await R.importSTEP(new Blob([f.data]));
-      timing?.imports.push([f.id, 'file']);
-      // (written for next time only where there is a store)
-      if (got?.store) { try { self.postMessage({ type: 'ask', id: 0, what: 'importPut', data: { key: sk, brep: R.getOC().BRepToolsWrapper.Write(shape.wrapped) } }); } catch { /* not kept */ } }
-    }
-  } else {
-    var open = 0, reduced = null;
-    const lim = f.maxTris == null || f.maxTris === '' ? MESH_MAX_TRIS : +f.maxTris;
-    if (f.format === 'obj') ({ shape, open, reduced } = trisToShape(parseOBJ(new TextDecoder().decode(b64ToBytes(f.data))), 'OBJ', lim));
-    else if (f.format === '3mf') ({ shape, open, reduced } = trisToShape(await parse3MF(b64ToBytes(f.data)), '3MF', lim));
-    else ({ shape, open, reduced } = stlToShape(b64ToBytes(f.data), lim));
-    dense = faceCount(shape) > 2500;
+  const lim = f.maxTris == null || f.maxTris === '' ? MESH_MAX_TRIS : +f.maxTris;
+  // (kept: the shape, and what the reading noted: a mesh simplified, left open)
+  const sk = f.data.length >= IMPORT_STORE_MIN ? await importKey(f.data, f.format === 'step' ? 'step' : `${f.format}|${lim}`) : null;
+  const got = sk ? await askPage('importGet', { key: sk }) : null;
+  let rec = null;
+  if (got?.brep) {
+    try {
+      const nl = got.brep.indexOf('\n'), meta = JSON.parse(got.brep.slice(0, nl));
+      const shape = R.cast(R.getOC().BRepToolsWrapper.Read(got.brep.slice(nl + 1)));
+      if (shape.faces.length) rec = { shape, dense: !!meta.dense, open: meta.open || 0, reduced: meta.reduced || null };
+    } catch { rec = null; }
   }
-  const rec = { shape, dense, open: open || 0, reduced: reduced || null };
+  if (rec) timing?.imports.push([f.id, 'store']);
+  else {
+    let shape, dense = false, open = 0, reduced = null;
+    if (f.format === 'step') shape = await R.importSTEP(new Blob([f.data]));
+    else {
+      if (f.format === 'obj') ({ shape, open, reduced } = trisToShape(parseOBJ(new TextDecoder().decode(b64ToBytes(f.data))), 'OBJ', lim));
+      else if (f.format === '3mf') ({ shape, open, reduced } = trisToShape(await parse3MF(b64ToBytes(f.data)), '3MF', lim));
+      else ({ shape, open, reduced } = stlToShape(b64ToBytes(f.data), lim));
+      dense = faceCount(shape) > 2500;
+    }
+    rec = { shape, dense, open: open || 0, reduced: reduced || null };
+    timing?.imports.push([f.id, 'file']);
+    // (written for next time only where there is a store)
+    if (got?.store) {
+      try { self.postMessage({ type: 'ask', id: 0, what: 'importPut', data: { key: sk, brep: JSON.stringify({ dense, open: rec.open, reduced: rec.reduced }) + '\n' + R.getOC().BRepToolsWrapper.Write(shape.wrapped) } }); } catch { /* not kept */ }
+    }
+  }
   importCache.set(f.id, { key, rec });
   return rec;
 }

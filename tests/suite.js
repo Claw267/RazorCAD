@@ -2149,9 +2149,9 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     return !bad.length ? { ok: true, detail: out.join('; ') } : { ok: false, detail: bad.join(' | ') };
   },
 
-  // a big STEP import kept in the store of models built (here the browser version's): read from the file the first
-  // time, by a fresh kernel then from the store (OpenCascade's own format, several times quicker), the same solid
-  // (a STEP comment makes the test tray's file big enough to be kept)
+  // big imports kept in the store of models built (here the browser version's): read from the file the first time, by
+  // a fresh kernel then from the store (OpenCascade's own format, several times quicker), the same solid: a STEP (a
+  // comment makes the test tray's file big enough to be kept) and an STL (a finely divided sphere, made here)
   async 'import-store'() {
     const a = window.app, was = window.RAZORCAD_WEB, { KernelClient } = await import('/js/kernelclient.js');
     const tray = JSON.parse(await (await fetch('/tests/parts/sheet-metal-tray.rcad')).text());
@@ -2165,20 +2165,46 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
       step = step.replace('ISO-10303-21;', 'ISO-10303-21;\n/* ' + 'RazorCAD test padding\n'.repeat(100000) + ' */');
       const d = M.newDoc(); d.name = 'Big import';
       d.features.push(M.createFeature(d, 'import', { format: 'step', fileName: 'tray.step', data: step }));
-      const build = async () => {
-        const k = new KernelClient({ threads: 1 }); kernels.push(k); await k.ready;
+      // a binary STL: a sphere of 120 × 130 quads (31 200 triangles), as base64
+      const nu = 130, nv = 120, rad = 40, P = (i, j) => { const th = (2 * Math.PI * i) / nu, ph = (Math.PI * j) / nv; return [rad * Math.sin(ph) * Math.cos(th), rad * Math.sin(ph) * Math.sin(th), rad * Math.cos(ph)]; };
+      const tris = [];
+      for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) {
+        const a0 = P(i, j), b0 = P(i + 1, j), c0 = P(i + 1, j + 1), d0 = P(i, j + 1);
+        if (j > 0) tris.push([a0, b0, c0]);
+        if (j < nv - 1) tris.push([a0, c0, d0]);
+      }
+      const stl = new DataView(new ArrayBuffer(84 + 50 * tris.length));
+      stl.setUint32(80, tris.length, true);
+      tris.forEach((t, k) => t.forEach((q, v) => q.forEach((x, c) => stl.setFloat32(84 + 50 * k + 12 + 12 * v + 4 * c, x, true))));
+      const bytes = new Uint8Array(stl.buffer);
+      let bin = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      const dm = M.newDoc(); dm.name = 'Big mesh';
+      dm.features.push(M.createFeature(dm, 'import', { format: 'stl', fileName: 'sphere.stl', data: btoa(bin) }));
+      const build = async (d) => {
+        const k = new KernelClient({ threads: 8 }); kernels.push(k); await k.ready;
         let stored = false; k.onStored = () => { stored = true; };
         const r = await k.request('rebuild', { doc: JSON.stringify(d) });
-        if (!r.body?.bodies?.length) throw new Error(`no body: ${JSON.stringify(r.errors)}`);
-        const m = await k.request('measure', { refs: [{ kind: 'body', id: r.body.bodies[0].id }] });
-        return { r, k, from: r.timing.imports?.[0]?.[1], vol: (m.items?.[0] || m).volume, faces: r.body.bodies[0].faceCount, stored: () => stored };
+        if (!r.body?.bodies?.length) throw new Error(`${d.name}: no body: ${JSON.stringify(r.errors)}`);
+        // (the volume from the mesh: a precise measure of 30 000 faces takes a while)
+        const V = r.body.vertices, T = r.body.triangles;
+        let v6 = 0;
+        for (let i = 0; i < T.length; i += 3) {
+          const [p, q, w] = [0, 1, 2].map((j) => 3 * T[i + j]);
+          v6 += V[p] * (V[q + 1] * V[w + 2] - V[q + 2] * V[w + 1]) - V[p + 1] * (V[q] * V[w + 2] - V[q + 2] * V[w]) + V[p + 2] * (V[q] * V[w + 1] - V[q + 1] * V[w]);
+        }
+        return { r, k, from: r.timing.imports?.[0]?.[1], vol: Math.abs(v6 / 6), faces: r.body.bodies[0].faceCount, stored: () => stored };
       };
-      const b1 = await build();
-      for (let i = 0; i < 100 && !b1.stored(); i++) await wait(100);
-      const b2 = await build();
-      const ok = step.length > 2e6 && b1.from === 'file' && b1.stored() && b2.from === 'store' && b2.faces === b1.faces && Math.abs(b2.vol - b1.vol) < 1e-6 * b1.vol;
-      return ok ? { ok: true, detail: `${(step.length / 1e6).toFixed(1)} MB STEP: read from the file and kept, then from the store (${b2.faces} faces, volume the same)` }
-        : { ok: false, detail: `${step.length} characters; first from ${b1.from}, kept ${b1.stored()}; second from ${b2.from}; faces ${b1.faces} / ${b2.faces}, volume ${b1.vol} / ${b2.vol}` };
+      const out = [], bad = [];
+      for (const [name, doc, size] of [['STEP', d, step.length], ['STL', dm, dm.features[0].data.length]]) {
+        const b1 = await build(doc);
+        for (let i = 0; i < 150 && !b1.stored(); i++) await wait(100);
+        const b2 = await build(doc);
+        const ok = size > 2e6 && b1.from === 'file' && b1.stored() && b2.from === 'store' && b2.faces === b1.faces && Math.abs(b2.vol - b1.vol) < 1e-6 * b1.vol;
+        if (ok) out.push(`${(size / 1e6).toFixed(1)} MB ${name}: from the file and kept, then from the store (${b2.faces} faces, volume the same)`);
+        else bad.push(`${name}, ${size} characters: first from ${b1.from}, kept ${b1.stored()}; second from ${b2.from}; faces ${b1.faces} / ${b2.faces}, volume ${b1.vol} / ${b2.vol}`);
+      }
+      return !bad.length ? { ok: true, detail: out.join('; ') } : { ok: false, detail: bad.join('; ') };
     } finally {
       kernels.forEach((k) => k.dispose());
       if (was === undefined) delete window.RAZORCAD_WEB; else window.RAZORCAD_WEB = was;
