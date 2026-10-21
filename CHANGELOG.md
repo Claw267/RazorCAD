@@ -6,6 +6,12 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-22 08:54 — Big STEP imports meshed in several kernels at once
+- A part whose bodies are still as a big STEP import made them (kept in the store of models built) has its meshing shared out: the part's kernel meshes for a moment to see how long the rest will take, and when the pool's free kernels would finish sooner (each first reads the import: the page hands them the text it just read or wrote), the bodies are shared out by faces between it and up to 7 of them, its own share sized so all finish together. Their meshes are used as its own; one that fails leaves its bodies to the part's kernel.
+- Measured on 64 copies of a test part in one STEP (6784 faces): meshing 5.4 s alone, 1.8 s shared out (6 kernels helping); opened from the file the first time, 2.3 s instead of 6.1 s. A lighter file (64 sheet-metal trays, 1.7 s of meshing): 1.35 s. Small imports, and bodies changed by later features, are meshed as before.
+- The page reads a big import from the store once for kernels asking together, and gives one just written straight to the next kernel asking (no wait for the store).
+- Regression test import-mesh-helpers (24 trays in a 21 MB STEP: shared out, the mesh exactly the one a kernel makes alone, every vertex, triangle, face, edge and surface). Tests made independent of the ones before them for the side-by-side run: languages (a part in front, the Features tab), step-roundtrip (a kernel of its own); import-store reads from the store itself.
+
 ## 2026-10-22 08:33 — Regression tests run side by side: 27 s instead of 65 s
 - `tests/run_tests.py` splits the run over several pages in the one browser (`--jobs N`; by default one per 6 processor threads, at most 4: 4 on this PC; GitHub's runner stays at 1). Each page has its own storage and geometry kernels and is told its share of the processor threads (else each started kernels for the whole PC, and some stopped while starting). The first page runs the parts and drawings; the UI tests are shared out by their usual times so the pages finish together. Results are listed in the usual order.
 - The test server takes 128 waiting connections instead of Python's 5: pages loading side by side were refused some files (one page then waited 3 minutes; it was also behind the odd "connection refused" seen before). A file cut short when a page closes is no longer printed as an error.

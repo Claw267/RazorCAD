@@ -1342,6 +1342,11 @@ class App {
       if (k === this.kernel) this.toast('The geometry kernel hit an internal error and was restarted; rebuilding the model.', true);
       reportError('kernel-restarted', err, this, { restarts: k.restarts });
     };
+    // (a big import's bodies meshed in the pool's free kernels too: kernel.worker.js meshHelped)
+    k.helpers = {
+      free: (want) => { const st = this.kernelPool.stats(); return Math.max(0, Math.min(want, st.size - st.busy)); },
+      mesh: (data) => this.kernelPool.request('meshImport', data, 'meshhelp:' + data.slot).catch(() => null),
+    };
     // (progress shown for the part in front only)
     k.onProgress = (v, label, feature) => { if (k !== this.kernel) return; if (feature !== undefined) this._progFeature = feature; this.showProgress(v, label); };
     return k;

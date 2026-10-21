@@ -937,6 +937,10 @@ await rc.cut(h, 10);`, 'plate');
   async 'languages'() {
     const a = window.app, I = await import('/js/i18n.js');
     if (a.mode === 'drawing') { const i = a.tabs.findIndex((t) => t.kind !== 'drawing'); if (i >= 0) await a.activateTab(i); }
+    // (the ribbon's Features tab, whatever a test before left open: a new part when only drawings are)
+    if (a.mode === 'drawing') { await a.newDocument(); closeModals(); }
+    if (a.mode === 'sketch') await a.exitSketch(true);
+    a.ui.cmTab = 'features';
     const before = I.language();
     await a.ui.setLang('de');
     await wait(50);
@@ -953,7 +957,7 @@ await rc.cut(h, 10);`, 'plate');
     const ok = menubar === 'Datei,Bearbeiten,Ansicht,Einfügen,Extras,Hilfe' && ribbon.includes('Verrundung') && ribbon.includes('Extrusion') && parts === 'Features ▸ Verrundung…'
       && counted === 'Verknüpfungen (2)' && kept === 'Some text nobody wrote' && modal === 'Stückliste|Schließen' && r.ok && back === 'File';
     return ok ? { ok: true, detail: `${menubar}; ${parts}; ${modal}; macro command ok; back to ${back}` }
-      : { ok: false, detail: `menubar ${menubar}; ribbon has Verrundung ${ribbon.includes('Verrundung')}; ${parts}; ${counted}; ${modal}; macro ${JSON.stringify(r)}; back ${back}` };
+      : { ok: false, detail: `menubar ${menubar}; ribbon has Verrundung ${ribbon.includes('Verrundung')} (mode ${a.mode}, tab ${a.ui.cmTab}: ${ribbon.slice(0, 80)}); ${parts}; ${counted}; ${modal}; macro ${JSON.stringify(r)}; back ${back}` };
   },
 
   // STEP round trip: a test part exported as STEP and imported into a new part gives the same solid (volume,
@@ -962,21 +966,24 @@ await rc.cut(h, 10);`, 'plate');
     const a = window.app;
     if (a.mode === 'drawing') { const i = a.tabs.findIndex((t) => t.kind !== 'drawing'); if (i >= 0) await a.activateTab(i); }
     const src = JSON.parse(parts.find((p) => p.name === 'holes').json);
-    const k = a.kernel;
-    const r0 = await k.rebuild(src, null, null);
-    const m = async (r) => { const x = await k.request('measure', { refs: [{ kind: 'body', id: r.body.bodies[0].id }] }); return x.items?.[0] || x; };
-    const g0 = await m(r0), b0 = r0.body.bodies[0];
-    const bytes = await k.exportBody('step', null, { name: 'holes' });
-    const text = new TextDecoder().decode(bytes);
-    const d = M.newDoc(); d.name = 'reimported';
-    d.features.push(M.createFeature(d, 'import', { format: 'step', fileName: 'holes.step', data: text, name: 'holes' }));
-    const r1 = await k.rebuild(d, null, null);
-    const g1 = r1.body?.bodies?.length ? await m(r1) : {};
-    const b1 = r1.body?.bodies?.[0] || {};
-    const same = (x, y) => Math.abs(x - y) <= 1e-6 * Math.max(1, Math.abs(x));
-    const ok = text.startsWith('ISO-10303-21') && r1.errors.length === 0 && same(g1.volume, g0.volume) && same(g1.area, g0.area) && b0.faceCount > 0 && b1.faceCount === b0.faceCount && b1.edgeCount === b0.edgeCount;
-    return ok ? { ok: true, detail: `${Math.round(text.length / 1024)} kB of STEP; volume ${r6(g1.volume)}, ${b1.faceCount} faces, ${b1.edgeCount} edges, as before` }
-      : { ok: false, detail: `errors ${JSON.stringify(r1.errors)}; volume ${g1.volume} vs ${g0.volume}, area ${g1.area} vs ${g0.area}, faces ${b1.faceCount}/${b0.faceCount}, edges ${b1.edgeCount}/${b0.edgeCount}` };
+    // (a kernel of its own: the app's coalesces rebuilds, and one the app makes meanwhile would answer this one's)
+    const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient();
+    try {
+      const r0 = await k.rebuild(src, null, null);
+      const m = async (r) => { const x = await k.request('measure', { refs: [{ kind: 'body', id: r.body.bodies[0].id }] }); return x.items?.[0] || x; };
+      const g0 = await m(r0), b0 = r0.body.bodies[0];
+      const bytes = await k.exportBody('step', null, { name: 'holes' });
+      const text = new TextDecoder().decode(bytes);
+      const d = M.newDoc(); d.name = 'reimported';
+      d.features.push(M.createFeature(d, 'import', { format: 'step', fileName: 'holes.step', data: text, name: 'holes' }));
+      const r1 = await k.rebuild(d, null, null);
+      const g1 = r1.body?.bodies?.length ? await m(r1) : {};
+      const b1 = r1.body?.bodies?.[0] || {};
+      const same = (x, y) => Math.abs(x - y) <= 1e-6 * Math.max(1, Math.abs(x));
+      const ok = text.startsWith('ISO-10303-21') && r1.errors.length === 0 && same(g1.volume, g0.volume) && same(g1.area, g0.area) && b0.faceCount > 0 && b1.faceCount === b0.faceCount && b1.edgeCount === b0.edgeCount;
+      return ok ? { ok: true, detail: `${Math.round(text.length / 1024)} kB of STEP; volume ${r6(g1.volume)}, ${b1.faceCount} faces, ${b1.edgeCount} edges, as before` }
+        : { ok: false, detail: `errors ${JSON.stringify(r1.errors)}; volume ${g1.volume} vs ${g0.volume}, area ${g1.area} vs ${g0.area}, faces ${b1.faceCount}/${b0.faceCount}, edges ${b1.edgeCount}/${b0.edgeCount}` };
+    } finally { k.dispose(); }
   },
 
   // a big assembly: 3 parts placed 40 times each (120 components) loads, counts right in the bill of materials and
@@ -2173,7 +2180,7 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
   // a fresh kernel then from the store (OpenCascade's own format, several times quicker), the same solid: a STEP (a
   // comment makes the test tray's file big enough to be kept) and an STL (a finely divided sphere, made here)
   async 'import-store'() {
-    const a = window.app, was = window.RAZORCAD_WEB, { KernelClient } = await import('/js/kernelclient.js');
+    const a = window.app, was = window.RAZORCAD_WEB, { KernelClient, forgetImportTexts } = await import('/js/kernelclient.js');
     const tray = JSON.parse(await (await fetch('/tests/parts/sheet-metal-tray.rcad')).text());
     const kernels = [];
     try {
@@ -2219,12 +2226,67 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
       for (const [name, doc, size] of [['STEP', d, step.length], ['STL', dm, dm.features[0].data.length]]) {
         const b1 = await build(doc);
         for (let i = 0; i < 150 && !b1.stored(); i++) await wait(100);
+        forgetImportTexts();
         const b2 = await build(doc);
         const ok = size > 2e6 && b1.from === 'file' && b1.stored() && b2.from === 'store' && b2.faces === b1.faces && Math.abs(b2.vol - b1.vol) < 1e-6 * b1.vol;
         if (ok) out.push(`${(size / 1e6).toFixed(1)} MB ${name}: from the file and kept, then from the store (${b2.faces} faces, volume the same)`);
         else bad.push(`${name}, ${size} characters: first from ${b1.from}, kept ${b1.stored()}; second from ${b2.from}; faces ${b1.faces} / ${b2.faces}, volume ${b1.vol} / ${b2.vol}`);
       }
       return !bad.length ? { ok: true, detail: out.join('; ') } : { ok: false, detail: bad.join('; ') };
+    } finally {
+      kernels.forEach((k) => k.dispose());
+      if (was === undefined) delete window.RAZORCAD_WEB; else window.RAZORCAD_WEB = was;
+    }
+  },
+
+  // a big STEP import's bodies meshed in the pool's free kernels too (kernel.worker.js meshHelped): 24 copies of the
+  // test tray in one file; a part kernel reading it from the store shares the meshing out, and its mesh is exactly
+  // the one a kernel makes alone (every vertex, triangle, face and edge, and the faces' surfaces)
+  async 'import-mesh-helpers'() {
+    const a = window.app, was = window.RAZORCAD_WEB, { KernelClient } = await import('/js/kernelclient.js');
+    const tray = JSON.parse(await (await fetch('/tests/parts/sheet-metal-tray.rcad')).text());
+    const kernels = [];
+    try {
+      window.RAZORCAD_WEB = { ...(was || {}), kernel: 'test-' + Math.random().toString(36).slice(2) };
+      const r0 = await a.kernel.request('rebuild', { doc: JSON.stringify(tray) });
+      const id = r0.body?.bodies?.[0]?.id;
+      if (!id) throw new Error('the tray: no body');
+      const many = JSON.parse(JSON.stringify(tray));
+      many.features.push(M.createFeature(many, 'moveBody', { bodies: [id], copy: true, copies: 23, dx: 400 }));
+      const r1 = await a.kernel.request('rebuild', { doc: JSON.stringify(many) });
+      if (r1.body?.bodies?.length !== 24) throw new Error(`24 trays: ${r1.body?.bodies?.length} bodies (${JSON.stringify(r1.errors)})`);
+      let step = new TextDecoder().decode(await a.kernel.request('export', { format: 'step' }));
+      if (step.length < 2e6) step = step.replace('ISO-10303-21;', 'ISO-10303-21;\n/* ' + 'RazorCAD test padding\n'.repeat(100000) + ' */');
+      const d = M.newDoc(); d.name = 'Many trays';
+      d.features.push(M.createFeature(d, 'import', { format: 'step', fileName: 'trays.step', data: step }));
+      const build = async (helped, meshHelp = null) => {
+        const k = new KernelClient({ threads: 8 }); kernels.push(k); await k.ready;
+        if (helped) a.wireKernel(k);
+        let stored = false; k.onStored = () => { stored = true; };
+        const t0 = performance.now();
+        const r = await k.request('rebuild', { doc: JSON.stringify(d), meshHelp });
+        return { r, ms: Math.round(performance.now() - t0), stored: () => stored };
+      };
+      // (read from the file and kept; then read from the store, by a kernel alone and by one with helpers)
+      const b0 = await build(false);
+      for (let i = 0; i < 200 && !b0.stored(); i++) await wait(100);
+      if (!b0.stored()) return { ok: false, detail: 'the import was not kept' };
+      // (helpers made to help, whatever the times; and left to decide)
+      const alone = await build(false), helped = await build(true, 'always'), auto = await build(true);
+      const A = alone.r.body, H = helped.r.body, bad = [];
+      if (!A || !H) return { ok: false, detail: 'no mesh' };
+      const n = helped.r.timing.meshHelpers;
+      if (!(n > 0)) bad.push(`no kernel helped (${n})`);
+      const same = (x, y) => x.length === y.length && x.every((v, i) => v === y[i]);
+      if (!same(A.vertices, H.vertices)) bad.push(`vertices ${A.vertices.length} / ${H.vertices.length}`);
+      if (!same(A.normals, H.normals)) bad.push('normals differ');
+      if (!same(A.triangles, H.triangles)) bad.push(`triangles ${A.triangles.length} / ${H.triangles.length}`);
+      const fg = (b) => JSON.stringify(b.faceGroups.map((g) => [g.start, g.count, g.surf ?? null, g.look ?? null]));
+      if (fg(A) !== fg(H)) bad.push(`faces ${A.faceGroups.length} / ${H.faceGroups.length}`);
+      if (JSON.stringify(A.edges) !== JSON.stringify(H.edges)) bad.push(`edges ${A.edges.length} / ${H.edges.length}`);
+      if (JSON.stringify(A.bodies) !== JSON.stringify(H.bodies)) bad.push('bodies differ');
+      const detail = `${(step.length / 1e6).toFixed(1)} MB STEP, 24 bodies, ${A.faceGroups.length} faces: meshed in ${n + 1} kernels, the same mesh (${A.triangles.length / 3} triangles, ${A.edges.length} edges); mesh ${alone.r.timing.mesh} ms alone, ${helped.r.timing.mesh} ms helped; left to decide: ${auto.r.timing.meshHelpers ? `${auto.r.timing.meshHelpers} helped` : 'alone'}, ${auto.r.timing.mesh} ms`;
+      return !bad.length ? { ok: true, detail } : { ok: false, detail: bad.join('; ') + ' — ' + detail };
     } finally {
       kernels.forEach((k) => k.dispose());
       if (was === undefined) delete window.RAZORCAD_WEB; else window.RAZORCAD_WEB = was;

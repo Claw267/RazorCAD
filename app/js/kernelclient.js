@@ -68,6 +68,9 @@ export class KernelPool {
 // If the kernel breaks (it aborted, or its worker died), the worker is replaced by a fresh one
 // and the request is repeated once, so one kernel failure doesn't take the whole model down.
 const RECYCLE_MB = 3600; // the kernel can address 4 GB
+const reading = new Map(); // big imports just read from the store or written to it: key → promise of the text, kept
+// a moment (every kernel of the page)
+export const forgetImportTexts = () => reading.clear(); // (tests: the next read is from the store itself)
 const START_TRIES = 3;   // starts tried before a kernel that keeps failing is given up on
 
 export class KernelClient {
@@ -140,19 +143,35 @@ export class KernelClient {
   // A question from the kernel while it works: a big import as stored before ('importGet': { store, brep }), or one
   // to store ('importPut', no answer). Kept with the models built (platform.js: the desktop app's model cache, the
   // browser version's store), which belong to this kernel build.
+  // A part's kernel can also ask for help meshing a big import: 'meshHelpers' (how many pool kernels are free, of
+  // { want }) and 'meshHelp' (a share of the bodies, meshed by one of them: { meshes }), through `helpers` (set by
+  // the app: { free(want), mesh(data) }; none for the pool's own kernels).
   async answer(worker, { id, what, data }) {
-    let out = null;
+    let out = null, transfer = [];
     try {
-      if (what === 'importGet') {
+      if (what === 'meshHelpers') out = this.helpers ? this.helpers.free(data.want) : 0;
+      else if (what === 'meshHelp') {
+        out = this.helpers ? await this.helpers.mesh(data) : null;
+        for (const m of out?.meshes || []) if (m) transfer.push(m.m.vertices.buffer, m.m.normals.buffer, m.m.triangles.buffer);
+      } else if (what === 'importGet') {
         const store = !!platform.modelStore;
-        const b64 = store ? await platform.readModelCache(data.key) : null;
-        out = { store, brep: b64 ? await unpackText(b64) : null };
+        // (kernels asking for the same one together, e.g. helping to mesh it: read once; one written just now: its
+        // text as written)
+        let read = reading.get(data.key);
+        if (!read) {
+          read = (async () => { const b64 = store ? await platform.readModelCache(data.key) : null; return b64 ? unpackText(b64) : null; })();
+          reading.set(data.key, read);
+          read.then((t) => setTimeout(() => reading.delete(data.key), t ? 20000 : 0), () => reading.delete(data.key));
+        }
+        out = { store, brep: await read };
       } else if (what === 'importPut' && platform.modelStore) {
+        reading.set(data.key, Promise.resolve(data.brep));
+        setTimeout(() => reading.delete(data.key), 20000);
         await platform.writeModelCache(data.key, await packText(data.brep));
         if (this.onStored) this.onStored(data.key);
       }
     } catch { out = null; }
-    if (id) { try { worker.postMessage({ type: 'answer', id, data: out }); } catch { /* the worker is gone */ } }
+    if (id) { try { worker.postMessage({ type: 'answer', id, data: out }, transfer); } catch { /* the worker is gone */ } }
   }
 
   // reject every request sent to `worker` (it is dead)

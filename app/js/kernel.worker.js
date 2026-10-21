@@ -119,6 +119,10 @@ let lastSolids = [];
 let lastSurfaces = [];
 let lastName = 'Part';
 const importCache = new Map();
+// A body still exactly as a big STEP import made it (its shape: the one the import's splitting gave): the import's
+// key in the store and its place there ({ key, k, kind }), so other kernels can mesh it from the store (meshHelped)
+const importedFrom = new WeakMap();
+const importReadMs = new Map(); // store key → how long reading the import's text takes (ms; the page has the text)
 
 // ------------------------------------------------------------ vector helpers
 const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
@@ -871,6 +875,89 @@ function meshPart(s, tol, diagQ, onWork, ang = 0.2) {
   meshCache.set(s.shape, out);
   keptPrune(FACE_MESHES); keptPrune(EDGE_POINTS); keptPrune(FACE_BOXES);
   return out;
+}
+
+// Meshing a big import's bodies over more kernels. The bodies not meshed yet that are still as a stored STEP import
+// made them: this kernel meshes them for a moment (MESH_PROBE_MS) to see how long the rest will take; when other
+// kernels would finish sooner, though each first reads the whole import (the page hands them the text it just
+// read or wrote for this kernel: as long as reading it took here, and a moment to start), the rest is shared out by faces between this kernel and the pool's free ones (asked
+// of the page, up to MESH_HELPERS), this kernel's share sized so all finish together. Their meshes are kept as this
+// kernel's own (meshPart then finds them); one that fails leaves its bodies to this kernel. mode 'always' (tests):
+// helpers whatever the times. Returns how many kernels helped.
+const MESH_PROBE_MS = 300, MESH_HELP_MIN_MS = 1500, MESH_HELPER_START_MS = 400, MESH_HELPERS = 7;
+async function meshHelped(parts, tol, diagQ, ang, mode = null) {
+  const todo = parts.filter((s) => {
+    if (!importedFrom.has(s.shape)) return false;
+    const c = meshCache.get(s.shape);
+    return !(c && c.tol === tol && c.ang === ang && c.diagQ === diagQ && c.kind === s.kind && c.look === (s.look || null));
+  });
+  if (todo.length < 4) return 0;
+  const faces = new Map(todo.map((s) => [s, faceCount(s.shape)]));
+  // (a moment's meshing here: the time a face takes)
+  const t0 = performance.now();
+  let done = 0, doneFaces = 0;
+  while (done < todo.length - 1 && (mode === 'always' ? done < 1 : performance.now() - t0 < MESH_PROBE_MS)) {
+    meshPart(todo[done], tol, diagQ, null, ang);
+    doneFaces += faces.get(todo[done++]);
+  }
+  const rest = todo.slice(done), restFaces = rest.reduce((n, s) => n + faces.get(s), 0);
+  const perFace = (performance.now() - t0) / Math.max(1, doneFaces), work = perFace * restFaces;
+  const ready = Math.max(...rest.map((s) => importReadMs.get(importedFrom.get(s.shape).key) ?? 2000)) + MESH_HELPER_START_MS;
+  // (h helpers and this kernel all done together: this kernel's time with them, (work + h × ready) / (h + 1))
+  const timeWith = (h) => (work + h * ready) / (h + 1);
+  let want = Math.min(MESH_HELPERS, rest.length - 1);
+  if (mode !== 'always') {
+    if (work < MESH_HELP_MIN_MS || timeWith(1) > 0.8 * work) return 0;
+    while (want > 1 && timeWith(want - 1) - timeWith(want) < 150) want--;
+  }
+  const free = want > 0 ? (await askPage('meshHelpers', { want }, 5000)) || 0 : 0;
+  if (!(free > 0)) return 0;
+  const h = Math.min(free, want), mine = mode === 'always' ? 1 / (h + 1) : timeWith(h) / work;
+  // (the biggest first, each to the share furthest below its size; this kernel's share is the first)
+  const shares = Array.from({ length: h + 1 }, (_, i) => ({ items: [], faces: 0, size: (i ? (1 - mine) / h : mine) * restFaces }));
+  [...rest].sort((a, b) => faces.get(b) - faces.get(a)).forEach((s) => {
+    const sh = shares.reduce((a, b) => (b.faces - b.size < a.faces - a.size ? b : a));
+    sh.items.push(s); sh.faces += faces.get(s);
+  });
+  progress(null, `Meshing ${todo.length} bodies in ${shares.length} kernels…`);
+  const asks = shares.slice(1).map((sh, slot) => (sh.items.length ? askPage('meshHelp', {
+    slot, tol, ang, diagQ, items: sh.items.map((s) => ({ ...importedFrom.get(s.shape), look: s.look || null })),
+  }, 600000) : null));
+  for (const s of shares[0].items) meshPart(s, tol, diagQ, null, ang);
+  const outs = await Promise.all(asks);
+  let helped = 0;
+  outs.forEach((o, j) => {
+    if (!Array.isArray(o?.meshes)) return;
+    helped++;
+    shares[j + 1].items.forEach((s, q) => { const m = o.meshes[q]; if (m) meshCache.set(s.shape, { tol, ang, diagQ, kind: s.kind, look: s.look || null, ...m }); });
+  });
+  return helped;
+}
+// (a helper's side: the import read from the store and split as the import feature splits it, the last two kept)
+const helpImports = new Map();
+async function helpImport(key) {
+  if (helpImports.has(key)) return helpImports.get(key);
+  const got = await askPage('importGet', { key });
+  if (!got?.brep) return null;
+  const nl = got.brep.indexOf('\n');
+  const parts = splitImported(R.cast(R.getOC().BRepToolsWrapper.Read(got.brep.slice(nl + 1))));
+  helpImports.set(key, parts);
+  while (helpImports.size > 2) helpImports.delete(helpImports.keys().next().value);
+  return parts;
+}
+async function meshImportBodies({ items, tol, ang, diagQ }) {
+  const meshes = [], transfer = [];
+  for (const it of items) {
+    const parts = await helpImport(it.key);
+    const shape = parts?.[it.kind === 'solid' ? 'solids' : 'surfaces']?.[it.k];
+    if (!shape) { meshes.push(null); continue; }
+    const r = meshPart({ shape, kind: it.kind, look: it.look }, tol, diagQ, null, ang);
+    // (the arrays packed, as copies: the kept mesh stays whole here)
+    const m = { ...r.m, vertices: Float32Array.from(r.m.vertices), normals: Float32Array.from(r.m.normals), triangles: Uint32Array.from(r.m.triangles) };
+    transfer.push(m.vertices.buffer, m.normals.buffer, m.triangles.buffer);
+    meshes.push({ m, gs: r.gs, dense: r.dense, facePts: r.facePts, edges: r.edges, surfs: r.surfs, faceLooks: r.faceLooks });
+  }
+  return { result: { meshes }, transfer };
 }
 
 // ------------------------------------------------------------ previews
@@ -1863,8 +1950,10 @@ async function importShape(f, timing = null) {
   if (got?.brep) {
     try {
       const nl = got.brep.indexOf('\n'), meta = JSON.parse(got.brep.slice(0, nl));
+      const tRead = performance.now();
       const shape = R.cast(R.getOC().BRepToolsWrapper.Read(got.brep.slice(nl + 1)));
-      if (shape.faces.length) rec = { shape, dense: !!meta.dense, open: meta.open || 0, reduced: meta.reduced || null };
+      if (shape.faces.length) rec = { shape, dense: !!meta.dense, open: meta.open || 0, reduced: meta.reduced || null, stored: sk };
+      if (rec) importReadMs.set(sk, performance.now() - tRead);
     } catch { rec = null; }
   }
   if (rec) timing?.imports.push([f.id, 'store']);
@@ -1881,7 +1970,12 @@ async function importShape(f, timing = null) {
     timing?.imports.push([f.id, 'file']);
     // (written for next time only where there is a store)
     if (got?.store) {
-      try { self.postMessage({ type: 'ask', id: 0, what: 'importPut', data: { key: sk, brep: JSON.stringify({ dense, open: rec.open, reduced: rec.reduced }) + '\n' + R.getOC().BRepToolsWrapper.Write(shape.wrapped) } }); } catch { /* not kept */ }
+      try {
+        const tw = performance.now(), brep = R.getOC().BRepToolsWrapper.Write(shape.wrapped);
+        importReadMs.set(sk, performance.now() - tw); // (read back about as quickly)
+        self.postMessage({ type: 'ask', id: 0, what: 'importPut', data: { key: sk, brep: JSON.stringify({ dense, open: rec.open, reduced: rec.reduced }) + '\n' + brep } });
+        rec.stored = sk;
+      } catch { /* not kept */ }
     }
   }
   importCache.set(f.id, { key, rec });
@@ -3046,6 +3140,11 @@ async function rebuild(doc, previewId = null, opts = {}) {
             for (const s of parts.solids) apply('add', s, mergeBodies);
             const s0 = surfaces.length;
             for (const s of parts.surfaces) { surfaces.push(bodyRec(newId(f.id), s, f.id)); applied.push({ op: 'add', tool: s }); }
+            // (bodies each as the file has them: other kernels can mesh them from the store)
+            if (rec.stored && !mergeBodies && !f.sew && solids.length - n0 === parts.solids.length) {
+              solids.slice(n0).forEach((r, k) => importedFrom.set(r.shape, { key: rec.stored, k, kind: 'solid' }));
+              surfaces.slice(s0).forEach((r, k) => importedFrom.set(r.shape, { key: rec.stored, k, kind: 'surface' }));
+            }
             // the appearances the file gave its solids and faces (f.appearance, from stepasm.js)
             if (f.appearance) {
               const recs = [...(mergeBodies ? [] : solids.slice(n0)), ...surfaces.slice(s0)];
@@ -5663,6 +5762,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
     // each body is meshed on its own (so every face and edge knows its body), and only when it changed
     timing.meshStart = performance.now();
     progressFeature = null; // (meshing: no one feature to blame)
+    timing.meshHelpers = await meshHelped(parts, tol, diagQ, ang, opts.meshHelp);
     const meshes = parts.map((s, i) => meshPart(s, tol, diagQ, () => progress(0.8 + (0.2 * i) / parts.length, parts.length > 1 ? `Meshing body ${i + 1} of ${parts.length}…` : 'Meshing…'), ang));
     const key = `${KERNEL_SESSION}|${tol}|${ang}|` + parts.map((s) => `${shapeId(s.shape)}:${s.id}:${s.kind}:${s.last}`).join('|');
     const dense = meshes.some((m) => m.dense);
@@ -7497,7 +7597,7 @@ async function handleMessage(e) {
     resetStack();
     let result, transfer = [];
     if (type === 'rebuild') {
-      ({ res: result, transfer } = await rebuild(JSON.parse(data.doc), data.previewId || null, { haveMesh: data.haveMesh || null, batchCuts: data.batchCuts }));
+      ({ res: result, transfer } = await rebuild(JSON.parse(data.doc), data.previewId || null, { haveMesh: data.haveMesh || null, batchCuts: data.batchCuts, meshHelp: data.meshHelp || null }));
       for (const k of ['add', 'remove', 'tool']) {
         const m = result.preview?.[k];
         if (m) transfer.push(m.vertices.buffer, m.normals.buffer, m.triangles.buffer);
@@ -7529,6 +7629,8 @@ async function handleMessage(e) {
       const shapes = [...(sb?.body ? solidsOf(sb.body) : []), ...(sb?.surfaces || [])];
       if (!shapes.length) throw new Error('There is no body or surface for the sketch plane to cut');
       result = sectionPrims(shapes, sb.frame, bboxOfAll(shapes).diag);
+    } else if (type === 'meshImport') {
+      ({ result, transfer } = await meshImportBodies(data));
     } else if (type === 'stats') {
       // for crash reports: kernel memory and stack state
       resetStack();
