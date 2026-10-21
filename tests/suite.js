@@ -104,10 +104,15 @@ const UI = {
     return Math.abs(vol - want) < 1e-6 * want ? { ok: true, detail: `volume ${r6(vol)}` } : { ok: false, detail: `volume ${vol}, expected ${want}` };
   },
 
-  // a drawing of the part: three standard views with lines in them
+  // a drawing of the part: three standard views with lines in them (the part the test before made; made here when
+  // this test runs on its own, as in a page of its own with run_tests.py --jobs)
   async 'drawing-from-part'() {
     const a = window.app;
     if (a.mode === 'drawing') return { ok: false, detail: 'no part in front' };
+    if (!a.result?.bodies?.length) {
+      const made = await UI['sketch-dimension-extrude']();
+      if (!made.ok) return { ok: false, detail: 'the part to draw: ' + made.detail };
+    }
     const keep = a.ui.newDrawingSetup;
     a.ui.newDrawingSetup = async () => ({ template: BUILTIN_TEMPLATES.find((t) => t.id === 'builtin:A3L'), name: 'Test drawing', props: {}, sheet: null });
     try { await a.newDrawing(true); } finally { a.ui.newDrawingSetup = keep; }
@@ -2473,19 +2478,25 @@ async function drawingResult(doc) {
   return out;
 }
 
-export async function run(parts, only = null) {
+// The UI tests' names, in the order they run.
+export const uiTests = () => Object.keys(UI);
+
+// share (when the run is split over several pages, run_tests.py --jobs): { parts: false } leaves out the parts and
+// drawings, { ui: [names] } runs only these UI tests
+export async function run(parts, only = null, share = {}) {
   const out = { parts: {}, ui: {}, drawings: {} };
   closeModals();
-  for (const p of parts) {
+  for (const p of share.parts === false ? [] : parts) {
     if (only && !only.includes(p.name)) continue;
     try { out.parts[p.name] = await partResult(JSON.parse(p.json)); } catch (e) { out.parts[p.name] = { crash: String(e?.message || e) }; }
   }
-  for (const p of parts) {
+  for (const p of share.parts === false ? [] : parts) {
     if (!DRAWING_PARTS.includes(p.name) || (only && !only.includes(p.name) && !only.includes('drawings'))) continue;
     try { out.drawings[p.name] = await drawingResult(JSON.parse(p.json)); } catch (e) { out.drawings[p.name] = { crash: String(e?.message || e) }; }
   }
   for (const [name, fn] of Object.entries(UI)) {
     if (only && !only.includes(name)) continue;
+    if (share.ui && !share.ui.includes(name)) continue;
     const t0 = performance.now();
     try { out.ui[name] = await fn(parts); } catch (e) { out.ui[name] = { ok: false, detail: 'crashed: ' + (e?.stack || e) }; }
     out.ui[name].ms = Math.round(performance.now() - t0);

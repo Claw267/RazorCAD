@@ -27,6 +27,11 @@ request too (`.github/workflows/tests.yml`, on Windows with Edge; there the soft
 | `--update` | store the current results as the expected ones (after a deliberate change; check the numbers first) |
 | `--make-parts` | rebuild `tests/parts/*.rcad` from `tests/make_parts.js` |
 | `--headed` | show the browser window |
+| `--jobs N` | pages run side by side (default: one per 6 processor threads, at most 4; `--jobs 1`: one page, everything in turn) |
+
+With several jobs, each page has its own storage and kernels and is told its share of the processor threads; the first
+runs the parts and drawings, and the UI tests are shared out by their usual times. A UI test must not need what an
+earlier one left behind (or must make it itself, as drawing-from-part does). Times are kept apart per number of jobs.
 
 To cover a new feature, add a part to `make_parts.js`, run `python tests/run_tests.py --make-parts --only <name> --update`,
 and check the recorded numbers by hand (for example a plate's volume) before committing them.

@@ -640,7 +640,7 @@ Skipped for now (from the list of 2026-10-21):
 
 ## Further improvements (user 2026-10-22: "do all of it except 4 for now"; 4 = code signing)
 - [x] 1. Multi-threaded kernel in the browser version: website/_headers isolates /app/* (COOP same-origin, COEP require-corp, CORP same-origin); build_web_app.py keeps replicad_multi.*; machine.threadsPerKernel unchanged (isolated + SharedArrayBuffer + 6 threads). Tested: the web build's page (RAZORCAD_WEB) under an isolating server: part kernel replicad_multi, 8 threads, test parts rebuilt with 0 errors. (The test browser pane lets workers start workers only from its own preview server.)
-- [ ] 5. Faster test suite (tests in parallel)
+- [x] 5. Faster test suite: run_tests.py --jobs (default cpu//6, 1-4): a browser context per job, hardwareConcurrency set to its share (min 6), job 1 parts + drawings, UI tests shared out longest-first by usual times (per jobs count); request_queue_size 128 (refused connections). 65 -> 27 s, three runs in a row all passed with no console errors; --jobs 1 60 s.
 - [ ] 2. Big imports meshed in parallel over idle kernels (import store)
 - [ ] 3. Section views saved with the part / assembly
 - [ ] 6. Exact conversion of RazorCAD's own closed corners (relief, curved V)

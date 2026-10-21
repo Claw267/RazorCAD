@@ -6,6 +6,12 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-22 08:33 — Regression tests run side by side: 27 s instead of 65 s
+- `tests/run_tests.py` splits the run over several pages in the one browser (`--jobs N`; by default one per 6 processor threads, at most 4: 4 on this PC; GitHub's runner stays at 1). Each page has its own storage and geometry kernels and is told its share of the processor threads (else each started kernels for the whole PC, and some stopped while starting). The first page runs the parts and drawings; the UI tests are shared out by their usual times so the pages finish together. Results are listed in the usual order.
+- The test server takes 128 waiting connections instead of Python's 5: pages loading side by side were refused some files (one page then waited 3 minutes; it was also behind the odd "connection refused" seen before). A file cut short when a page closes is no longer printed as an error.
+- drawing-from-part makes its part when no test before it did.
+- `--jobs 1` runs as before (60 s); timings are kept per number of jobs. A slowdown against a usual time of 0 ms no longer stops the report.
+
 ## 2026-10-22 08:16 — The browser version runs the multi-threaded kernel
 - razorcad.com/app is served cross-origin isolated (`website/_headers`: COOP, COEP, CORP for `/app/*`), which shared memory needs, so each open part's kernel there is the multi-threaded one, as in the Windows app (half the processor threads beyond two, 2 to 8; a PC or browser that can't keeps the single-thread kernel).
 - The browser version now carries both kernels (the multi-threaded one is 22 MB, under the host's 25 MiB a file).

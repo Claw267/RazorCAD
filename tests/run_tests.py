@@ -7,10 +7,15 @@ checks, in headless Microsoft Edge, then compares the results with tests/expecte
     python tests/run_tests.py --only NAME ... run just these parts / UI tests
     python tests/run_tests.py --perf          also list every test's time against its usual time
     python tests/run_tests.py --perf-strict   exit code 1 when something got slower too
+    python tests/run_tests.py --jobs N        split the run over N pages at once (default: by the PC's threads, at
+                                              most 4; --jobs 1 runs everything in one page, one after another)
 
 Every run's times (part rebuilds, drawings, UI tests) are kept in tests/perf-history.json, per machine (the last
 10 of each; not in git): a test markedly slower than its usual time (the median of those, 1.5x and 300 ms more)
-is reported under Performance.
+is reported under Performance. Times are kept apart per number of jobs (tests run side by side take longer).
+
+With several jobs, each is a page of its own (its own storage, its own geometry kernels) in one browser: the first
+runs the parts and drawings, and the UI tests are shared out by their usual times so the pages finish together.
 
 Needs Python's playwright package (pip install playwright); it uses the Edge already on the PC.
 """
@@ -62,7 +67,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 def serve():
     socketserver.ThreadingTCPServer.allow_reuse_address = True
     socketserver.ThreadingTCPServer.daemon_threads = True
+    # (the connections waiting to be taken: Python's 5 are too few for pages loading side by side, and the browser
+    # is refused the rest)
+    socketserver.ThreadingTCPServer.request_queue_size = 128
     httpd = socketserver.ThreadingTCPServer(('127.0.0.1', 0), functools.partial(Handler, directory=APP))
+    # (a page closed while a file is still being sent: nothing wrong)
+    quiet = httpd.handle_error
+    httpd.handle_error = lambda request, address: None if isinstance(sys.exc_info()[1], (ConnectionAbortedError, ConnectionResetError, BrokenPipeError)) else quiet(request, address)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     return httpd
 
@@ -129,9 +140,41 @@ def compare_drawing(got, want):
     return diffs
 
 
-def machine():
-    """This PC (times are only compared with its own)."""
-    return f'{platform.node()}|{platform.processor() or platform.machine()}|{os.cpu_count()}'
+def machine(jobs=1):
+    """This PC (times are only compared with its own), and how many jobs ran side by side."""
+    return f'{platform.node()}|{platform.processor() or platform.machine()}|{os.cpu_count()}' + (f'|jobs {jobs}' if jobs > 1 else '')
+
+
+def default_jobs():
+    """Pages run at once: one per 6 processor threads, 1 to 4."""
+    return max(1, min(4, (os.cpu_count() or 4) // 6))
+
+
+def usual_times(jobs):
+    """Each UI test's usual time on this PC (ms), from tests/perf-history.json: with this many jobs side by side,
+    else run alone."""
+    try:
+        with open(PERF, encoding='utf-8') as f:
+            hist = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    out = {}
+    for mine in (hist.get(machine(), {}), hist.get(machine(jobs), {})):
+        out.update({k[3:]: statistics.median(v) for k, v in mine.items() if k.startswith('ui:') and v})
+    return out
+
+
+def share_out(names, jobs, usual, first_extra):
+    """The UI tests split over the jobs, each as long as the others by the usual times (the longest first, each to
+    the job with least so far; the first job also has the parts and drawings, first_extra ms). Each job's tests keep
+    the suite's order."""
+    load = [first_extra] + [0] * (jobs - 1)
+    shares = [set() for _ in range(jobs)]
+    for n in sorted(names, key=lambda n: -usual.get(n, 1000)):
+        j = min(range(jobs), key=lambda j: load[j])
+        shares[j].add(n)
+        load[j] += usual.get(n, 1000)
+    return [[n for n in names if n in sh] for sh in shares]
 
 
 def timings(results):
@@ -150,7 +193,7 @@ def timings(results):
     return out
 
 
-def perf_report(times, total_s, show_all=False, whole=True):
+def perf_report(times, total_s, show_all=False, whole=True, jobs=1):
     """This run's times against the usual ones (printed), and stored. Returns the number markedly slower."""
     hist = {}
     if os.path.exists(PERF):
@@ -159,7 +202,7 @@ def perf_report(times, total_s, show_all=False, whole=True):
                 hist = json.load(f)
         except (OSError, ValueError):
             hist = {}
-    mine = hist.setdefault(machine(), {})
+    mine = hist.setdefault(machine(jobs), {})
     rows, slower = [], []
     for key, ms in sorted(times.items()):
         past = mine.get(key, [])
@@ -185,7 +228,7 @@ def perf_report(times, total_s, show_all=False, whole=True):
         for key, ms, usual in rows:
             print(f'  {key:44} {ms:8.0f} ms' + (f'   usual {usual:.0f} ms ({ms / usual:.2f}x)' if usual else '   (no history yet)'))
     for key, ms, usual in slower:
-        print(f'  SLOWER  {key:40} {ms:.0f} ms, usually {usual:.0f} ms ({ms / usual:.1f}x)')
+        print(f'  SLOWER  {key:40} {ms:.0f} ms, usually {usual:.0f} ms' + (f' ({ms / usual:.1f}x)' if usual else ''))
     if not slower:
         print('  no slowdowns' if judged else f'  (no history yet: times are compared after {PERF_MIN_RUNS} runs)')
     slowest = sorted(rows, key=lambda r: -r[1])[:3]
@@ -203,6 +246,7 @@ def main():
     ap.add_argument('--headed', action='store_true', help='show the browser window')
     ap.add_argument('--perf', action='store_true', help='list every test time against its usual time')
     ap.add_argument('--perf-strict', action='store_true', help='fail when something got markedly slower')
+    ap.add_argument('--jobs', type=int, default=0, help="pages run at once (default: by the PC's threads)")
     args = ap.parse_args()
     try: sys.stdout.reconfigure(encoding='utf-8')
     except Exception: pass
@@ -216,38 +260,52 @@ def main():
         # (on a CI machine with no graphics card, WebGL needs the software renderer allowed)
         ci_args = ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'] if os.environ.get('CI') else []
         browser = p.chromium.launch(channel='msedge', headless=not args.headed, args=ci_args)
-        page = browser.new_page(viewport={'width': 1400, 'height': 900})
         # (with where it came from: a worker's failed load says nothing else). Not counted: the app's one look for
         # the PC's fonts at _fonts/ (platform.js: a server without them answers 404, and they are not asked for
         # again; the desktop app serves them itself), which the browser always reports as a failed load.
         font_probe = lambda url: '/_fonts/' in (url or '')
-        page.on('console', lambda m: None if m.type != 'error' or font_probe((m.location or {}).get('url')) else console_errors.append(m.text + (f"  [{m.location.get('url', '')}:{m.location.get('lineNumber', '')}]" if m.location and m.location.get('url') else '')))
-        page.on('pageerror', lambda e: console_errors.append(str(e)))
-        # (the browser's "Failed to load resource" doesn't say which: the address too)
-        page.on('response', lambda r: console_errors.append(f'  ({r.status} for {r.url})') if r.status >= 400 and not (r.status == 404 and font_probe(r.url)) else None)
-        # (a fresh browser is a first run: no Getting Started Tour over the tests)
-        page.add_init_script("try { const p = JSON.parse(localStorage.getItem('razorcad.prefs') || '{}'); p.tourDone = true; localStorage.setItem('razorcad.prefs', JSON.stringify(p)); } catch (e) {}")
         ready = "window.app && window.app.doc && !window.app.kernel.pending && document.querySelector('#status-msg')?.textContent === 'Ready'"
-        page.goto(url)
-        for attempt in (1, 2):
-            try:
-                page.wait_for_function(ready, timeout=180000)
-                break
-            except Exception:
-                # (say why RazorCAD didn't start, not just that it timed out; a CI runner now and then stalls while
-                # the page starts, so the page is loaded once more before the run fails)
+
+        def open_page(tag='', threads=None):
+            """A page of its own (own storage), RazorCAD loading in it; threads: the processor threads it is told the
+            PC has (its share, with several jobs: else each would start kernels for the whole PC)."""
+            page = browser.new_context(viewport={'width': 1400, 'height': 900}).new_page()
+            if threads:
+                page.add_init_script(f"Object.defineProperty(Navigator.prototype, 'hardwareConcurrency', {{ get: () => {threads} }});")
+            page.on('console', lambda m: None if m.type != 'error' or font_probe((m.location or {}).get('url')) else console_errors.append(tag + m.text + (f"  [{m.location.get('url', '')}:{m.location.get('lineNumber', '')}]" if m.location and m.location.get('url') else '')))
+            page.on('pageerror', lambda e: console_errors.append(tag + str(e)))
+            # (the browser's "Failed to load resource" doesn't say which: the address too)
+            page.on('response', lambda r: console_errors.append(f'{tag}  ({r.status} for {r.url})') if r.status >= 400 and not (r.status == 404 and font_probe(r.url)) else None)
+            # (a fresh browser is a first run: no Getting Started Tour over the tests)
+            page.add_init_script("try { const p = JSON.parse(localStorage.getItem('razorcad.prefs') || '{}'); p.tourDone = true; localStorage.setItem('razorcad.prefs', JSON.stringify(p)); } catch (e) {}")
+            page.goto(url)
+            return page
+
+        def wait_ready(page):
+            for attempt in (1, 2):
                 try:
-                    status = page.evaluate("document.querySelector('#status-msg')?.textContent ?? '(no status line)'")
-                except Exception as e:
-                    status = f'(page not readable: {e})'
-                print(f'RazorCAD did not get to Ready within 3 minutes (try {attempt} of 2). Status line: {status}')
-                print(f'Browser console errors ({len(console_errors)}):' if console_errors else 'No browser console errors.')
-                for e in console_errors[:20]:
-                    print('  ' + e[:300])
-                if attempt == 2:
-                    raise
-                console_errors.clear()
-                page.reload()
+                    page.wait_for_function(ready, timeout=180000)
+                    return
+                except Exception:
+                    # (say why RazorCAD didn't start, not just that it timed out; a CI runner now and then stalls while
+                    # the page starts, so the page is loaded once more before the run fails)
+                    try:
+                        status = page.evaluate("document.querySelector('#status-msg')?.textContent ?? '(no status line)'")
+                    except Exception as e:
+                        status = f'(page not readable: {e})'
+                    print(f'RazorCAD did not get to Ready within 3 minutes (try {attempt} of 2). Status line: {status}')
+                    print(f'Browser console errors ({len(console_errors)}):' if console_errors else 'No browser console errors.')
+                    for e in console_errors[:20]:
+                        print('  ' + e[:300])
+                    if attempt == 2:
+                        raise
+                    console_errors.clear()
+                    page.reload()
+
+        jobs = 1 if args.only else max(1, args.jobs or default_jobs())
+        share_threads = max(6, (os.cpu_count() or 4) // jobs) if jobs > 1 else None
+        page = open_page(threads=share_threads)
+        wait_ready(page)
 
         if args.make_parts:
             os.makedirs(PARTS, exist_ok=True)
@@ -262,10 +320,39 @@ def main():
             if n.endswith('.rcad'):
                 with open(os.path.join(PARTS, n), encoding='utf-8') as f:
                     parts.append({'name': n[:-5], 'json': f.read()})
-        page.set_default_timeout(0)
-        results = page.evaluate("async ([parts, only]) => (await import('/tests/suite.js')).run(parts, only)", [parts, args.only])
+
+        # the jobs: the UI tests shared out (one page with --only or --jobs 1)
+        names = page.evaluate("async () => (await import('/tests/suite.js')).uiTests()")
+        jobs = min(jobs, len(names) or 1)
+        shares = share_out(names, jobs, usual_times(jobs), 5000) if jobs > 1 else [None]  # (parts and drawings: about 4 s)
+        pages = [page] + [open_page(f'[job {j + 1}] ', share_threads) for j in range(1, jobs)]
+        for pg in pages[1:]:
+            wait_ready(pg)
+        # every page started, then each waited for (they run side by side in the browser)
+        for j, pg in enumerate(pages):
+            pg.set_default_timeout(0)
+            share = {} if shares[j] is None else {'parts': j == 0, 'ui': shares[j]}
+            pg.evaluate("([parts, only, share]) => { import('/tests/suite.js').then((m) => m.run(parts, only, share)).then((r) => { window.__testResult = r; }, (e) => { window.__testResult = { crash: String(e && (e.stack || e)) }; }).finally(() => { window.__testDone = performance.timeOrigin + performance.now(); }); }", [parts, args.only, share])
+        started, runs, done = time.time() - t0, [], []
+        for pg in pages:
+            pg.wait_for_function("window.__testDone !== undefined", timeout=0, polling=250)
+            runs.append(pg.evaluate("window.__testResult"))
+            done.append(pg.evaluate("window.__testDone") - t0 * 1000 if jobs > 1 else 0)
+        if jobs > 1:
+            print(f'{jobs} jobs side by side: started at {started:.0f} s, done at ' + ', '.join(f'{ms / 1000:.0f}' for ms in done) + ' s')
         browser.close()
     httpd.shutdown()
+
+    results = {'parts': {}, 'ui': {}, 'drawings': {}}
+    for j, r in enumerate(runs):
+        if 'crash' in r:
+            results['ui'][f'(job {j + 1})'] = {'ok': False, 'detail': 'crashed: ' + r['crash']}
+            continue
+        results['parts'].update(r['parts'])
+        results['drawings'].update(r['drawings'])
+        results['ui'].update(r['ui'])
+    # (the UI tests listed in the suite's order)
+    results['ui'] = {n: results['ui'][n] for n in names + [k for k in results['ui'] if k not in names] if n in results['ui']}
 
     perf_times = timings(results)
     expected = {}
@@ -321,10 +408,10 @@ def main():
             json.dump(merged, f, indent=1)
             f.write('\n')
         print(f'\nexpected.json updated ({len(results["parts"])} parts, {len(drawings)} drawings).')
-    slower = perf_report(perf_times, time.time() - t0, args.perf, whole=not args.only)
+    slower = perf_report(perf_times, time.time() - t0, args.perf, whole=not args.only, jobs=jobs)
     if args.perf_strict and slower:
         failures += slower
-    print(f'\n{"ALL PASSED" if not failures else f"{failures} FAILED"}  ({time.time() - t0:.0f} s)')
+    print(f'\n{"ALL PASSED" if not failures else f"{failures} FAILED"}  ({time.time() - t0:.0f} s' + (f', {jobs} jobs side by side)' if jobs > 1 else ')'))
     sys.exit(1 if failures and not args.update else 0)
 
 
