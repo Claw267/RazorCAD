@@ -145,10 +145,13 @@ export function circleFace(c, r) {
   return R.makeFace(R.assembleWire([R.makeCircle(r, P3(c), [0, 0, 1])]));
 }
 
-function clean(shape) {
+// (tol: faces this close to one plane count as one, for a sheet whose pattern came from a body: its faces may lie a
+// ten-millionth of a mm apart where they should be one; default OpenCascade's own)
+function clean(shape, tol = 0) {
   let u = null;
   try {
     u = new (oc().ShapeUpgrade_UnifySameDomain)(shape.wrapped, true, true, false);
+    if (tol > 0 && typeof u.SetLinearTolerance === 'function') u.SetLinearTolerance(tol);
     u.Build();
     return own(u.Shape());
   } catch { return shape; } finally { u?.delete(); }
@@ -798,7 +801,7 @@ export function toSolid(sheet) {
   }
   for (const p of parts) if (p !== sol) free(p);
   sol = swap(sol, formSolid(sheet, sol)); // (dimples, louvers, extruded holes, gussets)
-  const one = clean(sol);
+  const one = clean(sol, sheet.tidyTol || 0);
   if (one !== sol && one.constructor === sol.constructor) sol = swap(sol, one); else if (one !== sol) free(one);
   return placed(sol, W);
 }
@@ -2883,8 +2886,8 @@ export function fromSolid(solid, picked, { R: R0, K, t: tSet = null, Rset = null
 // From those each corner is worked out (which wall covers the other's end, or both mitred; the gap), its bends
 // lengthened to the corner point and formed as usual (no zone of their own), the corner closed as closedCorner
 // closes it. Kept only when the folded solid is the body (its volume, area and box); else null, and the corners
-// stay as traced from the body. (A butt corner read from a STEP file may keep a seam where a wall's mitred run-on
-// joins it: the file moves the wall by a ten-millionth of a mm.)
+// stay as traced from the body. (Folded with faces a millionth of a mm from one plane taken as one: a STEP file moves
+// the walls by a ten-millionth, which would leave a seam where a butt corner's mitred run-on joins its wall.)
 const CORNER_TOL = 1e-4;
 // (volume and area to 3 parts in a million: OpenCascade's measure of a curved corner's B-spline faces is no closer;
 // a corner made with a gap 0.01 mm off differs ten times as much)
@@ -2977,7 +2980,8 @@ export function exactCorners(sheet, solid) {
   // (the pattern's faces that meet merged: each panel one face, folded in one piece)
   const merged = clean(region);
   if (merged !== region) { free(region); region = merged; }
-  const out = { ...sheet, bends: sheet.bends.map((b) => bends.get(b.id)), region, corners: [...(sheet.corners || []), ...records.map((r) => r.rec)] };
+  // (folded with faces within a millionth of a mm of one plane taken as one: the pattern's walls came from the body)
+  const out = { ...sheet, bends: sheet.bends.map((b) => bends.get(b.id)), region, corners: [...(sheet.corners || []), ...records.map((r) => r.rec)], tidyTol: 1e-6 };
   // kept only when it folds into the body: the same volume and area (EXACT_TOL) and box (a boolean between the two
   // would be no test: on faces that lie on each other it goes wrong)
   let sol = null;

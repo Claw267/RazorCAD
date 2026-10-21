@@ -174,8 +174,8 @@ async function convertSheetVariants(part) {
   const cases = {
     open: { set: (d) => { d.features[2].corner = 'open'; }, exact: true },
     angle120: { set: (d) => { Object.assign(d.features[2], { corner: 'open', angle: 120, edges: d.features[2].edges.slice(0, 2) }); }, exact: true },
-    // (RazorCAD's own corners made again as it made them: a butt corner's run-ons may join their walls along a seam)
-    butt: { set: (d) => { d.features[2].corner = 'butt'; }, within: 1e-6 },
+    // (RazorCAD's own corners made again as it made them)
+    butt: { set: (d) => { d.features[2].corner = 'butt'; }, exact: true },
     mitre: { set: (d) => { d.features[2].cornerBend = 'mitre'; }, exact: true },
   };
   const out = [], bad = [];

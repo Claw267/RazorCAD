@@ -6,6 +6,10 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-22 10:33 — Convert to Sheet Metal: butt corners exact too
+- A butt corner converted from a STEP file kept a seam on the top of one wall, where its mitred run-on joined it: the file moves the walls by a ten-millionth of a mm, so the two tops did not count as one face. A sheet whose corners were made again as RazorCAD made them is now tidied with faces a millionth of a mm from one plane taken as one: the test tray with butt corners converts to 38 faces, as RazorCAD made it (it was 39), the same volume and area.
+- convert-sheet-variants: every variant now the same faces and volume (the butt corner was allowed a millionth).
+
 ## 2026-10-22 10:27 — Regression tests: 30 s side by side
 - The heaviest tests did most of the waiting. Tests that start kernels of their own (import-store, import-mesh-helpers) now give them the page's share of the processor threads, not 8 each (four pages at once had far more threads busy than the PC has); import-mesh-helpers uses 12 trays instead of 24 (10 MB of STEP, still a big import) and no longer builds a third time to show the automatic choice, which is measured rather than tested.
 - import-store split into import-store-step and import-store-stl, and convert-sheet-variants into the corner variants and convert-sheet-others (the hem refused, two bodies), so they can run in different pages.
