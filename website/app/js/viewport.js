@@ -605,16 +605,13 @@ export class Viewport {
     this.asmView?.applyDisplayStyle(s);
   }
 
+  // sec: { normal, constant, more: [{ normal, constant }…] } (more: further planes; then only what all of them cut away
+  // is gone, e.g. a quarter cut) or null
   setSection(sec) {
     this.section = sec;
-    const planes = sec ? [new THREE.Plane(sec.normal.clone(), sec.constant)] : [];
-    this.asmView?.setClipping(planes);
-    this.bodyMat.clippingPlanes = planes;
-    this.bodyMat.needsUpdate = true;
-    this.glassMat.clippingPlanes = planes;
-    this.glassMat.needsUpdate = true;
-    this.edgeMat.clippingPlanes = planes;
-    this.edgeMat.needsUpdate = true;
+    const planes = this.sectionPlanes(), many = planes.length > 1;
+    this.asmView?.setClipping(planes, many);
+    for (const m of [this.bodyMat, this.glassMat, this.edgeMat]) { m.clippingPlanes = planes; m.clipIntersection = many; m.needsUpdate = true; }
     this._updateSectionCaps();
   }
 
@@ -669,19 +666,10 @@ export class Viewport {
     }
     const asm = this.asmView?.capSources?.() || null;
     if (!this.section || (!asm && (!this.body || !this.bodyGeo))) return;
-    const plane = new THREE.Plane(this.section.normal.clone(), this.section.constant);
+    // (several planes: each capped where the others cut away too, as only what all of them cut away is gone)
+    const planes = this.sectionPlanes();
     const grp = new THREE.Group();
-    const stencilMat = (side, op) => new THREE.MeshBasicMaterial({
-      side, clippingPlanes: [plane], depthWrite: false, depthTest: false, colorWrite: false,
-      stencilWrite: true, stencilFunc: THREE.AlwaysStencilFunc, stencilFail: op, stencilZFail: op, stencilZPass: op,
-    });
     const sphere = asm ? this.contentBox().getBoundingSphere(new THREE.Sphere()) : (this.bodyGeo.computeBoundingSphere(), this.bodyGeo.boundingSphere);
-    const center = new THREE.Vector3();
-    plane.projectPoint(sphere.center, center);
-    // the plane's own axes (the hatching is laid out in them)
-    const n = plane.normal.clone().normalize();
-    const u = new THREE.Vector3().crossVectors(n, Math.abs(n.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0)).normalize();
-    const v = new THREE.Vector3().crossVectors(n, u);
     // the base spacing: a round number about a fortieth of the model's size
     const raw = Math.max(sphere.radius, 1) / 20;
     const p10 = 10 ** Math.floor(Math.log10(raw)), m = raw / p10;
@@ -696,76 +684,108 @@ export class Viewport {
       : this.bodies.length
         ? this.bodies.map((b, bi) => ({ b, bi })).filter(({ b, bi }) => !this.hiddenBodies?.has(bi) && b.kind !== 'surface' && b.triCount)
         : [{ b: null, bi: 0 }];
-    const N = list.length, col = new THREE.Color();
-    list.forEach(({ b, bi, src }, k) => {
-      let geo = this.bodyGeo;
-      if (b) {
-        geo = new THREE.BufferGeometry();
-        geo.setAttribute('position', this.bodyGeo.getAttribute('position'));
-        geo.setIndex(new THREE.BufferAttribute(idx.subarray(b.triStart, b.triStart + b.triCount), 1));
-      }
-      // (an assembly's part: its mesh drawn in every place it is used, as the view draws it)
-      const stencilMesh = (side, op) => {
-        if (!src) return new THREE.Mesh(geo, stencilMat(side, op));
-        const m = new THREE.InstancedMesh(src.geo, stencilMat(side, op), src.count);
-        m.instanceMatrix = src.instanceMatrix; m.count = src.count; m.frustumCulled = false;
-        m.userData.shared = true;
-        return m;
-      };
-      const back = stencilMesh(THREE.BackSide, THREE.IncrementWrapStencilOp);
-      const front = stencilMesh(THREE.FrontSide, THREE.DecrementWrapStencilOp);
-      // its outline on the plane: its triangles cut by the plane
-      const t0 = src ? 0 : b ? b.triStart : 0, t1 = src ? 0 : b ? b.triStart + b.triCount : idx.length;
-      const nx = n.x, ny = n.y, nz = n.z, c0 = plane.constant;
-      for (let t = t0; t + 2 < t1; t += 3) {
-        const i0 = idx[t] * 3, i1 = idx[t + 1] * 3, i2 = idx[t + 2] * 3;
-        const P = [i0, i1, i2], d = P.map((i) => V[i] * nx + V[i + 1] * ny + V[i + 2] * nz + c0);
-        const hits = [];
-        for (let e = 0; e < 3; e++) {
-          const a = e, c = (e + 1) % 3;
-          if ((d[a] > 0) === (d[c] > 0) || d[a] === d[c]) continue;
-          const f = d[a] / (d[a] - d[c]), A = P[a], C = P[c];
-          hits.push(new THREE.Vector3(V[A] + (V[C] - V[A]) * f, V[A + 1] + (V[C + 1] - V[A + 1]) * f, V[A + 2] + (V[C + 2] - V[A + 2]) * f));
+    const N = list.length * planes.length, col = new THREE.Color();
+    const geos = new Map(); // (each body's own triangles, once for all the planes)
+    let k = 0;
+    planes.forEach((plane, pi) => {
+      // (the other planes turned round: what they cut away is kept, so the cap shows only there)
+      const others = planes.filter((_, j) => j !== pi).map((q) => new THREE.Plane(q.normal.clone().negate(), -q.constant));
+      const removedByOthers = (p) => others.every((q) => q.distanceToPoint(p) >= -1e-9);
+      const stencilMat = (side, op) => new THREE.MeshBasicMaterial({
+        side, clippingPlanes: [plane], depthWrite: false, depthTest: false, colorWrite: false,
+        stencilWrite: true, stencilFunc: THREE.AlwaysStencilFunc, stencilFail: op, stencilZFail: op, stencilZPass: op,
+      });
+      const center = new THREE.Vector3();
+      plane.projectPoint(sphere.center, center);
+      // the plane's own axes (the hatching is laid out in them)
+      const n = plane.normal.clone().normalize();
+      const u = new THREE.Vector3().crossVectors(n, Math.abs(n.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0)).normalize();
+      const v = new THREE.Vector3().crossVectors(n, u);
+      list.forEach(({ b, bi, src }) => {
+        let geo = this.bodyGeo;
+        if (b) {
+          geo = geos.get(bi);
+          if (!geo) {
+            geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', this.bodyGeo.getAttribute('position'));
+            geo.setIndex(new THREE.BufferAttribute(idx.subarray(b.triStart, b.triStart + b.triCount), 1));
+            geos.set(bi, geo);
+          }
         }
-        if (hits.length === 2) outline.push(hits[0], hits[1]);
-      }
-      const hs = hatchStyle(bi);
-      const a = (hs.angle * Math.PI) / 180;
-      col.set(src ? src.color : (Array.isArray(this.bodyColors) ? this.bodyColors[bi] : this.bodyColors) ?? this.bodyColor ?? 0x8ea6c8);
-      const base = col.clone().lerp(new THREE.Color(0x8ea6c8), 0.25).multiplyScalar(0.92);
-      const ink = col.clone().multiplyScalar(0.28);
-      const cap = new THREE.Mesh(
-        new THREE.PlaneGeometry(size, size),
-        new THREE.ShaderMaterial({
-          side: THREE.DoubleSide,
-          uniforms: {
-            uBase: { value: base }, uInk: { value: ink }, uO: { value: center.clone() }, uU: { value: u.clone() }, uV: { value: v.clone() },
-            uDir: { value: new THREE.Vector2(-Math.sin(a), Math.cos(a)) }, uGap: { value: gap0 * hs.mult },
-          },
-          vertexShader: `varying vec3 vW;
-            void main() { vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
-          fragmentShader: `uniform vec3 uBase, uInk, uO, uU, uV; uniform vec2 uDir; uniform float uGap; varying vec3 vW;
-            void main() {
-              vec3 d = vW - uO;
-              float s = dot(vec2(dot(d, uU), dot(d, uV)), uDir) / uGap;
-              float w = max(fwidth(s), 1e-6);
-              float line = 1.0 - smoothstep(0.55, 1.35, abs(fract(s + 0.5) - 0.5) / w);
-              line *= 1.0 - smoothstep(0.2, 0.45, w); // (too dense when far away: the lines fade out)
-              gl_FragColor = vec4(mix(uBase, uInk, line), 1.0);
-              #include <colorspace_fragment>
-            }`,
-          stencilWrite: true, stencilRef: 0, stencilFunc: THREE.NotEqualStencilFunc,
-          stencilFail: THREE.ReplaceStencilOp, stencilZFail: THREE.ReplaceStencilOp, stencilZPass: THREE.ReplaceStencilOp,
-          polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1, // (the outline sits on it)
-        }),
-      );
-      cap.position.copy(center);
-      cap.lookAt(center.clone().add(n));
-      // (each body's stencil passes, then its cap, before the next body's)
-      back.renderOrder = front.renderOrder = 6 + (k * 2) / (2 * N + 1);
-      cap.renderOrder = 6 + (k * 2 + 1) / (2 * N + 1);
-      cap.onAfterRender = (r) => r.clearStencil();
-      grp.add(back, front, cap);
+        // (an assembly's part: its mesh drawn in every place it is used, as the view draws it)
+        const stencilMesh = (side, op) => {
+          if (!src) { const ms = new THREE.Mesh(geo, stencilMat(side, op)); if (b && pi) ms.userData.shared = true; return ms; }
+          const mi = new THREE.InstancedMesh(src.geo, stencilMat(side, op), src.count);
+          mi.instanceMatrix = src.instanceMatrix; mi.count = src.count; mi.frustumCulled = false;
+          mi.userData.shared = true;
+          return mi;
+        };
+        const back = stencilMesh(THREE.BackSide, THREE.IncrementWrapStencilOp);
+        const front = stencilMesh(THREE.FrontSide, THREE.DecrementWrapStencilOp);
+        // its outline on the plane: its triangles cut by the plane (where the other planes cut away too)
+        const t0 = src ? 0 : b ? b.triStart : 0, t1 = src ? 0 : b ? b.triStart + b.triCount : idx.length;
+        const nx = n.x, ny = n.y, nz = n.z, c0 = plane.constant;
+        for (let t = t0; t + 2 < t1; t += 3) {
+          const i0 = idx[t] * 3, i1 = idx[t + 1] * 3, i2 = idx[t + 2] * 3;
+          const P = [i0, i1, i2], d = P.map((i) => V[i] * nx + V[i + 1] * ny + V[i + 2] * nz + c0);
+          const hits = [];
+          for (let e = 0; e < 3; e++) {
+            const a = e, c = (e + 1) % 3;
+            if ((d[a] > 0) === (d[c] > 0) || d[a] === d[c]) continue;
+            const f = d[a] / (d[a] - d[c]), A = P[a], C = P[c];
+            hits.push(new THREE.Vector3(V[A] + (V[C] - V[A]) * f, V[A + 1] + (V[C + 1] - V[A + 1]) * f, V[A + 2] + (V[C + 2] - V[A + 2]) * f));
+          }
+          if (hits.length === 2 && (!others.length || (removedByOthers(hits[0]) && removedByOthers(hits[1])))) outline.push(hits[0], hits[1]);
+        }
+        const hs = hatchStyle(bi);
+        const a = ((hs.angle + 90 * pi) * Math.PI) / 180;
+        col.set(src ? src.color : (Array.isArray(this.bodyColors) ? this.bodyColors[bi] : this.bodyColors) ?? this.bodyColor ?? 0x8ea6c8);
+        const base = col.clone().lerp(new THREE.Color(0x8ea6c8), 0.25).multiplyScalar(0.92);
+        const ink = col.clone().multiplyScalar(0.28);
+        const cap = new THREE.Mesh(
+          new THREE.PlaneGeometry(size, size),
+          new THREE.ShaderMaterial({
+            side: THREE.DoubleSide,
+            uniforms: {
+              uBase: { value: base }, uInk: { value: ink }, uO: { value: center.clone() }, uU: { value: u.clone() }, uV: { value: v.clone() },
+              uDir: { value: new THREE.Vector2(-Math.sin(a), Math.cos(a)) }, uGap: { value: gap0 * hs.mult },
+            },
+            // (clipped by the other planes, turned round: shown only where they cut away too)
+            clipping: true, clippingPlanes: others,
+            vertexShader: `varying vec3 vW;
+              #include <clipping_planes_pars_vertex>
+              void main() {
+                vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz;
+                vec4 mvPosition = viewMatrix * w;
+                gl_Position = projectionMatrix * mvPosition;
+                #include <clipping_planes_vertex>
+              }`,
+            fragmentShader: `uniform vec3 uBase, uInk, uO, uU, uV; uniform vec2 uDir; uniform float uGap; varying vec3 vW;
+              #include <clipping_planes_pars_fragment>
+              void main() {
+                #include <clipping_planes_fragment>
+                vec3 d = vW - uO;
+                float s = dot(vec2(dot(d, uU), dot(d, uV)), uDir) / uGap;
+                float w = max(fwidth(s), 1e-6);
+                float line = 1.0 - smoothstep(0.55, 1.35, abs(fract(s + 0.5) - 0.5) / w);
+                line *= 1.0 - smoothstep(0.2, 0.45, w); // (too dense when far away: the lines fade out)
+                gl_FragColor = vec4(mix(uBase, uInk, line), 1.0);
+                #include <colorspace_fragment>
+              }`,
+            stencilWrite: true, stencilRef: 0, stencilFunc: THREE.NotEqualStencilFunc,
+            stencilFail: THREE.ReplaceStencilOp, stencilZFail: THREE.ReplaceStencilOp, stencilZPass: THREE.ReplaceStencilOp,
+            polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1, // (the outline sits on it)
+          }),
+        );
+        cap.position.copy(center);
+        cap.lookAt(center.clone().add(n));
+        // (each body's stencil passes, then its cap, before the next body's (and the next plane's))
+        back.renderOrder = front.renderOrder = 6 + (k * 2) / (2 * N + 1);
+        cap.renderOrder = 6 + (k * 2 + 1) / (2 * N + 1);
+        cap.onAfterRender = (r) => r.clearStencil();
+        grp.add(back, front, cap);
+        k++;
+      });
     });
     if (outline.length) {
       const ol = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(outline), new THREE.LineBasicMaterial({ color: 0x14181f }));
@@ -1136,8 +1156,15 @@ export class Viewport {
       .map((h) => { const face = this.vertexFace[h.face.a]; return { face, body: this.faceBody?.[face] ?? -1, point: h.point }; });
   }
 
+  // the section's planes (THREE.Plane: what is on their back side is cut away)
+  sectionPlanes() {
+    const s = this.section;
+    return s ? [s, ...(s.more || [])].map((q) => new THREE.Plane(q.normal.clone(), q.constant)) : [];
+  }
+  // whether a point is still shown (with several planes: unless all of them cut it away)
   _sectionKeeps(p) {
-    return this.section.normal.dot(p) + this.section.constant >= 0;
+    const s = this.section;
+    return [s, ...(s.more || [])].some((q) => q.normal.dot(p) + q.constant >= 0);
   }
 
   pickPlane(ev) {

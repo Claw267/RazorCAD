@@ -100,9 +100,9 @@ export class AssemblyView {
   }
 
   // ---- section view: the components cut by the viewport's planes; the caps on the cut drawn by the viewport
-  setClipping(planes) {
-    this.clipping = planes;
-    for (const m of [...this.mats.values(), this.edgeMat]) { m.clippingPlanes = planes; m.needsUpdate = true; }
+  setClipping(planes, many = false) {
+    this.clipping = planes; this.clipMany = many;
+    for (const m of [...this.mats.values(), this.edgeMat]) { m.clippingPlanes = planes; m.clipIntersection = many; m.needsUpdate = true; }
   }
   // each part shown, for the caps: its mesh, where it is used, its colour
   capSources() {
@@ -128,7 +128,7 @@ export class AssemblyView {
       m = new THREE.MeshPhongMaterial({ color: 0xffffff, vertexColors: true, specular: b.specular, shininess: b.shininess, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1, side: THREE.DoubleSide,
         ...(op < 1 ? { transparent: true, opacity: op } : {}) });
       m.userData.op = op;
-      if (this.clipping?.length) m.clippingPlanes = this.clipping;
+      if (this.clipping?.length) { m.clippingPlanes = this.clipping; m.clipIntersection = !!this.clipMany; }
       this.mats.set(op, m);
       this.styleMat(m);
     }

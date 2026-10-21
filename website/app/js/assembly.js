@@ -1120,7 +1120,7 @@ export class AssemblyEditor {
     if (this.app.pm?.kind === 'section') {
       if (kind === 'click') {
         const r = this.entityAt(e, true), from = r && this.sectionPlaneOf(r);
-        if (from) { Object.assign(this.app.sectionState, from, { offset: 0 }); this.app.applySection(); this.app.ui.renderPM(); } else if (r) this.app.toast('Click a flat face to cut from it');
+        if (from) { Object.assign(this.app.activeSection(), from, { offset: 0 }); this.app.applySection(); this.app.ui.renderPM(); } else if (r) this.app.toast('Click a flat face to cut from it');
         return;
       }
       if (kind === 'hover') { const on = this.vp.sectionArrowAt(e); this.vp.setSectionArrowHover(on); this.vp.canvas.style.cursor = on ? 'grab' : 'default'; return; }
