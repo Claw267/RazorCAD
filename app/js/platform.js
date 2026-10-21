@@ -21,15 +21,23 @@ const localFonts = () => !noLocalFonts && !window.RAZORCAD_WEB;
 
 // The browser version's store of models as last built (the desktop app keeps them on disk): in the browser's
 // own database, under the website's kernel signature (written in by tools/build_web_app.py; without one, as in
-// development, nothing is kept), the least recently used let go past WEB_STORE_MB.
+// development, nothing is kept), the least recently used let go past WEB_STORE_MB. Each model's size and last use
+// are also kept apart ('meta'), so letting the old ones go reads only those, not every model (an assembly writes
+// many at once).
 const WEB_STORE_MB = 400;
 const webKernel = () => window.RAZORCAD_WEB?.kernel || null;
 let webDb = null;
 function webStore() {
   if (!webKernel() || typeof indexedDB === 'undefined') return Promise.resolve(null);
   return (webDb ||= new Promise((resolve) => {
-    const rq = indexedDB.open('razorcad-models', 1);
-    rq.onupgradeneeded = () => rq.result.createObjectStore('m', { keyPath: 'key' });
+    const rq = indexedDB.open('razorcad-models', 2);
+    rq.onupgradeneeded = (ev) => {
+      const db = rq.result;
+      // (version 1 had no sizes apart: its models are let go, as a store of models built before is only a cache)
+      if (ev.oldVersion >= 1 && db.objectStoreNames.contains('m')) db.deleteObjectStore('m');
+      db.createObjectStore('m', { keyPath: 'key' });
+      if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'key' });
+    };
     rq.onsuccess = () => resolve(rq.result);
     rq.onerror = () => resolve(null);
   }));
@@ -38,24 +46,33 @@ const idb = (rq) => new Promise((resolve, reject) => { rq.onsuccess = () => reso
 async function webRead(key) {
   const db = await webStore();
   if (!db) return null;
-  const st = db.transaction('m', 'readwrite').objectStore('m');
-  const e = await idb(st.get(key));
+  const e = await idb(db.transaction('m', 'readonly').objectStore('m').get(key));
   if (!e || e.kernel !== webKernel()) return null;
-  e.used = Date.now();
-  st.put(e);
+  db.transaction('meta', 'readwrite').objectStore('meta').put({ key, kernel: e.kernel, size: e.size, used: Date.now() });
   return e.data;
 }
-async function webWrite(key, data) {
-  const db = await webStore();
-  if (!db) return null;
-  const st = db.transaction('m', 'readwrite').objectStore('m');
-  await idb(st.put({ key, kernel: webKernel(), data, size: data.length, used: Date.now() }));
-  // (another kernel's models, and the oldest past the limit, let go)
-  const all = (await idb(db.transaction('m', 'readonly').objectStore('m').getAll())).sort((a, b) => b.used - a.used);
-  let total = 0;
-  const del = db.transaction('m', 'readwrite').objectStore('m');
-  for (const e of all) { total += e.size; if (e.kernel !== webKernel() || total > WEB_STORE_MB * 1048576) del.delete(e.key); }
-  return true;
+let webWrites = Promise.resolve();
+function webWrite(key, data) {
+  // (one after another, so two writes don't both let the same old models go)
+  const run = webWrites.then(async () => {
+    const db = await webStore();
+    if (!db) return null;
+    const tx = db.transaction(['m', 'meta'], 'readwrite'), used = Date.now();
+    tx.objectStore('m').put({ key, kernel: webKernel(), data, size: data.length, used });
+    tx.objectStore('meta').put({ key, kernel: webKernel(), size: data.length, used });
+    await new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error); });
+    // (another kernel's models, and the oldest past the limit, let go)
+    const all = (await idb(db.transaction('meta', 'readonly').objectStore('meta').getAll())).sort((a, b) => b.used - a.used);
+    let total = 0;
+    const del = db.transaction(['m', 'meta'], 'readwrite');
+    for (const e of all) {
+      total += e.size;
+      if (e.kernel !== webKernel() || total > WEB_STORE_MB * 1048576) { del.objectStore('m').delete(e.key); del.objectStore('meta').delete(e.key); }
+    }
+    return true;
+  });
+  webWrites = run.catch(() => null);
+  return run;
 }
 
 function b64(bytes) {

@@ -1711,6 +1711,68 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
       : { ok: false, detail: `removed ${removedReally.toFixed(1)}, preview ${shown.toFixed(1)} (${(near * 100).toFixed(1)}%), missed ${pp.preview?.missed}; last preview ${!!pl.preview?.remove}, cuts made ${pl.timing.cutsMade}; errors ${JSON.stringify([...pp.errors, ...pl.errors])}` };
   },
 
+  // the part's size for meshing, from quick face boxes and the precise box of only the faces that reach furthest:
+  // exactly the box of every face's precise box, on parts with lofts and sweeps (B-spline faces), revolves (tori),
+  // a thickened surface, several bodies and a dimple pattern
+  async 'quick-part-box'() {
+    const pool = window.app.kernelPool, aff = 'quick-part-box', out = [], bad = [];
+    for (const name of ['sweep-loft', 'revolve-pattern', 'surface-thicken', 'multibody-combine', 'dimple-pattern']) {
+      const doc = JSON.parse(await (await fetch(`/tests/parts/${name}.rcad`)).text());
+      await pool.request('rebuild', { doc: JSON.stringify(doc) }, aff);
+      const c = await pool.request('boxCheck', {}, aff);
+      const same = c.quick.every((v, i) => v.every((x, k) => x === c.full[i][k]));
+      out.push(`${name} ${c.precise}/${c.faces}`);
+      if (!same) bad.push(`${name}: ${JSON.stringify(c.quick)} vs ${JSON.stringify(c.full)}`);
+    }
+    return !bad.length ? { ok: true, detail: `the same box to the last digit; precise boxes worked out (of the faces): ${out.join(', ')}` }
+      : { ok: false, detail: bad.join('; ') };
+  },
+
+  // the browser version's store of models built: written and read back, each model's size kept apart (so letting
+  // old ones go reads only the sizes), nothing read under another kernel; an assembly's parts are kept there too
+  // (built once: opened again, none is built)
+  async 'web-model-store'() {
+    const a = window.app, P = (await import('/js/platform.js')).platform, was = window.RAZORCAD_WEB;
+    const kernel = 'test-' + Math.random().toString(36).slice(2);
+    let builds = 0;
+    const pool = a.kernelPool, orig = pool.request;
+    try {
+      window.RAZORCAD_WEB = { ...(was || {}), kernel };
+      const key = 'k' + kernel, data = 'x'.repeat(5000);
+      const wrote = await P.writeModelCache(key, data);
+      const back = await P.readModelCache(key);
+      const db = await new Promise((r) => { const q = indexedDB.open('razorcad-models'); q.onsuccess = () => r(q.result); });
+      const meta = await new Promise((r) => { const q = db.transaction('meta').objectStore('meta').get(key); q.onsuccess = () => r(q.result); });
+      db.close();
+      window.RAZORCAD_WEB = { ...(was || {}), kernel: kernel + 'b' };
+      const other = await P.readModelCache(key);
+      window.RAZORCAD_WEB = { ...(was || {}), kernel };
+      // an assembly of one small part, opened twice
+      const part = M.newDoc(); part.name = 'Store block';
+      const sk = M.createFeature(part, 'sketch', { plane: { ref: 'top' } });
+      const pts = [[0, 0], [30, 0], [30, 20], [0, 20]];
+      Object.assign(sk, { points: pts.map(([x, y], i) => ({ id: 'p' + i, x, y })), curves: pts.map((_, i) => ({ id: 'c' + i, type: 'line', p1: 'p' + i, p2: 'p' + ((i + 1) % 4), construction: false })), constraints: [] });
+      part.features.push(sk, M.createFeature(part, 'extrude', { sketch: sk.id, depth: 7 + Math.random() }));
+      const asm = { kind: 'assembly', version: 1, name: 'Store test', nextId: 3, parts: [{ id: 'pt1', name: part.name, path: null, doc: part }], components: [{ id: 'c1', part: 'pt1', name: 'Store block<1>', config: null, pos: [0, 0, 0], rot: [0, 0, 0, 1], fixed: true, hidden: false }], mates: [], configs: [], explodes: [] };
+      pool.request = (t, d, x) => { if (t === 'partMesh') builds++; return orig.call(pool, t, d, x); };
+      const opens = [];
+      for (let i = 0; i < 2; i++) {
+        builds = 0;
+        await a.openFromFile({ content: JSON.stringify(asm), name: 'Store test.rasm', path: null });
+        const ed = a.tabs[a.tabIndex].drawing;
+        for (let w = 0; w < 100 && !(ed.parts?.size && [...ed.parts.values()].every((x) => x.mesh)); w++) await new Promise((r) => setTimeout(r, 100));
+        opens.push({ builds, shown: !!(ed.parts?.size && [...ed.parts.values()].every((x) => x.mesh)) });
+        await new Promise((r) => setTimeout(r, 400)); // (the write)
+        ed.dirty = false;
+        await a.closeTab(a.tabIndex);
+      }
+      const ok = wrote === true && back === data && meta?.size === data.length && meta?.kernel === kernel && other === null
+        && opens[0].builds === 1 && opens[0].shown && opens[1].builds === 0 && opens[1].shown;
+      return ok ? { ok: true, detail: `written and read back (${meta.size} characters, size kept apart); none under another kernel; assembly: built once, then from the store` }
+        : { ok: false, detail: `wrote ${wrote}, back ${back === data}, meta ${JSON.stringify(meta)?.slice(0, 80)}, other ${other === null ? 'null' : 'found'}; opens ${JSON.stringify(opens)}` };
+    } finally { pool.request = orig; if (was === undefined) delete window.RAZORCAD_WEB; else window.RAZORCAD_WEB = was; }
+  },
+
   // BOM mass and cost: a steel plate (60 × 40 × 5) and two aluminium blocks (20 × 20 × 15) with costs → masses from
   // the materials, totals 0.126 kg and 18.50; the window's column menu changes a column; on the drawing table the
   // column under a point is found, and a typed value is edited

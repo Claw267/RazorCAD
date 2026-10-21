@@ -759,8 +759,9 @@ export class AssemblyEditor {
   }
 
   // each part's mesh, in each configuration the components use (again only when it changed). A mesh built
-  // before comes from the model cache on disk (modelcache.js, keyed by a hash of the part as built), all of
-  // them at once; the kernel builds the others one by one, and they are stored for next time.
+  // before comes from the model cache (on disk; in the browser version, the browser's store: modelcache.js, keyed
+  // by a hash of the part as built), all of them at once; the kernel builds the others one by one, and they are
+  // stored for next time.
   async loadParts() {
     this.applyEquationLinks();
     this.updateCuts();
@@ -789,7 +790,7 @@ export class AssemblyEditor {
       }
       any = true;
     };
-    if (jobs.length && platform.desktop) {
+    if (jobs.length && platform.modelStore) {
       this.app.status(`Reading ${jobs.length === 1 ? jobs[0].p.name : `${jobs.length} parts`}…`);
       await Promise.all(jobs.map(async (j) => {
         try {
@@ -811,6 +812,9 @@ export class AssemblyEditor {
       built.set(j.key, [j]);
       todo.push(j);
     }
+    // (the biggest first: the one that takes longest starts at once, not after the small ones; a 64 MB import in a
+    // plant layout of 26 parts started 2 s late)
+    todo.sort((a, b) => b.json.length - a.json.length);
     let left = todo.length;
     const pool = this.app.kernelPool || { each: async (xs, fn) => { for (const x of xs) await fn(x); }, request: (t, d) => this.app.kernel.request(t, d) };
     await pool.each(todo, async (j) => {

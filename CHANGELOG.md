@@ -6,6 +6,25 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 17:12 — Big imported parts and assemblies open faster
+- **Big imported parts build about 30-45% quicker.** Measured on copies of a real plant layout:
+  - a 64 MB imported assembly in it (719 000 triangles): 33 s instead of 59.5 s;
+  - an imported dust collector (342 bodies, 6642 faces): about 9.5 s instead of 13.3 s;
+  - the layout assembly (26 parts) opens in about 37 s instead of about 62 s with nothing stored. Opened again, the stored meshes are used, as before.
+- **How:**
+  - The part's size, used to choose how finely it is meshed, came from the precise box of every face. It now comes from each face's quick box, with the precise box worked out only for the few faces that reach furthest. The result is identical to the last digit; for the dust collector, 76 precise face boxes instead of 6642 (0.1 s instead of 2.4 s).
+  - Bodies added without merging (imports) no longer work out a box they don't use.
+  - Edges are sampled for display with one curve evaluator each instead of one per point. The points are identical.
+- **Assemblies:**
+  - Parts are built biggest first, so the one that takes longest starts at once (2 s earlier in the layout).
+  - The browser version now keeps an assembly's parts in its store of models as well, as the Windows app does on disk: the layout's dust collector assembly opened again in 0.5 s instead of 9.8 s.
+  - The browser store keeps each model's size apart, so letting old models go no longer reads every stored model (an assembly writes many at once). The models stored by the browser version before are let go once (a store of models built before is only a cache).
+- **Looked at and left alone:**
+  - the faces' surfaces for mates (1 s on the dust collector): their centre points are stored in the mates, and working them out differently could move components;
+  - meshing on several threads: OpenCascade's own mesher runs in parallel, but the mesh extractor repeats the work, so it was no quicker;
+  - drawings: the impeller drawing (3 sheets, 9 views) opens in about 2 s.
+- Regression tests: quick-part-box (the quick box against every face's precise box on five test parts), web-model-store (written and read back, sizes kept apart, nothing read under another kernel, an assembly's part built once then taken from the store).
+
 ## 2026-10-21 16:41 — Faster previews of cuts
 - **Previews of cut features are 2-3x quicker.** Giant Golfball:
   - the last dimple opened for editing: about 0.9 s instead of 2.9 s, and about 0.35 s for each preview while it is edited;
