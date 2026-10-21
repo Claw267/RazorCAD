@@ -6,6 +6,10 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 13:33 — The browser version built in its own folder
+- `tools/build_web_app.py` now builds the browser version in **RazorCAD Web** (next to the project folder, outside it) and copies it from there into website/app for publishing. It always uses the single-thread geometry kernel: a multi-threaded kernel needs cross-origin isolation, which the website's host may not give. Without that folder (another PC, GitHub) it builds straight into website/app, as before.
+- A backup of 0.14.0-beta (RazorCAD.exe, the setup, the kernel files and the source as a git bundle) is in **RazorCAD Backups**, with how to roll back.
+
 ## 2026-10-21 10:25 — Version 0.14.0-beta: installer, user manual and website
 - **RazorCAD-Setup-0.14.0-beta.exe** built (in "RazorCAD Install"), with everything since 0.13.0-beta:
   - standard parts and fastener sets, assembly holes and cuts with fasteners, motion studies, collision detection, equations shared with the parts, bill of materials with mass and cost, STEP export of assemblies, Speed Mode;
