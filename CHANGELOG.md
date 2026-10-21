@@ -6,6 +6,18 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 21:36 — Convert to Sheet Metal: every kind of corner, and no material lost
+- **Fixed: converting a part with butt corners lost a third of its material** (the sheet metal tray: 32 % less, with a warning). New tests of the conversion found it: until now it had none but the corners test.
+- **Each converted bend is now formed over its own zone in the flat** (its faces unrolled, edge by edge), not over a strip as long as its line. Its ends come out as the body has them, whatever they are: square, run on into a corner as a V cutout (the dust collector lid's), mitred into the next bend, butt. Before, run-ons were folded with the walls (corners sticking out) or, at butt and mitred corners, the bends ran into each other.
+- **Folding a sheet into a solid never loses material quietly any more:** a fuse that loses material is made again the exact way, and one that goes wrong (inside out) is not used.
+- Results (the tray written to STEP, read back and converted):
+  - open corners, 120° flanges: exactly the same part (faces, volume, flat pattern);
+  - closed corners (V cutout): the volume within 0.001 % (was 0.011 %); with mitred bends within 0.023 %; butt corners within 0.19 % (was 32 % short). Nothing outside the body; the flat pattern the same size. (RazorCAD's own closed corners have a small relief the conversion doesn't recreate, and come out with a few more faces.)
+  - a hem: not converted, with the reason; a part of two bodies: the one converted, the other as it was.
+  - the dust collector lid: still exactly the same part (38 faces, 76 edges, the same volume and area to a millionth, the same flat pattern).
+- This replaces the corner records the conversion made earlier today (the zones cover them).
+- Regression test: convert-sheet-variants (the cases above). The convert-sheet-corners test now checks the converted tray converted again is the same part (and runs in the part's kernel, 8 s → 4 s).
+
 ## 2026-10-21 21:18 — Test runs: the one console error explained
 - Every test run reported one browser console error, "Failed to load resource: 404". It was the app looking once for the PC's fonts at _fonts/ (Arial Bold, for a text): outside the desktop app it asks the server once, and on a 404 uses its own fonts and stops asking. That is by design, and nothing was missing.
 - The test runner now leaves that one look out of its error list, and shows where every other console error came from (the file and line; a worker's failed load said nothing else). A test run now ends with no console errors, so a new one stands out.

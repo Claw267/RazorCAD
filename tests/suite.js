@@ -1776,12 +1776,14 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
   },
 
   // Convert to Sheet Metal, corners: the sheet-metal tray (closed corners, V cutout) written to STEP, read back
-  // as a plain body and converted: the same faces, nothing outside the body (the bends' run-ons into the corners
-  // were folded flat with the walls, sticking out below the base); converted again (corners formed as V cutouts
-  // with no relief, as other CAD programs make them), exactly the same part again. Measuring the tray (its
+  // as a plain body and converted: nothing outside the body (the bends' run-ons into the corners were folded flat
+  // with the walls, sticking out below the base), the same volume to 0.1 % (RazorCAD's corners have a small relief
+  // the conversion leaves out); converted again (corners as formed, with no relief, as other CAD programs make
+  // them), the same part again: the same faces, box and volume. Measuring the tray (its
   // closed corners' B-spline faces): the exact volume, quickly (it took 16 s)
   async 'convert-sheet-corners'() {
-    const pool = window.app.kernelPool, aff = 'convert-sheet-corners';
+    // (the part's own kernel, with its threads)
+    const k = window.app.kernel, pool = { request: (type, data) => k.request(type, data) }, aff = null;
     const tray = JSON.parse(await (await fetch('/tests/parts/sheet-metal-tray.rcad')).text());
     const step = async (r) => new TextDecoder().decode(await pool.request('export', { format: 'step', bodyId: r.body.bodies[0].id }, aff));
     const shape = (r) => {
@@ -1816,9 +1818,9 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     const c2 = await convert(await step(c1.r));
     const same = (a, b) => a.min.every((x, k) => Math.abs(x - b.min[k]) < 1e-4) && a.max.every((x, k) => Math.abs(x - b.max[k]) < 1e-4);
     const ok = measureMs < 3000 && Math.abs(v0 - 23759.4208) < 1e-3 && !c1.r.errors.length && !c2.r.errors.length && c1.after.sheet && c2.after.sheet
-      && c1.after.faces === c1.before.faces && inside(c1.after, c1.before, 1e-3) && Math.abs(c1.v1 - c1.v0) / c1.v0 < 1e-3
+      && inside(c1.after, c1.before, 1e-3) && Math.abs(c1.v1 - c1.v0) / c1.v0 < 1e-3
       && c2.after.faces === c2.before.faces && same(c2.after, c2.before) && Math.abs(c2.v1 - c2.v0) / c2.v0 < 1e-5;
-    return ok ? { ok: true, detail: `tray measured in ${Math.round(measureMs)} ms (${v0.toFixed(4)} mm³); converted: ${c1.after.faces} faces as the body, inside it, volume ${(100 * (c1.v1 - c1.v0) / c1.v0).toFixed(3)} %; converted again: the same to ${Math.abs(c2.v1 - c2.v0).toExponential(1)} mm³` }
+    return ok ? { ok: true, detail: `tray measured in ${Math.round(measureMs)} ms (${v0.toFixed(4)} mm³); converted: ${c1.before.faces} → ${c1.after.faces} faces, inside the body, volume ${(100 * (c1.v1 - c1.v0) / c1.v0).toFixed(3)} %; converted again: the same to ${Math.abs(c2.v1 - c2.v0).toExponential(1)} mm³` }
       : { ok: false, detail: `measure ${Math.round(measureMs)} ms, ${v0}; errors ${JSON.stringify([...c1.r.errors, ...c2.r.errors])}; first: faces ${c1.before.faces} → ${c1.after.faces}, ${JSON.stringify([c1.before.min, c1.before.max])} → ${JSON.stringify([c1.after.min, c1.after.max].map((v) => v.map((x) => +x.toFixed(4))))}, volume ${c1.v0} → ${c1.v1}; again: faces ${c2.before.faces} → ${c2.after.faces}, volume ${c2.v0} → ${c2.v1}` };
   },
 
@@ -2066,6 +2068,85 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     const still = s1 === s2, turns = JSON.stringify(q3) !== JSON.stringify(q1);
     a.ui.closeContext?.();
     return pans && still && turns ? { ok: true, detail: 'pan / no-op / rotate' } : { ok: false, detail: `pan ${pans}, plain right-drag unchanged ${still}, middle rotates ${turns}` };
+  },
+
+  // Convert to Sheet Metal, kinds of sheet: the tray (written to STEP, read back as a plain body and converted from its
+  // base) with open corners and with 120° flanges comes out exactly as made (faces, volume, flat pattern); with
+  // butt corners and with mitred bends at closed corners, inside the body and within 0.5 % (the closed corners'
+  // bends run into each other; butt corners lost a third of the material); with a hem, a clear message; and one
+  // body of two converted, the other left as it was
+  async 'convert-sheet-variants'() {
+    // (the part's own kernel, with its threads: six sheet metal parts built, converted and flattened)
+    const k = window.app.kernel, pool = { request: (type, data) => k.request(type, data) }, aff = null;
+    const tray = JSON.parse(await (await fetch('/tests/parts/sheet-metal-tray.rcad')).text());
+    const base = () => { const d = JSON.parse(JSON.stringify(tray)); d.features = d.features.slice(0, 3); return d; };
+    const meshOf = (r, b) => {
+      const V = r.body.vertices, T = r.body.triangles, min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+      let v6 = 0;
+      for (let k = b.triStart; k < b.triStart + b.triCount; k++) for (let j = 0; j < 3; j++) { const x = V[3 * T[k] + j]; min[j] = Math.min(min[j], x); max[j] = Math.max(max[j], x); }
+      for (let k = b.triStart; k < b.triStart + b.triCount; k += 3) {
+        const [a, c, e] = [0, 1, 2].map((j) => 3 * T[k + j]);
+        v6 += V[a] * (V[c + 1] * V[e + 2] - V[c + 2] * V[e + 1]) - V[a + 1] * (V[c] * V[e + 2] - V[c + 2] * V[e]) + V[a + 2] * (V[c] * V[e + 1] - V[c + 1] * V[e]);
+      }
+      return { faces: b.faceCount, min, max, vol: Math.abs(v6 / 6) };
+    };
+    const flatSize = async (id) => (await pool.request('sheetFlat', { bodyId: id }, aff)).size.map((x) => +x.toFixed(3)).sort((x, y) => x - y).join(' × ');
+    // a part's bodies to STEP, read back, the tray converted from its base (the flat face at y = 0)
+    const convert = async (d) => {
+      const r0 = await pool.request('rebuild', { doc: JSON.stringify(d) }, aff);
+      const tray0 = r0.body.bodies.find((b) => b.sheet);
+      const flat0 = tray0 ? await flatSize(tray0.id) : null;
+      const step = new TextDecoder().decode(await pool.request('export', { format: 'step' }, aff));
+      const di = M.newDoc(); di.name = 'Converted';
+      di.features.push(M.createFeature(di, 'import', { format: 'step', fileName: 'tray.step', data: step }));
+      const r1 = await pool.request('rebuild', { doc: JSON.stringify(di) }, aff);
+      di.features.push(M.createFeature(di, 'smConvert', { face: { p: [0, 0, 0], n: [0, -1, 0] } }));
+      const r2 = await pool.request('rebuild', { doc: JSON.stringify(di) }, aff);
+      const conv = r2.body.bodies.find((b) => b.sheet);
+      const before = r1.body.bodies.map((b) => meshOf(r1, b)), after = r2.body.bodies.map((b) => meshOf(r2, b));
+      const i = conv ? r2.body.bodies.indexOf(conv) : -1;
+      return { r2, conv, before, after, i, flat0, flat1: conv ? await flatSize(conv.id) : null };
+    };
+    const inside = (a, b) => a.min.every((x, k) => x >= b.min[k] - 1e-3) && a.max.every((x, k) => x <= b.max[k] + 1e-3);
+    const cases = {
+      open: { set: (d) => { d.features[2].corner = 'open'; }, exact: true },
+      angle120: { set: (d) => { Object.assign(d.features[2], { corner: 'open', angle: 120, edges: d.features[2].edges.slice(0, 2) }); }, exact: true },
+      butt: { set: (d) => { d.features[2].corner = 'butt'; }, within: 0.005 },
+      mitre: { set: (d) => { d.features[2].cornerBend = 'mitre'; }, within: 0.005 },
+    };
+    const out = [], bad = [];
+    for (const [name, c] of Object.entries(cases)) {
+      const d = base(); c.set(d);
+      const x = await convert(d);
+      const a = x.before[0], b = x.after[x.i] || {}, dv = (b.vol - a.vol) / a.vol;
+      const ok = !x.r2.errors.length && x.conv && inside(b, a) && x.flat1 === x.flat0
+        && (c.exact ? b.faces === a.faces && Math.abs(dv) < 1e-6 : Math.abs(dv) < c.within);
+      out.push(`${name} ${(dv * 100).toFixed(3)} %`);
+      if (!ok) bad.push(`${name}: errors ${JSON.stringify(x.r2.errors)}, faces ${a.faces} → ${b.faces}, volume ${a.vol.toFixed(2)} → ${b.vol?.toFixed(2)}, inside ${x.conv && inside(b, a)}, flat ${x.flat0} → ${x.flat1}`);
+    }
+    // a hem: not converted, with the reason
+    {
+      const d = base();
+      Object.assign(d.features[2], { corner: 'open', edges: d.features[2].edges.slice(0, 1) });
+      d.features.push(M.createFeature(d, 'smHem', { edges: [{ p: [0, 1.5, -40] }], hemType: 'closed', length: 8 }));
+      const x = await convert(d);
+      const msg = x.r2.errors.map((e) => e[1]).join(' ');
+      if (x.conv || !/hem/i.test(msg)) bad.push(`hem: converted ${!!x.conv}, message "${msg}"`); else out.push('hem: refused');
+    }
+    // two bodies (the tray and a block beside it): the tray converted, the block as it was
+    {
+      const d = base();
+      d.features[2].corner = 'open';
+      const sk = M.createFeature(d, 'sketch', { plane: { ref: 'top' } });
+      const pts = [[100, -10], [120, -10], [120, 10], [100, 10]];
+      Object.assign(sk, { points: pts.map(([px, py], k) => ({ id: 'p' + k, x: px, y: py })), curves: pts.map((_, k) => ({ id: 'c' + k, type: 'line', p1: 'p' + k, p2: 'p' + ((k + 1) % 4), construction: false })), constraints: [] });
+      d.features.push(sk, M.createFeature(d, 'extrude', { sketch: sk.id, depth: 12, merge: false }));
+      const x = await convert(d);
+      const blockBefore = x.before.find((m) => m.max[0] > 90), blockAfter = x.after.find((m, k) => k !== x.i && m.max[0] > 90);
+      const ok = x.r2.body.bodies.length === 2 && x.conv && blockAfter && Math.abs(blockAfter.vol - blockBefore.vol) < 1e-6 && blockAfter.faces === blockBefore.faces;
+      if (!ok) bad.push(`two bodies: ${x.r2.body.bodies.length} bodies, converted ${!!x.conv}, block ${blockBefore?.vol} → ${blockAfter?.vol}`); else out.push('two bodies: one converted');
+    }
+    return !bad.length ? { ok: true, detail: out.join('; ') } : { ok: false, detail: bad.join(' | ') };
   },
 
   // Section View from a face, and its arrow: with a flat face selected it starts on that face's plane (offset 0);
