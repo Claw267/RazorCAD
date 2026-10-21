@@ -219,10 +219,31 @@ def main():
         page = browser.new_page(viewport={'width': 1400, 'height': 900})
         page.on('console', lambda m: console_errors.append(m.text) if m.type == 'error' else None)
         page.on('pageerror', lambda e: console_errors.append(str(e)))
+        # (the browser's "Failed to load resource" doesn't say which: the address too)
+        page.on('response', lambda r: console_errors.append(f'  ({r.status} for {r.url})') if r.status >= 400 else None)
         # (a fresh browser is a first run: no Getting Started Tour over the tests)
         page.add_init_script("try { const p = JSON.parse(localStorage.getItem('razorcad.prefs') || '{}'); p.tourDone = true; localStorage.setItem('razorcad.prefs', JSON.stringify(p)); } catch (e) {}")
+        ready = "window.app && window.app.doc && !window.app.kernel.pending && document.querySelector('#status-msg')?.textContent === 'Ready'"
         page.goto(url)
-        page.wait_for_function("window.app && window.app.doc && !window.app.kernel.pending && document.querySelector('#status-msg')?.textContent === 'Ready'", timeout=180000)
+        for attempt in (1, 2):
+            try:
+                page.wait_for_function(ready, timeout=180000)
+                break
+            except Exception:
+                # (say why RazorCAD didn't start, not just that it timed out; a CI runner now and then stalls while
+                # the page starts, so the page is loaded once more before the run fails)
+                try:
+                    status = page.evaluate("document.querySelector('#status-msg')?.textContent ?? '(no status line)'")
+                except Exception as e:
+                    status = f'(page not readable: {e})'
+                print(f'RazorCAD did not get to Ready within 3 minutes (try {attempt} of 2). Status line: {status}')
+                print(f'Browser console errors ({len(console_errors)}):' if console_errors else 'No browser console errors.')
+                for e in console_errors[:20]:
+                    print('  ' + e[:300])
+                if attempt == 2:
+                    raise
+                console_errors.clear()
+                page.reload()
 
         if args.make_parts:
             os.makedirs(PARTS, exist_ok=True)

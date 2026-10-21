@@ -16,12 +16,14 @@ export class KernelPool {
   reap(now = performance.now()) {
     const idle = this.workers.filter((w) => !w.jobs && now - (w.used || 0) > IDLE_MS).sort((a, b) => (a.used || 0) - (b.used || 0));
     if (idle.length === this.workers.length) idle.pop();
-    for (const w of idle) {
-      this.workers.splice(this.workers.indexOf(w), 1);
-      for (const [k, x] of this.affinity) if (x === w) this.affinity.delete(k);
-      w.client.dispose();
-    }
+    for (const w of idle) this.drop(w);
     return idle.length;
+  }
+  drop(w) {
+    if (!this.workers.includes(w)) return;
+    this.workers.splice(this.workers.indexOf(w), 1);
+    for (const [k, x] of this.affinity) if (x === w) this.affinity.delete(k);
+    w.client.dispose();
   }
   pick(aff) {
     const w = aff && this.affinity.get(aff);
@@ -40,7 +42,12 @@ export class KernelPool {
     const w = this.pick(aff);
     w.jobs++;
     try {
-      await w.client.ready;
+      try {
+        await w.client.ready;
+      } catch (err) {
+        this.drop(w); // (a kernel that couldn't start: the next job starts a fresh one)
+        throw err;
+      }
       for (const [k, d] of this.main.fonts) await w.client.sendFont(k, d);
       return await w.client.request(type, data);
     } finally { w.jobs--; w.used = performance.now(); }
@@ -59,6 +66,7 @@ export class KernelPool {
 // If the kernel breaks (it aborted, or its worker died), the worker is replaced by a fresh one
 // and the request is repeated once, so one kernel failure doesn't take the whole model down.
 const RECYCLE_MB = 3600; // the kernel can address 4 GB
+const START_TRIES = 3;   // starts tried before a kernel that keeps failing is given up on
 
 export class KernelClient {
   // threads: how many threads the kernel may use (more than 1: the multi-threaded kernel, where the page allows it)
@@ -75,7 +83,30 @@ export class KernelClient {
     this.spawn();
   }
 
+  // Start a worker: `ready` resolves once it answers (and has the fonts). A worker that fails while starting (e.g.
+  // the memory for the kernel not there just then) is replaced and tried again, START_TRIES in all; one that keeps
+  // failing (missing files) is given up on rather than restarted in a loop.
   spawn() {
+    this.ready = (async () => {
+      for (let attempt = 1; ; attempt++) {
+        const worker = this.newWorker();
+        try {
+          const r = await this.call('ping');
+          for (const [key, data] of this.fonts) await this.call('loadFont', { key, data: data.slice(0) });
+          worker.started = true;
+          return r;
+        } catch (err) {
+          if (attempt >= START_TRIES || this.disposed || worker !== this.worker) throw err;
+          try { worker.terminate(); } catch { /* already gone */ }
+          await new Promise((r) => setTimeout(r, 500 * attempt));
+        }
+      }
+    })();
+    this.ready.catch(() => {}); // (a kernel that can't start is reported by onCrash and by the requests that wait on it)
+    return this.ready;
+  }
+
+  newWorker() {
     const url = new URL('./kernel.worker.js', import.meta.url);
     if (this.threads > 1) url.searchParams.set('threads', String(this.threads));
     const worker = new Worker(url, { type: 'module' });
@@ -92,21 +123,15 @@ export class KernelClient {
     worker.onerror = (e) => {
       if (worker !== this.worker) return;
       e.preventDefault?.(); // reported below as a kernel crash, not again as a page error
-      console.error('Kernel worker error', e);
       const err = new Error(`${e.message || 'The geometry kernel stopped'}${e.filename ? ` (${e.filename}:${e.lineno})` : ''}`);
-      // a worker that never started (missing files) is not restarted, or it would loop
-      err.fatal = started;
+      console.error(`Kernel worker error${worker.started ? '' : ' while starting'}: ${err.message}`);
+      // (one that never started: spawn() tries again or gives up)
+      err.fatal = !!worker.started;
       this.onCrash?.(err);
       this.failAll(worker, err);
-      if (started) this.restart(worker); // later requests go to a fresh worker, not one that may be dead
+      if (worker.started) this.restart(worker); // later requests go to a fresh worker, not one that may be dead
     };
-    let started = false;
-    this.ready = this.call('ping').then(async (r) => {
-      for (const [key, data] of this.fonts) await this.call('loadFont', { key, data: data.slice(0) });
-      return r;
-    });
-    this.ready.then(() => { started = true; }, () => {});
-    return this.ready;
+    return worker;
   }
 
   // reject every request sent to `worker` (it is dead)
@@ -168,6 +193,7 @@ export class KernelClient {
     // (other requests act on the model as built: they wait for a rebuild being made or queued — the
     // worker would otherwise run them in its pauses, on a half-built model)
     if (type !== 'rebuild' && type !== 'stats' && type !== 'cancel') while (this.pending || this.expecting) await new Promise((r) => setTimeout(r, 25));
+    await this.ready; // (a kernel still starting: requests go to it once it answers)
     const worker = this.worker;
     try {
       return await this.call(type, data);

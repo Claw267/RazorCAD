@@ -6,6 +6,12 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-21 20:57 — A geometry kernel that fails to start is tried again; steadier GitHub tests
+- **A kernel that fails while starting is started again**, up to three times (e.g. when the memory for it is not there just then). Before, that kernel stayed dead: the app looked ready but nothing built in it, and an assembly's parts built in a dead extra kernel came back empty. A kernel that keeps failing (missing files) is given up on as before, not restarted in a loop.
+- An extra kernel that could not start is dropped, so the next job starts a fresh one instead of waiting on the dead one.
+- Kernel errors are logged with their message (they showed only "Event").
+- **Tests (GitHub):** when RazorCAD doesn't get to Ready, the test run prints the status line and the browser errors, and loads the page once more before failing; failed downloads show their address. The parallel-kernels test checks the speed of a second kernel only on a PC with 8 threads or more: on the 4-thread GitHub runner the time varied too much and failed the run now and then.
+
 ## 2026-10-21 20:49 — Section View: from a face or plane, and an arrow to drag
 - **Section View starts from what is selected:** a flat face, a standard or reference plane, or a sketch (its plane). The cut starts on it (offset 0), and the offset is measured from it. Without a selection it opens on the plane used last, as before.
 - **While the panel is open, clicking a flat face or a plane moves the cut onto it.** The Plane list then shows it ("Selected face", or the plane's name) next to the standard planes.
