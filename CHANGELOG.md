@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-22 21:49 — STEP files written as surface models: their closed shells read as solids
+- Some programs write a part as a surface model: closed shells with no solid round them. RazorCAD read those as surface bodies, so nothing that needs a solid worked on them (Convert to Sheet Metal, mass, cuts). A closed shell (every edge shared by two faces) now comes in as a solid, faces outward; a shell that isn't closed stays a surface.
+- Found by comparing RazorCAD's sheet metal conversion with flat patterns made by another CAD program for real parts: square-to-round transitions written this way came in with no solid at all.
+- Regression test step-closed-shells (a part's STEP rewritten as a surface model: one solid, the same volume).
+
 ## 2026-10-22 10:33 — Convert to Sheet Metal: butt corners exact too
 - A butt corner converted from a STEP file kept a seam on the top of one wall, where its mitred run-on joined it: the file moves the walls by a ten-millionth of a mm, so the two tops did not count as one face. A sheet whose corners were made again as RazorCAD made them is now tidied with faces a millionth of a mm from one plane taken as one: the test tray with butt corners converts to 38 faces, as RazorCAD made it (it was 39), the same volume and area.
 - convert-sheet-variants: every variant now the same faces and volume (the butt corner was allowed a millionth).

@@ -1767,10 +1767,41 @@ function splitImported(shape) {
     ex.delete();
     return out;
   };
-  const surfaces = free('TopAbs_SHELL', 'TopAbs_SOLID');
+  // shells outside any solid: a closed one is a solid all the same (some programs write their parts as a surface
+  // model of closed shells); one that isn't closed is a surface
+  const surfaces = [];
+  for (const sh of free('TopAbs_SHELL', 'TopAbs_SOLID')) {
+    const s = closedShellSolid(sh);
+    if (s) solids.push(s); else surfaces.push(sh);
+  }
   const faces = free('TopAbs_FACE', 'TopAbs_SHELL');
   if (faces.length) surfaces.push(asShape(faces));
   return { solids, surfaces };
+}
+
+// A shell as a solid when it is closed (every edge is used twice: by two faces, or a seam by its face both ways
+// round), with its faces outward; null when it isn't, or the solid comes out with no volume.
+function closedShellSolid(sh) {
+  const oc = R.getOC(), T = oc.TopAbs_ShapeEnum;
+  const uses = new Map(); // hash → [[edge, count]]
+  const ex = new oc.TopExp_Explorer(sh.wrapped, T.TopAbs_EDGE, T.TopAbs_SHAPE);
+  const held = [];
+  try {
+    for (; ex.More(); ex.Next()) {
+      const e = ex.Current(), h = oc.ReplicadShapeHasher.HashCode(e, R.HASH_CODE_MAX);
+      const list = uses.get(h) || [];
+      const hit = list.find((x) => x[0].IsSame(e));
+      if (hit) hit[1]++; else { const c = oc.TopoDS.Edge(e); held.push(c); list.push([c, 1]); uses.set(h, list); }
+    }
+    for (const list of uses.values()) for (const [, n] of list) if (n !== 2) return null;
+  } finally { ex.delete(); held.forEach((x) => x.delete()); }
+  try {
+    const ms = new oc.BRepBuilderAPI_MakeSolid(oc.TopoDS.Shell(sh.wrapped));
+    const s = R.cast(ms.Solid());
+    ms.delete();
+    oc.BRepLib.OrientClosedSolid(s.wrapped);
+    return R.measureVolume(s) > 0 ? s : null;
+  } catch (e) { if (isFatal(e)) throw e; return null; }
 }
 
 // The box round a shape's vertices: [x0, y0, z0, x1, y1, z1], or null when it has none (as stepasm.js

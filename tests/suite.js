@@ -1112,6 +1112,29 @@ await rc.cut(h, 10);`, 'plate');
 
   // STEP round trip: a test part exported as STEP and imported into a new part gives the same solid (volume,
   // area, faces and edges)
+  async 'step-closed-shells'(parts) {
+    // a STEP part written as a surface model (closed shells, no solid, as some programs write theirs): read as a
+    // solid, the same volume; an open shell in the same file stays a surface
+    const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient();
+    try {
+      const src = JSON.parse(parts.find((p) => p.name === 'holes').json);
+      const r0 = await k.rebuild(src, null, null);
+      const v0 = (await k.request('measure', { refs: [{ kind: 'body', id: r0.body.bodies[0].id }] })).items?.[0]?.volume;
+      let text = new TextDecoder().decode(await k.exportBody('step', null, { name: 'holes' }));
+      const brep = text.match(/#(\d+)\s*=\s*MANIFOLD_SOLID_BREP\s*\(\s*'([^']*)'\s*,\s*#(\d+)\s*\)/);
+      if (!brep) return { ok: false, detail: 'no solid in the STEP written' };
+      text = text.replace(brep[0], `#${brep[1]} = SHELL_BASED_SURFACE_MODEL('${brep[2]}', (#${brep[3]}))`).replace(/ADVANCED_BREP_SHAPE_REPRESENTATION/g, 'MANIFOLD_SURFACE_SHAPE_REPRESENTATION');
+      const d = M.newDoc(); d.name = 'surface model';
+      d.features.push(M.createFeature(d, 'import', { format: 'step', fileName: 'shells.step', data: text }));
+      const r1 = await k.rebuild(d, null, null);
+      const solids = (r1.body?.bodies || []).filter((b) => b.kind === 'solid'), surfs = (r1.body?.bodies || []).filter((b) => b.kind === 'surface');
+      const v1 = solids.length ? (await k.request('measure', { refs: [{ kind: 'body', id: solids[0].id }] })).items?.[0]?.volume : null;
+      const ok = solids.length === 1 && !surfs.length && Math.abs(v1 - v0) <= 1e-6 * v0;
+      return ok ? { ok: true, detail: `closed shell read as a solid, volume ${r6(v1)} as written` }
+        : { ok: false, detail: `${solids.length} solids, ${surfs.length} surfaces, volume ${v1} (written ${v0}), errors ${JSON.stringify(r1.errors)}` };
+    } finally { k.dispose(); }
+  },
+
   async 'step-roundtrip'(parts) {
     const a = window.app;
     if (a.mode === 'drawing') { const i = a.tabs.findIndex((t) => t.kind !== 'drawing'); if (i >= 0) await a.activateTab(i); }
