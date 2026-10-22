@@ -1979,6 +1979,86 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
   // as a plain body and converted: its four corners known for RazorCAD's own and made again as it made them (the
   // relief, the curved V lines): the same faces and volume, nothing outside the body; converted again, the same part
   // again. Measuring the tray (its closed corners' B-spline faces): the exact volume, quickly (it took 16 s)
+  async 'convert-developed'() {
+    // Convert to Sheet Metal of shapes curved other than as plain bends: a cone wall (radius 50 to 80 over 60 high,
+    // 2 thick about that line), half way round and all the way (a ring: cut open at a seam), written to STEP, read
+    // back and converted from its biggest face with K 0.5 (the neutral layer is the line turned round): unrolled,
+    // the flat is the cone's own area; a spherical cap (curved both ways) is refused
+    const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient({ threads: threadsPerKernel() });
+    const convert = async (d) => {
+      const r0 = await k.rebuild(d, null, null);
+      const b0 = r0.body?.bodies?.[0];
+      if (!b0) throw new Error(`no body: ${JSON.stringify(r0.errors)}`);
+      const step = new TextDecoder().decode(await k.exportBody('step', b0.id, { name: d.name }));
+      const di = M.newDoc(); di.name = 'Converted';
+      di.features.push(M.createFeature(di, 'import', { format: 'step', fileName: 'wall.step', data: step }));
+      const r1 = await k.rebuild(di, null, null);
+      const b1 = r1.body.bodies[0], V = r1.body.vertices, Nm = r1.body.normals, T = r1.body.triangles;
+      // (its biggest face: a point on it and the normal there)
+      let best = null;
+      for (let i = b1.faceStart; i < b1.faceStart + b1.faceCount; i++) {
+        const g = r1.body.faceGroups[i];
+        let A = 0;
+        for (let q = g.start; q < g.start + g.count; q += 3) {
+          const [p, u, w] = [0, 1, 2].map((j) => [0, 1, 2].map((c) => V[3 * T[q + j] + c]));
+          const a = u.map((x, c) => x - p[c]), b = w.map((x, c) => x - p[c]);
+          A += Math.hypot(a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]) / 2;
+        }
+        const v0 = T[g.start];
+        if (!best || A > best.A) best = { A, p: [0, 1, 2].map((c) => V[3 * v0 + c]), n: [0, 1, 2].map((c) => Nm[3 * v0 + c]) };
+      }
+      const cf = M.createFeature(di, 'smConvert', { face: { p: best.p, n: best.n, body: b1.id }, kFactor: 0.5 });
+      di.features.push(cf);
+      const r2 = await k.rebuild(di, null, null);
+      return { di, sheet: r2.body?.bodies?.find((b) => b.sheet)?.sheet, errors: (r2.errors || []).map((e) => e[1]) };
+    };
+    // a closed profile in the front plane turned round its vertical axis
+    const turned = (name, pts, curves, angle) => {
+      const d = M.newDoc(); d.name = name;
+      const s = M.createFeature(d, 'sketch', { plane: { ref: 'front' } });
+      Object.assign(s, { points: pts.map(([x, y], i) => ({ id: 'p' + (i + 1), x, y })), curves, constraints: [] });
+      d.features.push(s, M.createFeature(d, 'revolve', { sketch: s.id, axis: 'v', angle }));
+      return d;
+    };
+    const line = (id, a, b) => ({ id, type: 'line', p1: a, p2: b, construction: false });
+    try {
+      // the wall: the line (50, 0)–(80, 60), a rectangle 1 each side of it
+      const L = Math.hypot(30, 60), n = [60 / L, -30 / L];
+      const quad = [[50 - n[0], -n[1]], [50 + n[0], n[1]], [80 + n[0], 60 + n[1]], [80 - n[0], 60 - n[1]]];
+      const sides = [line('c1', 'p1', 'p2'), line('c2', 'p2', 'p3'), line('c3', 'p3', 'p4'), line('c4', 'p4', 'p1')];
+      const out = [], bad = [];
+      for (const angle of [180, 360]) {
+        const want = (Math.PI * (50 + 80) * L * angle) / 360;
+        const a = await convert(turned(`Cone ${angle}`, quad, sides, angle));
+        const dA = a.sheet ? (a.sheet.flatArea - want) / want : NaN;
+        const name = angle === 360 ? 'a ring (cut at a seam)' : 'half a cone';
+        if (a.sheet?.lofted === 'developed' && Math.abs(dA) < 5e-4) out.push(`${name}: ${a.sheet.flatArea.toFixed(1)} mm² for ${want.toFixed(1)} (${(100 * dA).toFixed(4)} %)`);
+        else bad.push(`${name}: ${a.sheet ? `${a.sheet.lofted}, ${a.sheet.flatArea} for ${want}` : JSON.stringify(a.errors)}`);
+        if (angle !== 180 || !a.sheet) continue;
+        // a hole 10 across straight through the wall (half way up, along z): unrolled again, a hole in the flat
+        const hs = M.createFeature(a.di, 'sketch', { plane: { ref: 'front' } });
+        Object.assign(hs, { points: [{ id: 'h0', x: 0, y: 30 }, { id: 'h1', x: 5, y: 30 }], curves: [{ id: 'hc', type: 'circle', c: 'h0', r: 5, construction: false }], constraints: [] });
+        a.di.features.push(hs, M.createFeature(a.di, 'extrude', { sketch: hs.id, op: 'cut', end: 'through2' }));
+        const r3 = await k.rebuild(a.di, null, null);
+        const sh = r3.body?.bodies?.find((b) => b.sheet)?.sheet, lost = sh ? a.sheet.flatArea - sh.flatArea : NaN;
+        // (the hole's area on the wall: a circle of 5 seen on a wall leaning 1 in 2 from the axis, a little more)
+        if (sh?.lofted === 'developed' && sh.pierces === a.sheet.pierces + 1 && lost > Math.PI * 25 && lost < Math.PI * 25 * 1.2) out.push(`a hole cut in it: in the flat too (${lost.toFixed(1)} mm² less)`);
+        else bad.push(`hole: ${sh ? `${sh.lofted}, pierces ${a.sheet.pierces} → ${sh.pierces}, ${lost} mm² less` : ""} errors ${JSON.stringify(r3.errors)} faces ${r3.body?.bodies?.map((b) => b.faceCount)} notes ${JSON.stringify(r3.notes)}`);
+      }
+      // a spherical cap 2 thick (radius 50 to 52, from the top down to 40° off the axis): curved both ways
+      const s40 = Math.sin((40 * Math.PI) / 180), c40 = Math.cos((40 * Math.PI) / 180);
+      const cap = turned('Cap', [[0, 50], [0, 52], [52 * s40, 52 * c40], [50 * s40, 50 * c40], [0, 0]], [
+        line('c1', 'p1', 'p2'), { id: 'a1', type: 'arc', c: 'p5', p1: 'p3', p2: 'p2', construction: false },
+        line('c2', 'p3', 'p4'), { id: 'a2', type: 'arc', c: 'p5', p1: 'p4', p2: 'p1', construction: false },
+      ], 360);
+      let b;
+      try { b = await convert(cap); } catch (e) { b = { errors: ['(cap) ' + e.message] }; }
+      if (b.sheet || !b.errors.some((e) => /curved both ways/i.test(e))) bad.push(`spherical cap: ${b.sheet ? 'converted' : JSON.stringify(b.errors)}`);
+      else out.push('a spherical cap refused (curved both ways)');
+      return !bad.length ? { ok: true, detail: out.join('; ') } : { ok: false, detail: bad.join('; ') + (out.length ? ' | ' + out.join('; ') : '') };
+    } finally { k.dispose(); }
+  },
+
   async 'convert-sheet-corners'() {
     // (the part's own kernel, with its threads)
     const k = window.app.kernel, pool = { request: (type, data) => k.request(type, data) }, aff = null;

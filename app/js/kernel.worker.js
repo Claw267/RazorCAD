@@ -5659,7 +5659,9 @@ async function rebuild(doc, previewId = null, opts = {}) {
             : `${autoT ? ' (as in the body)' : ' (the picked side\'s bends kept)'}${sharp ? `, sharp edges R${+R0.toFixed(3)}` : ''}`;
           res.notes[f.id] = rolled
             ? `Thickness ${+t.toFixed(4)} mm · rolled: ${rolled.bends} bend${rolled.bends === 1 ? '' : 's'}${rolled.bends ? ` R${+rolled.rMin.toFixed(2)}${rolled.rMax - rolled.rMin > 0.005 ? `–R${+rolled.rMax.toFixed(2)}` : ''}` : ''}${rolled.straight ? ` + ${rolled.straight} straight run${rolled.straight === 1 ? '' : 's'}` : ''}, following the surface to within ${rolled.tol} mm${rolled.trimmed?.at ? ` · trimmed back ${+rolled.trimmed.length.toFixed(2)} mm at its ${rolled.trimmed.at} (it would run into itself)` : rolled.trimmed?.overlaps ? ' · ⚠ the sheet runs into itself (tick "Trim where it would run into itself")' : ''}`
-            : `Thickness ${+t.toFixed(4)} mm${set(autoT, 'from')} · ${sheet.bends.length} bend${sheet.bends.length === 1 ? '' : 's'}${radii ? ` ${radii}${rWhy}` : ''}${match}`;
+            : detected?.developed
+              ? `Thickness ${+t.toFixed(4)} mm${set(autoT, 'from')} · unrolled: ${detected.developed} curved face${detected.developed === 1 ? '' : 's'} laid flat at the neutral layer (K ${+K.toFixed(3)})${match}`
+              : `Thickness ${+t.toFixed(4)} mm${set(autoT, 'from')} · ${sheet.bends.length} bend${sheet.bends.length === 1 ? '' : 's'}${radii ? ` ${radii}${rWhy}` : ''}${match}`;
           break;
         }
         case 'axis': {

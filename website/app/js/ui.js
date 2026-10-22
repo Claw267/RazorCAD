@@ -231,6 +231,7 @@ function convertFound(f, a) {
   if (d.kind === 'surface') return 'A surface has no thickness of its own: set it below. Every edge where two flat faces meet becomes a bend.';
   const radii = d.radii.length ? `bend radi${d.radii.length > 1 ? 'i' : 'us'} ${d.radii.map((r) => 'R' + +r.toFixed(3)).join(', ')} (inside, ${d.bends} bend${d.bends === 1 ? '' : 's'})` : 'no formed bends';
   const sharp = d.sharp ? ` · ${d.sharp} sharp edge${d.sharp === 1 ? '' : 's'} (bent at the radius below)` : '';
+  if (d.developed) return `Found in the body: thickness ${convertMM(d.t)} · ${d.developed} curved face${d.developed === 1 ? '' : 's'} other than plain bends: the sheet is unrolled flat at the neutral layer (the K-factor below sets where that is).`;
   return `Found in the body: thickness ${convertMM(d.t)} · ${radii}${sharp}.`;
 }
 
@@ -540,7 +541,7 @@ const PM_SCHEMAS = {
     { title: 'Body', fields: [{ key: 'body', type: 'bodySel', label: 'Body (empty: every unbent one)', kinds: ['sheet'] }, { key: 'bHint', type: 'hint', text: 'Folds an unbent sheet metal part back into its bent shape, keeping what was done to it while flat.' }] },
   ],
   smConvert: [
-    { title: 'Fixed Face', fields: [{ key: 'face', type: 'pick', label: 'Fixed face', what: 'faceAny' }, { key: 'cHint', type: 'hint', text: 'Click a flat face of a body of even thickness, e.g. a sheet metal part from a STEP file. The whole sheet is followed from that face: its bends keep their own radius and angle, including bends that run straight into each other (rolled shapes). On a sharp-cornered body (e.g. a shelled box) every sharp edge becomes a bend of the radius below. Also works on a knitted surface made of flat faces, and on a curved surface that is curved one way only (e.g. a copied fan blade): it is rolled from the flat.' }] },
+    { title: 'Fixed Face', fields: [{ key: 'face', type: 'pick', label: 'Fixed face', what: 'faceAny' }, { key: 'cHint', type: 'hint', text: 'Click a flat face of a body of even thickness, e.g. a sheet metal part from a STEP file. The whole sheet is followed from that face: its bends keep their own radius and angle, including bends that run straight into each other (rolled shapes). A body curved other than in plain bends (a square-to-round transition, a cone or reducer from another program) is unrolled at the neutral layer; for a cone you can click its curved face. On a sharp-cornered body (e.g. a shelled box) every sharp edge becomes a bend of the radius below. Also works on a knitted surface made of flat faces, and on a curved surface that is curved one way only (e.g. a copied fan blade): it is rolled from the flat.' }] },
     {
       // the thickness and bend radii are read from a solid; either can be set instead
       title: 'Sheet Metal Parameters', fields: [

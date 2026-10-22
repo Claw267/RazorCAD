@@ -1131,6 +1131,7 @@ function wallHeight(region, b) {
 // sheet (at mid-thickness) the pattern gets a hole. Panels are exact; in bends the hole outline
 // is traced on the bent strip and unrolled.
 export function cutSheet(sheet, tool) {
+  if (sheet.lofted?.method === 'developed') return cutDeveloped(sheet, tool);
   if (sheet.lofted) return cutLofted(sheet, tool);
   const W = frameM(sheet.frame), t = sheet.t;
   let holes = null;
@@ -1186,6 +1187,20 @@ export function cutSheet(sheet, tool) {
   free(holes);
   if (!region) throw new Error('The cut removes the whole sheet');
   return { sheet: { ...sheet, region }, hit: true };
+}
+// A developed sheet cut: its body cut, and unrolled again from the same face (found by a point kept on it), so the
+// hole is in the flat pattern too. The sheet's frame carries on from the old one.
+function cutDeveloped(sheet, tool) {
+  const L = sheet.lofted, W = frameM(sheet.frame);
+  const local = applyM(tool, invM(W));
+  let cut;
+  try { cut = soleSolid(cut3(L.solid, local)); } finally { free(local); }
+  const v0 = R.measureVolume(L.solid), v1 = R.measureVolume(cut);
+  if (Math.abs(v1 - v0) <= 1e-9 * v0) { free(cut); return { sheet, hit: false }; }
+  const face = cut.faces.map((f) => ({ f, d: distTo(f, L.seed) })).sort((a, b) => a.d - b.d)[0];
+  if (!face || face.d > 0.05) throw new Error('The cut took away the face the sheet is unrolled from');
+  const { sheet: s2 } = fromSolid(cut, face.f, { R: sheet.R, K: sheet.K });
+  return { sheet: { ...s2, frame: frameOfM(mulM(W, frameM(s2.frame))) }, hit: true };
 }
 // A lofted bend's flat pattern is developed triangle by triangle at the neutral layer (loftedSheet), so
 // the tool's footprint is traced on each neutral triangle and carried to that triangle's place in the flat
@@ -1708,6 +1723,7 @@ export function formLines(L, { breaks = L.breaks || [] } = {}) {
 const loftCache = new WeakMap();
 function loftedSolid(sheet) {
   const L = sheet.lofted;
+  if (L.method === 'developed') return L.solid; // (the body as it was converted: developedSheet)
   if (loftCache.has(L)) return loftCache.get(L);
   // a cut lofted bend: the uncut one trimmed to the flat pattern with its cut edges square to the sheet
   // (as a laser-cut blank formed to shape); failing that, the uncut one less each cut as it is
@@ -2753,14 +2769,29 @@ export function fromSolid(solid, picked, { R: R0, K, t: tSet = null, Rset = null
   const info = solid.faces.map((face, i) => ({ i, face, type: face.geomType }));
   for (const F of info) if (F.type === 'PLANE') { F.n = faceNormal(F.face); F.c = vec3(F.face.center); }
   const i0 = info.findIndex((F) => F.face.isSame(picked));
-  if (i0 < 0 || info[i0].type !== 'PLANE') throw new Error('Pick a flat face of the body');
+  if (i0 < 0) throw new Error('Pick a face of the body');
   const P0 = info[i0];
-  // the thickness: the nearest parallel face facing the other way, behind the picked face
+  if (P0.type === 'SPHERE' || P0.type === 'TORUS') throw new Error(`The picked face is curved both ways (${P0.type.toLowerCase()}): it cannot be unrolled flat`);
+  // the thickness: the nearest parallel face facing the other way, behind the picked face (a curved one: straight
+  // through the sheet from the middle of the picked face, to the first face reached)
   let t = Infinity;
-  for (const q of info) {
-    if (q.type !== 'PLANE' || dot3(q.n, P0.n) > -0.9999) continue;
-    const d = dot3(sub3(P0.c, q.c), P0.n);
-    if (d > 1e-6 && d < t) t = d;
+  if (P0.type === 'PLANE') {
+    for (const q of info) {
+      if (q.type !== 'PLANE' || dot3(q.n, P0.n) > -0.9999) continue;
+      const d = dot3(sub3(P0.c, q.c), P0.n);
+      if (d > 1e-6 && d < t) t = d;
+    }
+  } else {
+    // (a point on the face itself: the middle of its surface may be in a hole)
+    const UV = [[0.5, 0.5], [0.3, 0.5], [0.7, 0.5], [0.5, 0.3], [0.5, 0.7], [0.3, 0.3], [0.7, 0.7], [0.3, 0.7], [0.7, 0.3], [0.15, 0.5], [0.85, 0.5]];
+    const p = UV.map(([u, v]) => vec3(P0.face.pointOnSurface(u, v))).find((q) => distTo(P0.face, q) <= 1e-6);
+    if (!p) throw new Error('No point found on the picked face to measure the thickness from');
+    const m = mul3(faceNormal(P0.face, p), -1);
+    for (const q of info) {
+      if (q === P0) continue;
+      const d = distTo(q.face, p);
+      if (d > 1e-6 && d < t && distTo(q.face, add3(p, mul3(m, d))) <= 1e-3 * d) t = d;
+    }
   }
   if (!isFinite(t)) throw new Error('No parallel face behind the picked face: is this a sheet of even thickness?');
   const tol = Math.max(1e-4, t * 1e-3);
@@ -2792,7 +2823,8 @@ export function fromSolid(solid, picked, { R: R0, K, t: tSet = null, Rset = null
         let smooth = false;
         try { smooth = dot3(faceNormal(F.face, ed.m), faceNormal(G.face, ed.m)) > 0.9995; } catch { smooth = false; }
         if (smooth) {
-          if (G.type !== 'PLANE' && G.type !== 'CYLINDRE') throw new Error(`A curved face that is not a plain bend (${G.type.toLowerCase()}) joins the sheet: only flat faces and cylindrical bends can be converted`);
+          // (any other curved face: unrolled, when it is curved one way only: developedSheet)
+          if (G.type === 'SPHERE' || G.type === 'TORUS') throw new Error(`A face curved both ways (${G.type.toLowerCase()}) joins the sheet: it cannot be unrolled flat`);
         } else if (!(sharp && F.type === 'PLANE' && G.type === 'PLANE' && ed.line && hasPartner(G))) continue;
         side.add(G);
         queue.push(G);
@@ -2801,6 +2833,14 @@ export function fromSolid(solid, picked, { R: R0, K, t: tSet = null, Rset = null
     return side;
   };
   let side = walk(false);
+  // curved faces other than plain bends (a square-to-round transition, a cone…), or a curved face picked: the side
+  // unrolled as it is
+  if (P0.type !== 'PLANE' || [...side].some((F) => F.type !== 'PLANE' && F.type !== 'CYLINDRE')) {
+    if (Rset != null) throw new Error('A sheet with curved faces other than plain bends keeps the body\'s own shape: use the body\'s bend radii');
+    const sheet = developedSheet(solid, [...side].map((F) => F.face), P0, { t: tSet > 0 ? tSet : t, K });
+    const curved = [...side].filter((F) => F.type !== 'PLANE').length;
+    return { sheet, exact: tSet == null, detected: { kind: 'solid', t, radii: [], bends: 0, sharp: 0, developed: curved } };
+  }
   if (![...side].some((F) => F.type === 'CYLINDRE')) side = walk(true);
   const planes = [...side].filter((F) => F.type === 'PLANE');
   const cyls = [...side].filter((F) => F.type === 'CYLINDRE');
@@ -2993,6 +3033,181 @@ export function exactCorners(sheet, solid) {
     if (!b0.every((p, i) => p.every((x, k) => Math.abs(x - b1[i][k]) <= 1e-5))) return null;
     return out;
   } catch { return null; } finally { free(sol); }
+}
+
+// ------------------------------------------------------------ developed sheets: any one-way curved shape unrolled
+// A sheet whose curved faces are not all plain bends (a square-to-round transition, a cone, a twisted strip…), as
+// a body converted from another program has them: its side (the faces found from the picked one) is meshed finely,
+// moved to the neutral layer (K·t from the inside of the curves) and laid out flat triangle by triangle, each
+// edge keeping its length. Where the shape closes on itself (a ring) the triangles meet again out of place: there
+// the pattern is cut (a seam). A face curved both ways (a dished end) can't be laid flat: refused. The sheet is
+// marked like a lofted bend (lofted.method 'developed'), so features that need real bends refuse it; folded, it is
+// the body itself, and its flat pattern is the unrolled outline with its holes.
+const DEV_TOL = 1e-5; // × the part's size: the mesh's largest distance from a curved face
+const DEV_DEFECT = 4e-3; // rad: more than this short of a full turn round a point of the mesh, a face is curved both ways
+const DEV_CRACK = 0.1; // mm: a loop of the outline narrower than this on average is no cut-out (see below)
+export function developedSheet(solid, faces, P0, { t, K }) {
+  const O = oc();
+  const builder = new O.TopoDS_Builder(), comp = new O.TopoDS_Compound();
+  builder.MakeCompound(comp);
+  for (const f of faces) builder.Add(comp, f.wrapped);
+  builder.delete();
+  const side = R.cast(comp);
+  const kind = new Map(faces.map((f) => [f.hashCode, f.geomType]));
+  // (meshed as one: each edge divided once, for both its faces; finer for a small part, about a hundred-thousandth
+  // of its size, 0.005 to 0.05 mm)
+  const bb = solid.boundingBox.bounds, size = Math.hypot(bb[1][0] - bb[0][0], bb[1][1] - bb[0][1], bb[1][2] - bb[0][2]);
+  const m = side.mesh({ tolerance: Math.min(0.05, Math.max(0.005, size * DEV_TOL)), angularTolerance: 0.05 });
+  const gs = m.faceGroups.reduce((n, g) => n + g.count, 0) === m.triangles.length ? 1 : 3;
+  // the points of the mesh, each once (a point on an edge is in both its faces' meshes)
+  const key = (i) => `${Math.round(m.vertices[3 * i] * 1e5)},${Math.round(m.vertices[3 * i + 1] * 1e5)},${Math.round(m.vertices[3 * i + 2] * 1e5)}`;
+  const idx = new Map(), V = [], N = [];
+  const at = new Int32Array(m.vertices.length / 3);
+  for (let i = 0; i < at.length; i++) {
+    const k = key(i);
+    let j = idx.get(k);
+    if (j === undefined) { j = V.length; idx.set(k, j); V.push([m.vertices[3 * i], m.vertices[3 * i + 1], m.vertices[3 * i + 2]]); N.push([0, 0, 0]); }
+    at[i] = j;
+    for (let c = 0; c < 3; c++) N[j][c] += m.normals[3 * i + c];
+  }
+  // the material side: against the faces' outward normals
+  const Mn = N.map((n) => mul3(unit3(n), -1));
+  const T = [], curvedTri = [], fixedTri = [];
+  for (const g of m.faceGroups) {
+    const ty = kind.get(g.faceId), fixed = g.faceId === P0.face.hashCode;
+    for (let q = g.start * gs; q < (g.start + g.count) * gs; q += 3) {
+      const tri = [at[m.triangles[q]], at[m.triangles[q + 1]], at[m.triangles[q + 2]]];
+      if (tri[0] === tri[1] || tri[1] === tri[2] || tri[0] === tri[2]) continue;
+      if (fixed) fixedTri.push(T.length);
+      curvedTri.push(ty !== 'PLANE');
+      T.push(tri);
+    }
+  }
+  if (!fixedTri.length) throw new Error('The picked face was not found in the sheet');
+  // the neutral layer: K·t from the inside of the curves (where moving into the material makes them longer)
+  const area3 = (a, b, c) => { const u = sub3(b, a), v = sub3(c, a); return len3(cross3(u, v)) / 2; };
+  let grow = 0;
+  T.forEach((tri, k) => {
+    if (!curvedTri[k]) return;
+    const p = tri.map((i) => V[i]), q = tri.map((i) => add3(V[i], mul3(Mn[i], 1e-3)));
+    grow += area3(...q) - area3(...p);
+  });
+  const delta = (grow >= 0 ? K : 1 - K) * t;
+  const P = V.map((v, i) => add3(v, mul3(Mn[i], delta)));
+  // edges → their triangles
+  const ek = (a, b) => (a < b ? a * 4294967296 + b : b * 4294967296 + a);
+  const edges = new Map();
+  T.forEach((tri, k) => { for (let s = 0; s < 3; s++) { const e = ek(tri[s], tri[(s + 1) % 3]); const l = edges.get(e); if (l) l.push(k); else edges.set(e, [k]); } });
+  for (const l of edges.values()) if (l.length > 2) throw new Error('The sheet\'s faces meet more than two at an edge: it cannot be unrolled');
+  // curved one way only? (round a point inside the mesh its triangles' corners add up to a full turn)
+  const angSum = new Float64Array(V.length), inner = new Uint8Array(V.length).fill(1);
+  for (const [e, l] of edges) if (l.length === 1) { inner[Math.floor(e / 4294967296)] = 0; inner[e % 4294967296] = 0; }
+  const ang = (a, b, c) => { const u = unit3(sub3(b, a)), v = unit3(sub3(c, a)); return Math.acos(Math.max(-1, Math.min(1, dot3(u, v)))); };
+  for (const tri of T) for (let s = 0; s < 3; s++) angSum[tri[s]] += ang(P[tri[s]], P[tri[(s + 1) % 3]], P[tri[(s + 2) % 3]]);
+  let worst = 0;
+  for (let i = 0; i < V.length; i++) if (inner[i]) worst = Math.max(worst, Math.abs(2 * Math.PI - angSum[i]));
+  if (worst > DEV_DEFECT) throw new Error(`A face of the sheet is curved both ways (by ${(worst * 180 / Math.PI).toFixed(2)}° at a point): it cannot be unrolled flat`);
+  // laid out flat, from the picked face (flat: in its own plane, so the flat pattern lies under it; curved: from one
+  // of its triangles, in that triangle's plane), triangle by triangle
+  const t0 = T[fixedTri[0]];
+  let n0 = unit3(cross3(sub3(P[t0[1]], P[t0[0]]), sub3(P[t0[2]], P[t0[0]])));
+  if (dot3(n0, Mn[t0[0]]) < 0) n0 = mul3(n0, -1);
+  const fr = planeFrame(P[t0[0]], kind.get(P0.face.hashCode) === 'PLANE' ? Mn[t0[0]] : n0);
+  const proj = (p) => { const d = sub3(p, fr.o); return [dot3(d, fr.u), dot3(d, fr.v)]; };
+  const C = new Array(T.length).fill(null); // per triangle: its three corners flat
+  const queue = [];
+  for (const k of kind.get(P0.face.hashCode) === 'PLANE' ? fixedTri : fixedTri.slice(0, 1)) { C[k] = T[k].map((i) => proj(P[i])); queue.push(k); }
+  for (let qi = 0; qi < queue.length; qi++) {
+    const k = queue[qi], tri = T[k];
+    for (let s = 0; s < 3; s++) {
+      const a = tri[s], b = tri[(s + 1) % 3], o = tri[(s + 2) % 3];
+      for (const j of edges.get(ek(a, b))) {
+        if (j === k || C[j]) continue;
+        const A = C[k][s], B = C[k][(s + 1) % 3], Oo = C[k][(s + 2) % 3];
+        const tj = T[j], c = tj.find((x) => x !== a && x !== b);
+        const L = Math.hypot(B[0] - A[0], B[1] - A[1]);
+        if (!(L > 1e-12)) continue;
+        const da = len3(sub3(P[c], P[a])), db = len3(sub3(P[c], P[b]));
+        const e = [(B[0] - A[0]) / L, (B[1] - A[1]) / L], nn = [-e[1], e[0]];
+        const x = (da * da - db * db + L * L) / (2 * L), y = Math.sqrt(Math.max(0, da * da - x * x));
+        const side0 = Math.sign((Oo[0] - A[0]) * nn[0] + (Oo[1] - A[1]) * nn[1]) || 1;
+        const Cc = [A[0] + e[0] * x - nn[0] * y * side0, A[1] + e[1] * x - nn[1] * y * side0];
+        C[j] = tj.map((v) => (v === a ? A : v === b ? B : Cc));
+        queue.push(j);
+      }
+    }
+  }
+  if (C.some((x) => !x)) throw new Error('Part of the sheet is not joined to the picked face');
+  // each point's places in the flat (one, or two or more along a seam), its triangles' corners each one of them
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (const v of V) for (let c = 0; c < 3; c++) { if (v[c] < lo[c]) lo[c] = v[c]; if (v[c] > hi[c]) hi[c] = v[c]; }
+  const diag2 = Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
+  // (a point reached round different ways lands a few hundredths of a mm apart, from the mesh's own small errors:
+  // one place, the average; the two sides of a seam are far further apart)
+  const tau = Math.max(0.5, 5e-4 * diag2);
+  const places = V.map(() => []), node = T.map(() => [0, 0, 0]), first = [], sum = [], cnt = [];
+  T.forEach((tri, k) => tri.forEach((v, s) => {
+    const p = C[k][s];
+    let n = places[v].find((q) => Math.hypot(first[q][0] - p[0], first[q][1] - p[1]) <= tau);
+    if (n === undefined) { n = first.length; first.push(p); sum.push([0, 0]); cnt.push(0); places[v].push(n); }
+    sum[n][0] += p[0]; sum[n][1] += p[1]; cnt[n]++;
+    node[k][s] = n;
+  }));
+  const nodeXY = sum.map((q, n) => [q[0] / cnt[n], q[1] / cnt[n]]);
+  // the outline: edges with one triangle, and edges whose two triangles have them in different places (a seam)
+  const segs = [];
+  for (const [e, l] of edges) {
+    const a = Math.floor(e / 4294967296), b = e % 4294967296;
+    const nd = (k, v) => node[k][T[k].indexOf(v)];
+    if (l.length === 2 && nd(l[0], a) === nd(l[1], a) && nd(l[0], b) === nd(l[1], b)) continue;
+    for (const k of l) segs.push([nd(k, a), nd(k, b)]);
+  }
+  // chained into loops (by their points)
+  const from = new Map();
+  segs.forEach((sg, i) => { for (const p of sg) { const l = from.get(p); if (l) l.push(i); else from.set(p, [i]); } });
+  const used = new Uint8Array(segs.length), loops = [];
+  for (let i0 = 0; i0 < segs.length; i0++) {
+    if (used[i0]) continue;
+    used[i0] = 1;
+    const first = segs[i0][0], loop = [first];
+    let cur = segs[i0][1];
+    for (let guard = 0; guard < segs.length && cur !== first; guard++) {
+      loop.push(cur);
+      const nx = (from.get(cur) || []).find((q) => !used[q]);
+      if (nx === undefined) break;
+      used[nx] = 1;
+      cur = segs[nx][0] === cur ? segs[nx][1] : segs[nx][0];
+    }
+    if (loop.length >= 3) loops.push(loop.map((n) => nodeXY[n]));
+  }
+  if (!loops.length) throw new Error('The unrolled sheet has no outline');
+  // (points along straight runs dropped: one edge per straight run)
+  const simplify = (L) => L.filter((p, i) => {
+    const a = L[(i - 1 + L.length) % L.length], b = L[(i + 1) % L.length];
+    const cr = (p[0] - a[0]) * (b[1] - a[1]) - (p[1] - a[1]) * (b[0] - a[0]);
+    return Math.abs(cr) > 1e-9 * (1 + Math.hypot(b[0] - a[0], b[1] - a[1]) ** 2);
+  });
+  const sa = (L) => L.reduce((s, p, i) => { const q = L[(i + 1) % L.length]; return s + p[0] * q[1] - q[0] * p[1]; }, 0) / 2;
+  // (a loop narrower on average than DEV_CRACK is no cut-out: where the layout's small errors add up, triangles
+  // that meet in the shape can land a hair apart in the flat; the pattern is closed there)
+  const perim = (L) => L.reduce((s, p, i) => s + Math.hypot(L[(i + 1) % L.length][0] - p[0], L[(i + 1) % L.length][1] - p[1]), 0);
+  const ls = loops.map(simplify).filter((L) => L.length >= 3).sort((x, y) => Math.abs(sa(y)) - Math.abs(sa(x)))
+    .filter((L, i) => i === 0 || (2 * Math.abs(sa(L))) / perim(L) >= DEV_CRACK);
+  let region = polyFace(ls[0]);
+  for (const h of ls.slice(1)) region = bop('cut', region, polyFace(h)) || region;
+  // laid flat without running into itself: the pattern's area is the triangles' own
+  const triArea = node.reduce((s, nd) => { const c = nd.map((n) => nodeXY[n]); return s + Math.abs((c[1][0] - c[0][0]) * (c[2][1] - c[0][1]) - (c[2][0] - c[0][0]) * (c[1][1] - c[0][1])) / 2; }, 0);
+  const A = areaOf(region);
+  if (Math.abs(A - triArea) > 1e-4 * triArea) throw new Error('The unrolled sheet would overlap itself: it cannot be laid out flat in one piece');
+  const local = applyM(solid, invM(frameM(fr)));
+  const rp = proj(P[T[fixedTri[0]][0]]), rq = proj(P[T[fixedTri[0]][1]]), rr = proj(P[T[fixedTri[0]][2]]);
+  // (a point on the picked face, in the sheet's frame: the face is found by it again after a cut)
+  const seed = apM(invM(frameM(fr)), [0, 1, 2].map((c) => (V[t0[0]][c] + V[t0[1]][c] + V[t0[2]][c]) / 3));
+  return {
+    t, K, R: 0, frame: fr, region, bends: [], flat: null, stale: null, nextBend: 1,
+    rootPt: [(rp[0] + rq[0] + rr[0]) / 3, (rp[1] + rq[1] + rr[1]) / 3],
+    lofted: { method: 'developed', solid: local, seed, bendLines: [] },
+  };
 }
 
 // ------------------------------------------------------------ convert a curved surface (a rolled sheet)

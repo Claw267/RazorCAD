@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-22 22:53 â€” Convert to Sheet Metal: square-to-round transitions, cones and other one-way curved shapes unrolled
+- A body curved other than in plain cylindrical bends (a square-to-round transition or a reducer made in another program, whose curved faces are B-splines or cones) used to be refused. Its side of the sheet is now meshed finely, moved to the neutral layer (KÂ·t from the inside of the curves), and laid out flat triangle by triangle, each edge keeping its length. A shape that closes on itself (a ring) is cut open where its triangles meet again out of place (a seam). The flat pattern is the unrolled outline with its holes; folded, the sheet is the body itself. A cut in it (a hole, a slot) is made in the body and the sheet unrolled again, so the cut is in the flat pattern too. Features that need real bends (flanges, hems, corners, formsâ€¦) refuse it as they refuse a lofted bend.
+- A face curved both ways (a dished end, a sphere) can't be laid flat: refused, with the reason. A cone has no flat face: its curved face can be picked instead (the thickness is measured straight through the sheet).
+- Checked against flat patterns made by another CAD program for real square-to-round transitions: the same outline and holes, the area to 0.04 %, the cut length to 0.03 %, the size to 0.4 mm in 878, with that program's K-factor (0.5, found from the flats). Regression test convert-developed: half a cone and a full ring (cut at a seam) unroll to their exact area (0.002 %); a hole cut in the half cone is in its flat; a spherical cap is refused.
+
 ## 2026-10-22 21:49 — STEP files written as surface models: their closed shells read as solids
 - Some programs write a part as a surface model: closed shells with no solid round them. RazorCAD read those as surface bodies, so nothing that needs a solid worked on them (Convert to Sheet Metal, mass, cuts). A closed shell (every edge shared by two faces) now comes in as a solid, faces outward; a shell that isn't closed stays a surface.
 - Found by comparing RazorCAD's sheet metal conversion with flat patterns made by another CAD program for real parts: square-to-round transitions written this way came in with no solid at all.
