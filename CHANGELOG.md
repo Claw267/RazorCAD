@@ -6,6 +6,10 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-22 23:17 — Convert to Sheet Metal from a curved face: the thickness found whichever way the face is turned
+- Converting from a curved face, the thickness is measured straight through the sheet from the face. It was measured one way along the face's normal only, and a face read from a file can have its normal turned the other way: the measure then missed the sheet's other side (a rolled band read as 724 mm thick). It is now measured both ways and the nearer face straight across taken.
+- Rolled bands and plates from real projects checked against another CAD program's flat patterns: the size to 0.3 mm in 2175, the area to 0.03 %, every hole.
+
 ## 2026-10-22 23:02 — Convert to Sheet Metal: closed tubes unrolled; DXF import reads old-style polylines
 - A closed tube (bends all the way round, as a rounded rectangle duct) converted the ordinary way lost one bend without a word: laid out face by face, the last bend joins two faces already placed and was left out, so the flat was one bend short. Such a sheet is now recognised and unrolled instead, cut open at a seam: a rounded rectangle 100 × 60 (R10), 50 deep, comes out at its exact area (0.0005 %). Bodies the ordinary way refuses (a bend with material on one side only, or with no relief at its end) are unrolled too when that works.
 - DXF import (into sketches and drawings) read only the newer kind of polyline: old-style (R12) POLYLINE … VERTEX … SEQEND polylines, as RazorCAD's own flat pattern DXF has for its curved V corners and as much laser and older CAD software writes them, came in without those curves. They are now read, bulges (arcs) and all.

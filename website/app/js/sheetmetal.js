@@ -2796,11 +2796,12 @@ function fromSolidAs(solid, picked, { R: R0, K, t: tSet = null, Rset = null, dev
     const UV = [[0.5, 0.5], [0.3, 0.5], [0.7, 0.5], [0.5, 0.3], [0.5, 0.7], [0.3, 0.3], [0.7, 0.7], [0.3, 0.7], [0.7, 0.3], [0.15, 0.5], [0.85, 0.5]];
     const p = UV.map(([u, v]) => vec3(P0.face.pointOnSurface(u, v))).find((q) => distTo(P0.face, q) <= 1e-6);
     if (!p) throw new Error('No point found on the picked face to measure the thickness from');
-    const m = mul3(faceNormal(P0.face, p), -1);
+    // (both ways along the normal: a face's normal may point either way out of its surface)
+    const n = faceNormal(P0.face, p);
     for (const q of info) {
       if (q === P0) continue;
       const d = distTo(q.face, p);
-      if (d > 1e-6 && d < t && distTo(q.face, add3(p, mul3(m, d))) <= 1e-3 * d) t = d;
+      if (d > 1e-6 && d < t && [1, -1].some((sg) => distTo(q.face, add3(p, mul3(n, sg * d))) <= 1e-3 * d)) t = d;
     }
   }
   if (!isFinite(t)) throw new Error('No parallel face behind the picked face: is this a sheet of even thickness?');
