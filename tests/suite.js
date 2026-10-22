@@ -2059,6 +2059,40 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     } finally { k.dispose(); }
   },
 
+  async 'convert-closed-tube'() {
+    // Convert to Sheet Metal of a closed tube (bends all the way round, no flat end: the ordinary way refuses it):
+    // unrolled instead, cut open at a seam. A rounded rectangle 100 × 60 (corners R10), 2 thick about the profile,
+    // 50 deep, converted from a flat side with K 0.5: the flat is (the profile's length) × 50
+    const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient({ threads: threadsPerKernel() });
+    try {
+      const d = M.newDoc(); d.name = 'Tube';
+      const s = M.createFeature(d, 'sketch', { plane: { ref: 'top' } });
+      const P = [[-40, -30], [40, -30], [50, -20], [50, 20], [40, 30], [-40, 30], [-50, 20], [-50, -20]];
+      const C = [[40, -20], [40, 20], [-40, 20], [-40, -20]];
+      Object.assign(s, {
+        points: [...P.map(([x, y], i) => ({ id: 'p' + i, x, y })), ...C.map(([x, y], i) => ({ id: 'c' + i, x, y }))],
+        curves: [
+          { id: 'l0', type: 'line', p1: 'p0', p2: 'p1' }, { id: 'a0', type: 'arc', c: 'c0', p1: 'p1', p2: 'p2' },
+          { id: 'l1', type: 'line', p1: 'p2', p2: 'p3' }, { id: 'a1', type: 'arc', c: 'c1', p1: 'p3', p2: 'p4' },
+          { id: 'l2', type: 'line', p1: 'p4', p2: 'p5' }, { id: 'a2', type: 'arc', c: 'c2', p1: 'p5', p2: 'p6' },
+          { id: 'l3', type: 'line', p1: 'p6', p2: 'p7' }, { id: 'a3', type: 'arc', c: 'c3', p1: 'p7', p2: 'p0' },
+        ].map((c) => ({ ...c, construction: false })),
+        constraints: [],
+      });
+      d.features.push(s, M.createFeature(d, 'extrude', { sketch: s.id, depth: 50, thin: true, thinT: 2, thinDir: 'mid' }));
+      const r0 = await k.rebuild(d, null, null);
+      if (!r0.body?.bodies?.length) return { ok: false, detail: `no tube: ${JSON.stringify(r0.errors)}` };
+      // (the outside of the long side at y = -31: a flat face)
+      d.features.push(M.createFeature(d, 'smConvert', { face: { p: [0, 25, 31], n: [0, 0, 1], body: r0.body.bodies[0].id }, kFactor: 0.5 }));
+      const r = await k.rebuild(d, null, null);
+      const sh = r.body?.bodies?.find((b) => b.sheet)?.sheet;
+      const want = (2 * 80 + 2 * 40 + 2 * Math.PI * 10) * 50, dA = sh ? (sh.flatArea - want) / want : NaN;
+      const ok = sh?.lofted === 'developed' && Math.abs(dA) < 5e-4 && sh.pierces === 1;
+      return ok ? { ok: true, detail: `unrolled and cut open: ${sh.flatArea.toFixed(1)} mm² for ${want.toFixed(1)} (${(100 * dA).toFixed(4)} %), one outline` }
+        : { ok: false, detail: sh ? `${sh.lofted}, ${sh.flatArea} for ${want}, ${sh.pierces} outlines` : `not converted: ${JSON.stringify(r.errors)}` };
+    } finally { k.dispose(); }
+  },
+
   async 'convert-sheet-corners'() {
     // (the part's own kernel, with its threads)
     const k = window.app.kernel, pool = { request: (type, data) => k.request(type, data) }, aff = null;
@@ -2206,6 +2240,30 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     ok &&= opened;
     out.push(`opened as a part: ${opened}`);
     return { ok, detail: out.join(' | ') };
+  },
+
+  // a DXF with old-style (R12) polylines read back: RazorCAD's own flat pattern of the sheet-metal tray (its curved V
+  // corners are written as POLYLINE … VERTEX … SEQEND): every outline curve is read, and they join into closed loops
+  async 'dxf-r12-polylines'(parts) {
+    const { KernelClient } = await import('/js/kernelclient.js'), { parseDXF, dxfShapes } = await import('/js/dxfimport.js');
+    const { buildDXF, DEFAULT_MAPPING } = await import('/js/dxf.js');
+    const k = new KernelClient();
+    try {
+      const r = await k.rebuild(JSON.parse(parts.find((p) => p.name === 'sheet-metal-tray').json), null, null);
+      const f = await k.request('sheetFlat', { bodyId: r.body.bodies.find((b) => b.sheet).id });
+      const text = buildDXF(f.ents.filter((e) => e.layer === 'OUTLINE' || e.layer === 'HOLES'), DEFAULT_MAPPING);
+      const polylines = (text.match(/\nPOLYLINE\r?\n/g) || []).length;
+      const shapes = dxfShapes(parseDXF(text));
+      // (the pieces' ends: in a closed outline each end meets another piece's)
+      const ends = [];
+      for (const s of shapes) {
+        const pts = s.line || (s.arc ? [0, 1].map((j) => { const a = ((j ? s.arc.a1 : s.arc.a0) * Math.PI) / 180; return [s.arc.c[0] + s.arc.r * Math.cos(a), s.arc.c[1] + s.arc.r * Math.sin(a)]; }) : null);
+        if (pts) ends.push(pts[0], pts[pts.length - 1]);
+      }
+      const loose = ends.filter((p) => ends.filter((q) => Math.hypot(p[0] - q[0], p[1] - q[1]) < 1e-6).length < 2).length;
+      const ok = polylines > 0 && shapes.length > 0 && loose === 0;
+      return ok ? { ok: true, detail: `${polylines} R12 polylines read: ${shapes.length} pieces, every end joined` } : { ok: false, detail: `${polylines} polylines, ${shapes.length} pieces, ${loose} loose ends` };
+    } finally { k.dispose(); }
   },
 
   // DXF into a drawing: a small DXF (line, circle, arc, polyline with a bulge, text) placed on the sheet at full

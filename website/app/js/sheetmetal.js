@@ -2765,7 +2765,17 @@ function cylinderOf(face) {
   } finally { ad.delete(); }
 }
 // t / Rset: a thickness / an inside bend radius to use instead of the body's (null: the body's own)
-export function fromSolid(solid, picked, { R: R0, K, t: tSet = null, Rset = null }) {
+// (a sheet the ordinary way can't take, as a closed tube or a bend with no relief: unrolled instead, when it can be)
+const UNROLL_INSTEAD = /material on one side only|needs a relief|closes on itself/;
+export function fromSolid(solid, picked, opts) {
+  try {
+    return fromSolidAs(solid, picked, opts);
+  } catch (e) {
+    if (!UNROLL_INSTEAD.test(e?.message || '') || opts.Rset != null) throw e;
+    try { return fromSolidAs(solid, picked, { ...opts, develop: true }); } catch { throw e; }
+  }
+}
+function fromSolidAs(solid, picked, { R: R0, K, t: tSet = null, Rset = null, develop = false }) {
   const info = solid.faces.map((face, i) => ({ i, face, type: face.geomType }));
   for (const F of info) if (F.type === 'PLANE') { F.n = faceNormal(F.face); F.c = vec3(F.face.center); }
   const i0 = info.findIndex((F) => F.face.isSame(picked));
@@ -2835,7 +2845,7 @@ export function fromSolid(solid, picked, { R: R0, K, t: tSet = null, Rset = null
   let side = walk(false);
   // curved faces other than plain bends (a square-to-round transition, a cone…), or a curved face picked: the side
   // unrolled as it is
-  if (P0.type !== 'PLANE' || [...side].some((F) => F.type !== 'PLANE' && F.type !== 'CYLINDRE')) {
+  if (develop || P0.type !== 'PLANE' || [...side].some((F) => F.type !== 'PLANE' && F.type !== 'CYLINDRE')) {
     if (Rset != null) throw new Error('A sheet with curved faces other than plain bends keeps the body\'s own shape: use the body\'s bend radii');
     const sheet = developedSheet(solid, [...side].map((F) => F.face), P0, { t: tSet > 0 ? tSet : t, K });
     const curved = [...side].filter((F) => F.type !== 'PLANE').length;
@@ -3535,6 +3545,7 @@ export function fromFaces(faces, fixed, { t, R: R0, K, connectedOnly = false, li
   const trims = new Map(); // face index → list of rect trims (flat coords, applied to its image)
   const shifts = new Map([[fixed, IDENT]]);
   const bendFaces = [], realBend = new Set(); // unrolled faces of real bends; their ids
+  const usedLinks = new Set(); // links made into bends
   while (queue.length) {
     const i = queue.shift();
     // real bends: face j turned about the bend's axis into face i's plane, then moved on by the bend
@@ -3544,6 +3555,7 @@ export function fromFaces(faces, fixed, { t, R: R0, K, connectedOnly = false, li
       const L = L0.i === i ? L0 : { ...L0, i: L0.j, j: L0.i, ai: L0.aj, bi: L0.bj, aj: L0.ai, bj: L0.bi };
       const j = L.j;
       if (T.has(j) || !byI.has(j)) continue;
+      usedLinks.add(L0);
       const Fi = byI.get(i), Fj = byI.get(j);
       const ang = Math.acos(Math.max(-1, Math.min(1, dot3(Fi.n, Fj.n))));
       if (ang > Math.PI - 1e-3) throw new Error('Two faces fold flat onto each other (a hem): not supported when converting');
@@ -3628,6 +3640,9 @@ export function fromFaces(faces, fixed, { t, R: R0, K, connectedOnly = false, li
     }
   }
   if (T.size !== info.length) throw new Error('Some faces are not connected to the fixed face along straight edges');
+  // (a bend between two faces both laid out already: the sheet goes all the way round, and laid out face by face
+  // that bend would be left out)
+  if (links.some((L) => !usedLinks.has(L) && byI.has(L.i) && byI.has(L.j))) throw new Error('The sheet closes on itself (it goes all the way round)');
   if (bends.some((b) => b.ang > Math.PI - 1e-3)) throw new Error('Two faces fold flat onto each other (a hem): not supported when converting');
   let fixedFace = null;
   for (const F of info) {

@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-22 23:02 — Convert to Sheet Metal: closed tubes unrolled; DXF import reads old-style polylines
+- A closed tube (bends all the way round, as a rounded rectangle duct) converted the ordinary way lost one bend without a word: laid out face by face, the last bend joins two faces already placed and was left out, so the flat was one bend short. Such a sheet is now recognised and unrolled instead, cut open at a seam: a rounded rectangle 100 × 60 (R10), 50 deep, comes out at its exact area (0.0005 %). Bodies the ordinary way refuses (a bend with material on one side only, or with no relief at its end) are unrolled too when that works.
+- DXF import (into sketches and drawings) read only the newer kind of polyline: old-style (R12) POLYLINE … VERTEX … SEQEND polylines, as RazorCAD's own flat pattern DXF has for its curved V corners and as much laser and older CAD software writes them, came in without those curves. They are now read, bulges (arcs) and all.
+- Tests: convert-closed-tube; dxf-r12-polylines (RazorCAD's own flat pattern DXF of the test tray read back: 16 polylines, every end joined; 12 loose ends before).
+
 ## 2026-10-22 22:53 — Convert to Sheet Metal: square-to-round transitions, cones and other one-way curved shapes unrolled
 - A body curved other than in plain cylindrical bends (a square-to-round transition or a reducer made in another program, whose curved faces are B-splines or cones) used to be refused. Its side of the sheet is now meshed finely, moved to the neutral layer (K·t from the inside of the curves), and laid out flat triangle by triangle, each edge keeping its length. A shape that closes on itself (a ring) is cut open where its triangles meet again out of place (a seam). The flat pattern is the unrolled outline with its holes; folded, the sheet is the body itself. A cut in it (a hole, a slot) is made in the body and the sheet unrolled again, so the cut is in the flat pattern too. Features that need real bends (flanges, hems, corners, forms…) refuse it as they refuse a lofted bend.
 - A face curved both ways (a dished end, a sphere) can't be laid flat: refused, with the reason. A cone has no flat face: its curved face can be picked instead (the thickness is measured straight through the sheet).

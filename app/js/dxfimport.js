@@ -1,6 +1,6 @@
-// DXF import into a sketch: lines, circles, arcs, polylines (with bulges), ellipses (and their arcs),
-// splines (through their fit points, else their control points) and points, in the DXF's units
-// converted to millimetres. Blocks (INSERT) are expanded with their position, scale and rotation.
+// DXF import into a sketch: lines, circles, arcs, polylines (with bulges; old-style R12 ones too), ellipses
+// (and their arcs), splines (through their fit points, else their control points) and points, in the DXF's
+// units converted to millimetres. Blocks (INSERT) are expanded with their position, scale and rotation.
 import * as S from './sketchmodel.js';
 
 const UNITS = { 1: 25.4, 2: 304.8, 4: 1, 5: 10, 6: 1000, 8: 0.0000254, 9: 0.0254, 10: 914.4, 14: 100, 0: 1 };
@@ -37,7 +37,27 @@ export function parseDXF(text) {
     }
   }
   flush();
-  return { units, ents: ents.filter((e) => e.type !== '__BLOCK'), blocks };
+  for (const b of blocks.values()) b.ents = joinPolylines(b.ents);
+  return { units, ents: joinPolylines(ents.filter((e) => e.type !== '__BLOCK')), blocks };
+}
+// An old-style (R12) POLYLINE is followed by its VERTEX entities up to a SEQEND: gathered into the POLYLINE
+// (verts: [{ x, y, bulge }]), as an LWPOLYLINE holds them.
+function joinPolylines(list) {
+  const out = [];
+  for (let i = 0; i < list.length; i++) {
+    const e = list[i];
+    if (e.type !== 'POLYLINE') { if (e.type !== 'VERTEX' && e.type !== 'SEQEND') out.push(e); continue; }
+    const verts = [];
+    for (i++; i < list.length && list[i].type === 'VERTEX'; i++) {
+      const C = list[i].codes, one = (c) => +(C.find((q) => q[0] === c)?.[1] ?? 0);
+      // (spline frame points and the like, flag 16 / 32 / 64 / 128 without plain vertices: left out)
+      if (one(70) & 16) continue;
+      verts.push({ x: one(10), y: one(20), bulge: one(42) });
+    }
+    if (i < list.length && list[i].type !== 'SEQEND') i--; // (a file with no SEQEND: the next entity is not part of it)
+    out.push({ ...e, verts });
+  }
+  return out;
 }
 
 // Shapes in DXF coordinates: { line: [a, b] } | { arc: { c, r, a0, a1 } (degrees, counter-clockwise) } |
@@ -66,6 +86,12 @@ export function dxfShapes(dxf) {
       case 'ELLIPSE': {
         const c = P(one(C, 10), one(C, 20)), m = M.dir([one(C, 11), one(C, 21)]);
         out.push({ ellipse: { c, major: m, ratio: one(C, 40), t0: C.some((q) => q[0] === 41) ? one(C, 41) : 0, t1: C.some((q) => q[0] === 42) ? one(C, 42) : 2 * Math.PI } });
+        break;
+      }
+      case 'POLYLINE': {
+        // (2D polylines only: a polyface or polygon mesh is 3D)
+        if (one(C, 70) & (16 | 64) || !e.verts?.length) break;
+        poly(e.verts.map((v) => P(v.x, v.y)), e.verts.map((v) => v.bulge), (one(C, 70) & 1) === 1);
         break;
       }
       case 'LWPOLYLINE': {
