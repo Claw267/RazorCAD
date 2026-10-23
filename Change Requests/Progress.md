@@ -657,3 +657,6 @@ Skipped for now (from the list of 2026-10-21):
 - [ ] More pairs: parts inside assembly STEPs matched by name to the DXF folders beside them.
 - [x] Found by the harness: R12 POLYLINE/VERTEX/SEQEND not read by dxfimport (joinPolylines; dxfShapes 'POLYLINE', 2D only), test dxf-r12-polylines. fromFaces: a link left unused between two placed faces (closed tube) → "closes on itself" (a bend was silently dropped); fromSolid → fromSolidAs, unrolled instead on "material on one side only | needs a relief | closes on itself". Test convert-closed-tube.
 - [x] fromSolidAs, a curved face picked: thickness measured both ways along the normal (a face's normal may point out of the material). Harness: the pick point a triangle's centre for curved faces too (a mesh vertex is on the face's edge).
+
+## Browser right-click menu (user 2026-10-23: "The browser right click menu gets in the way on the browser")
+- [x] main.js: one contextmenu listener on the document (capture, so panels that stop the event are covered) prevents the browser's menu unless browserMenuWanted (input, textarea, select, contenteditable, or on selected text). Test no-browser-menu (tree and status bar let it through before).

@@ -4207,5 +4207,17 @@ class App {
   }
 }
 
+// No browser right-click menu over RazorCAD (the browser version; the desktop window has none): RazorCAD's own menus
+// open where they belong, and a right button press or drag elsewhere does nothing. Kept in text fields and on
+// selected text, for cut, copy and paste.
+export function browserMenuWanted(e) {
+  const t = e.target;
+  if (t instanceof Element && t.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]')) return true;
+  const sel = window.getSelection?.();
+  return !!(sel && !sel.isCollapsed && t instanceof Node && sel.containsNode(t, true));
+}
+// (on the way down: some panels stop the event on its way back up; RazorCAD's own menus still open)
+document.addEventListener('contextmenu', (e) => { if (!browserMenuWanted(e)) e.preventDefault(); }, true);
+
 window.app = new App();
 installA11y();

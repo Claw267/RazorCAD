@@ -2385,6 +2385,32 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     return fits && gone ? { ok: true, detail: 'fits the window; closes' } : { ok: false, detail: `fits ${fits}, gone ${gone}` };
   },
 
+  // no browser right-click menu over RazorCAD (the browser version): a right-click on a panel, the status bar or the
+  // view is kept from the browser; a text field keeps its menu (cut, copy, paste); RazorCAD's own menu on a feature
+  // in the tree still opens
+  async 'no-browser-menu'() {
+    const a = window.app;
+    if (a.mode === 'drawing') { const i = a.tabs.findIndex((t) => t.kind !== 'drawing'); if (i >= 0) await a.activateTab(i); else { a.newDocument(); closeModals(); } }
+    const right = (target) => {
+      const r = target.getBoundingClientRect();
+      const e = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: r.left + Math.min(5, r.width / 2), clientY: r.top + Math.min(5, r.height / 2) });
+      target.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    const kept = { tree: right(document.getElementById('tree')), status: right(document.getElementById('statusbar')), view: right(a.viewport.canvas) };
+    const field = document.createElement('input');
+    document.body.appendChild(field);
+    const fieldFree = !right(field);
+    field.remove();
+    a.ui.closeContext?.();
+    const node = document.querySelector('#tree .tn[data-id]') || document.querySelector('#tree .tn');
+    const opened = node ? (right(node), !document.getElementById('ctxmenu').hidden) : null;
+    a.ui.closeContext?.();
+    const ok = Object.values(kept).every(Boolean) && fieldFree && opened !== false;
+    return ok ? { ok: true, detail: `kept from the browser: ${Object.keys(kept).join(', ')}; a text field keeps its menu; the tree's own menu opens${opened === null ? ' (no tree item)' : ''}` }
+      : { ok: false, detail: `kept ${JSON.stringify(kept)}, field free ${fieldFree}, tree menu ${opened}` };
+  },
+
   // the view's mouse buttons: Shift + right-drag pans, middle-drag turns, a plain right-drag changes nothing
   async 'view-mouse-buttons'() {
     const a = window.app;

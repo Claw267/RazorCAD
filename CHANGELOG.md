@@ -6,6 +6,10 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-23 19:38 — Browser version: no browser right-click menu over RazorCAD
+- In the browser version, a right-click anywhere RazorCAD has no menu of its own (a panel, the feature tree's background, the ribbon, the menu bar, the status bar, or the end of a right-drag) opened the browser's own menu over the model. It no longer does: RazorCAD's own menus open where they belong, and elsewhere a right-click does nothing, as in the Windows app. Text fields and selected text keep the browser's menu, for cut, copy and paste.
+- Regression test no-browser-menu.
+
 ## 2026-10-22 23:17 — Convert to Sheet Metal from a curved face: the thickness found whichever way the face is turned
 - Converting from a curved face, the thickness is measured straight through the sheet from the face. It was measured one way along the face's normal only, and a face read from a file can have its normal turned the other way: the measure then missed the sheet's other side (a rolled band read as 724 mm thick). It is now measured both ways and the nearer face straight across taken.
 - Rolled bands and plates from real projects checked against another CAD program's flat patterns: the size to 0.3 mm in 2175, the area to 0.03 %, every hole.
