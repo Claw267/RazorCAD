@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-25 01:01 — Variable fillets: radii at points along the edges
+- A **Variable size** fillet set **At vertices and points along edges** now also takes **points along the edges** (from a suggestion on GitHub): **Add Point**, choose the edge, where along it (a share of its length from its start, in %) and the radius there. The radius runs smoothly along the edge from its start through its points to its end, and each point is marked on the edge in the view while the fillet is edited.
+- The fillet's note says how many points it has.
+- Test: fillet-edge-points (a slot's top edge, lines and arcs in one run: a point a quarter of the way along a line with a radius of 6, on both lines; the fillet is bigger at the marked point than at the mirror point; a point past the edge's end refused).
+
 ## 2026-10-25 00:05 — Version 0.17.1-beta: installer, user manual and website
 - **RazorCAD-Setup-0.17.1-beta.exe** built (in "RazorCAD Install", 45 MB, unsigned), with everything since 0.17.0-beta:
   - Edge-Flange: flanges picked together meet corner to corner (mitred) by default, not overlapped;

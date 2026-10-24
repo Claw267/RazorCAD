@@ -831,12 +831,13 @@ const PM_SCHEMAS = {
   fillet: [
     { title: 'Fillet Type', fields: [{ key: 'filletType', type: 'select', label: 'Type', options: [['constant', 'Constant size'], ['variable', 'Variable size'], ['face', 'Face fillet']] }] },
     { title: 'Fillet Parameters', fields: [
-      { key: 'radiusMode', type: 'select', label: 'Radius', show: (f) => f.filletType === 'variable', options: [['ends', 'From the start to the end of each edge'], ['vertices', 'Set at each vertex']] },
+      { key: 'radiusMode', type: 'select', label: 'Radius', show: (f) => f.filletType === 'variable', options: [['ends', 'From the start to the end of each edge'], ['vertices', 'At vertices and points along edges']] },
       { key: 'radius', type: 'expr', label: (f) => (f.filletType === 'variable' ? (f.radiusMode === 'vertices' ? 'Radius (vertices not set)' : 'Radius at the start') : 'Radius'), unit: 'mm' },
       { key: 'radius2', type: 'expr', label: 'Radius at the end', unit: 'mm', show: (f) => f.filletType === 'variable' && f.radiusMode !== 'vertices' },
       { key: 'flipRadii', type: 'check', label: 'Swap the ends', show: (f) => f.filletType === 'variable' && f.radiusMode !== 'vertices' },
       { key: 'vHint', type: 'hint', show: (f) => f.filletType === 'variable' && f.radiusMode !== 'vertices', text: 'The radius changes smoothly from the start to the end of each edge (the ends follow the edge direction: Swap the ends turns it round).' },
       { key: 'vertexRadii', type: 'vertexRadii', show: (f) => f.filletType === 'variable' && f.radiusMode === 'vertices' },
+      { key: 'edgePoints', type: 'edgePoints', show: (f) => f.filletType === 'variable' && f.radiusMode === 'vertices' },
       { key: 'setback', type: 'expr', label: 'Setback at corners', unit: 'mm', show: (f) => f.filletType !== 'face' },
       { key: 'sHint', type: 'hint', show: (f) => f.filletType !== 'face', text: 'Where three or more fillets meet: 0 keeps the usual corner; a distance blends the corner smoothly from that far out (a little more than the radius).' },
     ] },
@@ -3144,6 +3145,35 @@ export class UI {
     });
   }
 
+  // A variable fillet's points along its edges, each with its own radius: the edge (its place in the list of edges),
+  // where along it (% of its length from its start; the point is marked in the view) and the radius there.
+  renderEdgePoints(body, f) {
+    const a = this.app, edges = f.edges || [];
+    body.appendChild(el('div', { class: 'pm-sub' }, tr('Points along the edges')));
+    (f.edgePoints || []).forEach((pt, i) => {
+      const sel = el('select', { title: tr('The edge the point is on') });
+      edges.forEach((_, k) => sel.appendChild(el('option', { value: String(k), ...(k === pt.edge ? { selected: '' } : {}) }, `${tr('Edge')} ${k + 1}`)));
+      sel.onchange = () => { pt.edge = +sel.value; a.preview(); };
+      const x = el('button', { class: 'pm-btn', title: tr('Remove this point') }, '✕');
+      x.onclick = () => { f.edgePoints.splice(i, 1); a.preview(); this.renderPM(); };
+      const head = el('div', { class: 'pm-edgept' });
+      head.append(sel, x);
+      body.appendChild(this.row(`${tr('Point')} ${i + 1}`, head));
+      const at = this.exprInput(pt.t, '%', (v) => { pt.t = v; a.preview(); });
+      at.title = tr('Where along the edge: the share of its length from its start (the point is marked in the view)');
+      body.appendChild(this.row(tr('Along the edge'), at));
+      const rad = this.exprInput(pt.r, 'mm', (v) => { pt.r = v; a.preview(); });
+      body.appendChild(this.row(tr('Radius there'), rad));
+    });
+    const add = el('button', { class: 'pm-btn', title: tr('A point half way along an edge, with the fillet\'s radius: then set where it is and its radius') }, tr('Add Point'));
+    add.disabled = !edges.length;
+    add.onclick = () => { (f.edgePoints ||= []).push({ edge: 0, t: 50, r: f.radius }); a.preview(); this.renderPM(); };
+    const bar = el('div', { class: 'pm-btns' });
+    bar.appendChild(add);
+    body.appendChild(bar);
+    body.appendChild(el('div', { class: 'pm-hint' }, tr(edges.length ? 'The radius runs smoothly along each edge from its start through its points to its end. A point is placed by the share of the edge\'s length from its start (marked in the view).' : 'Select the edges first, then add points along them.')));
+  }
+
   pmGroup(root, title, id) {
     const key = id || title;
     const g = el('div', { class: 'pm-group' + (this.groupCollapsed.has(key) ? ' collapsed' : '') });
@@ -3246,6 +3276,8 @@ export class UI {
           this.renderSketchList(body, f, before, fd);
         } else if (fd.type === 'vertexRadii') {
           this.renderVertexRadii(body, f);
+        } else if (fd.type === 'edgePoints') {
+          this.renderEdgePoints(body, f);
         } else if (fd.type === 'edges') {
           this.renderEdgeList(body, f);
         } else if (fd.type === 'points3d') {

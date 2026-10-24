@@ -2689,6 +2689,56 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     } finally { k.dispose(); }
   },
 
+  // A variable fillet with points along its edges: on a slot shape's top edge (lines and arcs, one run of edges) a
+  // point a quarter of the way along one line with a radius of 6 (the rest 2). The point is marked where it should
+  // be, the fillet is big there (a slice of the body around the point has less left than one around the mirror
+  // point), and a point out of range is refused
+  async 'fillet-edge-points'() {
+    const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient({ threads: threadsPerKernel() });
+    try {
+      const build = async (pt, slab, z = 10) => {
+        const d = M.newDoc(); d.name = 'Fillet points';
+        const sk = M.createFeature(d, 'sketch', { plane: { ref: 'top' } });
+        // a slot: centres x ±30, radius 10 (sketch y = -z)
+        Object.assign(sk, { points: [{ id: 'a', x: -30, y: -10 }, { id: 'b', x: 30, y: -10 }, { id: 'c', x: 30, y: 10 }, { id: 'e', x: -30, y: 10 }, { id: 'c1', x: 30, y: 0 }, { id: 'c2', x: -30, y: 0 }],
+          curves: [{ id: 'l1', type: 'line', p1: 'a', p2: 'b', construction: false }, { id: 'k1', type: 'arc', c: 'c1', p1: 'b', p2: 'c', construction: false },
+            { id: 'l2', type: 'line', p1: 'c', p2: 'e', construction: false }, { id: 'k2', type: 'arc', c: 'c2', p1: 'e', p2: 'a', construction: false }], constraints: [] });
+        d.features.push(sk, M.createFeature(d, 'extrude', { sketch: sk.id, depth: 20 }));
+        // the top line at z = +10 (sketch y -10), its middle at (0, 20, 10)
+        const fl = M.createFeature(d, 'fillet', { filletType: 'variable', radiusMode: 'vertices', radius: 2, edges: [{ p: [0, 20, z] }], edgePoints: [{ edge: 0, ...pt }] });
+        d.features.push(fl);
+        // (a slice x0 .. x0 + 6 of the body kept: everything else cut away)
+        if (slab != null) {
+          for (const [x0, x1] of [[-60, slab], [slab + 6, 60]]) {
+            const c = M.createFeature(d, 'sketch', { plane: { ref: 'top' } });
+            Object.assign(c, { points: [{ id: 'p0', x: x0, y: -30 }, { id: 'p1', x: x1, y: -30 }, { id: 'p2', x: x1, y: 30 }, { id: 'p3', x: x0, y: 30 }],
+              curves: [0, 1, 2, 3].map((i) => ({ id: 'c' + i, type: 'line', p1: 'p' + i, p2: 'p' + ((i + 1) % 4), construction: false })), constraints: [] });
+            d.features.push(c, M.createFeature(d, 'extrude', { sketch: c.id, op: 'cut', end: 'through2' }));
+          }
+        }
+        const r = await k.rebuild(d, null, null);
+        const b = r.body?.bodies?.[0];
+        const vol = b ? (await k.request('measure', { refs: [{ kind: 'body', id: b.id }] })).items?.[0]?.volume : null;
+        return { r, vol, info: r.info?.[fl.id], err: r.errors.filter((e) => e[0] === fl.id).map((e) => e[1]) };
+      };
+      // (both lines: the run of edges goes one of them its own way and the other against it)
+      const out = [], fails = [];
+      for (const z of [10, -10]) {
+        const one = await build({ t: 25, r: 6 }, null, z);
+        const m = one.info?.points?.[0];
+        if (!m) { fails.push(`z ${z}: no point reported ${JSON.stringify(one.err)}`); continue; }
+        // the point: on the line, y = 20, a quarter of the way along it (x ±15)
+        const onLine = Math.abs(m[1] - 20) < 1e-3 && Math.abs(m[2] - z) < 1e-3 && Math.abs(Math.abs(m[0]) - 15) < 1e-3;
+        const here = await build({ t: 25, r: 6 }, m[0] - 3, z), there = await build({ t: 25, r: 6 }, -m[0] - 3, z);
+        const ok1 = onLine && !one.err.length && here.vol < there.vol - 10;
+        (ok1 ? out : fails).push(`line z ${z}: point at (${m.map((x) => +x.toFixed(3)).join(', ')}), slice there ${here.vol?.toFixed(2)} mm³, at the mirror point ${there.vol?.toFixed(2)}`);
+      }
+      const one = await build({ t: 25, r: 6 }), plain = await build({ t: 25, r: 2 }), bad = await build({ t: 120, r: 6 });
+      const ok = !fails.length && one.vol < plain.vol - 20 && bad.err.length > 0;
+      return { ok, detail: `${[...out, ...fails].join('; ')}; body ${one.vol?.toFixed(1)} (all R2: ${plain.vol?.toFixed(1)}); 120 %: ${bad.err.length ? 'refused' : 'taken'}` };
+    } finally { k.dispose(); }
+  },
+
   // A new Edge-Flange's flanges meet corner to corner (mitred) where they meet, not one overlapping the other: the
   // tray's four flanges with the defaults close their four corners, the same body as with corner 'butt' set and
   // not the overlap's

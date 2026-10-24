@@ -1889,29 +1889,52 @@ function setbackCorners(shape, corners, s) {
   return unify(sol);
 }
 // A fillet with its radius set at the vertices: each edge (in its run of edges) from the radius at its start to the
-// one at its end. radAt(point) → the radius there. The filleted shape and the vertices of the runs.
-function filletByVertex(shape, edges, radAt) {
+// one at its end. radAt(point) → the radius there. ptsOf(edge) (optional): points along that edge with a radius of
+// their own, [{ t (share of its length from its start, 0 to 1), r }]: the radius then runs smoothly from the start
+// through them to the end. The filleted shape, the vertices of the runs and where the points are.
+function filletByVertex(shape, edges, radAt, ptsOf = null) {
   const oc = R.getOC();
   const mf = new oc.BRepFilletAPI_MakeFillet(shape.wrapped, oc.ChFi3d_FilletShape.ChFi3d_Rational);
   const vertices = [];
   const P = (v) => { const g = oc.BRep_Tool.Pnt(v); const q = [g.X(), g.Y(), g.Z()]; g.delete?.(); return q; };
   const note = (q) => { if (!vertices.some((x) => len(sub(x, q)) < 1e-6)) vertices.push(q); };
+  const points = [];
   try {
     for (const e of edges) mf.Add(radAt(vec(e.startPoint)), e.wrapped);
     for (let ic = 1; ic <= mf.NbContours(); ic++) {
       let cur = P(mf.FirstVertex(ic));
       for (let k = 1; k <= mf.NbEdges(ic); k++) {
         const E = R.cast(mf.Edge(ic, k)), a = vec(E.startPoint), b = vec(E.endPoint);
-        const [p0, p1] = len(sub(a, cur)) <= len(sub(b, cur)) ? [a, b] : [b, a];
-        mf.SetRadius(radAt(p0), radAt(p1), ic, k);
+        const own = len(sub(a, cur)) <= len(sub(b, cur)); // (the run goes the edge's own way)
+        const [p0, p1] = own ? [a, b] : [b, a];
+        const pts = (ptsOf?.(E) || []).filter((q) => q.t > 1e-6 && q.t < 1 - 1e-6);
+        if (pts.length) {
+          // the radius law along the edge, in the run's direction: (share of the length, radius) from end to end
+          const law = [{ s: 0, r: radAt(p0) }, ...pts.map((q) => ({ s: own ? q.t : 1 - q.t, r: q.r })).sort((x, y) => x.s - y.s), { s: 1, r: radAt(p1) }];
+          const arr = new oc.NCollection_Array1_gp_Pnt2d(1, law.length);
+          law.forEach((q, i) => { const g = new oc.gp_Pnt2d(q.s, q.r); arr.SetValue(i + 1, g); g.delete(); });
+          mf.SetRadius(arr, ic, k);
+          arr.delete();
+          for (const q of pts) points.push(atLength(E, q.t));
+        } else mf.SetRadius(radAt(p0), radAt(p1), ic, k);
         note(p0); note(p1);
         cur = p1;
       }
     }
     mf.Build(new oc.Message_ProgressRange());
     if (!mf.IsDone()) throw new Error('The fillet could not be computed with these radii');
-    return { shape: R.cast(mf.Shape()), vertices };
+    return { shape: R.cast(mf.Shape()), vertices, points };
   } finally { mf.delete(); }
+}
+// The point of an edge a share t (0 to 1) of its length from its start.
+function atLength(E, t) {
+  const n = 64, q = Array.from({ length: n + 1 }, (_, i) => vec(E.pointAt(i / n))), L = [0];
+  for (let i = 1; i <= n; i++) L.push(L[i - 1] + len(sub(q[i], q[i - 1])));
+  const s = t * L[n];
+  let i = 1;
+  while (i < n && L[i] < s) i++;
+  const f = (s - L[i - 1]) / ((L[i] - L[i - 1]) || 1);
+  return vec(E.pointAt((i - 1 + f) / n)).map((x) => +x.toFixed(6));
 }
 
 // Faces sewn into shells (edges closer than tol joined); when nothing is left open, each shell made a solid. The
@@ -3063,7 +3086,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
             // variable radius (start → end along each edge) or a fillet between two picked faces
             const r1 = ev(f.radius), r2 = f.filletType === 'variable' ? ev(f.radius2) : r1;
             if (!(r1 > 0) || !(r2 > 0)) throw new Error('The radii must be greater than zero');
-            const picked = [];
+            const picked = [], pickedAt = new Map(); // (the edges found, and by their place in f.edges)
             let rec = null;
             if (f.filletType === 'face') {
               if ((f.faces || []).length < 2) throw new Error('Click the faces to blend: two (or more) faces that meet at edges');
@@ -3079,13 +3102,14 @@ async function rebuild(doc, previewId = null, opts = {}) {
               if (!picked.length) throw new Error('The selected faces do not meet at an edge (a face fillet here blends faces that share edges)');
             } else {
               if (!f.edges?.length) throw new Error('Select edges on the model');
-              for (const e of f.edges) {
+              f.edges.forEach((e, i) => {
                 const hit = findEdgeInfo(body, e);
-                if (!hit) continue;
+                if (!hit) return;
                 updateEdgeRef(e, hit.e, body);
                 picked.push(hit.e);
+                pickedAt.set(i, hit.e);
                 rec = solids.find((s) => s.shape === hit.part) || rec;
-              }
+              });
               if (!picked.length) throw new Error('The selected edges no longer exist');
             }
             res.features[f.id] = { edges: f.edges || [] };
@@ -3097,9 +3121,14 @@ async function rebuild(doc, previewId = null, opts = {}) {
               const vr = (f.vertexRadii || []).map((x) => ({ p: x.p, r: ev(x.r) }));
               if (vr.some((x) => !(x.r > 0))) throw new Error('The radii must be greater than zero');
               const radAt = (q) => vr.find((x) => len(sub(x.p, q)) < 1e-4)?.r ?? r1;
-              const r = filletByVertex(input, picked, radAt);
+              // points along the edges: { edge (its place in the edge list), t (% of its length from its start), r }
+              const ep = (f.edgePoints || []).map((x) => ({ e: pickedAt.get(x.edge), t: ev(x.t) / 100, r: ev(x.r) }));
+              if (ep.some((x) => !(x.r > 0))) throw new Error('The radii must be greater than zero');
+              if (ep.some((x) => !(x.t > 0 && x.t < 1))) throw new Error('A point along an edge must lie between its ends (more than 0 % and less than 100 %)');
+              const ptsOf = (E) => ep.filter((x) => x.e && x.e.isSame(E)).map((x) => ({ t: x.t, r: x.r }));
+              const r = filletByVertex(input, picked, radAt, ep.length ? ptsOf : null);
               out = r.shape;
-              (res.info ||= {})[f.id] = { vertices: r.vertices.map((q) => q.map((x) => +x.toFixed(6))) };
+              (res.info ||= {})[f.id] = { vertices: r.vertices.map((q) => q.map((x) => +x.toFixed(6))), points: r.points };
             }
             if (!out) for (const shrink of [0, 2e-5, 2e-4]) {
               try {
@@ -3116,7 +3145,8 @@ async function rebuild(doc, previewId = null, opts = {}) {
             if (rec) replaceSolid(rec, unify(out), f.id);
             else remapSolids(unify(out), picked.map((e) => e.pointAt(0.5)));
             blendChain = null;
-            res.notes[f.id] = f.filletType === 'variable' ? `${picked.length} edge${picked.length === 1 ? '' : 's'}: R${+rad[0].toFixed(3)} → R${+rad[1].toFixed(3)}` : `${picked.length} edge${picked.length === 1 ? '' : 's'} where the faces meet, R${+r1.toFixed(3)}`;
+            const nPts = res.info?.[f.id]?.points?.length || 0;
+            res.notes[f.id] = f.filletType === 'variable' && f.radiusMode === 'vertices' ? `${picked.length} edge${picked.length === 1 ? '' : 's'}: radii at the vertices${nPts ? ` and ${nPts} point${nPts === 1 ? '' : 's'} along the edges` : ''}` : f.filletType === 'variable' ? `${picked.length} edge${picked.length === 1 ? '' : 's'}: R${+rad[0].toFixed(3)} → R${+rad[1].toFixed(3)}` : `${picked.length} edge${picked.length === 1 ? '' : 's'} where the faces meet, R${+r1.toFixed(3)}`;
             break;
           }
           if (!f.edges?.length) throw new Error('Select edges on the model');

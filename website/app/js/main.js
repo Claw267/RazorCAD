@@ -2001,6 +2001,9 @@ class App {
       const refs = f.type === 'fillet' || f.type === 'chamfer' || f.type === 'smFlange' || f.type === 'smHem' || f.type === 'smProfileFlange' ? f.edges : f.edge ? [f.edge] : [];
       const selected = refs.map((e) => vp.edgeIndexForPoint(e.p)).filter((i) => i >= 0);
       vp.setEdgeHighlights({ selected, hover: this.hoverEdge ?? null });
+      // (a variable fillet's points along its edges, where the last build put them)
+      const pts = f.type === 'fillet' && f.filletType === 'variable' && f.radiusMode === 'vertices' ? this.result?.info?.[f.id]?.points : null;
+      vp.setVertexMarkers(pts?.length ? { selected: pts, hover: null } : null);
     } else if (mode === 'vertex') {
       const ref = f.type === 'extrude' ? f.toVertex : f.type === 'sketch3d' ? null : f.vertex;
       vp.setVertexMarkers({ selected: ref && !f.toPoint ? ref.p : null, hover: this.hoverVertex ?? null });

@@ -218,6 +218,9 @@ table.bom th { background: #f1f5f9; font-weight: 600; }
 .pm-btn { height: 26px; border: 1px solid var(--border); background: var(--panel); border-radius: 3px; cursor: pointer; padding: 0 10px; }
 .pm-btn:hover { background: var(--hover); }
 .pm-btns { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 2px; }
+.pm-sub { font-weight: 600; margin: 8px 0 4px; }
+.pm-edgept { display: flex; gap: 4px; align-items: center; }
+.pm-edgept select { flex: 1; }
 .pm-btn:disabled { opacity: .5; cursor: default; }
 
 /* ---------- Drawings ---------- */

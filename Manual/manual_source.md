@@ -741,7 +741,8 @@ Open the feature and click edges on the model. The model is rolled back to just 
 - Edges are remembered by type, direction and position, and found again after parameter changes.
 - Where a fillet can't be added on top of earlier fillets (a corner where several blends meet), RazorCAD recomputes it together with the preceding fillets in one operation.
 - Where two blends exactly meet (for example R2 on both edges of a 4 mm wall) the result is a full round.
-- **Variable size**: a radius at the start and another at the end of each edge, or **Radius ▸ Set at each vertex**: the panel lists the vertices of the selected edges (the ends of each run of edges) with a radius for each; empty ones use the fillet's radius. Along each edge the radius changes from the one at its start to the one at its end.
+- **Variable size**: a radius at the start and another at the end of each edge, or **Radius ▸ At vertices and points along edges**: the panel lists the vertices of the selected edges (the ends of each run of edges) with a radius for each; empty ones use the fillet's radius. Along each edge the radius changes from the one at its start to the one at its end.
+- **Points along the edges** (with radii at the vertices): **Add Point**, then choose the edge, where along it (the share of its length from its start, in %) and the radius there. The radius runs smoothly from the edge's start through its points to its end. While the fillet is edited each point is marked on its edge, so you can see which end the % counts from. {idx:fillet, variable radius}
 - **Setback at corners**: where three or more fillets meet, the corner is blended smoothly from this distance out, instead of the usual small corner patch. A little more than the radius works well; 0 keeps the usual corner. The fillet's note says how many corners were blended. {idx:fillet, setback}
 - **Face fillet**: pick faces instead of edges; the edges where they meet are rounded.
 

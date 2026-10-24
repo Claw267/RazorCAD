@@ -688,3 +688,6 @@ Skipped for now (from the list of 2026-10-21):
 
 ## Version 0.17.1-beta (user 2026-10-25: "update the installer and push all the updates", then "make it 0.17.1 and push")
 - [x] version.txt 0.17.1-beta; manual revision history; website version and download links; manual PDF, online manual and browser version rebuilt; installer built (45 MB, unsigned); smoke test passes; GitHub pre-release v0.17.1-beta with the setup and the manual.
+
+## Next round (user 2026-10-25: "Do 1-5": fillet points along edges, DXF rips as one line, transitions' developed area, faster edits, an example part and tutorial)
+- [x] 1. Fillet points along edges (GitHub issue #1, a later comment): f.edgePoints [{ edge (index in f.edges), t %, r }] in radiusMode 'vertices'. filletByVertex(ptsOf): per contour edge with points, SetRadius(NCollection_Array1_gp_Pnt2d of (share, radius), ic, k), shares in the run's direction (OpenCascade maps them onto the edge's span of the spine; checked: same result given angles or lengths on a circle, parameters follow the run on a box edge); atLength for the markers (info.points). Panel: Points along the edges (edge, % along, radius, Add Point / remove); markers via setVertexMarkers while the fillet is edited. Test fillet-edge-points (both lines of a slot go the run's own way here: the reversed case rests on OpenCascade's spine mapping).
