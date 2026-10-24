@@ -2388,6 +2388,217 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
   // no browser right-click menu over RazorCAD (the browser version): a right-click on a panel, the status bar or the
   // view is kept from the browser; a text field keeps its menu (cut, copy, paste); RazorCAD's own menu on a feature
   // in the tree still opens
+  // a point at the midpoint of an arc: half way round it (a quarter arc of R50 from 0° to 90°: at 45°), also after
+  // the arc's end moves; and the relation is offered for a point and an arc
+  async 'sketch-arc-midpoint'() {
+    const S = await import('/js/sketchmodel.js'), { solveSketch } = await import('/js/solver.js');
+    const sk = S.newSketchData();
+    const c = S.addPoint(sk, 0, 0), a = S.addPoint(sk, 50, 0), b = S.addPoint(sk, 0, 50), m = S.addPoint(sk, 10, 5);
+    const arc = S.addArc(sk, c, a, b);
+    S.addRel(sk, 'fix', [c], { x: 0, y: 0 }); S.addRel(sk, 'fix', [a], { x: 50, y: 0 });
+    const fixB = S.addRel(sk, 'fix', [b], { x: 0, y: 50 });
+    S.addRel(sk, 'midpoint', [m, arc]);
+    const r1 = solveSketch(sk, (x) => +x);
+    const M1 = { ...S.getPoint(sk, m) }, want = 50 / Math.SQRT2;
+    const at45 = Math.abs(M1.x - want) < 1e-6 && Math.abs(M1.y - want) < 1e-6;
+    // the end moved to 180°: the midpoint follows to 90°
+    Object.assign(fixB, { x: -50, y: 0 });
+    const r2 = solveSketch(sk, (x) => +x);
+    const M2 = S.getPoint(sk, m);
+    const at90 = Math.abs(M2.x) < 1e-6 && Math.abs(M2.y - 50) < 1e-6;
+    // offered in the sketcher for a point and an arc
+    const sketcher = window.app.sketcher, keep = sketcher.selectedItems;
+    sketcher.selectedItems = () => [{ kind: 'point', id: m }, { kind: 'arc', id: arc }];
+    let offered;
+    try { offered = sketcher.applicableRelations().includes('midpoint'); } finally { sketcher.selectedItems = keep; }
+    const ok = r1.ok && r2.ok && at45 && at90 && offered;
+    return ok ? { ok: true, detail: `at 45° (${M1.x.toFixed(4)}, ${M1.y.toFixed(4)}); the arc's end moved, at 90°; offered for a point and an arc` }
+      : { ok: false, detail: `solved ${r1.ok}/${r2.ok}, (${M1.x}, ${M1.y}) then (${M2.x}, ${M2.y}), offered ${offered}` };
+  },
+
+  // a control-point spline: the B-spline of its control points for degree 2 to 5 (against a plain de Boor
+  // evaluation, to a hundred-thousandth of a mm); its control polygon is construction lines that take relations
+  // (the first leg made horizontal); deleting the spline takes its polygon; a profile closed by a line extrudes to
+  // the area under the curve
+  async 'ctrl-spline'() {
+    const S = await import('/js/sketchmodel.js'), { solveSketch } = await import('/js/solver.js');
+    const Pc = [[0, 0], [15, 35], [45, 40], [70, 10], [95, 30], [120, 0]];
+    // (a clamped B-spline with even knots, by de Boor)
+    const deBoor = (P, p, u) => {
+      const n = P.length, spans = n - p, U = [...Array(p + 1).fill(0), ...Array.from({ length: spans - 1 }, (_, i) => i + 1), ...Array(p + 1).fill(spans)];
+      const x = Math.min(u, spans - 1e-12);
+      let k = p; while (k < n - 1 && U[k + 1] <= x) k++;
+      const d = Array.from({ length: p + 1 }, (_, j) => [...P[j + k - p]]);
+      for (let r = 1; r <= p; r++) for (let j = p; j >= r; j--) {
+        const i = j + k - p, a = (x - U[i]) / (U[i + p - r + 1] - U[i]);
+        d[j] = [(1 - a) * d[j - 1][0] + a * d[j][0], (1 - a) * d[j - 1][1] + a * d[j][1]];
+      }
+      return d[p];
+    };
+    const bad = [], out = [];
+    for (const deg of [2, 3, 4, 5]) {
+      const pcs = S.ctrlSplineBeziers(Pc, deg), pts = pcs.flatMap((g) => Array.from({ length: 21 }, (_, i) => S.bezierAt(g, i / 20)));
+      const spans = Pc.length - deg;
+      // (each curve point's distance to the de Boor curve: to the nearest of its finely divided pieces)
+      const ref = Array.from({ length: 4001 }, (_, i) => deBoor(Pc, deg, (spans * i) / 4000));
+      const segD = (q, a, b) => { const dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy || 1e-30, t = Math.max(0, Math.min(1, ((q[0] - a[0]) * dx + (q[1] - a[1]) * dy) / L2)); return Math.hypot(q[0] - a[0] - t * dx, q[1] - a[1] - t * dy); };
+      let worst = 0;
+      for (const q of pts) { let dmin = Infinity; for (let i = 1; i < ref.length; i++) dmin = Math.min(dmin, segD(q, ref[i - 1], ref[i])); worst = Math.max(worst, dmin); }
+      const ends = Math.hypot(pts[0][0] - Pc[0][0], pts[0][1] - Pc[0][1]) + Math.hypot(pts[pts.length - 1][0] - Pc[5][0], pts[pts.length - 1][1] - Pc[5][1]);
+      // (to a hundred-thousandth of a mm, and the reference's own chords)
+      if (worst > 1e-4 || ends > 1e-9) bad.push(`degree ${deg}: ${worst.toFixed(6)} mm off, ends ${ends}`);
+      else out.push(`degree ${deg}`);
+    }
+    // in a sketch: its polygon, a relation on it, a profile
+    const sk = S.newSketchData();
+    const ids = Pc.map(([x, y]) => S.addPoint(sk, x, y));
+    const sp = S.addCtrlSpline(sk, ids, 3);
+    const legs = sk.curves.filter((c) => c.ctrlOf === sp);
+    const polyOk = legs.length === 5 && legs.every((c) => c.construction && c.type === 'line');
+    S.addRel(sk, 'horizontal', [legs[0].id]);
+    S.addRel(sk, 'fix', [ids[0]], { x: 0, y: 0 });
+    const r = solveSketch(sk, (x) => +x);
+    const legFlat = r.ok && Math.abs(S.getPoint(sk, ids[1]).y - S.getPoint(sk, ids[0]).y) < 1e-9;
+    // the closing line, and the profile extruded 10: the area under the curve × 10
+    S.addLine(sk, ids[5], ids[0]);
+    const c = S.getCurve(sk, sp), q = S.curvePoints(sk, c);
+    let A = 0;
+    for (let i = 0; i < q.length; i++) { const u = q[i], v = q[(i + 1) % q.length]; A += u[0] * v[1] - v[0] * u[1]; }
+    A = Math.abs(A / 2);
+    const d = M.newDoc(); d.name = 'Spline profile';
+    const f = M.createFeature(d, 'sketch', { plane: { ref: 'front' } });
+    Object.assign(f, { points: sk.points, curves: sk.curves, constraints: sk.constraints, nextSid: sk.nextSid });
+    d.features.push(f, M.createFeature(d, 'extrude', { sketch: f.id, depth: 10 }));
+    const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient();
+    let vol = null, errs = [];
+    try {
+      const rb = await k.rebuild(d, null, null);
+      errs = rb.errors || [];
+      if (rb.body?.bodies?.length) vol = ((await k.request('measure', { refs: [{ kind: 'body', id: rb.body.bodies[0].id }] })).items?.[0] || {}).volume;
+    } finally { k.dispose(); }
+    const volOk = vol != null && Math.abs(vol - A * 10) < 1e-3 * A * 10;
+    // deleted: its polygon with it
+    S.deleteItems(sk, [sp]);
+    const polyGone = !sk.curves.some((x) => x.ctrlOf === sp);
+    const ok = !bad.length && polyOk && legFlat && volOk && polyGone;
+    return ok ? { ok: true, detail: `${out.join(', ')}: the B-spline of its control points; a polygon of 5 construction legs, the first made horizontal; extruded ${vol.toFixed(2)} mm³ (area ${A.toFixed(2)} × 10); deleted with its polygon` }
+      : { ok: false, detail: `${bad.join('; ')}; polygon ${polyOk}, leg horizontal ${legFlat}, volume ${vol} for ${A * 10} (${JSON.stringify(errs)}), polygon gone ${polyGone}` };
+  },
+
+  // reference planes from more references: through an edge and a point; through two parallel edges; normal to an
+  // edge at a distance along it; tangent to a cylinder (at an angle round it, and parallel to a plane, on either side);
+  // and placed: moved along its normal, its axes turned, its normal reversed
+  async 'plane-more-types'() {
+    const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient();
+    const rect = (d, plane, w, h, depth) => {
+      const s = M.createFeature(d, 'sketch', { plane: { ref: plane } });
+      const P = [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]];
+      Object.assign(s, { points: P.map(([x, y], i) => ({ id: 'p' + i, x, y })), curves: P.map((_, i) => ({ id: 'c' + i, type: 'line', p1: 'p' + i, p2: 'p' + ((i + 1) % 4), construction: false })), constraints: [] });
+      d.features.push(s, M.createFeature(d, 'extrude', { sketch: s.id, depth }));
+    };
+    try {
+      // a 20 × 20 × 20 box on the front plane (x, y from -10 to 10, z from 0 to 20) and a cylinder R10 on the top
+      // plane round the y axis, 30 high, beside it
+      const d = M.newDoc(); d.name = 'Planes';
+      rect(d, 'front', 20, 20, 20);
+      const cs = M.createFeature(d, 'sketch', { plane: { ref: 'top' } });
+      Object.assign(cs, { points: [{ id: 'q0', x: 50, y: 0 }], curves: [{ id: 'k0', type: 'circle', c: 'q0', r: 10, construction: false }], constraints: [] });
+      d.features.push(cs, M.createFeature(d, 'extrude', { sketch: cs.id, depth: 30, merge: false }));
+      const r0 = await k.rebuild(d, null, null);
+      if (r0.errors?.length) return { ok: false, detail: 'setup: ' + JSON.stringify(r0.errors) };
+      // the cylinder's axis: where is it? (the top plane's sketch x is the model's x; its y is the model's -z or z)
+      const cyl = r0.body.bodies.find((b) => b.faceCount === 3) || r0.body.bodies[1];
+      const V = r0.body.vertices, T = r0.body.triangles;
+      // (its axis: the middle of its box)
+      let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+      for (let q = cyl.triStart; q < cyl.triStart + cyl.triCount; q++) { const x = V[3 * T[q]], z = V[3 * T[q] + 2]; x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+      const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+      const side = (x, y, z) => ({ kind: 'face', p: [x, y, z] });
+      const planes = [
+        ['lineAndPoint', { refs: [{ kind: 'edge', p: [0, 10, 20] }, { kind: 'vertex', p: [10, -10, 0] }], through: true }],
+        ['twoLines', { refs: [{ kind: 'edge', p: [0, 10, 20] }, { kind: 'edge', p: [0, -10, 0] }] }],
+        ['along', { refs: [{ kind: 'edge', p: [0, 10, 20] }], position: 'distance', along: 5 }],
+        ['tangent0', { refs: [side(cx + 10, 15, cz)], around: 0 }],
+        ['tangentFront', { refs: [side(cx + 10, 15, cz), { kind: 'plane', id: 'front' }] }],
+        ['tangentFrontFlip', { refs: [side(cx + 10, 15, cz), { kind: 'plane', id: 'front' }], flip: true }],
+        ['placed', { refs: [{ kind: 'plane', id: 'front' }, { kind: 'edge', p: [0, 10, 20] }], angle: 0, moveBy: 5, turn: 90, reverse: true }],
+      ];
+      const fids = {};
+      for (const [name, props] of planes) { const pf = M.createFeature(d, 'plane', props); d.features.push(pf); fids[name] = pf.id; }
+      const r = await k.rebuild(d, null, null);
+      const P = (name) => r.planes?.[fids[name]];
+      const near = (a, b, t = 1e-6) => a && b && a.every((x, i) => Math.abs(x - b[i]) < t);
+      const dist = (fr, q) => (fr.n[0] * (q[0] - fr.o[0]) + fr.n[1] * (q[1] - fr.o[1]) + fr.n[2] * (q[2] - fr.o[2]));
+      const errs = (r.errors || []).map((e) => `${Object.entries(fids).find(([, v]) => v === e[0])?.[0]}: ${e[1]}`);
+      const checks = {
+        // the plane holds the edge (y 10, z 20, along x) and the vertex (10, -10, 0)
+        lineAndPoint: P('lineAndPoint') && [[-10, 10, 20], [10, 10, 20], [10, -10, 0]].every((q) => Math.abs(dist(P('lineAndPoint'), q)) < 1e-6),
+        // both edges (y 10, z 20 and y -10, z 0, along x): the diagonal plane
+        twoLines: P('twoLines') && [[-10, 10, 20], [10, 10, 20], [-10, -10, 0], [10, -10, 0]].every((q) => Math.abs(dist(P('twoLines'), q)) < 1e-6),
+        // normal to the edge (along x), 5 from its start (an end at x = -10 or 10)
+        along: P('along') && Math.abs(Math.abs(P('along').n[0]) - 1) < 1e-9 && Math.abs(Math.abs(P('along').o[0]) - 5) < 1e-6,
+        // tangent to the cylinder (axis along y at (cx, cz), R10): at 0°, 10 from the axis along x
+        // (the axis found from the cylinder's mesh: to a hundredth of a mm)
+        tangent0: P('tangent0') && Math.abs(P('tangent0').n[1]) < 1e-9 && Math.abs(Math.abs(dist(P('tangent0'), [cx, 15, cz])) - 10) < 0.02,
+        // parallel to the front plane: normal along z, 10 from the axis, the two sides 20 apart
+        tangentFront: P('tangentFront') && Math.abs(Math.abs(P('tangentFront').n[2]) - 1) < 1e-9 && Math.abs(Math.abs(dist(P('tangentFront'), [cx, 15, cz])) - 10) < 0.02
+          && P('tangentFrontFlip') && Math.abs(P('tangentFront').o[2] - P('tangentFrontFlip').o[2]) > 19.99,
+        // at 0° to the front plane through the edge (z 20): moved 5 along its normal, axes turned 90°, normal reversed
+        placed: P('placed') && Math.abs(Math.abs(P('placed').o[2] - 20) - 5) < 1e-6 && P('placed').n[2] * 1 < 0.999,
+      };
+      const ok = !errs.length && Object.values(checks).every(Boolean);
+      return ok ? { ok: true, detail: `planes ${Object.keys(checks).join(', ')}: as they should be` } : { ok: false, detail: `${JSON.stringify(checks)} ${errs.join('; ')} tangent0 ${JSON.stringify(P('tangent0'))} axis ${cx}, ${cz}` };
+    } finally { k.dispose(); }
+  },
+
+  // a loft with guide curves: two squares 40 × 40, 100 apart; a guide (an arc in the front plane from the middle of
+  // one side of the bottom square, out to x = 40 half way up, to the same side of the top one) pulls that side out
+  // (without it the loft is a straight block, x to 20); with a second guide on the other side, both sides bulge
+  async 'loft-guides'() {
+    const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient({ threads: threadsPerKernel() });
+    try {
+      const square = (d, plane) => {
+        const s = M.createFeature(d, 'sketch', { plane });
+        const P = [[-20, -20], [20, -20], [20, 20], [-20, 20]];
+        Object.assign(s, { points: P.map(([x, y], i) => ({ id: 'p' + i, x, y })), curves: P.map((_, i) => ({ id: 'c' + i, type: 'line', p1: 'p' + i, p2: 'p' + ((i + 1) % 4), construction: false })), constraints: [] });
+        d.features.push(s);
+        return s.id;
+      };
+      // (an arc through (sx, 0), (sx + 20 sgn, 50), (sx, 100) in the front plane)
+      const guide = (d, sgn) => {
+        const s = M.createFeature(d, 'sketch', { plane: { ref: 'front' } });
+        const cx = sgn * -32.5;
+        Object.assign(s, { points: [{ id: 'g0', x: cx, y: 50 }, { id: 'g1', x: 20 * sgn, y: sgn > 0 ? 0 : 100 }, { id: 'g2', x: 20 * sgn, y: sgn > 0 ? 100 : 0 }],
+          curves: [{ id: 'ga', type: 'arc', c: 'g0', p1: 'g1', p2: 'g2', construction: false }], constraints: [] });
+        d.features.push(s);
+        return s.id;
+      };
+      const build = async (nGuides) => {
+        const d = M.newDoc(); d.name = 'Guided loft';
+        // the squares on planes square to the front plane: the top plane, and that plane moved 100 up
+        const pl = M.createFeature(d, 'plane', { refs: [{ kind: 'plane', id: 'top' }], offset: 100 });
+        d.features.push(pl);
+        const a = square(d, { ref: 'top' }), b = square(d, { ref: pl.id });
+        const gs = [];
+        if (nGuides >= 1) gs.push(guide(d, 1));
+        if (nGuides >= 2) gs.push(guide(d, -1));
+        d.features.push(M.createFeature(d, 'loft', { profiles: [a, b], guides: gs }));
+        const r = await k.rebuild(d, null, null);
+        const bb = r.body?.bodies?.[0];
+        if (!bb) return { errors: r.errors };
+        const V = r.body.vertices, T = r.body.triangles;
+        let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+        for (let q = bb.triStart; q < bb.triStart + bb.triCount; q++) { const x = V[3 * T[q]], y = V[3 * T[q] + 1]; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+        return { x0, x1, y0, y1, note: r.notes?.[d.features[d.features.length - 1].id], errors: r.errors };
+      };
+      const plain = await build(0), one = await build(1), two = await build(2);
+      const ok = plain.x1 < 20.5 && one.x1 > 39 && one.x1 < 41 && one.x0 > -21 && two.x1 > 39 && two.x0 < -39 && Math.abs(two.y1 - two.y0 - 100) < 0.5;
+      const f = (o) => (o.errors?.length && o.x1 == null ? JSON.stringify(o.errors) : `x ${o.x0?.toFixed(2)} to ${o.x1?.toFixed(2)}`);
+      return ok ? { ok: true, detail: `no guide: ${f(plain)}; one guide: ${f(one)} (pulled out to it); two guides: ${f(two)}` }
+        : { ok: false, detail: `no guide: ${f(plain)}; one: ${f(one)}; two: ${f(two)} (y ${two.y0}–${two.y1})` };
+    } finally { k.dispose(); }
+  },
+
   async 'no-browser-menu'() {
     const a = window.app;
     if (a.mode === 'drawing') { const i = a.tabs.findIndex((t) => t.kind !== 'drawing'); if (i >= 0) await a.activateTab(i); else { a.newDocument(); closeModals(); } }

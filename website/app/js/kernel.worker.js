@@ -2277,6 +2277,13 @@ async function rebuild(doc, previewId = null, opts = {}) {
   // geometry of a plane reference: { kind: 'plane', p, n, frame? } | { kind: 'line', d, start, end, mid } | { kind: 'point', p }
   const resolveRefGeom = (r) => {
     if (r.kind === 'plane') { const fr = resolveFrame(r.id); return { kind: 'plane', p: fr.o, n: fr.n, frame: fr }; }
+    if (r.kind === 'face' && !r.n) {
+      // a cylindrical face: its axis and radius
+      const hit = findFaceAny([...solids, ...surfaces], r);
+      const s = hit && surfOf(hit.face);
+      if (s?.t !== 'CYLINDER') throw new Error('Pick a flat or cylindrical face');
+      return { kind: 'cylinder', o: s.p, d: unit(s.d), r: s.r };
+    }
     if (r.kind === 'face') return { kind: 'plane', ...resolveSurface(null, r) };
     if (r.kind === 'axis') {
       const a = axes.get(r.id);
@@ -2771,7 +2778,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
         }
         case 'plane': {
           const refs = planeRefs(f);
-          const type = inferPlaneType(refs);
+          const type = inferPlaneType(refs, !!f.through);
           if (!type) throw new Error('These references do not define a plane — pick a face/plane, an edge/axis or points');
           const geo = refs.map(resolveRefGeom);
           if (f.refs?.length) res.features[f.id] = { refs: f.refs };
@@ -2811,8 +2818,40 @@ async function rebuild(doc, previewId = null, opts = {}) {
             fr = frameOnPlane(L.mid, n);
           } else if (type === 'normalToEdge') {
             const L = lineOf;
-            const at = pointsOf[0]?.p || (f.position === 'start' ? L.start : f.position === 'end' ? L.end : L.mid);
+            const at = pointsOf[0]?.p || (f.position === 'start' ? L.start : f.position === 'end' ? L.end
+              : f.position === 'distance' ? add(L.start, mul(L.d, ev(f.along))) : L.mid);
             fr = frameOnPlane(at, L.d);
+          } else if (type === 'lineAndPoint') {
+            const L = lineOf, p = pointsOf[0].p;
+            const n = cross(L.d, sub(p, L.mid));
+            if (len(n) < 1e-9) throw new Error('The point lies on the edge: pick a point off it');
+            fr = frameOnPlane(L.mid, unit(n));
+          } else if (type === 'twoLines') {
+            const [A, B] = geo.filter((g) => g.kind === 'line');
+            let n = cross(A.d, B.d);
+            if (len(n) < 1e-9) {
+              // parallel: the plane they both lie in
+              n = cross(A.d, sub(B.mid, A.mid));
+              if (len(n) < 1e-9) throw new Error('The two edges lie on one line: pick edges that are apart');
+            } else if (Math.abs(dot(unit(n), sub(B.mid, A.mid))) > 1e-6 * (1 + len(sub(B.mid, A.mid)))) {
+              throw new Error('The two edges are skew (not in one plane): pick edges that meet or are parallel');
+            }
+            fr = frameOnPlane(A.mid, unit(n));
+          } else if (type === 'tangent') {
+            // tangent to a cylinder: parallel to a picked plane (on the side flip chooses), or at an angle round it
+            const C = geo.find((g) => g.kind === 'cylinder'), P = planesOf[0];
+            const base = Math.abs(C.d[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+            const e1 = unit(sub(base, mul(C.d, dot(base, C.d)))), e2 = cross(C.d, e1);
+            let rad;
+            if (P) {
+              rad = sub(P.n, mul(C.d, dot(P.n, C.d)));
+              if (len(rad) < 1e-6) throw new Error('The plane is square to the cylinder\'s axis: no tangent plane is parallel to it');
+              rad = mul(unit(rad), f.flip ? -1 : 1);
+            } else {
+              const t = (ev(f.around) * Math.PI) / 180;
+              rad = add(mul(e1, Math.cos(t)), mul(e2, Math.sin(t)));
+            }
+            fr = frameOnPlane(add(C.o, mul(rad, C.r)), rad);
           } else if (type === 'parallelThrough') {
             const P = planesOf[0];
             const p = pointsOf[0].p;
@@ -2823,6 +2862,11 @@ async function rebuild(doc, previewId = null, opts = {}) {
             if (len(n) < 1e-9) throw new Error('The three points are in a line');
             fr = frameOnPlane(a, unit(n));
           }
+          // (any type: moved along its normal, its axes turned in it, its normal turned round)
+          const moveBy = type === 'offset' ? 0 : ev(f.moveBy ?? 0), turn = ((ev(f.turn ?? 0) || 0) * Math.PI) / 180;
+          if (moveBy) fr = { ...fr, o: add(fr.o, mul(fr.n, moveBy)) };
+          if (turn) fr = { ...fr, u: add(mul(fr.u, Math.cos(turn)), mul(fr.v, Math.sin(turn))), v: add(mul(fr.v, Math.cos(turn)), mul(fr.u, -Math.sin(turn))) };
+          if (f.reverse) fr = { ...fr, v: mul(fr.v, -1), n: mul(fr.n, -1) };
           planes.set(f.id, fr);
           res.planes[f.id] = fr;
           break;
@@ -4510,8 +4554,18 @@ async function rebuild(doc, previewId = null, opts = {}) {
           // (continuity C2: curvature-continuous through the profiles, the kernel's usual; C1: tangent-continuous;
           // smoothing: the surface evened out, with its own builder when either is asked for)
           const custom = !f.ruled && ((f.continuity && f.continuity !== 'C2') || f.smoothing);
-          const loftOf = (secs) => {
-            const wires = matchLoftSections(secs, profs.map((p) => p.name)).map(sectionWire);
+          // guide curves (sketches or curves, each running from the first profile to the last): the outline
+          // follows them (guidedLoftWires); not with straight (ruled) sides
+          const guides = (f.guides || []).filter(Boolean).map((id) => {
+            if (curves.has(id)) return { name: doc.features.find((x) => x.id === id)?.name || 'A guide curve', wire: curves.get(id).wire };
+            const s = sketches.get(id);
+            if (!s) throw new Error('A guide curve is missing, suppressed or has errors');
+            const ws = sketchWires(s.sk, s.frame);
+            if (ws.length !== 1) throw new Error(`The guide ${s.sk.name} must be one connected chain of curves`);
+            return { name: s.sk.name, wire: ws[0] };
+          });
+          if (guides.length && f.ruled) throw new Error('Guide curves shape a smooth loft: untick "Straight (ruled) sides"');
+          const buildLoft = (wires) => {
             if (!custom) return R.loft(wires, { ruled: !!f.ruled });
             const oc = R.getOC(), mk = new oc.BRepOffsetAPI_ThruSections(true, false, 1e-6);
             try {
@@ -4524,7 +4578,12 @@ async function rebuild(doc, previewId = null, opts = {}) {
               return sh;
             } finally { mk.delete(); }
           };
-          let tool = loftOf(profs.map((p) => p.outer));
+          const loftOf = (secs, withGuides = false) => {
+            const matched = matchLoftSections(secs, profs.map((p) => p.name));
+            return buildLoft(withGuides && guides.length ? guidedLoftWires(matched, guides, profs.map((p) => p.name)) : matched.map(sectionWire));
+          };
+          let tool = loftOf(profs.map((p) => p.outer), true);
+          if (guides.length) res.notes[f.id] = `${profs.length} profiles, ${guides.length} guide curve${guides.length === 1 ? '' : 's'}`;
           const nh = profs[0].holes.length;
           if (profs.some((p) => p.holes.length !== nh)) throw new Error('Every profile needs the same number of holes (inner loops)');
           for (let i = 0; i < nh; i++) tool = tool.cut(loftOf(profs.map((p) => p.holes[i])));
@@ -6561,6 +6620,123 @@ function matchLoftSections(secs, names) {
     }
     return { segs: [...segs.slice(best), ...segs.slice(0, best)] };
   });
+}
+
+// A loft's sections with guide curves: between each two profiles, sections in between (GUIDE_STATIONS of them),
+// each first the two profiles blended point by point, then moved so that where the guides touch the profiles it
+// lies on the guides (at the same share of each guide's length between the two profiles): one guide moves the
+// section, several move it by amounts that change smoothly round it between them. The profiles stay as they are;
+// each section in between is fitted segment by segment (the profiles' corners stay corners). matched: the
+// sections as matchLoftSections gives them (the same segments, starting at matching points); guides: [{ name, wire }].
+const GUIDE_STATIONS = 6, GUIDE_SAMPLES = 16;
+function guidedLoftWires(matched, guides, names) {
+  // (a loft of circles only: each made four arcs, to have points to follow the guides with)
+  const secs = matched.map((s) => {
+    if (s.segs) return s;
+    const { c, r, n, u } = s.circle, e1 = unit(rej(u, n)), e2 = cross(n, e1);
+    const at = (t) => add(c, add(mul(e1, r * Math.cos(t)), mul(e2, r * Math.sin(t))));
+    return { segs: [0, 1, 2, 3].map((i) => ({ type: 'arc', a: at((i * Math.PI) / 2), m: at(((i + 0.5) * Math.PI) / 2), b: at(((i + 1) * Math.PI) / 2) })) };
+  });
+  const N = secs[0].segs.length, M = GUIDE_SAMPLES, NM = N * M;
+  const segPt = (g, t) => {
+    if (g.type === 'line') return add(g.a, mul(sub(g.b, g.a), t));
+    if (g.type === 'bezier') { const u = 1 - t; return add(add(mul(g.a, u * u * u), mul(g.c1, 3 * u * u * t)), add(mul(g.c2, 3 * u * t * t), mul(g.b, t * t * t))); }
+    // a three-point arc: its circle, from a through m to b
+    const A = g.a, B = g.m, C = g.b, ab = sub(B, A), ac = sub(C, A), nn = cross(ab, ac), d = 2 * dot(nn, nn);
+    if (d < 1e-18) return add(A, mul(sub(C, A), t));
+    const o = add(A, mul(add(mul(cross(nn, ab), dot(ac, ac)), mul(cross(ac, nn), dot(ab, ab))), 1 / d));
+    const x = unit(sub(A, o)), y = unit(cross(unit(nn), x)), r = len(sub(A, o));
+    let span = Math.atan2(dot(sub(C, o), y), dot(sub(C, o), x));
+    if (span <= 0) span += 2 * Math.PI;
+    return add(o, add(mul(x, r * Math.cos(span * t)), mul(y, r * Math.sin(span * t))));
+  };
+  const P = secs.map((s) => { const out = []; for (const g of s.segs) for (let j = 0; j < M; j++) out.push(segPt(g, j / M)); return out; });
+  let size = 0;
+  for (const s of P) for (const q of s) size = Math.max(size, len(sub(q, P[0][0])));
+  const tol = Math.max(0.05, size * 2e-3);
+  // each guide as points along it, in order, with the length up to each
+  const polyOf = (wire) => {
+    const runs = wire.edges.map((e) => Array.from({ length: 41 }, (_, i) => vec(e.pointAt(i / 40))));
+    const out = runs.shift();
+    while (runs.length) {
+      const end = out[out.length - 1], start = out[0];
+      let k = runs.findIndex((r) => len(sub(r[0], end)) < tol || len(sub(r[r.length - 1], end)) < tol);
+      if (k >= 0) { const r = runs.splice(k, 1)[0]; out.push(...(len(sub(r[0], end)) < tol ? r : r.reverse()).slice(1)); continue; }
+      k = runs.findIndex((r) => len(sub(r[0], start)) < tol || len(sub(r[r.length - 1], start)) < tol);
+      if (k < 0) break;
+      const r = runs.splice(k, 1)[0];
+      out.unshift(...(len(sub(r[r.length - 1], start)) < tol ? r : r.reverse()).slice(0, -1));
+    }
+    const L = [0];
+    for (let i = 1; i < out.length; i++) L.push(L[i - 1] + len(sub(out[i], out[i - 1])));
+    return { pts: out, L };
+  };
+  // (a guide drawn from the last profile to the first: turned round)
+  const G = guides.map((g) => {
+    const q = polyOf(g.wire);
+    const near = (sec) => Math.min(...sec.map((x) => len(sub(x, q.pts[0]))));
+    if (near(P[P.length - 1]) < near(P[0])) {
+      q.pts.reverse();
+      q.L = [0];
+      for (let i = 1; i < q.pts.length; i++) q.L.push(q.L[i - 1] + len(sub(q.pts[i], q.pts[i - 1])));
+    }
+    return { ...g, ...q };
+  });
+  const atLen = (g, s) => {
+    let i = 1;
+    while (i < g.L.length - 1 && g.L[i] < s) i++;
+    const t = (s - g.L[i - 1]) / ((g.L[i] - g.L[i - 1]) || 1);
+    return add(g.pts[i - 1], mul(sub(g.pts[i], g.pts[i - 1]), Math.max(0, Math.min(1, t))));
+  };
+  // where each guide touches each profile: the profile's point (as a sample index) and the guide's length there
+  const touch = G.map((g) => P.map((sec, k) => {
+    let best = null;
+    for (let i = 0; i < sec.length; i++) for (let j = 0; j < g.pts.length; j++) {
+      const d = len(sub(sec[i], g.pts[j]));
+      if (!best || d < best.d) best = { d, i, s: g.L[j] };
+    }
+    if (best.d > tol) throw new Error(`The guide ${g.name} doesn't touch ${names[k]} (it passes ${best.d.toFixed(2)} mm from it): each guide must run through every profile`);
+    return best;
+  }));
+  touch.forEach((tg, gi) => { for (let k = 1; k < tg.length; k++) if (tg[k].s < tg[k - 1].s - tol) throw new Error(`The guide ${G[gi].name} doesn't run from one profile to the next in order`); });
+  const lerp = (a, b, t) => add(a, mul(sub(b, a), t));
+  const cyc = (i) => ((i % NM) + NM) % NM;
+  const pointAt = (sec, x) => { const i = Math.floor(x), t = x - i; return lerp(sec[cyc(i)], sec[cyc(i + 1)], t); };
+  const wires = [];
+  for (let k = 0; k < secs.length; k++) {
+    wires.push(sectionWire(secs[k]));
+    if (k === secs.length - 1) break;
+    for (let st = 1; st <= GUIDE_STATIONS; st++) {
+      const lam = st / (GUIDE_STATIONS + 1);
+      const base = P[k].map((q, i) => lerp(q, P[k + 1][i], lam));
+      // each guide's pull: where it touches this section (between the two profiles' touch points) and by how much
+      const knots = G.map((g, gi) => {
+        const a = touch[gi][k].i, b = touch[gi][k + 1].i;
+        let dI = b - a;
+        if (dI > NM / 2) dI -= NM; else if (dI < -NM / 2) dI += NM;
+        const at = a + dI * lam;
+        return { at: cyc(at), d: sub(atLen(g, touch[gi][k].s + (touch[gi][k + 1].s - touch[gi][k].s) * lam), pointAt(base, at)) };
+      }).sort((x, y) => x.at - y.at);
+      const pull = (i) => {
+        if (knots.length === 1) return knots[0].d;
+        let hi = knots.findIndex((q) => q.at >= i);
+        if (hi < 0) hi = 0;
+        const lo = (hi - 1 + knots.length) % knots.length, A = knots[lo], B = knots[hi];
+        const span = cyc(B.at - A.at) || NM, t = cyc(i - A.at) / span;
+        return lerp(A.d, B.d, t);
+      };
+      const pts = base.map((q, i) => add(q, pull(i)));
+      const edges = [];
+      for (let si = 0; si < N; si++) {
+        const run = Array.from({ length: M + 1 }, (_, j) => pts[cyc(si * M + j)]);
+        const chord = sub(run[M], run[0]), cl = len(chord);
+        const straight = cl > 1e-9 && run.every((q) => len(cross(sub(q, run[0]), chord)) / cl < size * 1e-7);
+        edges.push(straight ? R.makeLine(run[0], run[M]) : R.makeBSplineApproximation(run, { tolerance: Math.max(1e-5, size * 1e-6), degMax: 5 }));
+      }
+      wires.push(R.assembleWire(edges));
+    }
+  }
+  return wires;
 }
 
 function sectionWire(s) {

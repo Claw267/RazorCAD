@@ -140,7 +140,21 @@ export function makeSystem(sk, ev) {
           break;
         }
         case 'midpoint': {
-          const p = pt(R[0]), L = line(R[1]);
+          const p = pt(R[0]);
+          if (kindOf(R[1]) === 'arc') {
+            // an arc's midpoint: on it, half way round from its start to its end (counter-clockwise)
+            const c = curves.get(R[1]), C = pt(c.c), S = pt(c.p1), E = pt(c.p2);
+            push((Xa) => {
+              const q = p.get(Xa), cc = C.get(Xa), s = S.get(Xa), e = E.get(Xa), r = dist(cc, s);
+              const a0 = Math.atan2(s[1] - cc[1], s[0] - cc[0]);
+              let span = Math.atan2(e[1] - cc[1], e[0] - cc[0]) - a0;
+              while (span <= 0) span += 2 * Math.PI;
+              const am = a0 + span / 2;
+              return [q[0] - (cc[0] + r * Math.cos(am)), q[1] - (cc[1] + r * Math.sin(am))];
+            }, [...p.deps, ...C.deps, ...S.deps, ...E.deps], k);
+            break;
+          }
+          const L = line(R[1]);
           push((Xa) => { const q = p.get(Xa), a = L.a(Xa), b = L.b(Xa); return [q[0] - (a[0] + b[0]) / 2, q[1] - (a[1] + b[1]) / 2]; }, [...p.deps, ...L.deps], k);
           break;
         }

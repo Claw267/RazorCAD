@@ -475,6 +475,10 @@ Click a model edge, or an entity of an earlier sketch, to project it into this s
 
 Click the points the curve runs through (they snap like line points), then double-click, [[Enter]] or [[Esc]] to finish, or click the first point again to close it. Drag a point to reshape the curve, or drag the curve to move it; deleting a point takes it out of the spline. Splines make profiles on their own or with lines and arcs and are exact curves for extrudes, revolves, cuts, lofts and sweep paths. Lines can be trimmed where they cross a spline. {idx:spline}
 
+## Control-Point Spline
+
+**Control-Point Spline** (beside Spline) draws a spline from control points: click them, then double-click, [[Enter]] or [[Esc]] to finish (click the first point again to close it). The curve starts and ends on the first and last control points and passes near the others. Select it to set its **degree**, 1 to 5 (at most one less than the control points): a higher degree is smoother and keeps farther from the polygon. The control polygon is drawn dashed and is made of construction lines, so you can dimension it and give it relations like any lines: horizontal, parallel, equal, an angle. The curve leaves each end along the polygon's end leg, so a relation on that leg (tangent to an arc, collinear with a line) sets its direction there. Drag the control points to reshape it. Deleting the spline deletes its polygon. {idx:control-point spline}{idx:spline, degree}
+
 ## Import DXF
 
 **Import DXF** brings a DXF file into the open sketch: lines, arcs, circles, polylines with arcs, ellipses and elliptical arcs, splines, points and blocks. The file's units are converted to millimetres. You can scale it and place it as in the file, centred, or by its corner. {idx:DXF, import}
@@ -493,7 +497,8 @@ Select entities ([[Ctrl]]+click for several). The Property panel lists the relat
 | 2 or more points | Coincident, Horizontal, Vertical |
 | 2 or more lines | Parallel, Perpendicular, Collinear, Equal, Horizontal, Vertical |
 | Point + line | Coincident (on line), Midpoint |
-| Point + circle/arc | Coincident (on curve) |
+| Point + arc | Coincident (on curve), Midpoint (half way round the arc) |
+| Point + circle | Coincident (on curve) |
 | Line + circle/arc | Tangent |
 | Circles/arcs | Equal, Concentric, Tangent |
 | 2 points + line | Symmetric (about the line) |
@@ -526,7 +531,7 @@ Click **3D Sketch** on the Sketch tab or the Fast Structure tab (or **Insert ▸
 - Click points to draw lines. A line snaps along **X, Y or Z** from the last point whenever the mouse moves along that direction on screen, in any view. A dashed line shows it and an Along X/Y/Z relation is added. Hold [[Ctrl]] or [[Shift]] to draw freely.
 - Away from the axes, lines follow the **drawing plane** through the last point. [[Tab]] cycles XY → YZ → ZX; the plane's name shows at the cursor. {idx:drawing plane}
 - [[Ctrl]]+click a plane or flat face, or click a plane in the tree, to draw on it. Points placed there get an **On Plane** relation. [[Tab]] or [[Esc]] goes back to XY / YZ / ZX.
-- Points snap, in this order, to the sketch's own points, to line midpoints (Midpoint relation), to a point along a line (On Line relation), to the origin and model vertices, along X/Y/Z, then to the drawing plane.
+- Points snap, in this order, to the sketch's own points, to line and arc midpoints (Midpoint relation), to a point along a line (On Line relation), to the origin and model vertices, along X/Y/Z, then to the drawing plane.
 - The **Next Point** box in the Property panel takes exact offsets, for example `0, 0, 250`.
 - A selected point shows its X, Y and Z; type new values to move it. A selected line shows its length, ΔX/ΔY/ΔZ and end points; an arc its radius, angle and length.
 
@@ -662,6 +667,7 @@ Blends between two or more profile sketches, in order. A third or later profile 
 - A circle is split into as many equal arcs as the other profile has corners.
 - Profiles with different segment counts give an error naming the sketches.
 - Options: straight (ruled) sides, Thin. Without straight sides: **Through the profiles** curvature-continuous (C2) or tangent-continuous (C1), and **Smooth the surface**, which evens out its bends. {idx:loft, continuity}
+- **Guide Curves** (optional): curves the loft's outline follows between the profiles, such as a body's outline seen from the side. Each runs from the first profile to the last, through every profile, and is a sketch with one chain of curves or a curve. One guide pulls the loft along it; two or more shape it round the outline, each where it touches the profiles. The profiles themselves are kept as drawn. {idx:loft, guide curves}
 
 ## Hole
 
@@ -892,6 +898,13 @@ Pick up to three references (faces, edges or vertices on the model; planes in th
 | Edge/axis (+ optional point) | Normal to the edge, at its start, middle, end or the point |
 | Plane/face + point/vertex | Parallel, through the point |
 | Three points or vertices | Through three points |
+| Edge/axis + point/vertex, **Through the edge and the point** ticked | Through the edge and the point |
+| Two edges or axes | Through both (they must meet or be parallel) |
+| Edge/axis, position **At a distance from the start** | Normal to the edge, at that distance along it |
+| Cylindrical face | Tangent to it, at an angle round it |
+| Cylindrical face + plane/face | Tangent to it, parallel to the plane (either side) |
+
+**Placement**, for any plane: move it along its normal, turn its axes in the plane (how a sketch on it lies), or reverse its normal.
 
 ## Reference Axis
 

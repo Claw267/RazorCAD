@@ -660,3 +660,10 @@ Skipped for now (from the list of 2026-10-21):
 
 ## Browser right-click menu (user 2026-10-23: "The browser right click menu gets in the way on the browser")
 - [x] main.js: one contextmenu listener on the document (capture, so panels that stop the event are covered) prevents the browser's menu unless browserMenuWanted (input, textarea, select, contenteditable, or on selected text). Test no-browser-menu (tree and status bar let it through before).
+
+## GitHub suggestion #1 (user 2026-10-24: "They make good points. Read the suggestion and implement the changes")
+- [x] Splines: control-point splines (sketchmodel addCtrlSpline: curve type 'spline' with ctrl, degree; bsplineBeziers by Boehm insertion, clamped even knots; bezierAsCubics: exact to degree 3, Hermite halves to 1e-5 mm above; polygon = construction lines ctrlOf; copy / mirror / delete keep it; sketcher tool 'cspline'; panel: degree select). Test ctrl-spline.
+- [x] Midpoint of an arc: solver 'midpoint' with an arc (half way round, counter-clockwise); offered for point + arc; snap. Test sketch-arc-midpoint.
+- [x] Reference planes: refgeom C group (a face ref without n: cylindrical); types lineAndPoint (through), twoLines, tangent (around / parallel to a plane, flip); normalToEdge position 'distance' (along); every type: moveBy, turn, reverse. Test plane-more-types.
+- [x] Loft guide curves: f.guides (curveList); kernel guidedLoftWires (6 sections between profiles: profiles blended, moved onto the guides at the same share of their length; one guide moves, several pull by amounts interpolated round the section; fitted segment by segment); guides turned round when drawn backwards. Test loft-guides.
+- [ ] Discord / GitHub Discussions: a setting on the public repository: asked the user.

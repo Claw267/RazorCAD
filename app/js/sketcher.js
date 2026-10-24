@@ -47,6 +47,7 @@ export const SKETCH_TOOLS = {
   dim: { label: 'Dimension', hint: 'Click a line, circle, arc, or two entities, then click where to place the dimension. Move the mouse to switch between horizontal, vertical and aligned. Model edges/vertices and other sketches can be used as references too.' },
   line: { label: 'Line', hint: 'Click to place points. Horizontal/vertical and coincident relations are added automatically. Double-click, Enter or Esc ends the chain.' },
   spline: { label: 'Spline', hint: 'Click to place the points the curve runs through (they snap to other points, like the line). Double-click, Enter or Esc ends it; click the first point again to close it into a loop. Drag its points afterwards to reshape it.' },
+  cspline: { label: 'Control-Point Spline', hint: 'Click to place control points: the curve is drawn by them (it starts and ends on the first and last, and passes near the others). Double-click, Enter or Esc ends it; click the first point again to close it. Afterwards drag the control points, constrain and dimension the dashed control polygon, and set the degree in the panel.' },
   centerline: { label: 'Centerline', hint: 'Click two points to draw a construction centerline (use it as a symmetry line or revolve axis).' },
   rect: { label: 'Corner Rectangle', hint: 'Click or drag from one corner to the opposite corner.' },
   crect: { label: 'Center Rectangle', hint: 'Click the center, then a corner.' },
@@ -735,9 +736,16 @@ export class Sketcher {
     if (best) return best;
     if (this.autoRelations) {
       for (const c of this.f.curves) {
-        if (c.type !== 'line' || exclude.has(c.id)) continue;
-        const a = S.getPoint(this.f, c.p1), b = S.getPoint(this.f, c.p2);
-        const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+        if ((c.type !== 'line' && c.type !== 'arc') || exclude.has(c.id)) continue;
+        let mx, my;
+        if (c.type === 'arc') {
+          // (an arc's midpoint: half way round it)
+          const C = S.getPoint(this.f, c.c), A = S.arcAngles(this.f, c), r = S.radiusOf(this.f, c), t = A.a0 + A.span / 2;
+          mx = C.x + r * Math.cos(t); my = C.y + r * Math.sin(t);
+        } else {
+          const a = S.getPoint(this.f, c.p1), b = S.getPoint(this.f, c.p2);
+          mx = (a.x + b.x) / 2; my = (a.y + b.y) / 2;
+        }
         const d = Math.hypot(mx - p.x, my - p.y);
         if (d < bd) { bd = d; best = { x: mx, y: my, kind: 'mid', curve: c.id }; }
       }
@@ -914,19 +922,21 @@ export class Sketcher {
       return;
     }
 
-    if (t === 'spline') {
-      // each click a point the curve runs through; the spline is made when it ends
+    if (t === 'spline' || t === 'cspline') {
+      // each click a point the curve runs through (a control-point spline: a control point); the spline is made
+      // when it ends
       const d = this.draw;
       const s = this.snap(raw, { exclude: new Set(d ? [d.pts[d.pts.length - 1]] : []) });
-      if (!d) { this.draw = { tool: 'spline', pts: [this.resolve(s)] }; this.redraw(); return; }
+      if (!d) { this.draw = { tool: t, pts: [this.resolve(s)] }; this.redraw(); return; }
       // (a click on the last point again, e.g. the second click of a double-click, adds nothing)
       const lp = S.getPoint(this.f, d.pts[d.pts.length - 1]);
       if (lp && Math.hypot(s.x - lp.x, s.y - lp.y) < 3 * this.wpp()) return;
       const pid = this.resolve(s);
       if (pid === d.pts[d.pts.length - 1]) return;
       if (pid === d.pts[0] && d.pts.length >= 3) {
-        // back on the first point: a closed loop
-        S.addSpline(this.f, d.pts, true);
+        // back on the first point: a closed loop (a control-point spline ends where it starts)
+        if (t === 'cspline') S.addCtrlSpline(this.f, [...d.pts, d.pts[0]], Math.min(3, d.pts.length));
+        else S.addSpline(this.f, d.pts, true);
         this.draw = null;
         this.solve();
         this.changed();
@@ -1191,7 +1201,7 @@ export class Sketcher {
   }
 
   doubleClick() {
-    if (this.draw?.tool === 'line' || this.draw?.tool === 'spline') this.endDraw(true);
+    if (this.draw?.tool === 'line' || this.draw?.tool === 'spline' || this.draw?.tool === 'cspline') this.endDraw(true);
   }
 
   leave() {
@@ -1203,9 +1213,13 @@ export class Sketcher {
   endDraw(changed = false) {
     const had = !!this.draw;
     // a spline being drawn is made from the points placed so far (two at least)
-    if (this.draw?.tool === 'spline') {
+    if (this.draw?.tool === 'spline' || this.draw?.tool === 'cspline') {
       const pts = this.draw.pts.filter((id, i, a) => !i || id !== a[i - 1]);
-      if (pts.length >= 2) { S.addSpline(this.f, pts); this.solve(); changed = true; }
+      if (pts.length >= 2) {
+        if (this.draw.tool === 'cspline') S.addCtrlSpline(this.f, pts, Math.min(3, pts.length - 1));
+        else S.addSpline(this.f, pts);
+        this.solve(); changed = true;
+      }
     }
     if (this.draw?.ext?.length) { S.deleteItems(this.f, this.draw.ext); changed = true; }
     this.draw = null;
@@ -1224,7 +1238,7 @@ export class Sketcher {
       return false;
     }
     if (e.key === 'Enter' && this.modifyEl) { this.modifyEl.querySelector('input')?.focus(); return true; }
-    if (e.key === 'Enter' && (this.draw?.tool === 'line' || this.draw?.tool === 'spline')) { this.endDraw(true); return true; }
+    if (e.key === 'Enter' && (this.draw?.tool === 'line' || this.draw?.tool === 'spline' || this.draw?.tool === 'cspline')) { this.endDraw(true); return true; }
     if ((e.key === 'Delete' || e.key === 'Backspace') && this.sel.size) { this.deleteSelected(); return true; }
     if (e.ctrlKey || e.metaKey || e.altKey) return false;
     const map = { l: 'line', r: 'rect', c: 'circle', a: 'arc', n: 'spline', p: 'polygon', s: 'select', t: 'trim', d: 'dim', e: 'convert', o: 'offset' };
@@ -1337,7 +1351,7 @@ export class Sketcher {
     if (rounds.length === n) out.push('equal', 'concentric');
     if (n === 2 && rounds.length === 2) out.push('tangent');
     if (n === 2 && pts.length === 1 && (lines.length === 1 || rounds.length === 1)) out.push('onCurve');
-    if (n === 2 && pts.length === 1 && lines.length === 1) out.push('midpoint');
+    if (n === 2 && pts.length === 1 && (lines.length === 1 || (rounds.length === 1 && rounds[0].kind === 'arc'))) out.push('midpoint');
     if (n === 2 && lines.length === 1 && rounds.length === 1) out.push('tangent');
     if (n === 3 && pts.length === 2 && lines.length === 1) out.push('symmetric');
     if (n === 3 && lines.length === 3) out.push('symmetric');
@@ -1366,7 +1380,7 @@ export class Sketcher {
       case 'equal': chain('equal', lines.length ? lines : rounds); break;
       case 'concentric': chain('concentric', rounds); break;
       case 'onCurve': list.push(['onCurve', [pts[0], lines[0] || rounds[0]]]); break;
-      case 'midpoint': list.push(['midpoint', [pts[0], lines[0]]]); break;
+      case 'midpoint': list.push(['midpoint', [pts[0], lines[0] || rounds[0]]]); break;
       case 'tangent': {
         if (lines.length) list.push(['tangent', [lines[0], rounds[0]], { s: S.tangentSign(sk, lines[0], rounds[0]) }]);
         else {
@@ -2491,10 +2505,13 @@ export class Sketcher {
   previewPolylines(d) {
     const out = [];
     const sk = this.f;
-    if (d.tool === 'spline') {
+    if (d.tool === 'spline' || d.tool === 'cspline') {
       const P = d.pts.map((id) => { const q = S.getPoint(sk, id); return [q.x, q.y]; });
       if (this.cursor) P.push([this.cursor.p.x, this.cursor.p.y]);
-      const pcs = S.splineBeziers(P.filter((q, i, a) => !i || Math.hypot(q[0] - a[i - 1][0], q[1] - a[i - 1][1]) > 1e-9));
+      const Q = P.filter((q, i, a) => !i || Math.hypot(q[0] - a[i - 1][0], q[1] - a[i - 1][1]) > 1e-9);
+      // (a control-point spline: its control polygon too)
+      if (d.tool === 'cspline' && Q.length >= 2) out.push(Q);
+      const pcs = d.tool === 'cspline' ? S.ctrlSplineBeziers(Q, Math.min(3, Q.length - 1)) : S.splineBeziers(Q);
       if (pcs.length) out.push(pcs.flatMap((g, k) => Array.from({ length: 25 - (k ? 1 : 0) }, (_, i) => S.bezierAt(g, (i + (k ? 1 : 0)) / 24))));
       return out;
     }
@@ -2757,6 +2774,7 @@ export class Sketcher {
     let tip = `${fmt(p.x)}, ${fmt(p.y)}`;
     const d = this.draw;
     if (d?.tool === 'spline') tip = `Point ${d.pts.length + 1}   ${tip}`;
+    if (d?.tool === 'cspline') tip = `Control point ${d.pts.length + 1}   ${tip}`;
     else if (d?.tool === 'line' || d?.tool === 'centerline') {
       const a = S.getPoint(this.f, d.last);
       if (a) tip = `L ${fmt(Math.hypot(p.x - a.x, p.y - a.y))}  ∠ ${fmt((Math.atan2(p.y - a.y, p.x - a.x) * 180) / Math.PI, 1)}°`;

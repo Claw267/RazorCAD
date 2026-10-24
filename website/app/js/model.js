@@ -214,7 +214,10 @@ export function createFeature(doc, type, props = {}) {
     // axis: 'v' (sketch vertical), 'u' (sketch horizontal), the id of a line in the sketch, an axis
     // feature, or 'edge' / 'face' (a straight model edge / cylindrical face picked on the model)
     // refs: up to three references (see refgeom.js); the plane type is inferred from them
-    plane: { refs: [], offset: 20, flip: false, angle: 90, flipAngle: false, position: 'mid', bisector: false },
+    // through: an edge and a point make a plane through both; along: the distance along the edge (position
+    // 'distance'); around: the angle round a cylinder for a tangent plane; moveBy / turn / reverse: the plane moved
+    // along its normal, its axes turned in it, its normal turned round (any type)
+    plane: { refs: [], offset: 20, flip: false, angle: 90, flipAngle: false, position: 'mid', bisector: false, through: false, along: 0, around: 0, moveBy: 0, turn: 0, reverse: false },
     axis: { axisType: 'twoPlanes', planeA: 'front', planeB: 'top', pointA: null, pointB: null, edge: null, face: null, sketchLine: null },
     point: { pointType: 'coords', x: 0, y: 0, z: 0, vertex: null, edge: null },
     lpattern: { feature: null, dir1: 'x', rev1: false, dist1: 20, count1: 3, dir2: 'none', rev2: false, dist2: 20, count2: 2 },
@@ -311,7 +314,8 @@ export function createFeature(doc, type, props = {}) {
     sweep: { op: 'add', profileType: 'sketch', profile: null, diameter: 2, path: null, merge: true, thin: false, thinT: 1, thinDir: 'one', scopeAll: true, scope: [] },
     // profiles: sketch ids in order; circles are split to match the other profiles' points
     // continuity: 'C2' (curvature-continuous through the profiles) | 'C1' (tangent-continuous); smoothing: evened out
-    loft: { op: 'add', profiles: [], ruled: false, continuity: 'C2', smoothing: false, merge: true, thin: false, thinT: 1, thinDir: 'one', scopeAll: true, scope: [] },
+    // guides: guide curves (sketches or curves) the loft's outline follows, each from the first profile to the last
+    loft: { op: 'add', profiles: [], guides: [], ruled: false, continuity: 'C2', smoothing: false, merge: true, thin: false, thinT: 1, thinDir: 'one', scopeAll: true, scope: [] },
     // Hole: holeType 'simple' | 'cbore' | 'csink' | 'tapped'; size a standard screw size (or
     // 'custom': diameter / cboreD / cboreDepth / csinkD / csinkAngle), fit 'close' | 'normal' | 'loose';
     // tapped: system + thread (cosmetic, threadDepth for the callout); end 'blind' (depth, drill point) | 'through'

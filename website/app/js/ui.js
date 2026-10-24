@@ -580,6 +580,10 @@ const PM_SCHEMAS = {
   ],
   loft: [
     { title: 'Profiles', fields: [{ key: 'profiles', type: 'sketchList' }] },
+    { title: 'Guide Curves', fields: [
+      { key: 'guides', type: 'curveList', show: (f) => !f.ruled },
+      { key: 'gHint', type: 'hint', show: (f) => !f.ruled, text: 'Optional: curves the loft\'s outline follows between the profiles (e.g. a body\'s outline seen from the side). Each runs from the first profile to the last, through every profile, and is a sketch with one chain of curves or a curve. One guide pulls the loft along it; two or more shape it round the outline, each where it touches the profiles.' },
+    ] },
     { title: 'Options', fields: [
       { key: 'ruled', type: 'check', label: 'Straight (ruled) sides between profiles' },
       { key: 'continuity', type: 'select', label: 'Through the profiles', show: (f) => !f.ruled, options: [['C2', 'Curvature-continuous (C2)'], ['C1', 'Tangent-continuous (C1)']] },
@@ -742,8 +746,21 @@ const PM_SCHEMAS = {
         { key: 'angle', type: 'expr', label: 'Angle', unit: '°', show: (f) => inferPlaneType(planeRefs(f)) === 'atAngle' },
         { key: 'angle', type: 'angleQuick', show: (f) => inferPlaneType(planeRefs(f)) === 'atAngle' },
         { key: 'flipAngle', type: 'check', label: 'Flip angle direction', show: (f) => inferPlaneType(planeRefs(f)) === 'atAngle' },
-        { key: 'position', type: 'select', label: 'Position on edge', options: [['start', 'Start'], ['mid', 'Midpoint'], ['end', 'End']], show: (f) => inferPlaneType(planeRefs(f)) === 'normalToEdge' && planeRefs(f).length === 1 },
+        { key: 'through', type: 'check', label: 'Through the edge and the point (not normal to the edge)', show: (f) => { const r = planeRefs(f); return r.length === 2 && r.some((x) => x.kind === 'edge' || x.kind === 'axis') && r.some((x) => x.kind === 'point' || x.kind === 'vertex'); } },
+        { key: 'position', type: 'select', label: 'Position on edge', options: [['start', 'Start'], ['mid', 'Midpoint'], ['end', 'End'], ['distance', 'At a distance from the start']], show: (f) => inferPlaneType(planeRefs(f)) === 'normalToEdge' && planeRefs(f).length === 1 },
         { key: 'bisector', type: 'check', label: 'Use the other bisector (angled faces)', show: (f) => inferPlaneType(planeRefs(f)) === 'midPlane' },
+        { key: 'along', type: 'expr', label: 'Distance along the edge', unit: 'mm', show: (f) => inferPlaneType(planeRefs(f)) === 'normalToEdge' && f.position === 'distance' && planeRefs(f).length === 1 },
+        { key: 'around', type: 'expr', label: 'Angle round the cylinder', unit: '°', show: (f) => inferPlaneType(planeRefs(f)) === 'tangent' && planeRefs(f).length === 1 },
+        { key: 'flip', type: 'check', label: 'The other side of the cylinder', show: (f) => inferPlaneType(planeRefs(f)) === 'tangent' && planeRefs(f).length === 2 },
+      ],
+    },
+    {
+      // (any type: placed exactly, and turned for the sketches made on it)
+      title: 'Placement', fields: [
+        { key: 'moveBy', type: 'expr', label: 'Move along its normal', unit: 'mm', show: (f) => !!inferPlaneType(planeRefs(f), f.through) && inferPlaneType(planeRefs(f), f.through) !== 'offset' },
+        { key: 'turn', type: 'expr', label: 'Turn its axes in the plane', unit: '°', show: (f) => !!inferPlaneType(planeRefs(f), f.through) },
+        { key: 'reverse', type: 'check', label: 'Reverse its normal', show: (f) => !!inferPlaneType(planeRefs(f), f.through) },
+        { key: 'plHint', type: 'hint', text: 'Move it by a distance along its normal, turn its horizontal and vertical directions (how a sketch on it lies), or turn it to face the other way.', show: (f) => !!inferPlaneType(planeRefs(f), f.through) },
       ],
     },
   ],
@@ -1495,6 +1512,7 @@ export class UI {
         tool('tarc', 'tarc', 'Tangent Arc'),
         tool('ellipse', 'ellipse', 'Ellipse'),
         tool('spline', 'spline', 'Spline'),
+        tool('cspline', 'cspline', 'Control-Point Spline'),
         tool('point', 'point', 'Point'),
         tool('slot', 'slot', 'Straight Slot'),
         tool('polygon', 'polygon', 'Polygon'),
@@ -3081,7 +3099,7 @@ export class UI {
     const f = pm.feature;
     let msg = root.querySelector('.pm-status');
     const err = this.app.result?.errors.get(f.id);
-    if (f.type === 'plane' && !inferPlaneType(planeRefs(f))) { msg?.remove(); return; } // References box explains
+    if (f.type === 'plane' && !inferPlaneType(planeRefs(f), f.through)) { msg?.remove(); return; } // References box explains
     if (!msg) {
       msg = el('div', { class: 'pm-msg pm-status' });
       root.querySelector('.pm-actions')?.after(msg);
@@ -3204,7 +3222,7 @@ export class UI {
     const info = TYPE_INFO[f.type];
     this.pmHeader(root, iconFor(f), f.name);
     const err = a.result?.errors.get(f.id);
-    const waitingForRefs = f.type === 'plane' && !inferPlaneType(planeRefs(f)); // the References box explains this
+    const waitingForRefs = f.type === 'plane' && !inferPlaneType(planeRefs(f), f.through); // the References box explains this
     if (err && !waitingForRefs) root.appendChild(el('div', { class: 'pm-msg pm-status err' }, esc(err)));
     else if (pm.isNew && !waitingForRefs) root.appendChild(el('div', { class: 'pm-msg pm-status' }, 'Set the parameters. The model previews live. Click ✔ to accept.'));
 
@@ -3511,10 +3529,20 @@ export class UI {
           ro('Angle', (Math.atan2(B.y - A.y, B.x - A.x) * 180) / Math.PI, '°');
         } else if (it.kind === 'spline') {
           const q = SM.curvePoints(f, it.c);
-          ro('Points', it.c.pts.length, '');
+          ro(it.c.ctrl ? 'Control points' : 'Points', it.c.pts.length, '');
           ro('Length', q.reduce((acc, p2, i) => (i ? acc + Math.hypot(p2[0] - q[i - 1][0], p2[1] - q[i - 1][1]) : 0), 0));
-          if (it.c.closed) g.appendChild(el('div', { class: 'pm-hint' }, 'A closed spline (it runs back to its first point).'));
-          g.appendChild(el('div', { class: 'pm-hint' }, 'Drag the points it runs through to reshape it; drag the curve to move it.'));
+          if (it.c.ctrl) {
+            // the degree: 1 (straight between the control points) to 5, at most one less than the control points
+            const top = Math.min(5, it.c.pts.length - 1);
+            const sel = el('select');
+            for (let d = 1; d <= top; d++) sel.appendChild(el('option', { value: String(d), ...(d === (it.c.degree ?? 3) ? { selected: '' } : {}) }, d === 1 ? '1 (straight)' : d === 2 ? '2 (quadratic)' : d === 3 ? '3 (cubic)' : String(d)));
+            sel.onchange = () => { it.c.degree = +sel.value; sk.changed(); };
+            g.appendChild(this.row('Degree', sel));
+            g.appendChild(el('div', { class: 'pm-hint' }, 'Drag the control points to reshape it. The dashed control polygon is made of construction lines: dimension it and give it relations like any lines (horizontal, parallel, equal, an angle…). The spline leaves each end along the polygon\'s end leg, so a relation on that leg (tangent, collinear) sets its direction there. A higher degree makes it smoother and farther from the polygon.'));
+          } else {
+            if (it.c.closed) g.appendChild(el('div', { class: 'pm-hint' }, 'A closed spline (it runs back to its first point).'));
+            g.appendChild(el('div', { class: 'pm-hint' }, 'Drag the points it runs through to reshape it; drag the curve to move it. For control points and a degree to choose, draw a Control-Point Spline.'));
+          }
         } else if (it.kind === 'ellipse' || it.kind === 'earc') {
           const eg = SM.ellipseGeom(f, it.c);
           ro('Major radius', eg.ra); ro('Minor radius', eg.rb);
@@ -4507,14 +4535,14 @@ export class UI {
   renderPlaneRefs(body, f, before) {
     const a = this.app, doc = a.doc;
     if (!f.refs?.length) f.refs = [];
-    const type = inferPlaneType(f.refs);
+    const type = inferPlaneType(f.refs, !!f.through);
     body.appendChild(el('div', { class: 'pm-msg' + (type ? ' ok' : '') }, type
       ? `<b>${esc(PLANE_TYPES[type])}</b>`
       : f.refs.length ? 'These references don’t define a plane yet.' : 'Pick references for the plane.'));
     const name = (r) => {
       if (r.kind === 'plane') return STD_PLANES[r.id]?.name || findFeature(doc, r.id)?.name || 'Plane';
       if (r.kind === 'axis' || r.kind === 'point') return findFeature(doc, r.id)?.name || r.kind;
-      return { face: 'Face', edge: 'Edge', vertex: 'Vertex' }[r.kind];
+      return r.kind === 'face' && !r.n ? 'Cylindrical face' : { face: 'Face', edge: 'Edge', vertex: 'Vertex' }[r.kind];
     };
     const ic = { plane: 'plane', face: 'plane', axis: 'axis', edge: 'edge', point: 'refpoint', vertex: 'point' };
     const ul = el('div', { class: 'pm-list' });

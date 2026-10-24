@@ -1940,7 +1940,7 @@ class App {
     f.refs = f.refs?.length ? f.refs : [];
     const same = (a, b) => a.kind === b.kind && (a.id ? a.id === b.id
       : a.kind === 'edge' ? this.viewport.edgeIndexForPoint(a.p) === this.viewport.edgeIndexForPoint(b.p)
-        : Math.hypot(a.p[0] - b.p[0], a.p[1] - b.p[1], a.p[2] - b.p[2]) < 1e-4 || (a.kind === 'face' && Math.abs(a.n[0] * b.n[0] + a.n[1] * b.n[1] + a.n[2] * b.n[2]) > 0.9999 && Math.abs(a.n[0] * (a.p[0] - b.p[0]) + a.n[1] * (a.p[1] - b.p[1]) + a.n[2] * (a.p[2] - b.p[2])) < 1e-4));
+        : Math.hypot(a.p[0] - b.p[0], a.p[1] - b.p[1], a.p[2] - b.p[2]) < 1e-4 || (a.kind === 'face' && a.n && b.n && Math.abs(a.n[0] * b.n[0] + a.n[1] * b.n[1] + a.n[2] * b.n[2]) > 0.9999 && Math.abs(a.n[0] * (a.p[0] - b.p[0]) + a.n[1] * (a.p[1] - b.p[1]) + a.n[2] * (a.p[2] - b.p[2])) < 1e-4));
     const i = f.refs.findIndex((r) => same(r, ref));
     if (i >= 0) f.refs.splice(i, 1);
     else {
@@ -2634,7 +2634,9 @@ class App {
       if (p?.kind === 'plane') return this.togglePlaneRef({ kind: 'plane', id: p.id });
       if (p?.kind === 'face') {
         const face = vp.faceInfo(p.hit.face);
-        if (!face.planar) { this.toast('Select a flat face, an edge, a vertex or a plane'); return; }
+        // (a curved face: a cylinder, for a tangent plane; the kernel says when it is not one)
+        const body = this.result.bodies?.[vp.faceBody[p.hit.face]]?.id;
+        if (!face.planar) return this.togglePlaneRef({ kind: 'face', p: p.hit.point.toArray(), ...(body ? { body } : {}) });
         return this.togglePlaneRef({ kind: 'face', p: p.hit.point.toArray(), n: face.normal.toArray() });
       }
       return;
@@ -3909,6 +3911,7 @@ class App {
     return this.openGuarded(async () => {
       let file;
       try { file = await platform.openPath(path); } catch (err) { this.toast('Could not open file: ' + (err?.message || err), true); return false; }
+      if (file.format) { await this.handleImport(file, { asPart: true }); return true; } // a STEP, IGES or mesh file (opened from Windows): a new part
       return this.openFromFile(file, choice);
     });
   }
