@@ -670,7 +670,7 @@ Skipped for now (from the list of 2026-10-21):
 - [x] Midpoint of an arc: solver 'midpoint' with an arc (half way round, counter-clockwise); offered for point + arc; snap. Test sketch-arc-midpoint.
 - [x] Reference planes: refgeom C group (a face ref without n: cylindrical); types lineAndPoint (through), twoLines, tangent (around / parallel to a plane, flip); normalToEdge position 'distance' (along); every type: moveBy, turn, reverse. Test plane-more-types.
 - [x] Loft guide curves: f.guides (curveList); kernel guidedLoftWires (6 sections between profiles: profiles blended, moved onto the guides at the same share of their length; one guide moves, several pull by amounts interpolated round the section; fitted segment by segment); guides turned round when drawn backwards. Test loft-guides.
-- [ ] Discord / GitHub Discussions: a setting on the public repository: asked the user.
+- [x] GitHub Discussions: enabled by the user (2026-10-24). Reply posted on the issue with the 0.17.0-beta release.
 
 ## Version 0.17.0-beta (user 2026-10-24: "update the installer and push it")
 - [x] version.txt 0.17.0-beta; manual revision history; website home page version and download links; manual PDF, online manual and browser version rebuilt; installer built (45 MB, unsigned); smoke test and full suite pass; GitHub pre-release v0.17.0-beta with the setup and the manual.
