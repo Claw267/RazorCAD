@@ -6,6 +6,13 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-24 23:18 — Convert to Sheet Metal: flanges that run flush against the material beside them; a wrapped blade unrolled
+- A body drawn elsewhere often has a flange whose ends run right up against the material beside it, with no relief: a flange bent off a cross bar between the sides of a window, or off the edges of slots in a panel. Converting it stopped with "A bend needs a relief at its end". The flat is now ripped there, as the part is made: a cut of next to no width (0.001 mm) along each flange end, from the bend to the flange's edge, so the flange folds up free and the flat pattern (and its DXF) has the cut the laser needs.
+- Checked against real parts converted alongside another program's flats: the two parts that failed this way now convert, with the outline the size of theirs.
+- An unrolled (developed) sheet was refused as "curved both ways" when the mesh RazorCAD lays out folded back over itself in a few slivers near a trimmed edge of a face (an airfoil-shaped blade wrapped from one sheet): a fault of the mesh, not of the shape. Triangles turned against the surface there are now left out of that check, and the blade unrolls.
+- Seams are looked for quickly on parts with many holes (straight edges far apart are passed over by their boxes).
+- Test: convert-flush-flange (a plate with a window and a flange flush against its sides: one bend, the flat the plate's size, folded the same body as with reliefs at the flange's ends).
+
 ## 2026-10-24 22:28 — Control-point splines: closed smoothly, weights, control points added and taken out, splines converted; loft guides move holes and thin walls too
 - A **Control-Point Spline** closed on its first point now runs round smoothly, with no join (a periodic spline, near its control points rather than through them). The **Closed** box in its panel opens or closes one already drawn.
 - **Weights**: select a control point to set its weight. A larger weight pulls the curve toward it, a smaller one lets it go farther. Three control points at the corners of a square, degree 2 and a weight of 0.7071 on the middle one make a quarter circle (to within 0.00001 mm).

@@ -2647,6 +2647,48 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     return bad.length ? { ok: false, detail: bad.join('; ') } : { ok: true, detail: `${out.join(', ')}; closed extruded ${vol.toFixed(2)} mm³ (area ${A.toFixed(2)} × 10)` };
   },
 
+  // Convert to Sheet Metal, a flange flush against the material beside it (no relief): a 2 mm plate with a window,
+  // a flange standing up off one edge of the window with its ends flush against the window's sides (as real parts
+  // drawn elsewhere often are). It converts (ripped at the flange's ends, as it is made): one bend, the flat the
+  // plate's size with the flange laid into the window, and folded it is the body again
+  async 'convert-flush-flange'() {
+    const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient({ threads: threadsPerKernel() });
+    try {
+      // fx: the flange's half width (30: flush with the window's sides; 29: a 1 mm relief at each end, to compare)
+      const build = async (fx) => {
+        const d = M.newDoc(); d.name = 'Flush flange';
+        const rect = (sk, x0, y0, x1, y1) => {
+          const pts = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], b = sk.points.length;
+          sk.points.push(...pts.map(([x, y], i) => ({ id: 'p' + (b + i), x, y })));
+          sk.curves.push(...pts.map((_, i) => ({ id: 'c' + (b + i), type: 'line', p1: 'p' + (b + i), p2: 'p' + (b + (i + 1) % 4), construction: false })));
+        };
+        const sketch = (x0, y0, x1, y1) => { const sk = M.createFeature(d, 'sketch', { plane: { ref: 'top' } }); Object.assign(sk, { points: [], curves: [], constraints: [] }); rect(sk, x0, y0, x1, y1); d.features.push(sk); return sk; };
+        // the plate (y 0 to 2), its window (x ±30, z ±20) and the flange in the window against its z = -20 edge
+        const plate = sketch(-50, -50, 50, 50);
+        d.features.push(M.createFeature(d, 'extrude', { sketch: plate.id, depth: 2 }));
+        const win = sketch(-30, -20, 30, 20);
+        d.features.push(M.createFeature(d, 'extrude', { sketch: win.id, op: 'cut', end: 'through2' }));
+        const fl = sketch(-fx, 18, fx, 20);
+        d.features.push(M.createFeature(d, 'extrude', { sketch: fl.id, depth: 20 }));
+        const r0 = await k.rebuild(d, null, null);
+        const v0 = (await k.request('measure', { refs: [{ kind: 'body', id: r0.body.bodies[0].id }] })).items?.[0]?.volume;
+        d.features.push(M.createFeature(d, 'smConvert', { face: { p: [40, 0, 40], n: [0, -1, 0] } }));
+        const r = await k.rebuild(d, null, null);
+        const sb = r.body?.bodies?.find((b) => b.sheet);
+        if (!sb) return { errors: r.errors };
+        const v1 = (await k.request('measure', { refs: [{ kind: 'body', id: sb.id }] })).items?.[0]?.volume;
+        const flat = await k.request('sheetFlat', { bodyId: sb.id, flip: false });
+        return { errors: r.errors, bends: sb.sheet.bends, dv: v1 - v0, size: flat.size.map((x) => +x.toFixed(3)).sort((x, y) => x - y) };
+      };
+      const flush = await build(30), relief = await build(29);
+      if (!flush.bends) return { ok: false, detail: `not converted: ${JSON.stringify(flush.errors)}` };
+      // (the sharp corner made a bend of radius 2 adds the same volume per mm of flange width either way)
+      const per = (o, w) => o.dv / w;
+      const ok = !flush.errors.length && flush.bends === 1 && flush.size.join() === '100,100' && Math.abs(per(flush, 60) - per(relief, 58)) < 0.005 * Math.abs(per(relief, 58));
+      return { ok, detail: `${flush.bends} bend; flat ${flush.size.join(' × ')}; folded volume ${per(flush, 60).toFixed(3)} mm³ more per mm of flange (with reliefs ${per(relief, 58).toFixed(3)}: the bend made round)` };
+    } finally { k.dispose(); }
+  },
+
   // A new Edge-Flange's flanges meet corner to corner (mitred) where they meet, not one overlapping the other: the
   // tray's four flanges with the defaults close their four corners, the same body as with corner 'butt' set and
   // not the overlap's

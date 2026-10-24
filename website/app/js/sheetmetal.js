@@ -366,6 +366,24 @@ export function fold(sheet) {
   return f;
 }
 
+// Seams ([[p, q]] in the flat) as rips: cuts RIP wide along them (run on a little past their ends, to meet the bend
+// zones), or null.
+const RIP = 1e-3; // mm
+function seamRips(seams, t) {
+  if (!seams.length) return null;
+  const w = Math.max(RIP, t * 1e-4), ext = Math.max(1e-3, t * 0.01);
+  let out = null;
+  for (const [p, q] of seams) {
+    const L = l2(s2(q, p));
+    if (!(L > 1e-9)) continue;
+    const e = u2(s2(q, p)), n = [-e[1], e[0]];
+    const f = rectFace(a2(a2(p, m2(e, -ext)), m2(n, -w / 2)), e, n, L + 2 * ext, w);
+    out = out ? swap(out, bop('fuse', out, f)) : f;
+    if (out !== f) free(f);
+  }
+  return out;
+}
+
 // Solid of one bend zone in the A side's flat coordinates (piece: the region's part of the strip).
 // vcuts: [{ X, top, mid, relief }] V-cutout corners at its ends: the bend is made longer there in the same
 // solid and the V is cut into it (see vcutTool), so the corner never has to be joined on afterwards.
@@ -3113,6 +3131,11 @@ export function developedSheet(solid, faces, P0, { t, K }) {
   // curved one way only? (round a point inside the mesh its triangles' corners add up to a full turn)
   const angSum = new Float64Array(V.length), inner = new Uint8Array(V.length).fill(1);
   for (const [e, l] of edges) if (l.length === 1) { inner[Math.floor(e / 4294967296)] = 0; inner[e % 4294967296] = 0; }
+  // (the mesh can fold back over itself in a few slivers, near a trimmed edge of a face: a triangle turned against
+  // the surface's own normal there; the corners round it are no test of the shape)
+  const facing = T.map((tri) => dot3(cross3(sub3(V[tri[1]], V[tri[0]]), sub3(V[tri[2]], V[tri[0]])), add3(add3(N[tri[0]], N[tri[1]]), N[tri[2]])));
+  const flipSign = facing.filter((x) => x < 0).length > T.length / 2 ? -1 : 1;
+  T.forEach((tri, k) => { if (flipSign * facing[k] <= 0) for (const i of tri) inner[i] = 0; });
   const ang = (a, b, c) => { const u = unit3(sub3(b, a)), v = unit3(sub3(c, a)); return Math.acos(Math.max(-1, Math.min(1, dot3(u, v)))); };
   for (const tri of T) for (let s = 0; s < 3; s++) angSum[tri[s]] += ang(P[tri[s]], P[tri[(s + 1) % 3]], P[tri[(s + 2) % 3]]);
   let worst = 0;
@@ -3646,6 +3669,7 @@ export function fromFaces(faces, fixed, { t, R: R0, K, connectedOnly = false, li
   if (links.some((L) => !usedLinks.has(L) && byI.has(L.i) && byI.has(L.j))) throw new Error('The sheet closes on itself (it goes all the way round)');
   if (bends.some((b) => b.ang > Math.PI - 1e-3)) throw new Error('Two faces fold flat onto each other (a hem): not supported when converting');
   let fixedFace = null;
+  const images = [];
   for (const F of info) {
     if (F.joint) continue;
     const M = T.get(F.i);
@@ -3659,7 +3683,31 @@ export function fromFaces(faces, fixed, { t, R: R0, K, connectedOnly = false, li
     }
     for (const tr of trims.get(F.i) || []) face = bop('cut', face, rectFace(tr.p, tr.e, tr.d, tr.w, tr.depth));
     if (F.i === fixed) fixedFace = face;
+    // (each straight edge with its box, to pass over the pairs far apart quickly)
+    const es = lineEdges(face).map((ed) => ({ ed, lo: [Math.min(ed[0][0], ed[1][0]) - tol, Math.min(ed[0][1], ed[1][1]) - tol], hi: [Math.max(ed[0][0], ed[1][0]) + tol, Math.max(ed[0][1], ed[1][1]) + tol] }));
+    images.push({ i: F.i, edges: es, lo: [Math.min(...es.map((x) => x.lo[0])), Math.min(...es.map((x) => x.lo[1]))], hi: [Math.max(...es.map((x) => x.hi[0])), Math.max(...es.map((x) => x.hi[1]))] });
     region = bop('fuse', region, face);
+  }
+  // seams: where the images of two faces touch side by side in the flat without being joined in the body (not
+  // one plane across an edge they share): a flange whose end runs flush against the material beside it, with no
+  // relief. The flat is ripped there (a cut of next to no width, as it is made), so the flange folds up free.
+  const samePlane = new Set(shared.filter((sh) => byI.get(sh.i) && byI.get(sh.j) && !byI.get(sh.i).joint && !byI.get(sh.j).joint && dot3(byI.get(sh.i).n, byI.get(sh.j).n) > 1 - 1e-8).map((sh) => `${sh.i}|${sh.j}`));
+  const seams = [];
+  for (let a = 0; a < images.length; a++) {
+    for (let b = a + 1; b < images.length; b++) {
+      const A = images[a], B = images[b];
+      if (samePlane.has(`${Math.min(A.i, B.i)}|${Math.max(A.i, B.i)}`)) continue;
+      const apart = (x, y) => x.lo[0] > y.hi[0] || y.lo[0] > x.hi[0] || x.lo[1] > y.hi[1] || y.lo[1] > x.hi[1];
+      if (!A.edges.length || !B.edges.length || apart(A, B)) continue;
+      for (const ea of A.edges) {
+        if (apart(ea, B)) continue;
+        for (const eb of B.edges) {
+          if (apart(ea, eb)) continue;
+          const ov = overlapSegs(ea.ed, eb.ed, tol);
+          if (ov && len3(sub3(ov[1], ov[0])) > 10 * tol) seams.push([[ov[0][0], ov[0][1]], [ov[1][0], ov[1][1]]]);
+        }
+      }
+    }
   }
   // sharp edges: the whole bend zone; real bends: their own faces, unrolled
   for (const b of bends) if (!realBend.has(b.id)) region = bop('fuse', region, stripFace(b));
@@ -3667,6 +3715,8 @@ export function fromFaces(faces, fixed, { t, R: R0, K, connectedOnly = false, li
   // the fixed face's middle (not a corner: corners end up in bend zones)
   const c = facesOf(fixedFace)[0]?.center;
   const cc = !c ? [0, 0] : Array.isArray(c) ? c : c.toTuple ? c.toTuple() : [c.x, c.y];
+  const rips = seamRips(seams, t);
+  if (rips) { region = swap(region, bop('cut', region, rips)); free(rips); }
   return { t, K, R: R0, frame: fr0, region, bends, rootPt: insidePoint(fixedFace || region, [cc[0], cc[1]]), flat: null, stale: null, nextBend };
 }
 function planeFrame(p, n) {
