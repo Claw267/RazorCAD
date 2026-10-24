@@ -509,21 +509,25 @@ function wrapTool(b, t, face, formed = false) {
 }
 // The same from a flat outline given as points (flat coordinates, closed implicitly). smooth: the number
 // of points at the start of the loop that lie on one curve; they make one smooth edge (so one face).
-function wrapLoopTool(b, t, loop, smooth = 0) {
+// smooth: that many points from `start` are one smooth curve (through its first and last points exactly; the ruled
+// loft joins the two wires' vertices), the rest of the loop straight lines
+function wrapLoopTool(b, t, loop, smooth = 0, start = 0) {
   const ri = Math.max(1e-3, b.R - 0.1 * t), ro = b.R + 1.1 * t, n = loop.length;
   const wire = (r, lp, s0) => {
     const pts = lp.map((p) => wrapPoint(b, t, p, r));
     if (smooth < 3) return R.assembleWire(pts.map((p, i) => R.makeLine(p, pts[(i + 1) % n])));
-    const edges = [R.makeBSplineApproximation(pts.slice(s0, s0 + smooth), { tolerance: 1e-4 * (t + b.R), degMax: 5 })];
-    for (let i = s0 + smooth - 1; (i % n) !== s0; i++) edges.push(R.makeLine(pts[i % n], pts[(i + 1) % n]));
+    const run = [];
+    for (let i = 0; i < smooth; i++) run.push(pts[(s0 + i) % n]);
+    const edges = [R.makeBSplineApproximation(run, { tolerance: 1e-4 * (t + b.R), degMax: 5 })];
+    for (let i = s0 + smooth - 1; (i % n) !== s0 % n; i++) edges.push(R.makeLine(pts[i % n], pts[(i + 1) % n]));
     return R.assembleWire(edges);
   };
   // the loft can come out inside out (negative volume), which would cut away the wrong side
-  let tool = R.loft([wire(ri, loop, 0), wire(ro, loop, 0)], { ruled: true });
+  let tool = R.loft([wire(ri, loop, start), wire(ro, loop, start)], { ruled: true });
   if (R.measureVolume(tool) < 0) {
-    const rev = [...loop].reverse();
-    tool = R.loft([wire(ri, rev, n - smooth), wire(ro, rev, n - smooth)], { ruled: true });
-    if (R.measureVolume(tool) < 0) tool = R.loft([wire(ro, loop, 0), wire(ri, loop, 0)], { ruled: true });
+    const rev = [...loop].reverse(), rs = (2 * n - start - smooth) % n;
+    tool = R.loft([wire(ri, rev, rs), wire(ro, rev, rs)], { ruled: true });
+    if (R.measureVolume(tool) < 0) tool = R.loft([wire(ro, loop, start), wire(ri, loop, start)], { ruled: true });
   }
   return tool;
 }
@@ -538,6 +542,9 @@ function wrapLoopTool(b, t, loop, smooth = 0) {
 // curve from one bend round the corner point to the other, no sharp corner.
 const RELIEF_FADE = 0.5; // × the bend's length: where the set-back has faded into the V line
 function vcutRelief(t, gap) { return Math.max(gap || 0, 0.075 * t, 0.1); }
+// a corner's relief: none at a square corner (its bends end in plain straight V lines from the corner point, as a
+// formed part's do: there the two bends only touch)
+const cornerRelief0 = (c, t) => (c.type === 'square' ? 0 : vcutRelief(t, c.gap));
 function cornerReliefRound(A, B, t, r) {
   const at = cornerUV(A, B);
   if (!at) return null;
@@ -566,27 +573,39 @@ function vcutLine(b, t, X, top, mid = top, relief = 0) {
   const f = (s) => { const q = s / b.ba; return mid * q + (top - mid) * q * q - back(s); };
   return { pt, f, far: top + 3 * t };
 }
+// (the same points for the folded tool and the flat. Without a relief: N + 1 along the bend, from the bend line to the
+// wall, one smooth curve through both ends exactly, so the cut passes exactly through the panel's corner and the
+// wall's end and leaves no sliver of either; and a point a little past each end, in the panel and the wall, on the
+// line carried straight on as it leaves the bend. With one: N + 1 from a little before the bend to a little past it,
+// one smooth curve: the set-back meets the round at the corner point tangentially, which booleans only take when the
+// curve is not exactly through the bend's ends)
 const VCUT_N = 48;
-// (sampled a little past both ends of the bend, the same points for the folded tool and the flat)
-const vcutLoop = (b, pt, f, far) => {
-  const N = VCUT_N, s0 = -0.15 * b.ba, s1 = 1.15 * b.ba;
-  const loop = [];
-  for (let k = 0; k <= N; k++) { const s = s0 + ((s1 - s0) * k) / N; loop.push(pt(f(s), s)); }
-  loop.push(pt(far, s1), pt(far, s0));
-  return loop;
+const vcutLoop = (b, pt, f, far, relief) => {
+  const N = VCUT_N, s0 = -0.15 * b.ba, s1 = 1.15 * b.ba, h = 1e-4 * b.ba;
+  if (relief > 0) {
+    const loop = [];
+    for (let k = 0; k <= N; k++) { const s = s0 + ((s1 - s0) * k) / N; loop.push(pt(f(s), s)); }
+    loop.push(pt(far, s1), pt(far, s0));
+    return { loop, start: 0 };
+  }
+  const d0 = (f(h) - f(0)) / h, d1 = (f(b.ba) - f(b.ba - h)) / h;
+  const loop = [pt(f(0) + d0 * s0, s0)];
+  for (let k = 0; k <= N; k++) { const s = (b.ba * k) / N; loop.push(pt(f(s), s)); }
+  loop.push(pt(f(b.ba) + d1 * (s1 - b.ba), s1), pt(far, s1), pt(far, s0));
+  return { loop, start: 1 };
 };
 function vcutTool(b, t, X, top, mid = top, relief = 0) {
-  const { pt, f, far } = vcutLine(b, t, X, top, mid, relief);
-  return wrapLoopTool(b, t, vcutLoop(b, pt, f, far), VCUT_N + 1);
+  const { pt, f, far } = vcutLine(b, t, X, top, mid, relief), { loop, start } = vcutLoop(b, pt, f, far, relief);
+  return wrapLoopTool(b, t, loop, VCUT_N + 1, start);
 }
 // The same in the flat: what lies beyond the V line, as a face.
 function vcutFlatBeyond(b, t, X, top, mid, relief) {
   const { pt, f, far } = vcutLine(b, t, X, top, mid, relief);
-  const loop = vcutLoop(b, pt, f, far).map((p) => P3(p));
-  const pts = loop.slice(0, VCUT_N + 1), c = loop.slice(VCUT_N + 1);
+  const { loop: lp, start } = vcutLoop(b, pt, f, far, relief), loop = lp.map((p) => P3(p));
+  const pts = loop.slice(start, start + VCUT_N + 1), rest = [...loop.slice(start + VCUT_N), ...loop.slice(0, start + 1)];
   const wire = R.assembleWire([
     R.makeBSplineApproximation(pts, { tolerance: 1e-4 * (t + b.R), degMax: 5 }),
-    R.makeLine(pts[VCUT_N], c[0]), R.makeLine(c[0], c[1]), R.makeLine(c[1], pts[0]),
+    ...rest.slice(1).map((p, i) => R.makeLine(rest[i], p)),
   ]);
   return { face: upFaces(R.makeFace(wire)), pt, far };
 }
@@ -718,7 +737,7 @@ export function toSolid(sheet) {
     for (const [bd, top] of [[la.b, c.ea ?? 0], [lb.b, c.eb ?? 0]]) {
       if (!vcuts.has(bd.id)) vcuts.set(bd.id, []);
       // the V line runs from the start of the bend at the corner point (set back by the relief) up to the wall
-      vcuts.get(bd.id).push({ X: pair.X, top, mid: Math.min(c.ea ?? 0, c.eb ?? 0), relief: vcutRelief(t, c.gap) });
+      vcuts.get(bd.id).push({ X: pair.X, top, mid: Math.min(c.ea ?? 0, c.eb ?? 0), relief: cornerRelief0(c, t) });
     }
   }
   const linkCount = new Map();
@@ -748,7 +767,7 @@ export function toSolid(sheet) {
         }
         // both bends set back: the round at the corner point joins them through the panel
         const ps = panelSol.get(la.A);
-        if (ps && doneV.has(la.b.id) && doneV.has(lb.b.id)) {
+        if (ps && doneV.has(la.b.id) && doneV.has(lb.b.id) && cornerRelief0(c, t) > 0) {
           try { const rd = cornerReliefRound(la.b, lb.b, t, vcutRelief(t, c.gap)); if (rd) panelSol.set(la.A, ps.cut(applyM(rd, la.A.M))); } catch { /* keep */ }
         }
       }
@@ -789,9 +808,15 @@ export function toSolid(sheet) {
   let sol = parts[0], fused = null;
   if (nBase > 1) {
     const base = parts.slice(0, nBase), v = base.reduce((a, p) => a + R.measureVolume(p), 0);
-    try { fused = soleSolid(boolOf('fuse', parts[0], base.slice(1), { glue: true, solid: true })); } catch { fused = null; }
-    // (to 1 part in 100 000: a converted bend's curved ends are fitted, which moves its volume by about a millionth)
-    if (fused && Math.abs(R.measureVolume(fused) - v) <= Math.abs(v) * 1e-5) sol = fused; else { free(fused); fused = null; }
+    // (to 1 part in 100 000: a converted bend's curved ends are fitted, which moves its volume by about a millionth;
+    // glued first, then in one go without the glue: the glue mishandles bends that only touch along a line, as at
+    // a square corner, where the V cuts meet at the corner point)
+    for (const glue of [true, false]) {
+      try { fused = soleSolid(boolOf('fuse', parts[0], base.slice(1), { glue, solid: true })); } catch { fused = null; }
+      if (fused && Math.abs(R.measureVolume(fused) - v) <= Math.abs(v) * 1e-5) break;
+      free(fused); fused = null;
+    }
+    if (fused) sol = fused;
   }
   for (const [i, p] of parts.entries()) {
     if (!i) continue;
@@ -1149,6 +1174,15 @@ function wallHeight(region, b) {
   let lo = b.ba, hi = b.ba + 1e4;
   if (!faceAt(fs, a2(mid, m2(b.d, b.ba + 1e-4)))) return 0;
   for (let i = 0; i < 60; i++) { const m = (lo + hi) / 2; if (faceAt(fs, a2(mid, m2(b.d, m)))) lo = m; else hi = m; }
+  // (on the outline's straight edge there exactly: the point test only finds it to its tolerance, a ten-millionth
+  // of a mm, and a corner's run-on of the wall that far off its edge would leave the wall's end face split there)
+  const across = d2(s2(mid, b.p0), b.e);
+  for (const f of fs) for (const e of f.edges) {
+    if (e.geomType !== 'LINE') continue;
+    const [p, q] = edgePts(e, 1), sp = d2(s2(p, b.p0), b.d), sq = d2(s2(q, b.p0), b.d);
+    const ep = d2(s2(p, b.p0), b.e), eq = d2(s2(q, b.p0), b.e);
+    if (Math.abs(sp - lo) < 1e-5 && Math.abs(sq - lo) < 1e-5 && Math.min(ep, eq) <= across && across <= Math.max(ep, eq)) return (sp + sq) / 2 - b.ba;
+  }
   return lo - b.ba;
 }
 
@@ -1494,7 +1528,7 @@ export function flatRegion(sheet) {
     const pair = cornerPairs({ bends: [A, B], t })[0];
     const at = cornerUV(A, B);
     if (!pair || !at) continue;
-    const mid = Math.min(c.ea ?? 0, c.eb ?? 0), h = vcutRelief(t, c.gap);
+    const mid = Math.min(c.ea ?? 0, c.eb ?? 0), h = cornerRelief0(c, t);
     let next = region;
     try {
       for (const [bd, top] of [[A, c.ea ?? 0], [B, c.eb ?? 0]]) {
@@ -1503,11 +1537,13 @@ export function flatRegion(sheet) {
         // the run-on (past the bend's end, up to the V line) and the set-back (before its end)
         const runOn = bop('cut', polyFace([pt(0, 0), pt(far, 0), pt(far, bd.ba), pt(0, bd.ba)]), beyond);
         next = bop('fuse', next, runOn);
-        next = bop('cut', next, bop('common', beyond, polyFace([pt(-2 * h, 0), pt(0, 0), pt(0, bd.ba), pt(-2 * h, bd.ba)])));
+        if (h > 0) next = bop('cut', next, bop('common', beyond, polyFace([pt(-2 * h, 0), pt(0, 0), pt(0, bd.ba), pt(-2 * h, bd.ba)])));
       }
       // the round at the corner point, out of the panel the two bends start from
-      const quarter = bop('common', circleFace(at(0, 0), h), polyFace([at(0, 0), at(-2 * h, 0), at(-2 * h, -2 * h), at(0, -2 * h)]));
-      next = bop('cut', next, quarter);
+      if (h > 0) {
+        const quarter = bop('common', circleFace(at(0, 0), h), polyFace([at(0, 0), at(-2 * h, 0), at(-2 * h, -2 * h), at(0, -2 * h)]));
+        next = bop('cut', next, quarter);
+      }
       if (next) region = next;
     } catch { /* keep the region without this corner */ }
   }
@@ -3010,14 +3046,15 @@ export function exactCorners(sheet, solid) {
     let rec = null;
     if (Math.abs(wa.ext - outerA) < CORNER_TOL && innerB - wb.ext > -CORNER_TOL) rec = { A, B, gap: Math.max(0, innerB - wb.ext), type: 'overlap' };
     else if (Math.abs(wb.ext - outerB) < CORNER_TOL && innerA - wa.ext > -CORNER_TOL) rec = { A: B, B: A, gap: Math.max(0, innerA - wa.ext), type: 'overlap' };
-    else if (Math.abs((innerA - wa.ext) - (innerB - wb.ext)) < CORNER_TOL && a.dq > CORNER_TOL && innerA - wa.ext > -CORNER_TOL) rec = { A, B, gap: Math.max(0, innerA - wa.ext) * Math.SQRT2, type: 'square' };
+    else if (Math.abs((innerA - wa.ext) - (innerB - wb.ext)) < CORNER_TOL && Math.abs(a.dq) < CORNER_TOL && innerA - wa.ext > -CORNER_TOL) rec = { A, B, gap: Math.max(0, innerA - wa.ext) * Math.SQRT2, type: 'square' };
     else if (Math.abs((innerA - wa.ext) - (innerB - wb.ext)) < CORNER_TOL && innerA + t - wa.ext > -CORNER_TOL) rec = { A, B, gap: Math.max(0, innerA + t - wa.ext) * Math.SQRT2, type: 'butt' };
     if (!rec) return null;
     rec.gap = Math.round(rec.gap * 1e5) / 1e5;
-    // a V cutout: the bends end short of the corner point by its relief; a closed mitre or butt corner: at it
-    rec.bend = rec.type === 'butt' ? 'vcut' : a.dq > CORNER_TOL ? 'vcut' : 'mitre';
-    if (rec.type !== 'butt' && rec.bend === 'vcut' && Math.abs(a.dq - vcutRelief(t, rec.gap)) > CORNER_TOL) return null;
-    if (rec.type === 'butt' && a.dq > CORNER_TOL) return null;
+    // a V cutout: the bends end short of the corner point by its relief; a closed mitre, butt or square corner: at it
+    const atQ = rec.type === 'butt' || rec.type === 'square';
+    rec.bend = atQ ? 'vcut' : a.dq > CORNER_TOL ? 'vcut' : 'mitre';
+    if (!atQ && rec.bend === 'vcut' && Math.abs(a.dq - vcutRelief(t, rec.gap)) > CORNER_TOL) return null;
+    if (atQ && a.dq > CORNER_TOL) return null;
     rec.ha = (rec.A === A ? wa : wb).h; rec.hb = (rec.A === A ? wb : wa).h;
     found.push(rec);
     bends.set(A.id, A); bends.set(B.id, B);
@@ -3053,7 +3090,7 @@ export function exactCorners(sheet, solid) {
       for (const [bd, e, ext, h] of [[c.A, ea, extA, c.ha], [c.B, eb, extB, c.hb]]) {
         region = bop('cut', region, rectFace(a2(a2(e.Pe, m2(e.dir, ext)), m2(bd.d, bd.ba)), e.dir, bd.d, 4 * (bd.R + t) + 10, h + 1));
       }
-    } else if (c.bend === 'vcut') {
+    } else if (c.bend === 'vcut' && c.type !== 'square') {
       const at = cornerUV(c.A, c.B), s = 2 * vcutRelief(t, c.gap) + t;
       region = bop('fuse', region, polyFace([at(0, 0), at(-s, 0), at(-s, -s), at(0, -s)]));
     }

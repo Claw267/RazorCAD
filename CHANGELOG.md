@@ -6,6 +6,12 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-25 08:43 — Square corners exactly as formed; whole faces at closed corners
+- A square (corner to corner) corner's bends now end in plain straight V cuts from the corner point, with no relief and no small round at the corner point: the bend region no longer looks wavy. Checked against the real lid: the same solid (no material in one that is not in the other; volumes equal to 4 parts in 100 million) with the same 38 faces.
+- The flange's end face is no longer split near the corner: a closed corner's run-on of a wall came out a ten-millionth of a mm off the wall's edge (the wall's height was found by a point test), which left the end face in three pieces on some sheets (3 mm, for one). It now sits exactly on the edge.
+- No zero-size sliver faces at a square corner (at the panel's corner and under the walls' ends): its V cut passes exactly through the bend line and the wall's end. (Overlap corners keep their V cutout as it was: its relief meets the small round at the corner point tangentially, and made exact the bends would no longer join quickly.)
+- Tests: flange-corner-default (38 whole faces, 1.5 and 3 thick), convert-sheet-variants (precise volumes for the exact cases).
+
 ## 2026-10-25 08:16 — Edge-Flange corners: square ends by default
 - Flanges picked together in an **Edge Flange** now meet **corner to corner with square ends** by default: each wall runs on up to the other wall's inside face and ends square, the walls' inside edges the gap apart (measured across the corner), and the small square at the outside of the corner is left open. The bends run on into the corner and end in a V cutout with a small relief between them, as they form from the flat. This is how a real formed lid's corners are made; the mitred corner of 0.17.1 is still there as **Mitred (meet on the diagonal)**.
 - **Closed Corner** has the same corner as **Butt (square ends)**; the mitred one is now called **Mitre**.

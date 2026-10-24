@@ -162,12 +162,16 @@ async function convertSheetVariants(part) {
     const di = M.newDoc(); di.name = 'Converted';
     di.features.push(M.createFeature(di, 'import', { format: 'step', fileName: 'tray.step', data: step }));
     const r1 = await pool.request('rebuild', { doc: JSON.stringify(di) }, aff);
+    // (the precise volumes too: the meshes of the same solid made two ways can differ by a few parts in a million)
+    const exact = async (id) => { const m = await pool.request('measure', { refs: [{ kind: 'body', id }] }, aff); return (m.items?.[0] || m).volume; };
+    const e0 = await exact(r1.body.bodies[0].id);
     di.features.push(M.createFeature(di, 'smConvert', { face: { p: [0, 0, 0], n: [0, -1, 0] } }));
     const r2 = await pool.request('rebuild', { doc: JSON.stringify(di) }, aff);
     const conv = r2.body.bodies.find((b) => b.sheet);
     const before = r1.body.bodies.map((b) => meshOf(r1, b)), after = r2.body.bodies.map((b) => meshOf(r2, b));
     const i = conv ? r2.body.bodies.indexOf(conv) : -1;
-    return { r2, conv, before, after, i, flat0, flat1: conv ? await flatSize(conv.id) : null };
+    const e1 = conv ? await exact(conv.id) : NaN;
+    return { r2, conv, before, after, i, e0, e1, flat0, flat1: conv ? await flatSize(conv.id) : null };
   };
   const inside = (a, b) => a.min.every((x, k) => x >= b.min[k] - 1e-3) && a.max.every((x, k) => x <= b.max[k] + 1e-3);
   const cases = {
@@ -182,7 +186,7 @@ async function convertSheetVariants(part) {
   for (const [name, c] of part === 'corners' ? Object.entries(cases) : []) {
     const d = base(); c.set(d);
     const x = await convert(d);
-    const a = x.before[0], b = x.after[x.i] || {}, dv = (b.vol - a.vol) / a.vol;
+    const a = x.before[0], b = x.after[x.i] || {}, dv = c.exact ? (x.e1 - x.e0) / x.e0 : (b.vol - a.vol) / a.vol;
     const ok = !x.r2.errors.length && x.conv && inside(b, a) && x.flat1 === x.flat0
       && (c.exact ? b.faces === a.faces && Math.abs(dv) < 1e-6 : Math.abs(dv) < c.within);
     out.push(`${name} ${(dv * 100).toFixed(c.exact ? 3 : 6)} %${b.faces !== a.faces ? ` (${a.faces} → ${b.faces} faces)` : ''}`);
@@ -3044,8 +3048,9 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
   },
 
   // A new Edge-Flange's flanges meet corner to corner where they meet: each runs square up to the other's inside
-  // face, not mitred and not one overlapping the other. The tray's four flanges with the defaults close their four
-  // corners, the same body as with corner 'square' set and neither the mitred one's nor the overlap's
+  // face, not mitred and not one overlapping the other, the bends in plain V cuts from the corner point. The tray's
+  // four flanges with the defaults close their four corners, the same body as with corner 'square' set and neither
+  // the mitred one's nor the overlap's, its faces whole (1.5 and 3 thick)
   async 'flange-corner-default'() {
     const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient({ threads: threadsPerKernel() });
     try {
@@ -3061,9 +3066,10 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
         }
         return Math.abs(v6 / 6);
       };
-      const build = async (props) => {
+      const build = async (props, t = 0) => {
         const d = JSON.parse(JSON.stringify(tray)); d.features = d.features.slice(0, 2);
-        const f = M.createFeature(d, 'smFlange', { edges, length: 20, ...props });
+        if (t) Object.assign(d.features[1], { thickness: t, radius: t });
+        const f = M.createFeature(d, 'smFlange', { edges: t ? edges.map((e) => ({ p: [e.p[0], t, e.p[2]] })) : edges, length: 20, ...props });
         d.features.push(f);
         const r = await k.rebuild(d, null, null);
         return { f, r, v: vol(r), note: r.notes?.[f.id] || '' };
@@ -3078,9 +3084,13 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
         for (let q = g.start; q < g.start + g.count; q++) { xs.push(V[3 * T[q]]); zs.push(V[3 * T[q] + 2]); }
         return zs.every((z) => Math.abs(z - zEnd) < 1e-4) && Math.abs(Math.min(...xs) - 58.5) < 1e-4 && Math.abs(Math.max(...xs) - 60) < 1e-4;
       });
-      const ok = def.f.corner === 'square' && !def.r.errors.length && /4 corners closed/.test(def.note) && !!end
+      // every face whole, and none of nothing: base 2, walls 4 × 3, wall ends 8, bends 8, the bends' V cut ends 8 (also
+      // 3 thick, where a corner's run-on of the wall once came out a ten-millionth off and split the wall's end face)
+      const nf = (x) => { const c = {}; for (const g of x.r.body.faceGroups) c[g.surf?.t] = (c[g.surf?.t] || 0) + 1; return `${x.r.body.faceGroups.length} (${c.PLANE} planes, ${c.CYLINDER} cylinders, ${c.OTHER} other)`; };
+      const thick = await build({}, 3), want = '38 (22 planes, 8 cylinders, 8 other)';
+      const ok = def.f.corner === 'square' && !def.r.errors.length && /4 corners closed/.test(def.note) && !!end && nf(def) === want && nf(thick) === want
         && Math.abs(def.v - sq.v) < 1e-6 * sq.v && Math.abs(def.v - butt.v) > 1e-5 * butt.v && Math.abs(def.v - over.v) > 1e-4 * over.v;
-      return { ok, detail: `default corner '${def.f.corner}', ${def.note || JSON.stringify(def.r.errors)}; wall end square at z ${zEnd.toFixed(4)}: ${end ? 'yes' : 'no'}; volume ${def.v.toFixed(3)} (square ${sq.v.toFixed(3)}, mitred ${butt.v.toFixed(3)}, overlap ${over.v.toFixed(3)})` };
+      return { ok, detail: `default corner '${def.f.corner}', ${def.note || JSON.stringify(def.r.errors)}; wall end square at z ${zEnd.toFixed(4)}: ${end ? 'yes' : 'no'}; faces ${nf(def)}, 3 thick ${nf(thick)}; volume ${def.v.toFixed(3)} (square ${sq.v.toFixed(3)}, mitred ${butt.v.toFixed(3)}, overlap ${over.v.toFixed(3)})` };
     } finally { k.dispose(); }
   },
   async 'loft-guides'() {
