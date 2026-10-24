@@ -47,7 +47,7 @@ export const SKETCH_TOOLS = {
   dim: { label: 'Dimension', hint: 'Click a line, circle, arc, or two entities, then click where to place the dimension. Move the mouse to switch between horizontal, vertical and aligned. Model edges/vertices and other sketches can be used as references too.' },
   line: { label: 'Line', hint: 'Click to place points. Horizontal/vertical and coincident relations are added automatically. Double-click, Enter or Esc ends the chain.' },
   spline: { label: 'Spline', hint: 'Click to place the points the curve runs through (they snap to other points, like the line). Double-click, Enter or Esc ends it; click the first point again to close it into a loop. Drag its points afterwards to reshape it.' },
-  cspline: { label: 'Control-Point Spline', hint: 'Click to place control points: the curve is drawn by them (it starts and ends on the first and last, and passes near the others). Double-click, Enter or Esc ends it; click the first point again to close it. Afterwards drag the control points, constrain and dimension the dashed control polygon, and set the degree in the panel.' },
+  cspline: { label: 'Control-Point Spline', hint: 'Click to place control points: the curve is drawn by them (it starts and ends on the first and last, and passes near the others). Double-click, Enter or Esc ends it; click the first point again to close it (smoothly, with no join). Afterwards drag the control points, constrain and dimension the dashed control polygon, and set the degree, the weights and the control points in the panel.' },
   centerline: { label: 'Centerline', hint: 'Click two points to draw a construction centerline (use it as a symmetry line or revolve axis).' },
   rect: { label: 'Corner Rectangle', hint: 'Click or drag from one corner to the opposite corner.' },
   crect: { label: 'Center Rectangle', hint: 'Click the center, then a corner.' },
@@ -934,8 +934,8 @@ export class Sketcher {
       const pid = this.resolve(s);
       if (pid === d.pts[d.pts.length - 1]) return;
       if (pid === d.pts[0] && d.pts.length >= 3) {
-        // back on the first point: a closed loop (a control-point spline ends where it starts)
-        if (t === 'cspline') S.addCtrlSpline(this.f, [...d.pts, d.pts[0]], Math.min(3, d.pts.length));
+        // back on the first point: a closed loop (a control-point spline runs round smoothly)
+        if (t === 'cspline') S.addCtrlSpline(this.f, d.pts, Math.min(3, d.pts.length - 1), false, true);
         else S.addSpline(this.f, d.pts, true);
         this.draw = null;
         this.solve();
@@ -1291,16 +1291,20 @@ export class Sketcher {
     if (sk.texts?.length) sk.texts = sk.texts.filter((t) => !ids.includes(t.id));
     for (const id of ids) if (String(id).startsWith('gear:')) { const tr = this.trainById(String(id).split(':')[1]); if (tr) this.deleteTrain(tr); }
     for (const id of ids) if (String(id).startsWith('airfoil:')) { const af = S.airfoilById(sk, String(id).slice(8)); if (af) this.deleteAirfoil(af); }
-    // a spline loses the deleted points it runs through (and goes when fewer than two are left)
+    // a spline loses the deleted points it runs through (and goes when fewer than two are left; a control-point
+    // spline loses those control points and their weights)
     const gone = [];
     for (const c of sk.curves) {
       if (c.type !== 'spline' || !c.pts.some((id) => ids.includes(id))) continue;
+      if (c.weights) c.weights = c.weights.filter((_, i) => !ids.includes(c.pts[i]));
       c.pts = c.pts.filter((id) => !ids.includes(id));
       if (c.pts.length >= (c.closed ? 3 : 2)) { c.p1 = c.pts[0]; c.p2 = c.closed ? c.pts[0] : c.pts[c.pts.length - 1]; } else gone.push(c.id);
     }
     // deleting a point removes the curves that use it
     const extra = [...gone, ...sk.curves.filter((c) => ids.includes(c.p1) || ids.includes(c.p2) || ids.includes(c.c)).map((c) => c.id)];
     S.deleteItems(sk, [...ids, ...extra]);
+    // control polygons made whole again (a deleted leg comes back; a deleted control point's legs are joined up)
+    for (const c of sk.curves) if (c.ctrl) S.syncCtrlPolygon(sk, c);
     this.sel.clear();
     this.changed();
   }

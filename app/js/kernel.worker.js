@@ -4578,15 +4578,16 @@ async function rebuild(doc, previewId = null, opts = {}) {
               return sh;
             } finally { mk.delete(); }
           };
-          const loftOf = (secs, withGuides = false) => {
-            const matched = matchLoftSections(secs, profs.map((p) => p.name));
-            return buildLoft(withGuides && guides.length ? guidedLoftWires(matched, guides, profs.map((p) => p.name)) : matched.map(sectionWire));
-          };
-          let tool = loftOf(profs.map((p) => p.outer), true);
-          if (guides.length) res.notes[f.id] = `${profs.length} profiles, ${guides.length} guide curve${guides.length === 1 ? '' : 's'}`;
+          const names = profs.map((p) => p.name);
           const nh = profs[0].holes.length;
           if (profs.some((p) => p.holes.length !== nh)) throw new Error('Every profile needs the same number of holes (inner loops)');
-          for (let i = 0; i < nh; i++) tool = tool.cut(loftOf(profs.map((p) => p.holes[i])));
+          const outerM = matchLoftSections(profs.map((p) => p.outer), names);
+          const holesM = Array.from({ length: nh }, (_, i) => matchLoftSections(profs.map((p) => p.holes[i]), names));
+          // with guides: the outline follows them and the holes (a thin loft's inside) move with it
+          const g = guides.length ? guidedLoftWires(outerM, guides, names, holesM, thin ? thin.t : 0) : null;
+          let tool = buildLoft(g ? g.outer : outerM.map(sectionWire));
+          if (guides.length) res.notes[f.id] = `${profs.length} profiles, ${guides.length} guide curve${guides.length === 1 ? '' : 's'}`;
+          for (let i = 0; i < nh; i++) tool = tool.cut(buildLoft(g ? g.holes[i] : holesM[i].map(sectionWire)));
           tool = unify(tool);
           const scope = f.op === 'cut' && f.scopeAll === false ? f.scope || [] : null;
           tools.set(f.id, { shape: tool, op: f.op, merge: f.merge !== false, scope });
@@ -6628,15 +6629,21 @@ function matchLoftSections(secs, names) {
 // section, several move it by amounts that change smoothly round it between them. The profiles stay as they are;
 // each section in between is fitted segment by segment (the profiles' corners stay corners). matched: the
 // sections as matchLoftSections gives them (the same segments, starting at matching points); guides: [{ name, wire }].
+// holeSets: each hole (or a thin loft's inside) the same way, one matched list per hole: its sections in between
+// are moved with the outline, each point by the outline's pulls nearby (weighted by how near), so a thin wall
+// keeps its thickness and a hole moves with the shape round it. slack: how far a guide may pass from the outline
+// and still touch it (a thin loft: the wall's thickness, the guide drawn on the sketched line); the outline keeps
+// that offset from the guide. Returns { outer, holes }: the wires to loft.
 const GUIDE_STATIONS = 6, GUIDE_SAMPLES = 16;
-function guidedLoftWires(matched, guides, names) {
-  // (a loft of circles only: each made four arcs, to have points to follow the guides with)
-  const secs = matched.map((s) => {
+function guidedLoftWires(matched, guides, names, holeSets = [], slack = 0) {
+  // (a loft of circles: each made four arcs, to have points to follow the guides with)
+  const asSegs = (s) => {
     if (s.segs) return s;
     const { c, r, n, u } = s.circle, e1 = unit(rej(u, n)), e2 = cross(n, e1);
     const at = (t) => add(c, add(mul(e1, r * Math.cos(t)), mul(e2, r * Math.sin(t))));
     return { segs: [0, 1, 2, 3].map((i) => ({ type: 'arc', a: at((i * Math.PI) / 2), m: at(((i + 0.5) * Math.PI) / 2), b: at(((i + 1) * Math.PI) / 2) })) };
-  });
+  };
+  const secs = matched.map(asSegs);
   const N = secs[0].segs.length, M = GUIDE_SAMPLES, NM = N * M;
   const segPt = (g, t) => {
     if (g.type === 'line') return add(g.a, mul(sub(g.b, g.a), t));
@@ -6650,7 +6657,8 @@ function guidedLoftWires(matched, guides, names) {
     if (span <= 0) span += 2 * Math.PI;
     return add(o, add(mul(x, r * Math.cos(span * t)), mul(y, r * Math.sin(span * t))));
   };
-  const P = secs.map((s) => { const out = []; for (const g of s.segs) for (let j = 0; j < M; j++) out.push(segPt(g, j / M)); return out; });
+  const sampled = (s) => { const out = []; for (const g of s.segs) for (let j = 0; j < M; j++) out.push(segPt(g, j / M)); return out; };
+  const P = secs.map(sampled);
   let size = 0;
   for (const s of P) for (const q of s) size = Math.max(size, len(sub(q, P[0][0])));
   const tol = Math.max(0.05, size * 2e-3);
@@ -6693,18 +6701,33 @@ function guidedLoftWires(matched, guides, names) {
     let best = null;
     for (let i = 0; i < sec.length; i++) for (let j = 0; j < g.pts.length; j++) {
       const d = len(sub(sec[i], g.pts[j]));
-      if (!best || d < best.d) best = { d, i, s: g.L[j] };
+      if (!best || d < best.d) best = { d, i, s: g.L[j], off: sub(sec[i], g.pts[j]) };
     }
-    if (best.d > tol) throw new Error(`The guide ${g.name} doesn't touch ${names[k]} (it passes ${best.d.toFixed(2)} mm from it): each guide must run through every profile`);
+    if (best.d > tol + slack) throw new Error(`The guide ${g.name} doesn't touch ${names[k]} (it passes ${best.d.toFixed(2)} mm from it): each guide must run through every profile`);
     return best;
   }));
   touch.forEach((tg, gi) => { for (let k = 1; k < tg.length; k++) if (tg[k].s < tg[k - 1].s - tol) throw new Error(`The guide ${G[gi].name} doesn't run from one profile to the next in order`); });
   const lerp = (a, b, t) => add(a, mul(sub(b, a), t));
   const cyc = (i) => ((i % NM) + NM) % NM;
   const pointAt = (sec, x) => { const i = Math.floor(x), t = x - i; return lerp(sec[cyc(i)], sec[cyc(i + 1)], t); };
+  // a section in between from its points (n segments of M each, round): fitted segment by segment
+  const fitWire = (pts, n) => {
+    const edges = [];
+    for (let si = 0; si < n; si++) {
+      const run = Array.from({ length: M + 1 }, (_, j) => pts[(si * M + j) % (n * M)]);
+      const chord = sub(run[M], run[0]), cl = len(chord);
+      const straight = cl > 1e-9 && run.every((q) => len(cross(sub(q, run[0]), chord)) / cl < size * 1e-7);
+      edges.push(straight ? R.makeLine(run[0], run[M]) : R.makeBSplineApproximation(run, { tolerance: Math.max(1e-5, size * 1e-6), degMax: 5 }));
+    }
+    return R.assembleWire(edges);
+  };
+  // the holes: their sections as segments and points
+  const H = holeSets.map((hs) => { const s = hs.map(asSegs); return { secs: s, n: s[0].segs.length, P: s.map(sampled) }; });
+  const holeWires = H.map(() => []);
   const wires = [];
   for (let k = 0; k < secs.length; k++) {
     wires.push(sectionWire(secs[k]));
+    H.forEach((h, hi) => holeWires[hi].push(sectionWire(h.secs[k])));
     if (k === secs.length - 1) break;
     for (let st = 1; st <= GUIDE_STATIONS; st++) {
       const lam = st / (GUIDE_STATIONS + 1);
@@ -6715,7 +6738,9 @@ function guidedLoftWires(matched, guides, names) {
         let dI = b - a;
         if (dI > NM / 2) dI -= NM; else if (dI < -NM / 2) dI += NM;
         const at = a + dI * lam;
-        return { at: cyc(at), d: sub(atLen(g, touch[gi][k].s + (touch[gi][k + 1].s - touch[gi][k].s) * lam), pointAt(base, at)) };
+        // (the outline kept as far from the guide as at the two profiles: a thin wall's offset)
+        const off = lerp(touch[gi][k].off, touch[gi][k + 1].off, lam);
+        return { at: cyc(at), d: sub(add(atLen(g, touch[gi][k].s + (touch[gi][k + 1].s - touch[gi][k].s) * lam), off), pointAt(base, at)) };
       }).sort((x, y) => x.at - y.at);
       const pull = (i) => {
         if (knots.length === 1) return knots[0].d;
@@ -6725,18 +6750,24 @@ function guidedLoftWires(matched, guides, names) {
         const span = cyc(B.at - A.at) || NM, t = cyc(i - A.at) / span;
         return lerp(A.d, B.d, t);
       };
-      const pts = base.map((q, i) => add(q, pull(i)));
-      const edges = [];
-      for (let si = 0; si < N; si++) {
-        const run = Array.from({ length: M + 1 }, (_, j) => pts[cyc(si * M + j)]);
-        const chord = sub(run[M], run[0]), cl = len(chord);
-        const straight = cl > 1e-9 && run.every((q) => len(cross(sub(q, run[0]), chord)) / cl < size * 1e-7);
-        edges.push(straight ? R.makeLine(run[0], run[M]) : R.makeBSplineApproximation(run, { tolerance: Math.max(1e-5, size * 1e-6), degMax: 5 }));
-      }
-      wires.push(R.assembleWire(edges));
+      const pulls = base.map((_, i) => pull(i));
+      wires.push(fitWire(base.map((q, i) => add(q, pulls[i])), N));
+      // each hole point: the outline's pulls, weighted by 1 / distance⁴ (the nearest outline points count most)
+      H.forEach((h, hi) => {
+        const pts = h.P[k].map((q, i) => {
+          const x = lerp(q, h.P[k + 1][i], lam);
+          let sw = 0, d = [0, 0, 0];
+          for (let j = 0; j < NM; j++) {
+            const r2 = dot(sub(x, base[j]), sub(x, base[j])), w = 1 / (r2 * r2 + 1e-12 * size ** 4);
+            sw += w; d = add(d, mul(pulls[j], w));
+          }
+          return add(x, mul(d, 1 / sw));
+        });
+        holeWires[hi].push(fitWire(pts, h.n));
+      });
     }
   }
-  return wires;
+  return { outer: wires, holes: holeWires };
 }
 
 function sectionWire(s) {

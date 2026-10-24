@@ -6,6 +6,14 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-24 22:28 — Control-point splines: closed smoothly, weights, control points added and taken out, splines converted; loft guides move holes and thin walls too
+- A **Control-Point Spline** closed on its first point now runs round smoothly, with no join (a periodic spline, near its control points rather than through them). The **Closed** box in its panel opens or closes one already drawn.
+- **Weights**: select a control point to set its weight. A larger weight pulls the curve toward it, a smaller one lets it go farther. Three control points at the corners of a square, degree 2 and a weight of 0.7071 on the middle one make a quarter circle (to within 0.00001 mm).
+- **Insert After** and **Remove** (with a control point selected) add a control point half way along the next leg, or take one out and join its legs. Deleting a control point does the same; a deleted polygon leg comes back.
+- **Convert to Control-Point Spline** (with a spline through points selected): a cubic control-point spline that runs through the same points; an open one keeps its ends, so what joins them stays joined.
+- **Loft guide curves** now move the holes in the profiles, and a thin loft's inside, with the outline: a hole goes along with the shape round it, and thin walls keep their thickness. A thin loft's guide is drawn on the sketched line.
+- Tests: ctrl-spline-more (closed for degree 2 to 5 against a plain de Boor evaluation, smooth where it comes round, extruded; the weighted quarter circle; converted open and closed through their points; a control point inserted and removed), loft-guides (a hole moving with one guide: the whole of it taken out; a thin loft with two guides: walls of about the thickness).
+
 ## 2026-10-24 22:17 — Reporting bugs and ideas on GitHub: forms and a contributing guide
 - New issues on GitHub start from a **Bug report** form (version, steps, what was expected, screenshots or a part) or a **Feature request** form (what it should do and what it's for). Questions and open-ended ideas are pointed to Discussions; the manual is linked too. A plain issue can still be opened, so **Help ▸ Report a Problem** works as before.
 - **CONTRIBUTING.md**: how to report a problem, where ideas go, running the app from source and the tests, and what a pull request needs. The README links to it.

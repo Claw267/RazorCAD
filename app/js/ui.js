@@ -3523,6 +3523,32 @@ export class UI {
             g.appendChild(this.row(axis.toUpperCase(), w));
           };
           mk('x'); mk('y');
+          // a control point of a control-point spline: its weight, a control point added after it, or taken out
+          for (const c of f.curves.filter((x) => x.type === 'spline' && x.ctrl && x.pts.includes(it.id))) {
+            const i = c.pts.indexOf(it.id);
+            const cg = this.pmGroup(root, `Control Point ${i + 1} of ${SM.itemName(f, c.id)}`, 'sk:ctrlpt:' + c.id);
+            const w = el('div', { class: 'pm-input' });
+            const inp = el('input', { type: 'text', value: fmt(c.weights?.[i] ?? 1, 4) });
+            inp.onchange = () => {
+              const v = parseFloat(inp.value);
+              if (!(v > 0) || !Number.isFinite(v)) { inp.value = fmt(c.weights?.[i] ?? 1, 4); this.app.toast('A weight must be a number above 0'); return; }
+              c.weights = c.weights || c.pts.map(() => 1);
+              c.weights[i] = v;
+              SM.syncCtrlPolygon(f, c);
+              sk.changed();
+            };
+            w.appendChild(inp);
+            cg.appendChild(this.row('Weight', w));
+            const bar = el('div', { class: 'pm-btns' });
+            const ins = el('button', { class: 'pm-btn', title: 'A new control point half way along the leg after this one (the curve changes shape a little)' }, 'Insert After');
+            ins.onclick = () => { const id = SM.insertCtrlPoint(f, c, i); sk.sel.clear(); sk.sel.add(id); sk.changed(); this.renderPM(); };
+            const rem = el('button', { class: 'pm-btn', title: 'Take this control point out of the spline; its two legs are joined' }, 'Remove');
+            rem.disabled = c.pts.length - 1 < SM.ctrlMin(c);
+            rem.onclick = () => { if (SM.removeCtrlPoint(f, c, it.id)) { sk.sel.clear(); sk.changed(); this.renderPM(); } };
+            bar.append(ins, rem);
+            cg.appendChild(bar);
+            cg.appendChild(el('div', { class: 'pm-hint' }, 'A larger weight pulls the curve closer to this control point, a smaller one lets it go farther (1 is plain). With three control points at the corners of a square, degree 2 and weight 0.7071 (½√2) on the middle one, the curve is a quarter circle (to within 0.00001 mm).'));
+          }
         } else if (it.kind === 'line') {
           const A = SM.getPoint(f, it.c.p1), B = SM.getPoint(f, it.c.p2);
           ro('Length', Math.hypot(B.x - A.x, B.y - A.y));
@@ -3533,15 +3559,28 @@ export class UI {
           ro('Length', q.reduce((acc, p2, i) => (i ? acc + Math.hypot(p2[0] - q[i - 1][0], p2[1] - q[i - 1][1]) : 0), 0));
           if (it.c.ctrl) {
             // the degree: 1 (straight between the control points) to 5, at most one less than the control points
-            const top = Math.min(5, it.c.pts.length - 1);
+            const top = SM.ctrlMaxDegree(it.c);
             const sel = el('select');
             for (let d = 1; d <= top; d++) sel.appendChild(el('option', { value: String(d), ...(d === (it.c.degree ?? 3) ? { selected: '' } : {}) }, d === 1 ? '1 (straight)' : d === 2 ? '2 (quadratic)' : d === 3 ? '3 (cubic)' : String(d)));
             sel.onchange = () => { it.c.degree = +sel.value; sk.changed(); };
             g.appendChild(this.row('Degree', sel));
-            g.appendChild(el('div', { class: 'pm-hint' }, 'Drag the control points to reshape it. The dashed control polygon is made of construction lines: dimension it and give it relations like any lines (horizontal, parallel, equal, an angle…). The spline leaves each end along the polygon\'s end leg, so a relation on that leg (tangent, collinear) sets its direction there. A higher degree makes it smoother and farther from the polygon.'));
+            // closed: periodic, round smoothly with no join (at least three control points)
+            const cb = el('input', { type: 'checkbox', ...(it.c.closed ? { checked: '' } : {}) });
+            cb.disabled = !it.c.closed && it.c.pts.length < 3;
+            cb.onchange = () => { it.c.closed = cb.checked; SM.syncCtrlPolygon(f, it.c); sk.changed(); this.renderPM(); };
+            const lab = el('label', { title: 'Closed: the curve runs round smoothly, with no join, near its control points (the polygon closes too). Open: it starts and ends on the first and last control points.' });
+            lab.append(cb, document.createTextNode(' Closed'));
+            g.appendChild(this.row(null, lab, 'check'));
+            if (it.c.weights) ro('Weighted control points', it.c.weights.filter((w) => w !== 1).length, '');
+            g.appendChild(el('div', { class: 'pm-hint' }, `Drag the control points to reshape it. The dashed control polygon is made of construction lines: dimension it and give it relations like any lines (horizontal, parallel, equal, an angle…).${it.c.closed ? '' : ' The spline leaves each end along the polygon\'s end leg, so a relation on that leg (tangent, collinear) sets its direction there.'} A higher degree makes it smoother and farther from the polygon. Select a control point to set its weight, insert a control point after it or remove it.`));
           } else {
             if (it.c.closed) g.appendChild(el('div', { class: 'pm-hint' }, 'A closed spline (it runs back to its first point).'));
-            g.appendChild(el('div', { class: 'pm-hint' }, 'Drag the points it runs through to reshape it; drag the curve to move it. For control points and a degree to choose, draw a Control-Point Spline.'));
+            const conv = el('button', { class: 'pm-btn', title: 'Make it a control-point spline (cubic) that runs through the same points; its control polygon can then be dimensioned and constrained' }, 'Convert to Control-Point Spline');
+            conv.onclick = () => { SM.convertToCtrlSpline(f, it.c); sk.changed(); this.renderPM(); };
+            const bar = el('div', { class: 'pm-btns' });
+            bar.appendChild(conv);
+            g.appendChild(bar);
+            g.appendChild(el('div', { class: 'pm-hint' }, 'Drag the points it runs through to reshape it; drag the curve to move it. Convert it, or draw a Control-Point Spline, for control points, weights and a degree to choose.'));
           }
         } else if (it.kind === 'ellipse' || it.kind === 'earc') {
           const eg = SM.ellipseGeom(f, it.c);

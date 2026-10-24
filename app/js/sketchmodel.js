@@ -143,7 +143,7 @@ export function copyItems(sk, ids, M, { rotates = false } = {}) {
     if (c.type === 'line') out.push(addLine(sk, mp(c.p1), mp(c.p2), c.construction));
     else if (c.type === 'circle') out.push(addCircle(sk, mp(c.c), c.r, c.construction));
     else if (c.type === 'arc') out.push(addArc(sk, mp(c.c), mp(c.p1), mp(c.p2), c.construction));
-    else if (c.type === 'spline') out.push(c.ctrl ? addCtrlSpline(sk, c.pts.map(mp), c.degree, c.construction) : addSpline(sk, c.pts.map(mp), c.closed, c.construction));
+    else if (c.type === 'spline') out.push(c.ctrl ? addCtrlSpline(sk, c.pts.map(mp), c.degree, c.construction, c.closed, c.weights) : addSpline(sk, c.pts.map(mp), c.closed, c.construction));
     else if (c.type === 'ellipse' || c.type === 'earc') {
       const e = addEllipse(sk, mp(c.c), mp(c.a), c.r2, c.construction);
       if (c.type === 'earc') Object.assign(getCurve(sk, e), { type: 'earc', p1: mp(c.p1), p2: mp(c.p2) });
@@ -309,71 +309,212 @@ export function splineBeziers(P, closed = false) {
 }
 export function splinePieces(sk, c) {
   const P = c.pts.map((id) => { const q = getPoint(sk, id); return [q.x, q.y]; });
-  return c.ctrl ? ctrlSplineBeziers(P, c.degree ?? 3) : splineBeziers(P, !!c.closed);
+  return c.ctrl ? ctrlSplineBeziers(P, c.degree ?? 3, !!c.closed, c.weights) : splineBeziers(P, !!c.closed);
 }
 
-// A control-point spline (ctrl: true): a B-spline of `degree` (2–5) on its points, clamped (it starts at the first
-// and ends at the last, leaving them along the first and last legs of its control polygon), knots evenly spaced.
+// A control-point spline (ctrl: true): a B-spline of `degree` (1–5) on its points, knots evenly spaced. Open, it is
+// clamped (it starts at the first and ends at the last, leaving them along the first and last legs of its control
+// polygon); closed, it is periodic (it runs round smoothly, with no join, near the points rather than through
+// them). weights (optional, one per point, 1 when left out): a weighted (rational) spline, pulled harder toward the
+// points with the larger weights; with the right weights a degree 2 spline makes arcs and ellipses (to within CTRL_FIT).
 // The control polygon is drawn as construction lines (ctrlOf: the spline), so it can be dimensioned and constrained
 // like any lines. Made into the cubic Bézier pieces every spline is drawn and built from: exactly for degree 2
-// and 3; degree 4 and 5 pieces fitted with cubics to within CTRL_FIT of the curve.
+// and 3 without weights; otherwise pieces fitted with cubics to within CTRL_FIT of the curve.
 const CTRL_FIT = 1e-5; // mm
-export function addCtrlSpline(sk, pts, degree = 3, construction = false) {
+export function addCtrlSpline(sk, pts, degree = 3, construction = false, closed = false, weights = null) {
   const id = nid(sk, 's');
-  sk.curves.push({ id, type: 'spline', ctrl: true, degree: Math.max(1, Math.min(degree, pts.length - 1, 5)), pts: [...pts], p1: pts[0], p2: pts[pts.length - 1], closed: false, construction });
-  for (let i = 1; i < pts.length; i++) if (pts[i] !== pts[i - 1]) getCurve(sk, addLine(sk, pts[i - 1], pts[i], true)).ctrlOf = id;
+  const c = { id, type: 'spline', ctrl: true, degree, pts: [...pts], p1: pts[0], p2: closed ? pts[0] : pts[pts.length - 1], closed: !!closed, construction };
+  if (weights && weights.some((w) => w !== 1)) c.weights = [...weights];
+  sk.curves.push(c);
+  syncCtrlPolygon(sk, c);
   return id;
 }
-// The Bézier pieces (control points, degree p each) of a clamped B-spline on P with even knots (Boehm insertion).
-export function bsplineBeziers(P, p) {
-  const n = P.length;
-  p = Math.max(1, Math.min(p, n - 1));
-  if (n < 2) return [];
-  const spans = n - p, U = [];
+// The fewest control points a control-point spline can have, and the highest degree it can have.
+export const ctrlMin = (c) => (c.closed ? 3 : 2);
+export const ctrlMaxDegree = (c) => Math.max(1, Math.min(5, c.pts.length - 1));
+// After its points changed: the control polygon as construction lines between consecutive points (and from the
+// last back to the first when closed), keeping the legs that are still there (with their dimensions and relations),
+// the degree within what the point count allows and the weights one per point; ends p1 / p2 on the right points.
+export function syncCtrlPolygon(sk, c) {
+  c.degree = Math.max(1, Math.min(c.degree ?? 3, ctrlMaxDegree(c)));
+  c.p1 = c.pts[0]; c.p2 = c.closed ? c.pts[0] : c.pts[c.pts.length - 1];
+  if (c.weights) {
+    c.weights = c.pts.map((_, i) => (c.weights[i] > 0 ? c.weights[i] : 1));
+    if (c.weights.every((w) => w === 1)) delete c.weights;
+  }
+  const key = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
+  const want = new Map();
+  const n = c.pts.length;
+  for (let i = 0; i < (c.closed ? n : n - 1); i++) {
+    const a = c.pts[i], b = c.pts[(i + 1) % n];
+    if (a !== b && !want.has(key(a, b))) want.set(key(a, b), [a, b]);
+  }
+  const drop = [];
+  for (const l of sk.curves) {
+    if (l.ctrlOf !== c.id) continue;
+    const k = key(l.p1, l.p2);
+    if (want.has(k)) want.delete(k); else drop.push(l.id);
+  }
+  if (drop.length) {
+    const set = new Set(drop);
+    sk.curves = sk.curves.filter((x) => !set.has(x.id));
+    sk.constraints = sk.constraints.filter((k) => !k.refs.some((r) => set.has(r)));
+  }
+  for (const [a, b] of want.values()) getCurve(sk, addLine(sk, a, b, true)).ctrlOf = c.id;
+}
+// A control point added half way along the leg after the point at index i (closed: the last leg runs back to the
+// first point). The curve changes shape a little (the knots stay evenly spaced). Returns the new point's id.
+export function insertCtrlPoint(sk, c, i) {
+  const n = c.pts.length;
+  if (!c.closed && i >= n - 1) i = n - 2;
+  const A = getPoint(sk, c.pts[i]), B = getPoint(sk, c.pts[(i + 1) % n]);
+  const id = addPoint(sk, (A.x + B.x) / 2, (A.y + B.y) / 2);
+  c.pts.splice(i + 1, 0, id);
+  if (c.weights) c.weights.splice(i + 1, 0, 1);
+  syncCtrlPolygon(sk, c);
+  return id;
+}
+// A control point taken out of the spline (and out of the sketch when nothing else uses it). False when the
+// spline has too few points left for that.
+export function removeCtrlPoint(sk, c, id) {
+  const i = c.pts.indexOf(id);
+  if (i < 0 || c.pts.length - 1 < ctrlMin(c)) return false;
+  c.pts.splice(i, 1);
+  if (c.weights) c.weights.splice(i, 1);
+  syncCtrlPolygon(sk, c);
+  cleanup(sk);
+  return true;
+}
+// A spline through points made a control-point spline (cubic, or lower with fewer than four points) that runs
+// through the same points: open, the ends stay its first and last control points (so what joins them stays
+// joined); the other control points are new. The old points it ran through go unless something else uses them.
+export function convertToCtrlSpline(sk, c) {
+  if (c.ctrl) return;
+  const Q = c.pts.map((id) => { const q = getPoint(sk, id); return [q.x, q.y]; });
+  const closed = !!c.closed, n = Q.length, p = Math.max(1, Math.min(3, n - 1));
+  const P = bsplineInterpolate(Q, p, closed);
+  const old = c.pts;
+  const pts = P.map((q, i) => (!closed && (i === 0 || i === n - 1) ? old[i] : addPoint(sk, q[0], q[1])));
+  Object.assign(c, { ctrl: true, degree: p, pts, closed });
+  delete c.weights;
+  syncCtrlPolygon(sk, c);
+  cleanup(sk);
+}
+// The knots of an evenly spaced B-spline of degree p on n points: clamped (open) or periodic (closed: the points
+// wrap round, n + p of them), with the parameter range the curve covers.
+function bsplineKnots(n, p, closed) {
+  const U = [];
+  if (closed) { for (let i = 0; i <= n + 2 * p; i++) U.push(i); return { U, lo: p, hi: n + p }; }
+  const spans = n - p;
   for (let i = 0; i <= p; i++) U.push(0);
   for (let i = 1; i < spans; i++) U.push(i);
   for (let i = 0; i <= p; i++) U.push(spans);
-  let Q = P.map((q) => [...q]), K = [...U];
-  // every inner knot inserted until it is there p times
-  for (let u = 1; u < spans; u++) {
+  return { U, lo: 0, hi: spans };
+}
+// The B-spline basis functions of degree p at u (Cox–de Boor): N[i] for each control point of the knot vector U.
+function bsplineBasis(U, p, u, count) {
+  const m = U.length - 1;
+  let N = U.slice(0, m).map((a, i) => (u >= a && u < U[i + 1] ? 1 : 0));
+  // (the very end of the range belongs to the last span)
+  if (u >= U[m - p]) { N = N.map(() => 0); let k = m - 1; while (k > 0 && !(U[k] < U[k + 1])) k--; N[k] = 1; }
+  for (let d = 1; d <= p; d++) {
+    N = N.slice(0, m - d).map((_, i) => {
+      const l = U[i + d] - U[i], r = U[i + d + 1] - U[i + 1];
+      return (l > 0 ? ((u - U[i]) / l) * N[i] : 0) + (r > 0 ? ((U[i + d + 1] - u) / r) * N[i + 1] : 0);
+    });
+  }
+  return N.slice(0, count);
+}
+// The control points of an evenly spaced B-spline of degree p that runs through the points Q (as many control
+// points as points): open, Q[i] at its Greville parameter; closed, at the middle of control point i's influence.
+export function bsplineInterpolate(Q, p, closed = false) {
+  const n = Q.length;
+  if (n < 2 || p < 2) return Q.map((q) => [...q]);
+  const { U, lo, hi } = bsplineKnots(n, p, closed);
+  const A = [];
+  for (let j = 0; j < n; j++) {
+    let u;
+    if (closed) { u = j + (p + 1) / 2; while (u < lo) u += n; while (u >= hi) u -= n; } else { u = 0; for (let k = 1; k <= p; k++) u += U[j + k]; u /= p; }
+    const N = bsplineBasis(U, p, u, closed ? n + p : n);
+    const row = new Array(n).fill(0);
+    N.forEach((v, i) => { row[i % n] += v; });
+    A.push(row);
+  }
+  // A·P = Q (Gauss–Jordan with partial pivoting; n is small)
+  const M = A.map((r, j) => [...r, Q[j][0], Q[j][1]]);
+  for (let col = 0; col < n; col++) {
+    let piv = col;
+    for (let r = col + 1; r < n; r++) if (Math.abs(M[r][col]) > Math.abs(M[piv][col])) piv = r;
+    [M[col], M[piv]] = [M[piv], M[col]];
+    const d = M[col][col] || 1e-300;
+    for (let k = col; k < n + 2; k++) M[col][k] /= d;
+    for (let r = 0; r < n; r++) {
+      if (r === col || !M[r][col]) continue;
+      const f = M[r][col];
+      for (let k = col; k < n + 2; k++) M[r][k] -= f * M[col][k];
+    }
+  }
+  return M.map((r) => [r[n], r[n + 1]]);
+}
+// The Bézier pieces (control points, degree p each) of an evenly spaced B-spline on P: clamped, or periodic when
+// closed (Boehm knot insertion: every knot in the curve's range inserted until it is there p times). With
+// weights W the points are homogeneous [w·x, w·y, w].
+export function bsplineBeziers(P, p, closed = false, W = null) {
+  const n = P.length;
+  if (n < 2) return [];
+  p = Math.max(1, Math.min(p, n - 1));
+  const H = P.map((q, i) => (W ? [q[0] * W[i], q[1] * W[i], W[i]] : [q[0], q[1]]));
+  const { U, lo, hi } = bsplineKnots(n, p, closed);
+  let Q = closed ? [...H, ...H.slice(0, p)] : H, K = [...U];
+  const mix = (A, B, a) => A.map((x, j) => (1 - a) * x + a * B[j]);
+  for (let u = lo; u <= hi; u++) {
     while (K.filter((x) => x === u).length < p) {
-      const k = K.findIndex((x) => x > u) - 1; // the span holding u
+      // the span holding u (at the end of the range, the span ending there)
+      const k = u < hi ? K.findLastIndex((x) => x <= u) : K.findLastIndex((x) => x < u);
       const R = [];
       for (let i = 0; i < Q.length + 1; i++) {
         if (i <= k - p) R.push(Q[i]);
         else if (i > k) R.push(Q[i - 1]);
-        else { const a = (u - K[i]) / (K[i + p] - K[i]); R.push([(1 - a) * Q[i - 1][0] + a * Q[i][0], (1 - a) * Q[i - 1][1] + a * Q[i][1]]); }
+        else R.push(mix(Q[i - 1], Q[i], (u - K[i]) / (K[i + p] - K[i])));
       }
       K.splice(k + 1, 0, u);
       Q = R;
     }
   }
   const out = [];
-  for (let s = 0; s < spans; s++) out.push(Q.slice(s * p, s * p + p + 1));
+  for (let u = lo; u < hi; u++) { const k = K.findLastIndex((x) => x <= u); out.push(Q.slice(k - p, k + 1)); }
   return out;
 }
-const bezPt = (Q, t) => { let R = Q.map((q) => [...q]); for (let r = 1; r < Q.length; r++) R = R.slice(1).map((q, i) => [R[i][0] + (q[0] - R[i][0]) * t, R[i][1] + (q[1] - R[i][1]) * t]); return R[0]; };
-const bezD = (Q, t) => { const p = Q.length - 1, D = Q.slice(1).map((q, i) => [p * (q[0] - Q[i][0]), p * (q[1] - Q[i][1])]); return D.length === 1 ? D[0] : bezPt(D, t); };
-// one Bézier piece of any degree as cubic pieces: exact up to degree 3; above, Hermite cubics on halves until close
+const bezPt = (Q, t) => { let R = Q.map((q) => [...q]); for (let r = 1; r < Q.length; r++) R = R.slice(1).map((q, i) => q.map((x, j) => R[i][j] + (x - R[i][j]) * t)); return R[0]; };
+const bezD = (Q, t) => { const p = Q.length - 1, D = Q.slice(1).map((q, i) => q.map((x, j) => p * (x - Q[i][j]))); return D.length === 1 ? D[0] : bezPt(D, t); };
+// one Bézier piece of any degree (homogeneous [w·x, w·y, w] when weighted) as cubic pieces: exact up to degree 3
+// without weights (or with the same weight on all its points); otherwise Hermite cubics on halves until close
 function bezierAsCubics(Q) {
-  const p = Q.length - 1;
-  if (p === 1) { const [a, b] = Q; return [{ a, c1: [a[0] + (b[0] - a[0]) / 3, a[1] + (b[1] - a[1]) / 3], c2: [a[0] + (2 * (b[0] - a[0])) / 3, a[1] + (2 * (b[1] - a[1])) / 3], b }]; }
-  if (p === 2) { const [a, q, b] = Q; return [{ a, c1: [a[0] + (2 * (q[0] - a[0])) / 3, a[1] + (2 * (q[1] - a[1])) / 3], c2: [b[0] + (2 * (q[0] - b[0])) / 3, b[1] + (2 * (q[1] - b[1])) / 3], b }]; }
-  if (p === 3) return [{ a: Q[0], c1: Q[1], c2: Q[2], b: Q[3] }];
+  if (Q[0].length === 3) {
+    if (Q.every((q) => Math.abs(q[2] - Q[0][2]) < 1e-12 * Q[0][2])) Q = Q.map((q) => [q[0] / q[2], q[1] / q[2]]);
+  }
+  const p = Q.length - 1, rational = Q[0].length === 3;
+  if (!rational && p === 1) { const [a, b] = Q; return [{ a, c1: [a[0] + (b[0] - a[0]) / 3, a[1] + (b[1] - a[1]) / 3], c2: [a[0] + (2 * (b[0] - a[0])) / 3, a[1] + (2 * (b[1] - a[1])) / 3], b }]; }
+  if (!rational && p === 2) { const [a, q, b] = Q; return [{ a, c1: [a[0] + (2 * (q[0] - a[0])) / 3, a[1] + (2 * (q[1] - a[1])) / 3], c2: [b[0] + (2 * (q[0] - b[0])) / 3, b[1] + (2 * (q[1] - b[1])) / 3], b }]; }
+  if (!rational && p === 3) return [{ a: Q[0], c1: Q[1], c2: Q[2], b: Q[3] }];
+  const at = rational ? (t) => { const h = bezPt(Q, t); return [h[0] / h[2], h[1] / h[2]]; } : (t) => bezPt(Q, t);
+  const dAt = rational
+    ? (t) => { const h = bezPt(Q, t), d = bezD(Q, t), x = h[0] / h[2], y = h[1] / h[2]; return [(d[0] - x * d[2]) / h[2], (d[1] - y * d[2]) / h[2]]; }
+    : (t) => bezD(Q, t);
   const out = [];
   const fit = (t0, t1, depth) => {
-    const h = t1 - t0, a = bezPt(Q, t0), b = bezPt(Q, t1), da = bezD(Q, t0), db = bezD(Q, t1);
+    const h = t1 - t0, a = at(t0), b = at(t1), da = dAt(t0), db = dAt(t1);
     const g = { a, c1: [a[0] + (da[0] * h) / 3, a[1] + (da[1] * h) / 3], c2: [b[0] - (db[0] * h) / 3, b[1] - (db[1] * h) / 3], b };
     let worst = 0;
-    for (let i = 1; i < 8; i++) { const s = i / 8, q = bezierAt(g, s), r = bezPt(Q, t0 + h * s); worst = Math.max(worst, Math.hypot(q[0] - r[0], q[1] - r[1])); }
+    for (let i = 1; i < 8; i++) { const s = i / 8, q = bezierAt(g, s), r = at(t0 + h * s); worst = Math.max(worst, Math.hypot(q[0] - r[0], q[1] - r[1])); }
     if (worst <= CTRL_FIT || depth >= 8) { out.push(g); return; }
     fit(t0, t0 + h / 2, depth + 1); fit(t0 + h / 2, t1, depth + 1);
   };
   fit(0, 1, 0);
   return out;
 }
-export function ctrlSplineBeziers(P, degree = 3) {
-  return bsplineBeziers(P, degree).flatMap(bezierAsCubics);
+export function ctrlSplineBeziers(P, degree = 3, closed = false, W = null) {
+  return bsplineBeziers(P, degree, closed, W).flatMap(bezierAsCubics);
 }
 export function bezierAt(g, t) {
   const u = 1 - t, b0 = u * u * u, b1 = 3 * u * u * t, b2 = 3 * u * t * t, b3 = t * t * t;
@@ -811,7 +952,7 @@ export function profileRegions(sk) {
 }
 
 // The parameter range that comes round to its start: circles 2π, closed splines their piece count.
-const periodOf = (c) => (c?.type === 'circle' || c?.type === 'ellipse' ? TAU : c?.type === 'spline' && c.closed ? c.pts.length : 0);
+const periodOf = (c, sk) => (c?.type === 'circle' || c?.type === 'ellipse' ? TAU : c?.type === 'spline' && c.closed ? splinePieces(sk, c).length : 0);
 
 function loopSegments(sk, nodes, edges, seq) {
   const C = new Map(sk.curves.map((c) => [c.id, c]));
@@ -823,7 +964,7 @@ function loopSegments(sk, nodes, edges, seq) {
     const e = edges.get(`${a}>${b}`);
     if (!e) continue;
     const last = pieces[pieces.length - 1];
-    const period = periodOf(C.get(e.cid));
+    const period = periodOf(C.get(e.cid), sk);
     if (last && last.cid === e.cid && (close(last.u1, e.pa) || (period && close(Math.abs(last.u1 - e.pa), period)))) {
       last.u1 += e.pb - e.pa;
       last.end = b;
@@ -831,7 +972,7 @@ function loopSegments(sk, nodes, edges, seq) {
   }
   if (pieces.length > 1) {
     const f = pieces[0], l = pieces[pieces.length - 1];
-    const period = periodOf(C.get(f.cid));
+    const period = periodOf(C.get(f.cid), sk);
     if (f.cid === l.cid && (close(l.u1, f.u0) || (period && close(Math.abs(l.u1 - f.u0), period)))) {
       const shift = f.u0 - l.u1;
       f.u0 = l.u0 + shift;
@@ -1974,7 +2115,7 @@ export function mirrorItems(sk, ids, axisId) {
     if (c.ctrlOf && ids.includes(c.ctrlOf)) continue;
     n++;
     if (c.type === 'line') created.push(addLine(sk, mp(c.p1), mp(c.p2), c.construction));
-    else if (c.type === 'spline') created.push(c.ctrl ? addCtrlSpline(sk, c.pts.map(mp), c.degree, c.construction) : addSpline(sk, c.pts.map(mp), c.closed, c.construction));
+    else if (c.type === 'spline') created.push(c.ctrl ? addCtrlSpline(sk, c.pts.map(mp), c.degree, c.construction, c.closed, c.weights) : addSpline(sk, c.pts.map(mp), c.closed, c.construction));
     else if (isEll(c)) {
       // (a reflection reverses an elliptical arc's direction, as an arc's)
       const e = addEllipse(sk, mp(c.c), mp(c.a), c.r2, c.construction);

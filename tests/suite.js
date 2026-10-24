@@ -2554,6 +2554,99 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
   // a loft with guide curves: two squares 40 × 40, 100 apart; a guide (an arc in the front plane from the middle of
   // one side of the bottom square, out to x = 40 half way up, to the same side of the top one) pulls that side out
   // (without it the loft is a straight block, x to 20); with a second guide on the other side, both sides bulge
+  // control-point splines, more: closed (periodic) for degree 2 to 5 against a plain de Boor evaluation, smooth where
+  // it comes round, extruded to the area inside it; weighted, degree 2 with ½√2 on the middle of three square
+  // corners an exact quarter circle; a spline through points converted runs through the same points (ends kept);
+  // control points inserted and removed keep the polygon whole and the weights in step
+  async 'ctrl-spline-more'() {
+    const S = await import('/js/sketchmodel.js');
+    const bad = [], out = [];
+    const segD = (q, a, b) => { const dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy || 1e-30, t = Math.max(0, Math.min(1, ((q[0] - a[0]) * dx + (q[1] - a[1]) * dy) / L2)); return Math.hypot(q[0] - a[0] - t * dx, q[1] - a[1] - t * dy); };
+    const polyD = (q, R) => { let d = Infinity; for (let i = 1; i < R.length; i++) d = Math.min(d, segD(q, R[i - 1], R[i])); return d; };
+    const sample = (pcs, k = 20) => pcs.flatMap((g) => Array.from({ length: k + 1 }, (_, i) => S.bezierAt(g, i / k)));
+    // 1. closed: a periodic B-spline (the points wrapped round, knots 0, 1, 2 …), by de Boor
+    const Pc = [[0, 0], [40, -10], [80, 5], [90, 45], [50, 60], [5, 40]];
+    const periodic = (P, p, u) => {
+      const n = P.length, Q = [...P, ...P.slice(0, p)], U = Array.from({ length: n + 2 * p + 1 }, (_, i) => i);
+      const x = Math.min(u, n + p - 1e-12);
+      const k = Math.floor(x);
+      const d = Array.from({ length: p + 1 }, (_, j) => [...Q[j + k - p]]);
+      for (let r = 1; r <= p; r++) for (let j = p; j >= r; j--) {
+        const i = j + k - p, a = (x - U[i]) / (U[i + p - r + 1] - U[i]);
+        d[j] = [(1 - a) * d[j - 1][0] + a * d[j][0], (1 - a) * d[j - 1][1] + a * d[j][1]];
+      }
+      return d[p];
+    };
+    for (const deg of [2, 3, 4, 5]) {
+      const pcs = S.ctrlSplineBeziers(Pc, deg, true), pts = sample(pcs);
+      const ref = Array.from({ length: 4001 }, (_, i) => periodic(Pc, deg, deg + (Pc.length * i) / 4000));
+      let worst = 0;
+      for (const q of pts) worst = Math.max(worst, polyD(q, ref));
+      // (it comes round: the last piece ends where the first starts, in the same direction)
+      const g0 = pcs[0], g1 = pcs[pcs.length - 1];
+      const gap = Math.hypot(g0.a[0] - g1.b[0], g0.a[1] - g1.b[1]);
+      const t0 = Math.atan2(g0.c1[1] - g0.a[1], g0.c1[0] - g0.a[0]), t1 = Math.atan2(g1.b[1] - g1.c2[1], g1.b[0] - g1.c2[0]);
+      const kink = Math.abs(Math.atan2(Math.sin(t0 - t1), Math.cos(t0 - t1)));
+      if (worst > 1e-4 || gap > 1e-9 || kink > 1e-6) bad.push(`closed degree ${deg}: ${worst.toFixed(6)} mm off, gap ${gap}, kink ${kink}`);
+      else out.push(`closed degree ${deg}`);
+    }
+    // ... in a sketch, extruded: the area inside it × 10
+    const sk = S.newSketchData();
+    const ids = Pc.map(([x, y]) => S.addPoint(sk, x, y));
+    const sp = S.addCtrlSpline(sk, ids, 3, false, true);
+    const legs = sk.curves.filter((c) => c.ctrlOf === sp).length;
+    const q = S.curvePoints(sk, S.getCurve(sk, sp));
+    let A = 0;
+    for (let i = 0; i < q.length; i++) { const u = q[i], v = q[(i + 1) % q.length]; A += u[0] * v[1] - v[0] * u[1]; }
+    A = Math.abs(A / 2);
+    const d = M.newDoc(); d.name = 'Closed spline';
+    const f = M.createFeature(d, 'sketch', { plane: { ref: 'front' } });
+    Object.assign(f, { points: sk.points, curves: sk.curves, constraints: sk.constraints, nextSid: sk.nextSid });
+    d.features.push(f, M.createFeature(d, 'extrude', { sketch: f.id, depth: 10 }));
+    const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient();
+    let vol = null;
+    try {
+      const rb = await k.rebuild(d, null, null);
+      if (rb.body?.bodies?.length) vol = ((await k.request('measure', { refs: [{ kind: 'body', id: rb.body.bodies[0].id }] })).items?.[0] || {}).volume;
+      else bad.push(`closed: not extruded ${JSON.stringify(rb.errors)}`);
+    } finally { k.dispose(); }
+    if (legs !== 6) bad.push(`closed: ${legs} polygon legs (6 wanted)`);
+    if (vol != null && Math.abs(vol - A * 10) > 1e-3 * A * 10) bad.push(`closed: volume ${vol} (area ${A} × 10)`);
+    // 2. weighted: a quarter circle of radius 10
+    const arc = S.ctrlSplineBeziers([[10, 0], [10, 10], [0, 10]], 2, false, [1, Math.SQRT1_2, 1]);
+    const rr = sample(arc, 50).map(([x, y]) => Math.hypot(x, y));
+    const rOff = Math.max(...rr.map((r) => Math.abs(r - 10)));
+    if (rOff > 2e-5) bad.push(`weighted: radius off by ${rOff}`); else out.push(`weighted quarter circle (radius within ${rOff.toExponential(1)} mm)`);
+    // 3. converted: through the same points, open (ends kept) and closed
+    for (const closed of [false, true]) {
+      const s2 = S.newSketchData();
+      const Q = [[0, 0], [20, 15], [45, 10], [60, 30], [80, 20]];
+      const qi = Q.map(([x, y]) => S.addPoint(s2, x, y));
+      const cid = S.addSpline(s2, qi, closed);
+      S.convertToCtrlSpline(s2, S.getCurve(s2, cid));
+      const c = S.getCurve(s2, cid);
+      const R = sample(S.splinePieces(s2, c), 4000);
+      const off = Math.max(...Q.map((p) => polyD(p, R)));
+      const endsKept = closed || (c.pts[0] === qi[0] && c.pts[c.pts.length - 1] === qi[4]);
+      const legsC = s2.curves.filter((x) => x.ctrlOf === cid).length;
+      if (!c.ctrl || off > 1e-4 || !endsKept || legsC !== (closed ? 5 : 4)) bad.push(`converted ${closed ? 'closed' : 'open'}: ctrl ${c.ctrl}, ${off.toFixed(6)} mm from its points, ends kept ${endsKept}, ${legsC} legs`);
+      else out.push(`converted ${closed ? 'closed' : 'open'} (through its points to ${off.toExponential(1)} mm)`);
+    }
+    // 4. inserted and removed: the polygon whole, the weights in step
+    const s3 = S.newSketchData();
+    const p3 = [[0, 0], [10, 10], [20, 0], [30, 10]].map(([x, y]) => S.addPoint(s3, x, y));
+    const c3 = S.getCurve(s3, S.addCtrlSpline(s3, p3, 3, false, false, [1, 2, 1, 1]));
+    const ni = S.insertCtrlPoint(s3, c3, 1);
+    const afterIns = c3.pts.length === 5 && c3.pts[2] === ni && c3.weights.join() === '1,2,1,1,1' && s3.curves.filter((x) => x.ctrlOf === c3.id).length === 4;
+    S.removeCtrlPoint(s3, c3, p3[1]);
+    const legs3 = s3.curves.filter((x) => x.ctrlOf === c3.id);
+    const joined = legs3.some((l) => (l.p1 === p3[0] && l.p2 === ni) || (l.p1 === ni && l.p2 === p3[0]));
+    const afterRem = c3.pts.length === 4 && !c3.weights && legs3.length === 3 && joined && !s3.points.some((p) => p.id === p3[1]);
+    if (!afterIns || !afterRem) bad.push(`insert / remove: after insert ${afterIns} (${c3.pts.length} points), after remove ${afterRem} (${legs3.length} legs, joined ${joined}, weights ${c3.weights})`);
+    else out.push('a control point inserted and removed');
+    return bad.length ? { ok: false, detail: bad.join('; ') } : { ok: true, detail: `${out.join(', ')}; closed extruded ${vol.toFixed(2)} mm³ (area ${A.toFixed(2)} × 10)` };
+  },
+
   // A new Edge-Flange's flanges meet corner to corner (mitred) where they meet, not one overlapping the other: the
   // tray's four flanges with the defaults close their four corners, the same body as with corner 'butt' set and
   // not the overlap's
@@ -2588,10 +2681,12 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
   async 'loft-guides'() {
     const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient({ threads: threadsPerKernel() });
     try {
-      const square = (d, plane) => {
+      const square = (d, plane, hole = false) => {
         const s = M.createFeature(d, 'sketch', { plane });
         const P = [[-20, -20], [20, -20], [20, 20], [-20, 20]];
         Object.assign(s, { points: P.map(([x, y], i) => ({ id: 'p' + i, x, y })), curves: P.map((_, i) => ({ id: 'c' + i, type: 'line', p1: 'p' + i, p2: 'p' + ((i + 1) % 4), construction: false })), constraints: [] });
+        // (a round hole of radius 8 in the middle)
+        if (hole) s.curves.push({ id: 'h', type: 'circle', c: 'O', r: 8, construction: false });
         d.features.push(s);
         return s.id;
       };
@@ -2604,29 +2699,40 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
         d.features.push(s);
         return s.id;
       };
-      const build = async (nGuides) => {
+      const build = async (nGuides, { hole = false, thin = false } = {}) => {
         const d = M.newDoc(); d.name = 'Guided loft';
         // the squares on planes square to the front plane: the top plane, and that plane moved 100 up
         const pl = M.createFeature(d, 'plane', { refs: [{ kind: 'plane', id: 'top' }], offset: 100 });
         d.features.push(pl);
-        const a = square(d, { ref: 'top' }), b = square(d, { ref: pl.id });
+        const a = square(d, { ref: 'top' }, hole), b = square(d, { ref: pl.id }, hole);
         const gs = [];
         if (nGuides >= 1) gs.push(guide(d, 1));
         if (nGuides >= 2) gs.push(guide(d, -1));
-        d.features.push(M.createFeature(d, 'loft', { profiles: [a, b], guides: gs }));
+        d.features.push(M.createFeature(d, 'loft', { profiles: [a, b], guides: gs, ...(thin ? { thin: true, thinT: 2, thinDir: 'one' } : {}) }));
         const r = await k.rebuild(d, null, null);
         const bb = r.body?.bodies?.[0];
         if (!bb) return { errors: r.errors };
+        const ms = (await k.request('measure', { refs: [{ kind: 'body', id: bb.id }] })).items?.[0] || {};
         const V = r.body.vertices, T = r.body.triangles;
         let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
         for (let q = bb.triStart; q < bb.triStart + bb.triCount; q++) { const x = V[3 * T[q]], y = V[3 * T[q] + 1]; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
-        return { x0, x1, y0, y1, note: r.notes?.[d.features[d.features.length - 1].id], errors: r.errors };
+        return { x0, x1, y0, y1, vol: ms.volume, area: ms.area, note: r.notes?.[d.features[d.features.length - 1].id], errors: r.errors };
       };
       const plain = await build(0), one = await build(1), two = await build(2);
-      const ok = plain.x1 < 20.5 && one.x1 > 39 && one.x1 < 41 && one.x0 > -21 && two.x1 > 39 && two.x0 < -39 && Math.abs(two.y1 - two.y0 - 100) < 0.5;
+      const ok1 = plain.x1 < 20.5 && one.x1 > 39 && one.x1 < 41 && one.x0 > -21 && two.x1 > 39 && two.x0 < -39 && Math.abs(two.y1 - two.y0 - 100) < 0.5;
+      // a hole: it moves with the outline (one guide moves the whole section 20 out at mid-height: a hole left in
+      // the middle would break out of the far side), so the whole hole is taken out, a little over π r² × 100
+      const holed = await build(1, { hole: true });
+      const removed = one.vol - holed.vol, cyl = Math.PI * 64 * 100;
+      const ok2 = !holed.errors?.length && removed > 0.99 * cyl && removed < 1.12 * cyl;
+      // a thin loft (2 mm walls inward) with both guides: the inside follows the outline, so the walls stay about
+      // 2 mm (volume about 2 mm × half the surface; walls left where they were would be up to 20 mm thick)
+      const thin = await build(2, { thin: true });
+      const ratio = thin.vol / ((2 * thin.area) / 2);
+      const ok3 = !thin.errors?.length && thin.x1 > 39 && ratio > 0.85 && ratio < 1.1;
       const f = (o) => (o.errors?.length && o.x1 == null ? JSON.stringify(o.errors) : `x ${o.x0?.toFixed(2)} to ${o.x1?.toFixed(2)}`);
-      return ok ? { ok: true, detail: `no guide: ${f(plain)}; one guide: ${f(one)} (pulled out to it); two guides: ${f(two)}` }
-        : { ok: false, detail: `no guide: ${f(plain)}; one: ${f(one)}; two: ${f(two)} (y ${two.y0}–${two.y1})` };
+      return ok1 && ok2 && ok3 ? { ok: true, detail: `no guide: ${f(plain)}; one guide: ${f(one)} (pulled out to it); two guides: ${f(two)}; a hole moves with it (${(removed / cyl).toFixed(3)} × π r² h taken out); thin with two guides: walls ${(ratio * 2).toFixed(2)} mm on average` }
+        : { ok: false, detail: `no guide: ${f(plain)}; one: ${f(one)}; two: ${f(two)} (y ${two.y0}–${two.y1}); hole ${holed.errors?.length ? JSON.stringify(holed.errors) : (removed / cyl).toFixed(3)}; thin ${thin.errors?.length ? JSON.stringify(thin.errors) : `${f(thin)} ratio ${ratio.toFixed(3)}`}` };
     } finally { k.dispose(); }
   },
 

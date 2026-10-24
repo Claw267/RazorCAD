@@ -217,6 +217,8 @@ table.bom th { background: #f1f5f9; font-weight: 600; }
 .pm-hint { color: var(--muted); line-height: 1.35; }
 .pm-btn { height: 26px; border: 1px solid var(--border); background: var(--panel); border-radius: 3px; cursor: pointer; padding: 0 10px; }
 .pm-btn:hover { background: var(--hover); }
+.pm-btns { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 2px; }
+.pm-btn:disabled { opacity: .5; cursor: default; }
 
 /* ---------- Drawings ---------- */
 #drawing { position: relative; overflow: hidden; min-width: 0; display: flex; flex-direction: column; background: #8d97a5; }
