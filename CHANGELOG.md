@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-25 11:47 — Guide curves (rails) for the Lofted Surface
+- **Lofted Surface** has **Guide Curves**, as the solid Loft has: sketches (one chain of curves) or curves (3D sketches, composite and projected curves, helices) the surface follows between the profiles, each running from the first profile to the last through every profile. One guide pulls the surface along it; two or more shape it across, each where it touches the profiles. Open and closed profiles both, sketches or 3D sketches; not with straight (ruled) sides.
+- A guide may now cross a profile anywhere along it (the solid Loft too): where the two meet is found between the points they are measured at, not only at them.
+- Test: surface-loft-guides (two open straight profiles and two arc guides: the surface spreads out to the arcs and fills the area they bound, to 0.03 %; a closed one with one guide bulges out to it on that side only; ruled with guides: a message).
+
 ## 2026-10-25 09:42 — Edge-Flange corner gap 0.5 mm by default
 - A new Edge Flange's corner gap is 0.5 mm (was 0.1), as on the formed lid the square corner was matched to. Parts already made keep their gap; Closed Corner's own gap is unchanged (0.1).
 - Test: flange-corner-default (the default gap; the wall's end at the other's inside face less 0.5 / √2).

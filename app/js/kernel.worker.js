@@ -3436,8 +3436,27 @@ async function rebuild(doc, previewId = null, opts = {}) {
               list.push(flipped < same ? R.cast(w.wrapped.Reversed()) : w);
             }
           }
+          // guide curves (as the solid loft's: sketches or curves, each through every profile): the surface follows them
+          const guides = (f.guides || []).filter(Boolean).map((id) => {
+            if (curves.has(id)) return { name: doc.features.find((x) => x.id === id)?.name || 'A guide curve', wire: curves.get(id).wire };
+            const s = sketches.get(id);
+            if (!s) throw new Error('A guide curve is missing, suppressed or has errors');
+            const ws = sketchWires(s.sk, s.frame);
+            if (ws.length !== 1) throw new Error(`The guide ${s.sk.name} must be one connected chain of curves`);
+            return { name: s.sk.name, wire: ws[0] };
+          });
+          if (guides.length && f.ruled) throw new Error('Guide curves shape a smooth surface: untick "Straight (ruled) between profiles"');
+          if (guides.length) {
+            const names = ids.map((id) => doc.features.find((x) => x.id === id)?.name || 'A profile');
+            const matched = closed[0] && list !== wires;
+            // (closed sketch profiles: their matched segments; otherwise the profiles as they are, as runs of points)
+            const secs = matched ? ids.map((id) => sketches.get(id)).map((sk) => loftSection(sk.frame, S.chainSegs(sk.sk, S.curveChains(sk.sk).find((c) => c.closed)))) : wireSections(list, !closed[0]);
+            const g = guidedLoftWires(matched ? matchLoftSections(secs, names) : secs, guides, names, [], 0, { open: !closed[0], profileWires: list });
+            list = g.outer;
+            res.notes[f.id] = `${ids.length} profiles, ${guides.length} guide curve${guides.length === 1 ? '' : 's'}`;
+          }
           let shape;
-          try { shape = R.loft(list, { ruled: !!f.ruled }, true); } catch (e) { if (isFatal(e)) throw e; throw new Error('The surface could not be lofted through these profiles'); }
+          try { shape = R.loft(list, { ruled: !!f.ruled }, true); } catch (e) { if (isFatal(e)) throw e; throw new Error(guides.length ? 'The surface could not be lofted through these profiles and guide curves' : 'The surface could not be lofted through these profiles'); }
           surfaces.push(bodyRec(newId(f.id), shape, f.id));
           applied.push({ op: 'add', tool: shape });
           break;
@@ -6702,9 +6721,11 @@ function matchLoftSections(secs, names) {
 // are moved with the outline, each point by the outline's pulls nearby (weighted by how near), so a thin wall
 // keeps its thickness and a hole moves with the shape round it. slack: how far a guide may pass from the outline
 // and still touch it (a thin loft: the wall's thickness, the guide drawn on the sketched line); the outline keeps
-// that offset from the guide. Returns { outer, holes }: the wires to loft.
+// that offset from the guide. open: the sections are open (a surface's: from one end to the other, not round);
+// profileWires: the wires lofted through at the profiles (else made from the sections). Returns { outer, holes }:
+// the wires to loft.
 const GUIDE_STATIONS = 6, GUIDE_SAMPLES = 16;
-function guidedLoftWires(matched, guides, names, holeSets = [], slack = 0) {
+function guidedLoftWires(matched, guides, names, holeSets = [], slack = 0, { open = false, profileWires = null } = {}) {
   // (a loft of circles: each made four arcs, to have points to follow the guides with)
   const asSegs = (s) => {
     if (s.segs) return s;
@@ -6713,9 +6734,17 @@ function guidedLoftWires(matched, guides, names, holeSets = [], slack = 0) {
     return { segs: [0, 1, 2, 3].map((i) => ({ type: 'arc', a: at((i * Math.PI) / 2), m: at(((i + 0.5) * Math.PI) / 2), b: at(((i + 1) * Math.PI) / 2) })) };
   };
   const secs = matched.map(asSegs);
-  const N = secs[0].segs.length, M = GUIDE_SAMPLES, NM = N * M;
+  const N = secs[0].segs.length, M = GUIDE_SAMPLES, NM = N * M + (open ? 1 : 0);
   const segPt = (g, t) => {
     if (g.type === 'line') return add(g.a, mul(sub(g.b, g.a), t));
+    if (g.type === 'pts') {
+      // (points along a curve: at that share of their length)
+      const L = g.L, s = t * L[L.length - 1];
+      let i = 1;
+      while (i < L.length - 1 && L[i] < s) i++;
+      const u = (s - L[i - 1]) / ((L[i] - L[i - 1]) || 1);
+      return add(g.pts[i - 1], mul(sub(g.pts[i], g.pts[i - 1]), Math.max(0, Math.min(1, u))));
+    }
     if (g.type === 'bezier') { const u = 1 - t; return add(add(mul(g.a, u * u * u), mul(g.c1, 3 * u * u * t)), add(mul(g.c2, 3 * u * t * t), mul(g.b, t * t * t))); }
     // a three-point arc: its circle, from a through m to b
     const A = g.a, B = g.m, C = g.b, ab = sub(B, A), ac = sub(C, A), nn = cross(ab, ac), d = 2 * dot(nn, nn);
@@ -6726,7 +6755,12 @@ function guidedLoftWires(matched, guides, names, holeSets = [], slack = 0) {
     if (span <= 0) span += 2 * Math.PI;
     return add(o, add(mul(x, r * Math.cos(span * t)), mul(y, r * Math.sin(span * t))));
   };
-  const sampled = (s) => { const out = []; for (const g of s.segs) for (let j = 0; j < M; j++) out.push(segPt(g, j / M)); return out; };
+  const sampled = (s) => {
+    const out = [];
+    for (const g of s.segs) for (let j = 0; j < M; j++) out.push(segPt(g, j / M));
+    if (open) out.push(segPt(s.segs[s.segs.length - 1], 1));
+    return out;
+  };
   const P = secs.map(sampled);
   let size = 0;
   for (const s of P) for (const q of s) size = Math.max(size, len(sub(q, P[0][0])));
@@ -6765,25 +6799,33 @@ function guidedLoftWires(matched, guides, names, holeSets = [], slack = 0) {
     const t = (s - g.L[i - 1]) / ((g.L[i] - g.L[i - 1]) || 1);
     return add(g.pts[i - 1], mul(sub(g.pts[i], g.pts[i - 1]), Math.max(0, Math.min(1, t))));
   };
-  // where each guide touches each profile: the profile's point (as a sample index) and the guide's length there
+  // where each guide touches each profile: the profile's point (as a sample index, between samples too) and the
+  // guide's length there: the nearest the two come, each one's points against the other's segments
+  const clamp01 = (t) => Math.max(0, Math.min(1, t));
   const touch = G.map((g) => P.map((sec, k) => {
     let best = null;
-    for (let i = 0; i < sec.length; i++) for (let j = 0; j < g.pts.length; j++) {
-      const d = len(sub(sec[i], g.pts[j]));
-      if (!best || d < best.d) best = { d, i, s: g.L[j], off: sub(sec[i], g.pts[j]) };
+    const keep = (X, Q, i, s) => { const d = len(sub(X, Q)); if (!best || d < best.d) best = { d, i, s, off: sub(X, Q) }; };
+    for (let i = 0; i < (open ? sec.length - 1 : sec.length); i++) {
+      const A = sec[i], AB = sub(sec[(i + 1) % sec.length], A), l2 = dot(AB, AB) || 1;
+      for (let j = 0; j < g.pts.length; j++) { const t = clamp01(dot(sub(g.pts[j], A), AB) / l2); keep(add(A, mul(AB, t)), g.pts[j], i + t, g.L[j]); }
+    }
+    for (let j = 0; j + 1 < g.pts.length; j++) {
+      const A = g.pts[j], AB = sub(g.pts[j + 1], A), l2 = dot(AB, AB) || 1;
+      for (let i = 0; i < sec.length; i++) { const t = clamp01(dot(sub(sec[i], A), AB) / l2); keep(sec[i], add(A, mul(AB, t)), i, g.L[j] + (g.L[j + 1] - g.L[j]) * t); }
     }
     if (best.d > tol + slack) throw new Error(`The guide ${g.name} doesn't touch ${names[k]} (it passes ${best.d.toFixed(2)} mm from it): each guide must run through every profile`);
     return best;
   }));
   touch.forEach((tg, gi) => { for (let k = 1; k < tg.length; k++) if (tg[k].s < tg[k - 1].s - tol) throw new Error(`The guide ${G[gi].name} doesn't run from one profile to the next in order`); });
   const lerp = (a, b, t) => add(a, mul(sub(b, a), t));
-  const cyc = (i) => ((i % NM) + NM) % NM;
+  // (an index along a section: round a closed one, kept to the ends of an open one)
+  const cyc = (i) => (open ? Math.max(0, Math.min(NM - 1, i)) : ((i % NM) + NM) % NM);
   const pointAt = (sec, x) => { const i = Math.floor(x), t = x - i; return lerp(sec[cyc(i)], sec[cyc(i + 1)], t); };
   // a section in between from its points (n segments of M each, round): fitted segment by segment
   const fitWire = (pts, n) => {
     const edges = [];
     for (let si = 0; si < n; si++) {
-      const run = Array.from({ length: M + 1 }, (_, j) => pts[(si * M + j) % (n * M)]);
+      const run = Array.from({ length: M + 1 }, (_, j) => pts[open ? si * M + j : (si * M + j) % (n * M)]);
       const chord = sub(run[M], run[0]), cl = len(chord);
       const straight = cl > 1e-9 && run.every((q) => len(cross(sub(q, run[0]), chord)) / cl < size * 1e-7);
       edges.push(straight ? R.makeLine(run[0], run[M]) : R.makeBSplineApproximation(run, { tolerance: Math.max(1e-5, size * 1e-6), degMax: 5 }));
@@ -6795,7 +6837,7 @@ function guidedLoftWires(matched, guides, names, holeSets = [], slack = 0) {
   const holeWires = H.map(() => []);
   const wires = [];
   for (let k = 0; k < secs.length; k++) {
-    wires.push(sectionWire(secs[k]));
+    wires.push(profileWires ? profileWires[k] : sectionWire(secs[k]));
     H.forEach((h, hi) => holeWires[hi].push(sectionWire(h.secs[k])));
     if (k === secs.length - 1) break;
     for (let st = 1; st <= GUIDE_STATIONS; st++) {
@@ -6805,7 +6847,7 @@ function guidedLoftWires(matched, guides, names, holeSets = [], slack = 0) {
       const knots = G.map((g, gi) => {
         const a = touch[gi][k].i, b = touch[gi][k + 1].i;
         let dI = b - a;
-        if (dI > NM / 2) dI -= NM; else if (dI < -NM / 2) dI += NM;
+        if (!open) { if (dI > NM / 2) dI -= NM; else if (dI < -NM / 2) dI += NM; }
         const at = a + dI * lam;
         // (the outline kept as far from the guide as at the two profiles: a thin wall's offset)
         const off = lerp(touch[gi][k].off, touch[gi][k + 1].off, lam);
@@ -6813,6 +6855,14 @@ function guidedLoftWires(matched, guides, names, holeSets = [], slack = 0) {
       }).sort((x, y) => x.at - y.at);
       const pull = (i) => {
         if (knots.length === 1) return knots[0].d;
+        if (open) {
+          // (along an open section: between the two guides either side of it, as the first / last one past them)
+          if (i <= knots[0].at) return knots[0].d;
+          const hi = knots.findIndex((q) => q.at >= i);
+          if (hi < 0) return knots[knots.length - 1].d;
+          const A = knots[hi - 1], B = knots[hi];
+          return lerp(A.d, B.d, (i - A.at) / ((B.at - A.at) || 1));
+        }
         let hi = knots.findIndex((q) => q.at >= i);
         if (hi < 0) hi = 0;
         const lo = (hi - 1 + knots.length) % knots.length, A = knots[lo], B = knots[hi];
@@ -6837,6 +6887,41 @@ function guidedLoftWires(matched, guides, names, holeSets = [], slack = 0) {
     }
   }
   return { outer: wires, holes: holeWires };
+}
+
+// Wires (a surface loft's profiles, in order, each running the same way as the one before) as sections of points
+// for guidedLoftWires: each edge one segment when every profile has as many edges, else each profile cut into
+// WIRE_PIECES equal lengths. open: open wires (from one end to the other).
+const WIRE_PIECES = 8;
+function wireSections(wires, open) {
+  const runsOf = (w) => {
+    const runs = w.edges.map((e) => Array.from({ length: 33 }, (_, i) => vec(e.pointAt(i / 32))));
+    const out = [runs.shift()];
+    const tol = 1e-4 * Math.max(1, ...out[0].map((q) => len(q)));
+    while (runs.length) {
+      const end = out[out.length - 1].at(-1), start = out[0][0];
+      let k = runs.findIndex((r) => len(sub(r[0], end)) < tol || len(sub(r.at(-1), end)) < tol);
+      if (k >= 0) { const r = runs.splice(k, 1)[0]; out.push(len(sub(r[0], end)) < tol ? r : r.reverse()); continue; }
+      k = runs.findIndex((r) => len(sub(r[0], start)) < tol || len(sub(r.at(-1), start)) < tol);
+      if (k < 0) { out.push(runs.shift()); continue; }
+      const r = runs.splice(k, 1)[0];
+      out.unshift(len(sub(r.at(-1), start)) < tol ? r : r.reverse());
+    }
+    return out;
+  };
+  const all = wires.map(runsOf);
+  // (an open profile: from its wire's start, the way the wire runs, as lofted)
+  for (let k = 0; k < all.length && open; k++) {
+    const st = vec(wires[k].startPoint);
+    if (len(sub(all[k].at(-1).at(-1), st)) < len(sub(all[k][0][0], st))) all[k] = all[k].reverse().map((r) => r.slice().reverse());
+  }
+  const seg = (pts) => { const L = [0]; for (let i = 1; i < pts.length; i++) L.push(L[i - 1] + len(sub(pts[i], pts[i - 1]))); return { type: 'pts', pts, L }; };
+  if (all.every((r) => r.length === all[0].length)) return all.map((runs) => ({ segs: runs.map(seg) }));
+  return all.map((runs) => {
+    const whole = seg(runs.flatMap((r, i) => (i ? r.slice(1) : r))), T = whole.L.at(-1), pts = whole.pts, L = whole.L;
+    const at = (s) => { let i = 1; while (i < L.length - 1 && L[i] < s) i++; const u = (s - L[i - 1]) / ((L[i] - L[i - 1]) || 1); return add(pts[i - 1], mul(sub(pts[i], pts[i - 1]), u)); };
+    return { segs: Array.from({ length: WIRE_PIECES }, (_, p) => seg(Array.from({ length: 17 }, (_, j) => at((T * (p + j / 16)) / WIRE_PIECES)))) };
+  });
 }
 
 function sectionWire(s) {

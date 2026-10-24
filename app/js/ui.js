@@ -961,6 +961,10 @@ const PM_SCHEMAS = {
   ],
   surfLoft: [
     { title: 'Profiles', fields: [{ key: 'profiles', type: 'sketchList', with3d: true, hint: 'Two or more profiles in order: sketches (one chain of curves each) or 3D sketches, all open or all closed. Open profiles give an open surface; closed ones a tube.' }] },
+    { title: 'Guide Curves', fields: [
+      { key: 'guides', type: 'curveList', show: (f) => !f.ruled },
+      { key: 'gHint', type: 'hint', show: (f) => !f.ruled, text: 'Optional: curves (rails) the surface follows between the profiles, e.g. along its edges. Each runs from the first profile to the last, through every profile, and is a sketch with one chain of curves or a curve. One guide pulls the surface along it; two or more shape it across, each where it touches the profiles.' },
+    ] },
     { title: 'Options', fields: [{ key: 'ruled', type: 'check', label: 'Straight (ruled) between profiles' }] },
   ],
   surfSweep: [

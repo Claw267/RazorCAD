@@ -264,8 +264,9 @@ export function createFeature(doc, type, props = {}) {
     surfRevolve: { sketch: null, axis: 'v', angle: 360 },
     surfPlanar: { sketch: null },
     surfOffset: { faces: [], distance: 5, flip: false },
-    // profiles: sketches / 3D sketches (one chain each, all open or all closed), in order
-    surfLoft: { profiles: [], ruled: false },
+    // profiles: sketches / 3D sketches (one chain each, all open or all closed), in order; guides: guide curves
+    // (sketches or curves) the surface follows, each through every profile
+    surfLoft: { profiles: [], guides: [], ruled: false },
     surfSweep: { profileType: 'sketch', profile: null, diameter: 10, path: null },
     // edges round a hole; tangent: G1 to the faces round it; merge: knit into that surface; solid: close it
     surfFill: { edges: [], tangent: false, merge: true, solid: false },
@@ -418,7 +419,7 @@ export function referencesOf(doc, f) {
   const addId = (v) => { if (typeof v === 'string' && ids.has(v)) out.add(v); };
   const addBody = (v) => { if (typeof v === 'string' && v) addId(bodyOwner(v)); };
   for (const k of ['sketch', 'feature', 'base', 'toPoint', 'toPlane', 'planeA', 'planeB', 'pointA', 'pointB', 'axis', 'dir1', 'dir2', 'rotAxis', 'parent', 'profile', 'path']) addId(f[k]);
-  for (const id of f.profiles || []) addId(id);
+  for (const id of [...(f.profiles || []), ...(f.guides || [])]) addId(id);
   if (f.type !== 'sketch' && typeof f.plane === 'string') addId(f.plane);
   if (f.plane?.ref) addId(f.plane.ref);
   if (f.type === 'split') { addId(f.tool); addBody(f.tool); }

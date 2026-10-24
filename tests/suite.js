@@ -3151,6 +3151,57 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     } finally { k.dispose(); }
   },
 
+  // A lofted surface with guide curves (rails): two open straight profiles 40 wide, 100 apart, and two arcs through
+  // their ends bulging 20 out at mid-height: the surface spreads out to the arcs (80 wide half way) and fills the area
+  // they bound (40 × 100 and two circular segments: about 6753 mm²); without the guides it stays 40 wide. A closed
+  // one (circles of radius 20) with one guide bulges out to it on that side only; ruled sides with guides: a message
+  async 'surface-loft-guides'() {
+    const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient({ threads: threadsPerKernel() });
+    try {
+      const prof = (d, plane, closed) => {
+        const s = M.createFeature(d, 'sketch', { plane });
+        if (closed) Object.assign(s, { points: [], curves: [{ id: 'c', type: 'circle', c: 'O', r: 20, construction: false }], constraints: [] });
+        else Object.assign(s, { points: [{ id: 'p0', x: -20, y: 0 }, { id: 'p1', x: 20, y: 0 }], curves: [{ id: 'l', type: 'line', p1: 'p0', p2: 'p1', construction: false }], constraints: [] });
+        d.features.push(s);
+        return s.id;
+      };
+      // (an arc through (20 sgn, 0), (40 sgn, 50), (20 sgn, 100) in the front plane)
+      const guide = (d, sgn) => {
+        const s = M.createFeature(d, 'sketch', { plane: { ref: 'front' } });
+        Object.assign(s, { points: [{ id: 'g0', x: sgn * -32.5, y: 50 }, { id: 'g1', x: 20 * sgn, y: sgn > 0 ? 0 : 100 }, { id: 'g2', x: 20 * sgn, y: sgn > 0 ? 100 : 0 }],
+          curves: [{ id: 'ga', type: 'arc', c: 'g0', p1: 'g1', p2: 'g2', construction: false }], constraints: [] });
+        d.features.push(s);
+        return s.id;
+      };
+      const build = async (closed, nGuides, extra = {}) => {
+        const d = M.newDoc(); d.name = 'Guided surface';
+        const pl = M.createFeature(d, 'plane', { refs: [{ kind: 'plane', id: 'top' }], offset: 100 });
+        d.features.push(pl);
+        const a = prof(d, { ref: 'top' }, closed), b = prof(d, { ref: pl.id }, closed);
+        const gs = [];
+        if (nGuides >= 1) gs.push(guide(d, 1));
+        if (nGuides >= 2) gs.push(guide(d, -1));
+        const f = M.createFeature(d, 'surfLoft', { profiles: [a, b], guides: gs, ...extra });
+        d.features.push(f);
+        const r = await k.rebuild(d, null, null);
+        const bb = r.body?.bodies?.[0];
+        if (!bb) return { errors: r.errors };
+        const ms = (await k.request('measure', { refs: [{ kind: 'body', id: bb.id }] })).items?.[0] || {};
+        const V = r.body.vertices, T = r.body.triangles;
+        let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+        for (let q = bb.triStart; q < bb.triStart + bb.triCount; q++) { const x = V[3 * T[q]], y = V[3 * T[q] + 1]; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+        return { x0, x1, y0, y1, area: ms.area, note: r.notes?.[f.id], errors: r.errors };
+      };
+      const plain = await build(false, 0), two = await build(false, 2), tube = await build(true, 1), ruled = await build(false, 2, { ruled: true });
+      const want = 4000 + 2 * ((72.5 * 72.5) / 2) * (2 * Math.asin(50 / 72.5) - Math.sin(2 * Math.asin(50 / 72.5)));
+      const ok = plain.x1 < 20.5 && plain.x0 > -20.5 && two.x1 > 39.5 && two.x1 < 40.5 && two.x0 < -39.5 && two.x0 > -40.5 && Math.abs(two.y1 - two.y0 - 100) < 0.5
+        && Math.abs(two.area - want) < 0.01 * want && two.note === '2 profiles, 2 guide curves'
+        && tube.x1 > 39.5 && tube.x1 < 40.5 && tube.x0 > -20.5 && tube.x0 < -19.5 && /untick/.test(JSON.stringify(ruled.errors || []));
+      const f = (o) => (o.errors?.length && o.x1 == null ? JSON.stringify(o.errors) : `x ${o.x0?.toFixed(2)} to ${o.x1?.toFixed(2)}, area ${o.area?.toFixed(1)}`);
+      return { ok, detail: `no guide: ${f(plain)}; two guides: ${f(two)} (bounded by them: ${want.toFixed(1)}); closed with one guide: ${f(tube)}; ruled with guides: ${JSON.stringify(ruled.errors || [])}` };
+    } finally { k.dispose(); }
+  },
+
   async 'no-browser-menu'() {
     const a = window.app;
     if (a.mode === 'drawing') { const i = a.tabs.findIndex((t) => t.kind !== 'drawing'); if (i >= 0) await a.activateTab(i); else { a.newDocument(); closeModals(); } }

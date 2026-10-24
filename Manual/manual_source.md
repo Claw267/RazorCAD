@@ -885,7 +885,7 @@ The **Surfaces** tab builds surface bodies (zero-thickness faces), listed under 
 | **Extruded Surface** | Sweeps the sketch's curves in a straight line; open chains are fine |
 | **Revolved Surface** | Revolves the sketch's curves about an axis |
 | **Planar Surface** | Fills a closed sketch (holes allowed) |
-| **Lofted Surface** | A surface through two or more profiles (sketches or 3D sketches), open or closed, optionally ruled (straight between profiles). Open profiles drawn in opposite directions are lined up automatically. |
+| **Lofted Surface** | A surface through two or more profiles (sketches or 3D sketches), open or closed, optionally ruled (straight between profiles). Open profiles drawn in opposite directions are lined up automatically. **Guide Curves** (rails, optional): sketches or curves the surface follows between the profiles, e.g. along its edges; each runs from the first profile to the last, through every profile. One guide pulls the surface along it; two or more shape it across, each where it touches the profiles. |
 | **Swept Surface** | An open or closed sketch profile, or a circle, swept along a sketch, 3D sketch or helix |
 | **Filled Surface** | A smooth patch over a hole bounded by edges of a surface or a solid, touching or optionally tangent to the faces round it. It can be knit into the surface and close a solid. A flat loop gives a flat patch. |
 | **Boundary Surface** | A surface through curves in two directions. The first and last curve of each direction bound it and must meet at their ends; the curves between shape it. |
