@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Reference Geometry | RazorCAD user manual</title>
-<meta name="description" content="Pick up to three references (faces, edges or vertices on the model; planes in the view; planes, axes or points in the tree). The plane type follows…">
+<meta name="description" content="Pick up to three references (faces, edges or vertices on the model; lines, circles, arcs or points of a sketch shown in the view; planes in the view…">
 <link rel="canonical" href="https://razorcad.com/docs/reference-geometry">
 <meta name="theme-color" content="#a81616">
 <meta property="og:type" content="article">
 <meta property="og:site_name" content="RazorCAD">
 <meta property="og:url" content="https://razorcad.com/docs/reference-geometry">
 <meta property="og:title" content="Reference Geometry | RazorCAD user manual">
-<meta property="og:description" content="Pick up to three references (faces, edges or vertices on the model; planes in the view; planes, axes or points in the tree). The plane type follows…">
+<meta property="og:description" content="Pick up to three references (faces, edges or vertices on the model; lines, circles, arcs or points of a sketch shown in the view; planes in the view…">
 <meta property="og:image" content="https://razorcad.com/img/social.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="/favicon.ico" sizes="any">
@@ -49,7 +49,7 @@
   <div class="docs">
     <details class="docs-nav">
       <summary>Chapters</summary>
-      <nav aria-label="Manual chapters"><ol><li><a href="/docs/introduction">Introduction</a></li><li><a href="/docs/installing-and-starting-razorcad">Installing and Starting RazorCAD</a></li><li><a href="/docs/working-with-files">Working with Files</a></li><li><a href="/docs/navigating-the-3d-view">Navigating the 3D View</a></li><li><a href="/docs/selecting">Selecting</a></li><li><a href="/docs/sketching">Sketching</a></li><li><a href="/docs/3d-sketches">3D Sketches</a></li><li><a href="/docs/gears">Gears</a></li><li><a href="/docs/airfoils">Airfoils</a></li><li><a href="/docs/solid-features">Solid Features</a></li><li><a href="/docs/bodies-and-multi-body-parts">Bodies and Multi-Body Parts</a></li><li><a href="/docs/surfaces">Surfaces</a></li><li><a href="/docs/reference-geometry" aria-current="page">Reference Geometry</a><ul><li><a href="#reference-plane">Reference Plane</a></li><li><a href="#reference-axis">Reference Axis</a></li><li><a href="#reference-point">Reference Point</a></li></ul></li><li><a href="/docs/the-feature-tree-and-history">The Feature Tree and History</a></li><li><a href="/docs/sheet-metal">Sheet Metal</a></li><li><a href="/docs/fast-structure">Fast Structure</a></li><li><a href="/docs/configurations">Configurations</a></li><li><a href="/docs/assemblies">Assemblies</a></li><li><a href="/docs/drawings">Drawings</a></li><li><a href="/docs/evaluate-and-tools">Evaluate and Tools</a></li><li><a href="/docs/modelling-with-claude">Modelling with Claude</a></li><li><a href="/docs/troubleshooting">Troubleshooting</a></li><li><a href="/docs/for-developers">For Developers</a></li><li><a href="/docs/keyboard-and-mouse-reference">Appendix A: Keyboard and Mouse Reference</a></li><li><a href="/docs/materials">Appendix B: Materials</a></li></ol></nav>
+      <nav aria-label="Manual chapters"><ol><li><a href="/docs/introduction">Introduction</a></li><li><a href="/docs/installing-and-starting-razorcad">Installing and Starting RazorCAD</a></li><li><a href="/docs/working-with-files">Working with Files</a></li><li><a href="/docs/navigating-the-3d-view">Navigating the 3D View</a></li><li><a href="/docs/selecting">Selecting</a></li><li><a href="/docs/sketching">Sketching</a></li><li><a href="/docs/3d-sketches">3D Sketches</a></li><li><a href="/docs/gears">Gears</a></li><li><a href="/docs/airfoils">Airfoils</a></li><li><a href="/docs/tutorial-a-guided-loft-and-a-sheet-metal-tray">Tutorial: a Guided Loft and a Sheet Metal Tray</a></li><li><a href="/docs/solid-features">Solid Features</a></li><li><a href="/docs/bodies-and-multi-body-parts">Bodies and Multi-Body Parts</a></li><li><a href="/docs/surfaces">Surfaces</a></li><li><a href="/docs/reference-geometry" aria-current="page">Reference Geometry</a><ul><li><a href="#reference-plane">Reference Plane</a></li><li><a href="#reference-axis">Reference Axis</a></li><li><a href="#reference-point">Reference Point</a></li></ul></li><li><a href="/docs/the-feature-tree-and-history">The Feature Tree and History</a></li><li><a href="/docs/sheet-metal">Sheet Metal</a></li><li><a href="/docs/fast-structure">Fast Structure</a></li><li><a href="/docs/configurations">Configurations</a></li><li><a href="/docs/assemblies">Assemblies</a></li><li><a href="/docs/drawings">Drawings</a></li><li><a href="/docs/evaluate-and-tools">Evaluate and Tools</a></li><li><a href="/docs/modelling-with-claude">Modelling with Claude</a></li><li><a href="/docs/troubleshooting">Troubleshooting</a></li><li><a href="/docs/for-developers">For Developers</a></li><li><a href="/docs/keyboard-and-mouse-reference">Appendix A: Keyboard and Mouse Reference</a></li><li><a href="/docs/materials">Appendix B: Materials</a></li></ol></nav>
     </details>
     <script>if (matchMedia("(min-width: 1000px)").matches) document.querySelector(".docs-nav").open = true;</script>
     <main id="main" class="docs-main">
@@ -57,7 +57,7 @@
       <article class="prose">
         <h1>Reference Geometry</h1>
 <h2 id="reference-plane">Reference Plane</h2>
-<p>Pick up to three references (faces, edges or vertices on the model; planes in the view; planes, axes or points in the tree). The plane type follows from what you pick. Click a reference again to remove it.</p>
+<p>Pick up to three references (faces, edges or vertices on the model; lines, circles, arcs or points of a sketch shown in the view; planes in the view; planes, axes or points in the tree). A sketch line counts as an edge, a sketch circle or arc as its axis, a sketch point as a vertex, and the plane follows the sketch when it changes. The plane type follows from what you pick. Click a reference again to remove it.</p>
 <div class="table-wrap"><table><thead><tr><th>References</th><th>Plane made</th></tr></thead><tbody><tr><td>One plane or face</td><td>Offset (distance, flip)</td></tr><tr><td>Two planes or faces</td><td>Mid plane: halfway between parallel faces, or the bisector of angled ones</td></tr><tr><td>Plane/face + edge/axis</td><td>Through the edge at an angle (Parallel 0° and Perpendicular 90° buttons)</td></tr><tr><td>Edge/axis (+ optional point)</td><td>Normal to the edge, at its start, middle, end or the point</td></tr><tr><td>Plane/face + point/vertex</td><td>Parallel, through the point</td></tr><tr><td>Three points or vertices</td><td>Through three points</td></tr><tr><td>Edge/axis + point/vertex, <strong>Through the edge and the point</strong> ticked</td><td>Through the edge and the point</td></tr><tr><td>Two edges or axes</td><td>Through both (they must meet or be parallel)</td></tr><tr><td>Edge/axis, position <strong>At a distance from the start</strong></td><td>Normal to the edge, at that distance along it</td></tr><tr><td>Cylindrical face</td><td>Tangent to it, at an angle round it</td></tr><tr><td>Cylindrical face + plane/face</td><td>Tangent to it, parallel to the plane (either side)</td></tr></tbody></table></div>
 <p><strong>Placement</strong>, for any plane: move it along its normal, turn its axes in the plane (how a sketch on it lies), or reverse its normal.</p>
 <h2 id="reference-axis">Reference Axis</h2>
@@ -71,12 +71,12 @@
   <footer class="titleblock" aria-label="About this page">
     <div class="tb-cell tb-logo"><img src="/favicon.svg" alt="" width="44" height="44"></div>
     <div class="tb-cell tb-title"><span class="tb-label">Title</span><span class="tb-value tb-big">RazorCAD user manual</span></div>
-    <div class="tb-cell"><span class="tb-label">Rev</span><span class="tb-value">0.17.1-beta</span></div>
+    <div class="tb-cell"><span class="tb-label">Rev</span><span class="tb-value">0.17.2-beta</span></div>
     <div class="tb-cell"><span class="tb-label">Licence</span><span class="tb-value"><a href="https://github.com/Labs9119/RazorCAD/blob/main/LICENSE">GPL-3.0</a></span></div>
     <div class="tb-cell"><span class="tb-label">Source</span><span class="tb-value"><a href="https://github.com/Labs9119/RazorCAD">Labs9119/RazorCAD</a></span></div>
     <div class="tb-cell"><span class="tb-label">Kernel</span><span class="tb-value">OpenCascade</span></div>
     <div class="tb-cell"><span class="tb-label">Support</span><span class="tb-value"><a href="https://github.com/Labs9119/RazorCAD/issues">Issues</a></span></div>
-    <div class="tb-cell"><span class="tb-label">Sheet</span><span class="tb-value">14 of 26</span></div>
+    <div class="tb-cell"><span class="tb-label">Sheet</span><span class="tb-value">15 of 27</span></div>
   </footer>
   </div>
 </div>

@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tutorial: a Guided Loft and a Sheet Metal Tray | RazorCAD user manual</title>
+<meta name="description" content="This tutorial builds a small duct and a tray with tools added in the 0.17 versions: the closed control-point spline, a plane placed with Placement, a…">
+<link rel="canonical" href="https://razorcad.com/docs/tutorial-a-guided-loft-and-a-sheet-metal-tray">
+<meta name="theme-color" content="#a81616">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="RazorCAD">
+<meta property="og:url" content="https://razorcad.com/docs/tutorial-a-guided-loft-and-a-sheet-metal-tray">
+<meta property="og:title" content="Tutorial: a Guided Loft and a Sheet Metal Tray | RazorCAD user manual">
+<meta property="og:description" content="This tutorial builds a small duct and a tray with tools added in the 0.17 versions: the closed control-point spline, a plane placed with Placement, a…">
+<meta property="og:image" content="https://razorcad.com/img/social.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/img/razorcad-512.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "User manual", "item": "https://razorcad.com/docs/"}, {"@type": "ListItem", "position": 2, "name": "Tutorial: a Guided Loft and a Sheet Metal Tray", "item": "https://razorcad.com/docs/tutorial-a-guided-loft-and-a-sheet-metal-tray"}]}</script>
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <a class="brand" href="/" aria-label="RazorCAD home">
+    <img src="/favicon.svg" alt="" width="34" height="34">
+    <span>RazorCAD</span>
+  </a>
+  <nav aria-label="Main">
+    <a href="/#features">Features</a>
+    <a href="/docs/">Manual</a>
+    <a href="/#download">Download</a>
+    <a class="nav-gh" href="https://github.com/Labs9119/RazorCAD"><svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg> GitHub</a>
+  </nav>
+</header>
+
+<div class="frame">
+  <div class="zones zones-top" aria-hidden="true"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span></div>
+  <div class="zones zones-bottom" aria-hidden="true"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span></div>
+  <div class="zones zones-left" aria-hidden="true"><span>A</span><span>B</span><span>C</span><span>D</span><span>E</span><span>F</span></div>
+  <div class="zones zones-right" aria-hidden="true"><span>A</span><span>B</span><span>C</span><span>D</span><span>E</span><span>F</span></div>
+  <div class="sheet">
+  <div class="docs">
+    <details class="docs-nav">
+      <summary>Chapters</summary>
+      <nav aria-label="Manual chapters"><ol><li><a href="/docs/introduction">Introduction</a></li><li><a href="/docs/installing-and-starting-razorcad">Installing and Starting RazorCAD</a></li><li><a href="/docs/working-with-files">Working with Files</a></li><li><a href="/docs/navigating-the-3d-view">Navigating the 3D View</a></li><li><a href="/docs/selecting">Selecting</a></li><li><a href="/docs/sketching">Sketching</a></li><li><a href="/docs/3d-sketches">3D Sketches</a></li><li><a href="/docs/gears">Gears</a></li><li><a href="/docs/airfoils">Airfoils</a></li><li><a href="/docs/tutorial-a-guided-loft-and-a-sheet-metal-tray" aria-current="page">Tutorial: a Guided Loft and a Sheet Metal Tray</a><ul><li><a href="#the-bottom-profile">The bottom profile</a></li><li><a href="#a-plane-moved-and-turned">A plane, moved and turned</a></li><li><a href="#the-guide-curve">The guide curve</a></li><li><a href="#the-guided-loft">The guided loft</a></li><li><a href="#a-fillet-with-a-point-along-its-edge">A fillet with a point along its edge</a></li><li><a href="#the-tray">The tray</a></li></ul></li><li><a href="/docs/solid-features">Solid Features</a></li><li><a href="/docs/bodies-and-multi-body-parts">Bodies and Multi-Body Parts</a></li><li><a href="/docs/surfaces">Surfaces</a></li><li><a href="/docs/reference-geometry">Reference Geometry</a></li><li><a href="/docs/the-feature-tree-and-history">The Feature Tree and History</a></li><li><a href="/docs/sheet-metal">Sheet Metal</a></li><li><a href="/docs/fast-structure">Fast Structure</a></li><li><a href="/docs/configurations">Configurations</a></li><li><a href="/docs/assemblies">Assemblies</a></li><li><a href="/docs/drawings">Drawings</a></li><li><a href="/docs/evaluate-and-tools">Evaluate and Tools</a></li><li><a href="/docs/modelling-with-claude">Modelling with Claude</a></li><li><a href="/docs/troubleshooting">Troubleshooting</a></li><li><a href="/docs/for-developers">For Developers</a></li><li><a href="/docs/keyboard-and-mouse-reference">Appendix A: Keyboard and Mouse Reference</a></li><li><a href="/docs/materials">Appendix B: Materials</a></li></ol></nav>
+    </details>
+    <script>if (matchMedia("(min-width: 1000px)").matches) document.querySelector(".docs-nav").open = true;</script>
+    <main id="main" class="docs-main">
+      <p class="crumbs"><a href="/docs/">User manual</a> / Tutorial: a Guided Loft and a Sheet Metal Tray</p>
+      <article class="prose">
+        <h1>Tutorial: a Guided Loft and a Sheet Metal Tray</h1>
+<p>This tutorial builds a small duct and a tray with tools added in the 0.17 versions: the closed control-point spline, a plane placed with <strong>Placement</strong>, a loft that follows a guide curve, a variable fillet with a point along its edge, and edge flanges that meet corner to corner. The finished part is in <strong>File ▸ Open Example Part (Tutorial)</strong> (also on the start window): open it to look round, or follow the steps in a new part.</p>
+<h2 id="the-bottom-profile">The bottom profile</h2>
+<ol class="steps-list"><li>Select the <strong>Top Plane</strong> and click <strong>Sketch</strong>.</li><li>Click <strong>Control-Point Spline</strong> on the Sketch tab and click eight control points round the origin, roughly at (50, 0), (40, 25), (0, 30), (−40, 25), (−50, 0), (−40, −25), (0, −30) and (40, −25). Click the first point again to close it: the curve runs round smoothly, near the points rather than through them.</li><li>Select the spline: its panel shows the <strong>Degree</strong> (3) and the <strong>Closed</strong> box. Select a control point to see its <strong>Weight</strong>; leave it at 1 for now. Drag a control point and the curve follows.</li><li>Exit the sketch.</li></ol>
+<h2 id="a-plane-moved-and-turned">A plane, moved and turned</h2>
+<ol class="steps-list"><li>Click <strong>Reference Plane</strong>, pick the <strong>Top Plane</strong> and set the offset to 100.</li><li>Under <strong>Placement</strong>, set <strong>Turn its axes in the plane</strong> to 30°: the plane's axes turn in the plane, so whatever is sketched on it turns with them.</li><li>Sketch a circle of radius 20 at the origin on this plane and exit the sketch.</li></ol>
+<h2 id="the-guide-curve">The guide curve</h2>
+<ol class="steps-list"><li>Sketch on the <strong>Front Plane</strong>. With <strong>Control-Point Spline</strong>, click three points: the first where the bottom profile crosses the X axis (about 46.67, 0), one out to the side (about 62, 45) and the last on the circle (20, 100). Finish with a double-click or <kbd>Enter</kbd>.</li><li>A guide curve has to touch every profile. The first point lies on the bottom profile's curve, not on a control point: with these control points the curve crosses the axis at 140/3 = 46.6667 mm (select the point and type 46.6667 for its X in the panel).</li></ol>
+<h2 id="the-guided-loft">The guided loft</h2>
+<ol class="steps-list"><li>Click <strong>Loft</strong>, pick the bottom sketch and then the circle's sketch as the profiles.</li><li>Under <strong>Guide Curves</strong>, pick the guide sketch. The loft's side follows the guide between the two profiles, and the profiles stay exactly as drawn. The note reads "2 profiles, 1 guide curve".</li></ol>
+<h2 id="a-fillet-with-a-point-along-its-edge">A fillet with a point along its edge</h2>
+<ol class="steps-list"><li>Click <strong>Fillet</strong>, set the type to <strong>Variable size</strong> and <strong>Radius</strong> to <strong>At vertices and points along edges</strong>, and click the loft's bottom edge where the guide starts.</li><li>Set the radius to 3: that is the radius at the edge's vertices.</li><li>Under <strong>Points along the edges</strong>, click <strong>Add Point</strong>: half way along the edge (50 %) with a radius of 8. The point is marked on the edge; the fillet swells smoothly from 3 at the vertices to 8 there.</li></ol>
+<h2 id="the-tray">The tray</h2>
+<ol class="steps-list"><li>Sketch an 80 × 60 rectangle on the <strong>Top Plane</strong>, beside the duct, and click <strong>Base Flange</strong> on the Sheet Metal tab with a thickness of 1.5 mm.</li><li>Click <strong>Edge Flange</strong> and pick the four top edges, with a length of 20. Under <strong>Corners</strong>, <strong>Corner to corner</strong> is the default: where two flanges meet, each runs on up to the other's inside face and ends square, the gap apart, and the bends end in a small V cutout. <strong>Mitred</strong> would close them on the diagonal, and <strong>Overlap</strong> would run one flange past the other's end.</li><li>Click <strong>Flatten</strong> to see the tray laid out, with its bend lines.</li></ol>
+<aside class="callout callout-tip"><strong>Tip:</strong> change any value in the tree (the spline's degree, a weight, the plane's turn, the fillet's point) and the part rebuilds from there.</aside>
+      </article>
+      <nav class="pager" aria-label="Chapters"><a class="pager-prev" href="/docs/airfoils"><span>Previous</span>Airfoils</a><a class="pager-next" href="/docs/solid-features"><span>Next</span>Solid Features</a></nav>
+    </main>
+  </div>
+  <footer class="titleblock" aria-label="About this page">
+    <div class="tb-cell tb-logo"><img src="/favicon.svg" alt="" width="44" height="44"></div>
+    <div class="tb-cell tb-title"><span class="tb-label">Title</span><span class="tb-value tb-big">RazorCAD user manual</span></div>
+    <div class="tb-cell"><span class="tb-label">Rev</span><span class="tb-value">0.17.2-beta</span></div>
+    <div class="tb-cell"><span class="tb-label">Licence</span><span class="tb-value"><a href="https://github.com/Labs9119/RazorCAD/blob/main/LICENSE">GPL-3.0</a></span></div>
+    <div class="tb-cell"><span class="tb-label">Source</span><span class="tb-value"><a href="https://github.com/Labs9119/RazorCAD">Labs9119/RazorCAD</a></span></div>
+    <div class="tb-cell"><span class="tb-label">Kernel</span><span class="tb-value">OpenCascade</span></div>
+    <div class="tb-cell"><span class="tb-label">Support</span><span class="tb-value"><a href="https://github.com/Labs9119/RazorCAD/issues">Issues</a></span></div>
+    <div class="tb-cell"><span class="tb-label">Sheet</span><span class="tb-value">11 of 27</span></div>
+  </footer>
+  </div>
+</div>
+</body>
+</html>
