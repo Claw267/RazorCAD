@@ -174,7 +174,8 @@ export const platform = {
   async fileTypesInfo() { return desktop ? api().file_types_info() : null; },
   async registerFileTypes() { return api().register_file_types(); },
 
-  // Open a part by path (recent files). Returns { name, content, path, autosave? }.
+  // Open a part by path (recent files, files opened from Windows). Returns { name, content, path, autosave? },
+  // or for a STEP / IGES / STL / OBJ / 3MF file { name, format, data } to import.
   async openPath(path) {
     if (desktop) return api().open_path(path);
     throw new Error('Opening by path needs the desktop app');

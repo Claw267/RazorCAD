@@ -65,6 +65,8 @@ STEP_TYPES = ('STEP File (*.step;*.stp)', 'All files (*.*)')
 DXF_TYPES = ('DXF Drawing (*.dxf)', 'All files (*.*)')
 MACRO_TYPES = ('RazorCAD macro (*.js)', 'All files (*.*)')
 IMPORT_TYPES = ('STEP IGES STL OBJ or 3MF (*.step;*.stp;*.igs;*.iges;*.stl;*.obj;*.3mf)', 'STEP File (*.step;*.stp)', 'IGES File (*.igs;*.iges)', 'STL Mesh (*.stl)', 'OBJ Mesh (*.obj)', '3MF Model (*.3mf)', 'All files (*.*)')
+# files imported (as a new part, or into one) rather than opened as RazorCAD documents
+IMPORT_EXTS = ('.step', '.stp', '.igs', '.iges', '.stl', '.obj', '.3mf')
 OBJ_TYPES = ('OBJ Mesh (*.obj)', 'All files (*.*)')
 THREEMF_TYPES = ('3MF Model (*.3mf)', 'All files (*.*)')
 DXF_OPEN_TYPES = ('DXF Drawing (*.dxf)', 'All files (*.*)')
@@ -877,7 +879,7 @@ class Api:
         path = first(self._window.create_file_dialog(webview.FileDialog.OPEN, file_types=OPEN_TYPES))
         if not path:
             return None
-        if path.lower().endswith(('.step', '.stp', '.igs', '.iges', '.stl', '.obj', '.3mf')):
+        if path.lower().endswith(IMPORT_EXTS):
             return self._read_import(path)
         return self.open_path(path)
 
@@ -905,9 +907,12 @@ class Api:
         """Read a part; also return its auto-save when that is newer than the file.
 
         Opening an auto-save file itself recovers it into its part: the part keeps its own path
-        (saving writes the part, auto-saves go to the one auto-save file next to it)."""
+        (saving writes the part, auto-saves go to the one auto-save file next to it).
+        A STEP / IGES / STL / OBJ / 3MF file (opened from Windows) is read for importing: { name, format, data }."""
         if not os.path.exists(path):
             raise FileNotFoundError('The file no longer exists: ' + path)
+        if path.lower().endswith(IMPORT_EXTS):
+            return self._read_import(path)
         if is_autosave(path):
             original = original_of(path)
             with open(path, encoding='utf-8-sig') as f:
