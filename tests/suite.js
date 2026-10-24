@@ -2554,6 +2554,37 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
   // a loft with guide curves: two squares 40 × 40, 100 apart; a guide (an arc in the front plane from the middle of
   // one side of the bottom square, out to x = 40 half way up, to the same side of the top one) pulls that side out
   // (without it the loft is a straight block, x to 20); with a second guide on the other side, both sides bulge
+  // A new Edge-Flange's flanges meet corner to corner (mitred) where they meet, not one overlapping the other: the
+  // tray's four flanges with the defaults close their four corners, the same body as with corner 'butt' set and
+  // not the overlap's
+  async 'flange-corner-default'() {
+    const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient({ threads: threadsPerKernel() });
+    try {
+      const tray = JSON.parse(await (await fetch('/tests/parts/sheet-metal-tray.rcad')).text());
+      const edges = tray.features[2].edges;
+      const vol = (r) => {
+        const b = r.body?.bodies?.[0], V = r.body?.vertices, T = r.body?.triangles;
+        if (!b) return NaN;
+        let v6 = 0;
+        for (let q = b.triStart; q < b.triStart + b.triCount; q += 3) {
+          const [a, c, e] = [0, 1, 2].map((j) => 3 * T[q + j]);
+          v6 += V[a] * (V[c + 1] * V[e + 2] - V[c + 2] * V[e + 1]) - V[a + 1] * (V[c] * V[e + 2] - V[c + 2] * V[e]) + V[a + 2] * (V[c] * V[e + 1] - V[c + 1] * V[e]);
+        }
+        return Math.abs(v6 / 6);
+      };
+      const build = async (props) => {
+        const d = JSON.parse(JSON.stringify(tray)); d.features = d.features.slice(0, 2);
+        const f = M.createFeature(d, 'smFlange', { edges, length: 20, ...props });
+        d.features.push(f);
+        const r = await k.rebuild(d, null, null);
+        return { f, r, v: vol(r), note: r.notes?.[f.id] || '' };
+      };
+      const def = await build({}), butt = await build({ corner: 'butt' }), over = await build({ corner: 'closed' });
+      const ok = def.f.corner === 'butt' && !def.r.errors.length && /4 corners closed/.test(def.note)
+        && Math.abs(def.v - butt.v) < 1e-6 * butt.v && Math.abs(def.v - over.v) > 1e-4 * over.v;
+      return { ok, detail: `default corner '${def.f.corner}', ${def.note || JSON.stringify(def.r.errors)}; volume ${def.v.toFixed(3)} (corner to corner ${butt.v.toFixed(3)}, overlap ${over.v.toFixed(3)})` };
+    } finally { k.dispose(); }
+  },
   async 'loft-guides'() {
     const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient({ threads: threadsPerKernel() });
     try {

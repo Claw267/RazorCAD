@@ -674,3 +674,6 @@ Skipped for now (from the list of 2026-10-21):
 
 ## Version 0.17.0-beta (user 2026-10-24: "update the installer and push it")
 - [x] version.txt 0.17.0-beta; manual revision history; website home page version and download links; manual PDF, online manual and browser version rebuilt; installer built (45 MB, unsigned); smoke test and full suite pass; GitHub pre-release v0.17.0-beta with the setup and the manual.
+
+## Edge-Flange corner default (user 2026-10-24: a sheet metal tray "produces a closed corner by default. This is incorrect. The corners of the flanges should be a corner-to-corner result by default not overlapped")
+- [x] model.js smFlange corner default 'butt' (was 'closed' = overlap); panel options reordered and named Corner to corner (mitred) / Overlap / Open corner, hint for both; claudespec; manual Edge Flange table. Saved parts keep their own corner (a part without one is open, as before). Test flange-corner-default.

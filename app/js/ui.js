@@ -491,11 +491,11 @@ const PM_SCHEMAS = {
     },
     {
       title: 'Corners', fields: [
-        { key: 'corner', type: 'select', label: 'Where these flanges meet', options: [['closed', 'Closed — overlap (one covers the other\'s end)'], ['butt', 'Closed — butt (mitred)'], ['open', 'Open corner']] },
+        { key: 'corner', type: 'select', label: 'Where these flanges meet', options: [['butt', 'Corner to corner (mitred)'], ['closed', 'Overlap (one covers the other\'s end)'], ['open', 'Open corner']] },
         { key: 'cornerGap', type: 'expr', label: 'Gap', unit: 'mm', show: (f) => f.corner === 'closed' || f.corner === 'butt' },
         { key: 'cornerBend', type: 'select', label: 'Bend region', options: [['vcut', 'V cutout (as formed from the flat; lens-shaped opening)'], ['mitre', 'Closed (the bends meet on the diagonal)']], show: (f) => f.corner === 'closed' },
         { key: 'cornerSwap', type: 'check', label: 'Swap which flange covers the other', show: (f) => f.corner === 'closed' },
-        { key: 'cHint', type: 'hint', text: 'For 90° flanges picked in this feature that meet at a corner: one runs on to cover the other\'s end (bends included), the other runs up to it, leaving the gap.' },
+        { key: 'cHint', type: 'hint', show: (f) => f.corner !== 'open', text: 'For 90° flanges picked in this feature that meet at a corner. Corner to corner: the two meet on the diagonal, the gap apart. Overlap: one runs on to cover the other\'s end (bends included), the other runs up to it, leaving the gap.' },
       ],
     },
     {

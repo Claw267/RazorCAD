@@ -1009,7 +1009,7 @@ Click straight edges on the top or bottom face. {idx:Edge Flange}
 | Position | Material inside, material outside, bend outside, plus an offset; flip |
 | Bend radius | Its own radius, or the default |
 | Auto relief | Rectangular, obround or tear relief where a bend ends next to material |
-| Corners | Flanges picked together that meet at a corner are closed with a gap (default 0.1 mm), or left open. Corner type Overlap, Underlap or Butt; **Swap** reverses which covers; Bend region V cutout or Closed. |
+| Corners | Flanges picked together that meet at a corner: **Corner to corner** (the default: they meet on the diagonal, mitred), **Overlap** (one runs on to cover the other's end) or **Open**. Closed corners keep a gap (default 0.1 mm). For Overlap, **Swap** reverses which covers, and the Bend region is a V cutout or Closed. |
 
 ## Miter Flange
 

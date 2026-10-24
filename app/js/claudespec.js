@@ -52,8 +52,8 @@ existing features are referred to by the ids given in the part description)
 8. Sheet metal:
    Base flange: { "type": "smBase", "sketch": "s1", "thickness": 2, "radius": 2, "kFactor": 0.44, "reverse": false } (closed sketch → flat sheet along n)
    Edge flange: { "type": "smFlange", "edges": [{ "p": [x, y, z] }], "length": 25, "angle": 90, "lengthRef": "outer",
-                  "position": "inside", "flip": false, "corner": "closed" | "butt" | "open", "cornerGap": 0.1 } — edges: straight edges on the TOP face of the sheet (the face at +thickness along n); the flange goes up.
-                  Flanges in one feature that meet at a corner are closed up to cornerGap ("corner": "open" leaves the corner open).
+                  "position": "inside", "flip": false, "corner": "butt" | "closed" | "open", "cornerGap": 0.1 } — edges: straight edges on the TOP face of the sheet (the face at +thickness along n); the flange goes up.
+                  Flanges in one feature that meet at a corner meet corner to corner on the diagonal, cornerGap apart ("butt", the default); "closed" makes one overlap the other's end; "open" leaves the corner open.
    Closed corner: { "type": "smClosedCorner", "cornerType": "overlap" | "underlap" | "butt", "gap": 0.1 } (every corner of the sheet)   Corner relief: { "type": "smCornerRelief", "reliefType": "rect" | "circle", "size": 4 }
 
 RULES

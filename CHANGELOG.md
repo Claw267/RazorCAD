@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-24 22:14 — Edge-Flange: flanges meet corner to corner by default
+- Flanges picked together in an Edge-Flange (a tray's sides, say) now meet **corner to corner** where they meet: on the diagonal, mitred, the gap apart. Before, one flange ran on to cover the other's end (an overlap), which is not what a plain tray should get.
+- Overlap and Open are still offered under Corners. Parts already made keep the corners they were made with.
+- Test: flange-corner-default (the tray's four flanges with the defaults: four corners closed corner to corner, the same body as with Corner to corner chosen, not the overlap's).
+
 ## 2026-10-24 21:18 — Version 0.17.0-beta: installer, user manual and website
 - **RazorCAD-Setup-0.17.0-beta.exe** built (in "RazorCAD Install", 45 MB, unsigned), with everything since 0.16.0-beta:
   - from the first suggestion on GitHub: the Control-Point Spline (degree 1 to 5, its control polygon dimensioned and constrained like any lines), the Midpoint relation on an arc, more reference planes (through an edge and a point, through two edges, at a distance along an edge, tangent to a cylindrical face) with placement for every plane, and loft guide curves;

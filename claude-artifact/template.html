@@ -159,7 +159,7 @@ const DEFAULTS = {
   chamfer: { chamferType: 'distance', distance: 1, distance2: 1, angle: 45, flip: false, edges: [] },
   shell: { faces: [], thickness: 2, outward: false },
   smBase: { sketch: null, thickness: 2, radius: 2, kFactor: 0.44, reverse: false },
-  smFlange: { edges: [], length: 20, lengthRef: 'outer', angle: 90, position: 'inside', offset: 0, flip: false, useDefaultRadius: true, radius: 2, reliefType: 'rect', reliefRatio: 0.5, corner: 'closed', cornerGap: 0.1, cornerSwap: false, cornerBend: 'vcut' },
+  smFlange: { edges: [], length: 20, lengthRef: 'outer', angle: 90, position: 'inside', offset: 0, flip: false, useDefaultRadius: true, radius: 2, reliefType: 'rect', reliefRatio: 0.5, corner: 'butt', cornerGap: 0.1, cornerSwap: false, cornerBend: 'vcut' },
   smCornerRelief: { body: null, reliefType: 'rect', size: 4 },
   smClosedCorner: { body: null, faces: [], cornerType: 'overlap', bendCorner: 'vcut', gap: 0.1, swap: false },
 };
