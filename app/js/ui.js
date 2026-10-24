@@ -2319,7 +2319,12 @@ export class UI {
         ],
       });
     }
-    node({ icon: 'origin', label: 'Origin', depth: 1 });
+    // the origin: the world's up axis beside it, changed from its right-click menu (wcs.js)
+    node({
+      icon: 'origin', label: 'Origin', depth: 1, sub: `${W.getUp().toUpperCase()} up`,
+      title: `World axes: ${W.getUp().toUpperCase()} up (Top plane ${W.stdPlaneAxes('top')}, Front ${W.stdPlaneAxes('front')}, Right ${W.stdPlaneAxes('right')}). Right-click to change.`,
+      menu: () => [['y', 'Y up (Top plane XZ, Front XY)'], ['z', 'Z up (Top plane XY, Front XZ)']].map(([v, l]) => ({ label: `${W.getUp() === v ? '● ' : '　'}${l}`, icon: 'axis', action: () => a.setUpAxis(v) })),
+    });
 
     // features above the rollback bar are built; the ones below it are rolled back (greyed)
     const ri = rollbackIndex(doc);

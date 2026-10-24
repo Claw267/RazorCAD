@@ -1034,6 +1034,8 @@ const UI = {
     await until(() => asm.geo(bolt)?.mesh, 30000);
     const mates = asm.doc.mates.filter((m) => m.b.comp === bolt.id).map((m) => m.type).sort().join(',');
     const r3 = (v) => v.map((x) => Math.round(x * 1000) / 1000).join(',');
+    // (the mates are solved after its mesh comes: under load that can be a moment later)
+    await until(() => r3(bolt.pos) === '0,10,0' || null, 5000);
     const placed = r3(bolt.pos) === '0,10,0' && r3(bolt.rot) === '0,0,0,1';
     const bbox = asm.geo(bolt).box, bh = Math.round((bbox.max[1] - bbox.min[1]) * 100) / 100;
     const bolt2 = await asm.insertStdPart('hexBolt', fit.size, fit.length, 'steel', null);
@@ -2636,12 +2638,20 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     a.cancelPM();
     const zAxis = W.internalAxis('z'), yAxis = W.internalAxis('y'), tri = W.fromUser([0, 0, 1]);
     a.setUpAxis('y');
+    // (and from the Origin's right-click menu in the tree)
+    const originNode = () => [...document.querySelectorAll('#tree .tn')].find((n) => n.querySelector('.tl')?.textContent === 'Origin');
+    originNode()?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 60, clientY: 300 }));
+    const items = [...document.querySelectorAll('#ctxmenu .mi')];
+    items.find((x) => x.textContent.includes('Z up'))?.click();
+    const viaMenu = a.doc.upAxis === 'z' && originNode()?.querySelector('.tsub')?.textContent === 'Z up';
+    a.setUpAxis('y');
     const back = W.getUp();
+    if (items.length !== 2 || !viaMenu) bad.push(`the Origin's menu: ${items.length} items, Z up from it ${viaMenu}`);
     if (top !== 'XY') bad.push(`Top plane shown as ${top}`);
     if (!moved) bad.push(`ΔY 5 stored as dy ${f?.dy}, dz ${f?.dz}`);
     if (zAxis !== 'y' || yAxis !== '-z' || tri.join() !== '0,1,0') bad.push(`axes: Z ${zAxis}, Y ${yAxis}, triad Z ${tri}`);
     if (back !== 'y') bad.push('not back to Y up');
-    if (!bad.length) out.push('Top plane XY, ΔY kept as −ΔZ, Z axis is RazorCAD\'s Y');
+    if (!bad.length) out.push('Top plane XY, ΔY kept as −ΔZ, Z axis is RazorCAD\'s Y; Z up from the Origin\'s right-click menu');
     return bad.length ? { ok: false, detail: bad.join('; ') } : { ok: true, detail: out.join('; ') };
   },
 

@@ -6,6 +6,10 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-25 06:57 — The up axis from the Origin in the feature tree
+- Right-click **Origin** in the feature tree to choose **Y up** or **Z up**; the Origin shows the current one beside it (“Y up” / “Z up”).
+- Test: up-axis-z (also: Z up chosen from the Origin's right-click menu).
+
 ## 2026-10-25 06:47 — The world's up axis: Y or Z
 - Each part can be shown **Y up** (as before) or **Z up**: **View ▸ Up Axis**, or click **Y up / Z up** in the status bar. With Z up the **Top plane is XY**, the **Front plane XZ** and the **Right plane YZ**, and Z points up; the tree shows each plane's axes beside it. The choice is kept with the part and is used for new parts too.
 - The model stays where it is: only what the axes are called changes, so switching never moves or breaks a feature. Everything that shows or takes world axes follows: the triad and the origin, X / Y / Z directions (patterns, axes, rotations), Move / Copy Bodies' ΔX ΔY ΔZ, a reference point's coordinates, Measure (points and ΔX ΔY ΔZ), Mass Properties (centre of mass, bounding box), 3D sketch coordinates and its Along X / Y / Z and On / Parallel to plane relations, and the Ask Claude panel.
