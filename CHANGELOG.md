@@ -15,7 +15,6 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ## 2026-10-24 06:05 — STEP, IGES and mesh files opened from Windows are imported
 - A STEP, IGES, STL, OBJ or 3MF file opened from Windows (double-click, Open with, or RazorCAD.exe with the file on the command line, also when RazorCAD is already running) was read as a RazorCAD part and failed with "Could not open". It now opens as a new part holding the import, as File ▸ Open does.
-- Opening a file by path (recent files, files opened from Windows) returns the part as before, or for a STEP, IGES, STL, OBJ or 3MF file its name, format and data to import.
 - Checked from the command line with a STEP, an STL and an IGES file at once (three new parts), and with a STEP handed to a RazorCAD already running.
 
 ## 2026-10-23 19:38 — Browser version: no browser right-click menu over RazorCAD

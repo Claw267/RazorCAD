@@ -661,6 +661,10 @@ Skipped for now (from the list of 2026-10-21):
 ## Browser right-click menu (user 2026-10-23: "The browser right click menu gets in the way on the browser")
 - [x] main.js: one contextmenu listener on the document (capture, so panels that stop the event are covered) prevents the browser's menu unless browserMenuWanted (input, textarea, select, contenteditable, or on selected text). Test no-browser-menu (tree and status bar let it through before).
 
+## STEP, IGES and mesh files opened from Windows (2026-10-24 06:05)
+- [x] razorcad.py: IMPORT_EXTS (shared with File > Open); Api.open_path reads these files with _read_import and returns { name, format, data } instead of a part. platform.openPath passes that through (recent files, files opened from Windows: part { name, content, path, autosave? } or an import). main.openRecent: file.format -> handleImport(file, { asPart: true }), a new part.
+- [x] Tested from the command line: a STEP, an STL and an IGES at once (three new parts); a STEP handed to a RazorCAD already running.
+
 ## GitHub suggestion #1 (user 2026-10-24: "They make good points. Read the suggestion and implement the changes")
 - [x] Splines: control-point splines (sketchmodel addCtrlSpline: curve type 'spline' with ctrl, degree; bsplineBeziers by Boehm insertion, clamped even knots; bezierAsCubics: exact to degree 3, Hermite halves to 1e-5 mm above; polygon = construction lines ctrlOf; copy / mirror / delete keep it; sketcher tool 'cspline'; panel: degree select). Test ctrl-spline.
 - [x] Midpoint of an arc: solver 'midpoint' with an arc (half way round, counter-clockwise); offered for point + arc; snap. Test sketch-arc-midpoint.
