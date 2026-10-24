@@ -6,6 +6,10 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-25 06:37 — Fixed: two file dialogs open at once froze both
+- Reported on GitHub: several Open File dialogs could be opened together (File ▸ Open, Ctrl+O, the start window, Import, Save As…), and then none of them answered or could be closed, so RazorCAD had to be ended from outside. Only one file dialog is now open at a time: while one is open, another request does nothing (as if it were cancelled), and the open one closes with Cancel, its close button or Esc as usual.
+- Checked: a second request while a dialog is open returns at once, and the next one after it closes opens normally.
+
 ## 2026-10-25 01:45 — Reference planes from sketch entities, sketch patterns along a curve, fillet points by clicking, fixes in the sketcher
 From suggestions on GitHub (Discussions):
 - **Reference planes from a sketch**: a line, a circle or arc (its axis) or a point of a sketch shown in the view can be picked as a reference, alone or with others (normal to the line, through the line and a point, through two lines, at an angle to a plane through the line…). The plane follows the sketch when it changes.

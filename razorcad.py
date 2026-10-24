@@ -563,10 +563,25 @@ class Api:
         self._close_ack = False
         self._has_file = False
         self._crash = crash
+        self._dialog_lock = threading.Lock()  # one file dialog at a time (see _file_dialog)
         self._open_queue = []     # files given on the command line, for the interface to open
         self._ui_ready = False    # (the interface has asked for them: later requests are pushed to it)
 
+    # --- file dialogs ------------------------------------------------------
+
+    def _file_dialog(self, *args, **kwargs):
+        """A Windows file dialog, one at a time. While one is open another request (a second Open, Import or Save
+        As, from the menu, a shortcut or the start window) gets None at once, as if cancelled: two dialogs open
+        together both stop answering and can't be closed."""
+        if not self._dialog_lock.acquire(blocking=False):
+            return None
+        try:
+            return self._window.create_file_dialog(*args, **kwargs)
+        finally:
+            self._dialog_lock.release()
+
     # --- recent files -----------------------------------------------------
+
     def _recent_file(self):
         return os.path.join(data_dir(), 'recent.json')
 
@@ -638,7 +653,7 @@ class Api:
         if not path:
             types = {'drawing': DRAWING_TYPES, 'assembly': ASSEMBLY_TYPES, 'template': TEMPLATE_TYPES}.get(kind, PART_TYPES)
             extra = {'directory': templates_dir()} if kind == 'template' else {}
-            path = first(self._window.create_file_dialog(webview.FileDialog.SAVE, save_filename=name, file_types=types, **extra))
+            path = first(self._file_dialog(webview.FileDialog.SAVE, save_filename=name, file_types=types, **extra))
             if not path:
                 return None
         write_atomic(path, content)
@@ -682,14 +697,14 @@ class Api:
 
     def save_binary(self, name, b64, kind='stl'):
         types = {'stl': STL_TYPES, 'step': STEP_TYPES, 'dxf': DXF_TYPES, 'pdf': PDF_TYPES, 'obj': OBJ_TYPES, '3mf': THREEMF_TYPES, 'js': MACRO_TYPES}.get(kind, ('All files (*.*)',))
-        path = first(self._window.create_file_dialog(webview.FileDialog.SAVE, save_filename=name, file_types=types))
+        path = first(self._file_dialog(webview.FileDialog.SAVE, save_filename=name, file_types=types))
         if not path:
             return None
         write_atomic(path, base64.b64decode(b64), binary=True)
         return path
 
     def pick_folder(self):
-        folder = first(self._window.create_file_dialog(webview.FileDialog.FOLDER))
+        folder = first(self._file_dialog(webview.FileDialog.FOLDER))
         if not folder:
             return None
         self._picked_folder = os.path.abspath(folder)
@@ -852,7 +867,7 @@ class Api:
             return json.dumps({'error': {'message': 'Could not reach Claude: %s' % e}})
 
     def open_import(self):
-        path = first(self._window.create_file_dialog(webview.FileDialog.OPEN, file_types=IMPORT_TYPES))
+        path = first(self._file_dialog(webview.FileDialog.OPEN, file_types=IMPORT_TYPES))
         if not path:
             return None
         return self._read_import(path)
@@ -868,7 +883,7 @@ class Api:
 
     def open_dxf(self):
         """A DXF file's text (for importing into a sketch), or None."""
-        path = first(self._window.create_file_dialog(webview.FileDialog.OPEN, file_types=DXF_OPEN_TYPES))
+        path = first(self._file_dialog(webview.FileDialog.OPEN, file_types=DXF_OPEN_TYPES))
         if not path:
             return None
         with open(path, encoding='utf-8', errors='replace') as f:
@@ -876,7 +891,7 @@ class Api:
 
     def open_file(self):
         """Open a part, or a STEP/STL file (the interface then offers a new part or inserting it)."""
-        path = first(self._window.create_file_dialog(webview.FileDialog.OPEN, file_types=OPEN_TYPES))
+        path = first(self._file_dialog(webview.FileDialog.OPEN, file_types=OPEN_TYPES))
         if not path:
             return None
         if path.lower().endswith(IMPORT_EXTS):
@@ -885,7 +900,7 @@ class Api:
 
     def open_macro(self):
         """A macro file (.js, up to 1 MB): { name, content }."""
-        path = first(self._window.create_file_dialog(webview.FileDialog.OPEN, file_types=MACRO_TYPES))
+        path = first(self._file_dialog(webview.FileDialog.OPEN, file_types=MACRO_TYPES))
         if not path:
             return None
         if os.path.getsize(path) > 1 << 20:
@@ -1031,7 +1046,7 @@ class Api:
             return {'path': path, 'content': f.read()}
 
     def pick_template(self):
-        path = first(self._window.create_file_dialog(webview.FileDialog.OPEN, file_types=TEMPLATE_TYPES, directory=templates_dir()))
+        path = first(self._file_dialog(webview.FileDialog.OPEN, file_types=TEMPLATE_TYPES, directory=templates_dir()))
         return self.read_template(path) if path else None
 
     def open_templates_folder(self):
