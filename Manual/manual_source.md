@@ -430,7 +430,7 @@ In the sketch Property panel, **Rotate 90°** turns the sketch axes about the sk
 | **Offset** | [[O]] | See below |
 | **Mirror** | | Select the entities plus a centerline, then click Mirror |
 | **Import DXF** | | See below |
-| **Linear / Circular Sketch Pattern** | | Copies the selected entities with the relations and dimensions among them. A selected point is the circular pattern's centre. |
+| **Linear / Circular Sketch Pattern** | | Copies the selected entities with the relations and dimensions among them. A selected point is the circular pattern's centre. For a linear pattern, select a line or curve with them too and choose it as direction 1: the copies go the line's way, or follow the curve at the spacing measured along it (optionally turned with it). |
 | **Make Block / Insert Block** | | Make Block saves the selection (with its relations) under a name in your settings. Insert Block places copies with a click, in any sketch, and can delete blocks from the library. |
 | **Text** | | See below |
 | **Gears** | | See the Gears chapter |
@@ -783,7 +783,7 @@ Open the feature and click edges on the model. The model is rolled back to just 
 - Where a fillet can't be added on top of earlier fillets (a corner where several blends meet), RazorCAD recomputes it together with the preceding fillets in one operation.
 - Where two blends exactly meet (for example R2 on both edges of a 4 mm wall) the result is a full round.
 - **Variable size**: a radius at the start and another at the end of each edge, or **Radius ▸ At vertices and points along edges**: the panel lists the vertices of the selected edges (the ends of each run of edges) with a radius for each; empty ones use the fillet's radius. Along each edge the radius changes from the one at its start to the one at its end.
-- **Points along the edges** (with radii at the vertices): **Add Point**, then choose the edge, where along it (the share of its length from its start, in %) and the radius there. The radius runs smoothly from the edge's start through its points to its end. While the fillet is edited each point is marked on its edge, so you can see which end the % counts from. {idx:fillet, variable radius}
+- **Points along the edges** (with radii at the vertices): **Add Point**, then choose the edge, where along it (the share of its length from its start in %, or a distance from its start in mm) and the radius there; or **Add by Clicking** and click on the edge where the point goes. The radius runs smoothly from the edge's start through its points to its end. While the fillet is edited each point is marked on its edge, so you can see which end the % counts from. {idx:fillet, variable radius}
 - **Setback at corners**: where three or more fillets meet, the corner is blended smoothly from this distance out, instead of the usual small corner patch. A little more than the radius works well; 0 keeps the usual corner. The fillet's note says how many corners were blended. {idx:fillet, setback}
 - **Face fillet**: pick faces instead of edges; the edges where they meet are rounded.
 
@@ -932,7 +932,7 @@ Surface quality can be checked with Zebra Stripes, Curvature and Draft Analysis 
 
 ## Reference Plane
 
-Pick up to three references (faces, edges or vertices on the model; planes in the view; planes, axes or points in the tree). The plane type follows from what you pick. Click a reference again to remove it. {idx:reference plane}
+Pick up to three references (faces, edges or vertices on the model; lines, circles, arcs or points of a sketch shown in the view; planes in the view; planes, axes or points in the tree). A sketch line counts as an edge, a sketch circle or arc as its axis, a sketch point as a vertex, and the plane follows the sketch when it changes. The plane type follows from what you pick. Click a reference again to remove it. {idx:reference plane}
 
 | References | Plane made |
 |---|---|

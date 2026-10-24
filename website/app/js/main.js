@@ -1270,6 +1270,21 @@ class App {
     return best;
   }
 
+  // A point of a sketch shown in the view under the cursor (part mode): { sketch, point }.
+  sketchPointAt(e) {
+    const vp = this.viewport, m = vp.screenPos(e);
+    let best = null, bd = 7;
+    for (const [id, s] of this.result.sketches) {
+      const f = s.sketch;
+      if (!(this.vis.sketches && this.sketchShown(f)) && this.hoverSketchId !== id) continue;
+      for (const q of f.points) {
+        const a = vp.project(G.toWorld(s.frame, q.x, q.y)), d = Math.hypot(m.x - a.x, m.y - a.y);
+        if (d < bd) { bd = d; best = { sketch: id, point: q.id }; }
+      }
+    }
+    return best;
+  }
+
   // A curve (line, arc or circle) of a sketch shown in the view under the cursor (part mode):
   // { sketch, curve, at (a world point on it, near the cursor) }.
   sketchCurveAt(e) {
@@ -1914,6 +1929,24 @@ class App {
   applyModelPick(hit) {
     const f = this.pm.feature;
     const mode = this.pickMode();
+    if (mode === 'edge' && f.type === 'fillet' && this.pm.pickEdgePoint) {
+      // a variable fillet's point added where its edge was clicked: the share of the edge's length from its start
+      const k = f.edges.findIndex((x) => this.viewport.edgeIndexForPoint(x.p) === hit.index);
+      if (k < 0) { this.toast('Click one of the fillet\'s own edges (select the edge first)'); return; }
+      const P = hit.edge.pts, L = [0];
+      for (let i = 1; i < P.length; i++) L.push(L[i - 1] + P[i].distanceTo(P[i - 1]));
+      let s = 0, bd = Infinity;
+      for (let i = 1; i < P.length; i++) {
+        const seg = new THREE.Line3(P[i - 1], P[i]), q = seg.closestPointToPoint(hit.point, true, new THREE.Vector3()), dd = q.distanceTo(hit.point);
+        if (dd < bd) { bd = dd; s = L[i - 1] + q.distanceTo(P[i - 1]); }
+      }
+      const pct = Math.max(0.1, Math.min(99.9, (100 * s) / (L[L.length - 1] || 1)));
+      (f.edgePoints ||= []).push({ edge: k, t: +pct.toFixed(2), r: f.radius });
+      this.pm.pickEdgePoint = false;
+      this.status(`Point added ${pct.toFixed(1)} % along edge ${k + 1}: set its radius in the panel.`);
+      this.ui.renderPM(); this.updateEdgeHighlights(); this.preview();
+      return;
+    }
     if (mode === 'edge') {
       if (f.type === 'fillet' || f.type === 'chamfer' || f.type === 'smFlange' || f.type === 'smHem' || f.type === 'smProfileFlange' || f.type === 'surfFill' || f.type === 'surfExtend' || f.type === 'ruledSurface' || f.type === 'compCurve') {
         const i = f.edges.findIndex((x) => this.viewport.edgeIndexForPoint(x.p) === hit.index);
@@ -1938,7 +1971,7 @@ class App {
   togglePlaneRef(ref) {
     const f = this.pm.feature;
     f.refs = f.refs?.length ? f.refs : [];
-    const same = (a, b) => a.kind === b.kind && (a.id ? a.id === b.id
+    const same = (a, b) => a.kind === b.kind && (a.kind === 'sketch' ? a.sketch === b.sketch && (a.curve ?? null) === (b.curve ?? null) && (a.point ?? null) === (b.point ?? null) : a.id ? a.id === b.id
       : a.kind === 'edge' ? this.viewport.edgeIndexForPoint(a.p) === this.viewport.edgeIndexForPoint(b.p)
         : Math.hypot(a.p[0] - b.p[0], a.p[1] - b.p[1], a.p[2] - b.p[2]) < 1e-4 || (a.kind === 'face' && a.n && b.n && Math.abs(a.n[0] * b.n[0] + a.n[1] * b.n[1] + a.n[2] * b.n[2]) > 0.9999 && Math.abs(a.n[0] * (a.p[0] - b.p[0]) + a.n[1] * (a.p[1] - b.p[1]) + a.n[2] * (a.p[2] - b.p[2])) < 1e-4));
     const i = f.refs.findIndex((r) => same(r, ref));
@@ -2160,8 +2193,9 @@ class App {
         list.push({ frame: s.frame, polylines, highlight: pmSketch || selected });
       }
     }
-    // sketch entities picked for the dimension readout
+    // sketch entities picked for the dimension readout, and a reference plane's sketch references
     const picked = this.mode === 'sketch' ? [] : this.measureSel.filter((x) => x.kind === 'skcurve');
+    if (this.pm?.kind === 'feature' && this.pm.feature.type === 'plane') for (const r of this.pm.feature.refs || []) if (r.kind === 'sketch' && r.curve) picked.push({ sketch: r.sketch, curve: r.curve });
     for (const x of picked) {
       const s = res.sketches.get(x.sketch), c = s && S.getCurve(s.sketch, x.curve);
       if (c) list.push({ frame: s.frame, polylines: [{ pts: S.curvePoints(s.sketch, c), construction: false }], highlight: true, color: 0xf97316 });
@@ -2631,8 +2665,16 @@ class App {
       const vp = this.viewport;
       const v = this.allows('vertex') ? vp.pickVertex(e, 7) : null;
       if (v) return this.togglePlaneRef({ kind: 'vertex', p: v.point.toArray() });
+      // (a sketch shown in the view: its points, lines, circles and arcs)
+      const sp = this.allows('vertex') ? this.sketchPointAt(e) : null;
+      if (sp) return this.togglePlaneRef({ kind: 'sketch', sketch: sp.sketch, point: sp.point });
       const ed = this.allows('edge') ? vp.pickEdge(e, 5) : null;
       if (ed) return this.togglePlaneRef({ kind: 'edge', p: ed.edge.mid });
+      const sc = this.allows('edge') ? this.sketchCurveAt(e) : null;
+      if (sc) {
+        const c = S.getCurve(this.result.sketches.get(sc.sketch)?.sketch, sc.curve);
+        if (c && ['line', 'circle', 'arc'].includes(c.type)) return this.togglePlaneRef({ kind: 'sketch', sketch: sc.sketch, curve: sc.curve });
+      }
       const p = this.pickAt(e);
       if (p?.kind === 'plane') return this.togglePlaneRef({ kind: 'plane', id: p.id });
       if (p?.kind === 'face') {

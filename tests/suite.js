@@ -508,6 +508,57 @@ const UI = {
     return { ok: true, detail: `${notes.length} parts restored without rebuilding (${(bytes / 1048576).toFixed(1)} MB of BRep; meshing ${mesh1} ms → ${mesh2} ms)` };
   },
 
+  // a control-point spline crossing its own control polygon: a click where they cross picks the polygon's leg (the
+  // spline can be picked anywhere else), so the leg can be dimensioned; elsewhere along the curve, the spline
+  async 'sketch-pick-polygon-leg'() {
+    const a = window.app;
+    await a.newDocument?.();
+    closeModals();
+    const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } });
+    a.doc.features.push(f); a.commit();
+    await a.enterSketch(f, true);
+    await wait(300);
+    const sk = a.sketcher, S = await import('/js/sketchmodel.js');
+    const pts = [[0, 0], [20, 5], [20, 35], [40, 40]].map(([x, y]) => S.addPoint(sk.f, x, y));
+    const sp = S.addCtrlSpline(sk.f, pts, 3);
+    sk.changed(); a.viewport.zoomToFit(); await wait(200);
+    // (the curve passes through (20, 20), on the middle leg; at its quarter it is off the polygon)
+    const atCross = sk.hitTest({ x: 20, y: 20 }), q = S.splinePieces(sk.f, S.getCurve(sk.f, sp))[0], onCurve = S.bezierAt(q, 0.3);
+    const elsewhere = sk.hitTest({ x: onCurve[0], y: onCurve[1] });
+    const leg = S.getCurve(sk.f, atCross?.id);
+    await a.exitSketch(true);
+    const ok = leg?.ctrlOf === sp && elsewhere?.id === sp;
+    return { ok, detail: `where they cross: ${leg ? (leg.ctrlOf ? 'the polygon leg' : leg.type) : 'nothing'}; along the curve: ${elsewhere?.id === sp ? 'the spline' : elsewhere?.kind}` };
+  },
+
+  // relations and dimensions of deleted geometry leave nothing on the screen: a line with Horizontal and two circles
+  // with Equal and a diameter; the circles deleted, the labels shown are the ones left (the hidden ones are not drawn)
+  async 'sketch-stale-labels'() {
+    const a = window.app;
+    await a.newDocument?.();
+    closeModals();
+    const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'top' } });
+    a.doc.features.push(f); a.commit();
+    await a.enterSketch(f, true);
+    await wait(300);
+    const sk = a.sketcher, S = await import('/js/sketchmodel.js');
+    const L = S.addLine(sk.f, S.addPoint(sk.f, -30, 0), S.addPoint(sk.f, 30, 2));
+    S.addRel(sk.f, 'horizontal', [L]);
+    const c1 = S.addCircle(sk.f, S.addPoint(sk.f, -10, 20), 4), c2 = S.addCircle(sk.f, S.addPoint(sk.f, 10, 20), 4);
+    S.addRel(sk.f, 'equal', [c1, c2]);
+    S.addRel(sk.f, 'dim', [c1], { kind: 'diameter', value: 8 });
+    sk.changed(); await wait(200);
+    const shown = () => [[...sk.dimPool].filter((e) => getComputedStyle(e).display !== 'none').length, [...sk.relPool].filter((e) => getComputedStyle(e).display !== 'none').length];
+    const before = shown();
+    sk.sel = new Set([c1, c2]);
+    sk.deleteSelected();
+    await wait(200);
+    const after = shown(), left = [sk.dims.length, sk.rels.length];
+    await a.exitSketch(true);
+    const ok = before[0] >= 1 && before[1] > after[1] && after[0] === left[0] && after[1] === left[1];
+    return { ok, detail: `before: ${before[0]} dimension(s), ${before[1]} relation symbol(s); after deleting the circles: ${after[0]} and ${after[1]} shown (${left[0]} and ${left[1]} left)` };
+  },
+
   // the sketch's selection box, with the pointer: a rectangle and a circle beside it. Dragged left to right round the
   // rectangle (a window): its four lines and four corners, not the circle; dragged right to left over part of the
   // circle (crossing): the circle and its centre, not the rectangle; Ctrl adds to what is selected
@@ -2471,6 +2522,36 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
       : { ok: false, detail: `solved ${r1.ok}/${r2.ok}, (${M1.x}, ${M1.y}) then (${M2.x}, ${M2.y}), offered ${offered}` };
   },
 
+  // sketch pattern along a curve: a small circle on an arc of radius 50, four copies 20 apart along it (turned with it):
+  // each copy's centre on the arc, 20 further along; past an open curve's end no more copies; along a line: the copies
+  // go its way (45°)
+  async 'sketch-pattern-path'() {
+    const S = await import('/js/sketchmodel.js');
+    const bad = [], out = [];
+    {
+      const sk = S.newSketchData();
+      const O = S.addPoint(sk, 0, 0), A = S.addPoint(sk, 50, 0), B = S.addPoint(sk, 0, 50);
+      const arc = S.addArc(sk, O, A, B);
+      const c0 = S.addPoint(sk, 50, 0), circ = S.addCircle(sk, c0, 2);
+      const r = S.patternAlongCurve(sk, [circ], arc, { n: 4, d: 20, turn: true });
+      const centres = r.ids.map((id) => S.getPoint(sk, S.getCurve(sk, id).c));
+      const off = centres.map((q, k) => { const a = (20 * (k + 1)) / 50; return Math.hypot(q.x - 50 * Math.cos(a), q.y - 50 * Math.sin(a)); });
+      const worst = Math.max(...off);
+      if (r.made !== 3 || worst > 0.01) bad.push(`along the arc: ${r.made} copies, ${worst.toFixed(4)} mm off`); else out.push(`along the arc: 3 copies on it (within ${worst.toFixed(4)} mm)`);
+      // (the arc is 78.5 long: 5 copies 20 apart only fit 3)
+      const r2 = S.patternAlongCurve(sk, [circ], arc, { n: 6, d: 20 });
+      if (r2.made !== 3) bad.push(`past the end: ${r2.made} copies (3 fit)`); else out.push('past its end: no more copies');
+    }
+    {
+      const sk = S.newSketchData();
+      const c0 = S.addPoint(sk, 0, 0), circ = S.addCircle(sk, c0, 2);
+      const r = S.linearPattern(sk, [circ], { n1: 3, d1: 10, a1: 45 });
+      const q = S.getPoint(sk, S.getCurve(sk, r[1]).c), e = Math.hypot(q.x - 20 * Math.SQRT1_2, q.y - 20 * Math.SQRT1_2);
+      if (e > 1e-9) bad.push(`along 45°: ${e} off`); else out.push('along 45°: on the line');
+    }
+    return bad.length ? { ok: false, detail: bad.join('; ') } : { ok: true, detail: out.join('; ') };
+  },
+
   // Sketch Fillet where a line meets an arc, and where two arcs meet: the fillet is tangent to both (its centre r from
   // the line, R ± r from each arc's centre), the curves are cut back to it, and the sketch still solves
   async 'sketch-fillet-arcs'() {
@@ -2587,6 +2668,35 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
   // reference planes from more references: through an edge and a point; through two parallel edges; normal to an
   // edge at a distance along it; tangent to a cylinder (at an angle round it, and parallel to a plane, on either side);
   // and placed: moved along its normal, its axes turned, its normal reversed
+  // reference planes from a sketch's entities: on the front plane a line along y (x 0, y 0 to 40) and a line along x
+  // (y 10, x 30 to 60). Normal to the first line: its normal along y; through the first line and the second's end
+  // point, and through both lines: the front plane (normal along z); the sketch changed (the first line's top end
+  // moved to x 40): the normal plane turns with it
+  async 'plane-sketch-refs'() {
+    const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient();
+    try {
+      const d = M.newDoc(); d.name = 'Sketch refs';
+      const sk = M.createFeature(d, 'sketch', { plane: { ref: 'front' } });
+      Object.assign(sk, { points: [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 0, y: 40 }, { id: 'c', x: 30, y: 10 }, { id: 'e', x: 60, y: 10 }],
+        curves: [{ id: 'l1', type: 'line', p1: 'a', p2: 'b', construction: false }, { id: 'l2', type: 'line', p1: 'c', p2: 'e', construction: false }], constraints: [] });
+      d.features.push(sk);
+      const ref = (o) => ({ kind: 'sketch', sketch: sk.id, ...o });
+      const planes = { normal: { refs: [ref({ curve: 'l1' })] }, lineAndPoint: { refs: [ref({ curve: 'l1' }), ref({ point: 'c' })], through: true }, twoLines: { refs: [ref({ curve: 'l1' }), ref({ curve: 'l2' })] } };
+      const ids = {};
+      for (const [name, props] of Object.entries(planes)) { const pf = M.createFeature(d, 'plane', props); d.features.push(pf); ids[name] = pf.id; }
+      const r = await k.rebuild(d, null, null);
+      const n = (name, rr = r) => rr.planes?.[ids[name]]?.n;
+      const along = (v, i) => v && Math.abs(Math.abs(v[i]) - 1) < 1e-9;
+      const ok1 = !r.errors.length && along(n('normal'), 1) && along(n('lineAndPoint'), 2) && along(n('twoLines'), 2);
+      // (the line's top end moved: the line now runs to (40, 40), its direction (1, 1)/√2)
+      sk.points[1].x = 40;
+      const r2 = await k.rebuild(d, null, null);
+      const n2 = n('normal', r2), turned = n2 && Math.abs(Math.abs(n2[0]) - Math.SQRT1_2) < 1e-9 && Math.abs(Math.abs(n2[1]) - Math.SQRT1_2) < 1e-9;
+      const f = (v) => (v ? v.map((x) => +x.toFixed(4)).join(', ') : 'none');
+      return { ok: ok1 && turned, detail: `normal to the line (${f(n('normal'))}); through the line and the point (${f(n('lineAndPoint'))}); through both lines (${f(n('twoLines'))}); the line moved: (${f(n2)})${r.errors.length ? ' ' + JSON.stringify(r.errors) : ''}` };
+    } finally { k.dispose(); }
+  },
+
   async 'plane-more-types'() {
     const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient();
     const rect = (d, plane, w, h, depth) => {
@@ -2847,8 +2957,11 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
         (ok1 ? out : fails).push(`line z ${z}: point at (${m.map((x) => +x.toFixed(3)).join(', ')}), slice there ${here.vol?.toFixed(2)} mm³, at the mirror point ${there.vol?.toFixed(2)}`);
       }
       const one = await build({ t: 25, r: 6 }), plain = await build({ t: 25, r: 2 }), bad = await build({ t: 120, r: 6 });
-      const ok = !fails.length && one.vol < plain.vol - 20 && bad.err.length > 0;
-      return { ok, detail: `${[...out, ...fails].join('; ')}; body ${one.vol?.toFixed(1)} (all R2: ${plain.vol?.toFixed(1)}); 120 %: ${bad.err.length ? 'refused' : 'taken'}` };
+      // (15 mm from the start of the 60 mm line: the same as 25 %)
+      const mm = await build({ t: 15, unit: 'mm', r: 6 });
+      const same = Math.abs(mm.vol - one.vol) < 1e-6 * one.vol;
+      const ok = !fails.length && one.vol < plain.vol - 20 && bad.err.length > 0 && same;
+      return { ok, detail: `${[...out, ...fails].join('; ')}; body ${one.vol?.toFixed(1)} (all R2: ${plain.vol?.toFixed(1)}); 15 mm from the start: ${same ? 'the same as 25 %' : mm.vol}; 120 %: ${bad.err.length ? 'refused' : 'taken'}` };
     } finally { k.dispose(); }
   },
 

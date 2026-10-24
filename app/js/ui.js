@@ -3160,19 +3160,27 @@ export class UI {
       const head = el('div', { class: 'pm-edgept' });
       head.append(sel, x);
       body.appendChild(this.row(`${tr('Point')} ${i + 1}`, head));
-      const at = this.exprInput(pt.t, '%', (v) => { pt.t = v; a.preview(); });
-      at.title = tr('Where along the edge: the share of its length from its start (the point is marked in the view)');
-      body.appendChild(this.row(tr('Along the edge'), at));
+      const at = this.exprInput(pt.t, pt.unit === 'mm' ? 'mm' : '%', (v) => { pt.t = v; a.preview(); });
+      at.title = tr('Where along the edge, from its start (the point is marked in the view)');
+      const unit = el('select', { title: tr('A share of the edge\'s length, or a distance from its start') });
+      for (const [v, l] of [['%', '% of its length'], ['mm', 'mm from its start']]) unit.appendChild(el('option', { value: v, ...((pt.unit || '%') === v ? { selected: '' } : {}) }, tr(l)));
+      unit.onchange = () => { pt.unit = unit.value === 'mm' ? 'mm' : undefined; if (!pt.unit) delete pt.unit; a.preview(); this.renderPM(); };
+      const atRow = el('div', { class: 'pm-edgept' });
+      atRow.append(at, unit);
+      body.appendChild(this.row(tr('Along the edge'), atRow));
       const rad = this.exprInput(pt.r, 'mm', (v) => { pt.r = v; a.preview(); });
       body.appendChild(this.row(tr('Radius there'), rad));
     });
     const add = el('button', { class: 'pm-btn', title: tr('A point half way along an edge, with the fillet\'s radius: then set where it is and its radius') }, tr('Add Point'));
     add.disabled = !edges.length;
     add.onclick = () => { (f.edgePoints ||= []).push({ edge: 0, t: 50, r: f.radius }); a.preview(); this.renderPM(); };
+    const byClick = el('button', { class: 'pm-btn', title: tr('Then click on one of the fillet\'s edges in the view, where the point goes') }, tr(a.pm?.pickEdgePoint ? 'Click the Edge…' : 'Add by Clicking'));
+    byClick.disabled = !edges.length;
+    byClick.onclick = () => { a.pm.pickEdgePoint = !a.pm.pickEdgePoint; if (a.pm.pickEdgePoint) a.status('Click on one of the fillet\'s edges where the point goes'); this.renderPM(); };
     const bar = el('div', { class: 'pm-btns' });
-    bar.appendChild(add);
+    bar.append(add, byClick);
     body.appendChild(bar);
-    body.appendChild(el('div', { class: 'pm-hint' }, tr(edges.length ? 'The radius runs smoothly along each edge from its start through its points to its end. A point is placed by the share of the edge\'s length from its start (marked in the view).' : 'Select the edges first, then add points along them.')));
+    body.appendChild(el('div', { class: 'pm-hint' }, tr(edges.length ? 'The radius runs smoothly along each edge from its start through its points to its end. A point is placed by the share of the edge\'s length from its start, or a distance from its start (each point is marked in the view); Add by Clicking puts one where you click on an edge.' : 'Select the edges first, then add points along them.')));
   }
 
   pmGroup(root, title, id) {
@@ -4625,9 +4633,10 @@ export class UI {
     const name = (r) => {
       if (r.kind === 'plane') return STD_PLANES[r.id]?.name || findFeature(doc, r.id)?.name || 'Plane';
       if (r.kind === 'axis' || r.kind === 'point') return findFeature(doc, r.id)?.name || r.kind;
+      if (r.kind === 'sketch') { const sk = findFeature(doc, r.sketch); return `${sk ? SM.itemName(sk, r.point || r.curve) : 'Entity'} of ${sk?.name || 'a sketch'}`; }
       return r.kind === 'face' && !r.n ? 'Cylindrical face' : { face: 'Face', edge: 'Edge', vertex: 'Vertex' }[r.kind];
     };
-    const ic = { plane: 'plane', face: 'plane', axis: 'axis', edge: 'edge', point: 'refpoint', vertex: 'point' };
+    const ic = { plane: 'plane', face: 'plane', axis: 'axis', edge: 'edge', point: 'refpoint', vertex: 'point', sketch: 'line' };
     const ul = el('div', { class: 'pm-list' });
     if (!f.refs.length) ul.appendChild(el('div', { class: 'li pm-hint' }, 'Nothing selected'));
     f.refs.forEach((r, i) => {

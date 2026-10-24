@@ -702,11 +702,15 @@ export class Sketcher {
       if (best) return best;
     }
     if (curves) {
+      // the nearest curve; where a line and a spline are about as near (a control-point spline crossing its own
+      // control polygon), the line: the spline can be picked anywhere else along it
+      const tie = 1.5 * this.wpp();
       let best = null, bd = tol;
       for (const c of this.f.curves) {
         if (exclude?.has(c.id)) continue;
         const d = S.distToCurve(this.f, c, p.x, p.y);
-        if (d < bd) { bd = d; best = { id: c.id, kind: c.type }; }
+        const beats = best && c.type === 'line' && best.kind === 'spline' ? d < bd + tie : best && c.type === 'spline' && best.kind === 'line' ? d < bd - tie : d < bd;
+        if (beats || (!best && d < bd)) { bd = d; best = { id: c.id, kind: c.type }; }
       }
       return best;
     }
@@ -1618,18 +1622,37 @@ export class Sketcher {
   }
 
   async linearPatternSel() {
-    const ids = this.patternSource();
-    if (!ids.length) { this.app.toast('Select the entities to pattern first (Ctrl+click to select several)', true); return; }
+    const all = this.patternSource();
+    if (!all.length) { this.app.toast('Select the entities to pattern first (Ctrl+click to select several)', true); return; }
+    // direction 1: an angle, or a line or curve selected with the entities (Ctrl+click it too): along it
+    const paths = all.map((id) => S.getCurve(this.f, id)).filter(Boolean);
     const v = await this.app.ui.promptFields('Linear Sketch Pattern', 'skLinPattern', [
       { key: 'n1', label: 'Copies along direction 1 (including the original)', value: 3 },
-      { key: 'd1', label: 'Spacing 1 (mm)', value: 20 },
+      { key: 'd1', label: 'Spacing 1 (mm; along a curve: measured along it)', value: 20 },
+      ...(paths.length > 1 ? [{ key: 'along', type: 'select', label: 'Direction 1', value: '', options: [['', 'The angle below'], ...paths.map((c) => [c.id, `Along ${S.itemName(this.f, c.id)} (not copied)`])] },
+        { key: 'turn', type: 'check', label: 'Along a curve: turn the copies with it', value: false }] : []),
       { key: 'a1', label: 'Angle of direction 1 (°)', value: 0 },
       { key: 'n2', label: 'Copies along direction 2', value: 1 },
       { key: 'd2', label: 'Spacing 2 (mm)', value: 20 },
       { key: 'a2', label: 'Angle of direction 2 (°)', value: 90 },
-    ], 'Copies of the selected entities, with the relations and dimensions among them.');
+    ], `Copies of the selected entities, with the relations and dimensions among them.${paths.length > 1 ? ' Direction 1 can follow a line or curve you selected with them.' : ' Select a line or curve with them (Ctrl+click) to have the copies follow it.'}`);
     if (!v || !this.active) return;
     const n = (x) => this.ev(String(x));
+    const path = v.along ? S.getCurve(this.f, v.along) : null;
+    const ids = path ? all.filter((id) => id !== path.id) : all;
+    if (path && path.type !== 'line') {
+      // along a curve (one direction)
+      const n1 = Math.round(n(v.n1)), d1 = n(v.d1);
+      if (!Number.isFinite(n1) || !Number.isFinite(d1) || n1 < 2 || n1 > 500 || !(d1 > 0)) { this.app.toast('Enter numbers: at least two copies (500 at most) and a spacing above 0', true); return; }
+      let r;
+      try { r = S.patternAlongCurve(this.f, ids, path.id, { n: n1, d: d1, turn: !!v.turn }); } catch (e) { this.app.toast(e.message, true); return; }
+      this.sel = new Set(r.ids);
+      this.changed();
+      this.app.status(`Sketch pattern along ${S.itemName(this.f, path.id)}: ${r.made} cop${r.made === 1 ? 'y' : 'ies'} made${r.made < n1 - 1 ? ' (the curve ends before the rest)' : ''}.`);
+      return;
+    }
+    // (along a line: its direction, from its first end to its second)
+    if (path) { const A = S.getPoint(this.f, path.p1), B = S.getPoint(this.f, path.p2); v.a1 = String((Math.atan2(B.y - A.y, B.x - A.x) * 180) / Math.PI); }
     const o = { n1: Math.round(n(v.n1)), d1: n(v.d1), a1: n(v.a1), n2: Math.round(n(v.n2)), d2: n(v.d2), a2: n(v.a2) };
     if (![o.n1, o.d1, o.a1, o.n2, o.d2, o.a2].every(Number.isFinite) || o.n1 < 1 || o.n2 < 1 || o.n1 * o.n2 < 2 || o.n1 * o.n2 > 500) { this.app.toast('Enter numbers: at least two copies in all (500 at most)', true); return; }
     const made = S.linearPattern(this.f, ids, o);

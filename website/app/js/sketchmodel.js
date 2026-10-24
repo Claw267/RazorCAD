@@ -215,6 +215,52 @@ export function linearPattern(sk, ids, { n1 = 2, d1 = 10, a1 = 0, n2 = 1, d2 = 1
   }
   return out;
 }
+// Pattern along a curve: n copies (the original first) spaced d apart along the curve pathId, measured along it from
+// the point of it nearest the entities' middle; turn: each copy turned with the curve (its direction there against
+// the first's). A closed curve comes round; past an open curve's end no more copies are made. Returns the new ids
+// and how many copies were made.
+export function patternAlongCurve(sk, ids, pathId, { n = 3, d = 10, turn = false }) {
+  const c = getCurve(sk, pathId);
+  if (!c) throw new Error('Pick the line or curve to follow');
+  const pts = curvePoints(sk, c, 2000);
+  const closed = c.type === 'circle' || c.type === 'ellipse' || (c.type === 'spline' && c.closed);
+  if (closed && pts.length > 1) pts.push(pts[0]);
+  const L = [0];
+  for (let i = 1; i < pts.length; i++) L.push(L[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  const total = L[L.length - 1];
+  if (!(total > 0)) throw new Error('The curve to follow has no length');
+  // the entities' middle (their points), and the curve's nearest point to it
+  const own = new Set();
+  for (const id of ids) { const cc = getCurve(sk, id); if (cc) for (const k of ['p1', 'p2', 'c', 'a']) if (cc[k]) own.add(cc[k]); if (cc?.pts) cc.pts.forEach((q) => own.add(q)); else if (!cc) own.add(id); }
+  const P = [...own].map((id) => getPoint(sk, id)).filter(Boolean);
+  const mx = P.reduce((s, q) => s + q.x, 0) / (P.length || 1), my = P.reduce((s, q) => s + q.y, 0) / (P.length || 1);
+  let s0 = 0, bd = Infinity;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1], dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy || 1e-30;
+    const t = Math.max(0, Math.min(1, ((mx - a[0]) * dx + (my - a[1]) * dy) / l2)), q = [a[0] + dx * t, a[1] + dy * t], dd = Math.hypot(mx - q[0], my - q[1]);
+    if (dd < bd) { bd = dd; s0 = L[i] + t * (L[i + 1] - L[i]); }
+  }
+  // the point and the direction of the curve at length s along it
+  const at = (s) => {
+    let i = 1;
+    while (i < L.length - 1 && L[i] < s) i++;
+    const a = pts[i - 1], b = pts[i], f = (s - L[i - 1]) / ((L[i] - L[i - 1]) || 1);
+    return { p: [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f], ang: Math.atan2(b[1] - a[1], b[0] - a[0]) };
+  };
+  const base = at(s0), out = [];
+  let made = 0;
+  for (let k = 1; k < n; k++) {
+    let s = s0 + k * d;
+    if (closed) s = ((s % total) + total) % total; else if (s > total + 1e-9) break;
+    const q = at(s), th = turn ? q.ang - base.ang : 0, co = Math.cos(th), si = Math.sin(th);
+    out.push(...copyItems(sk, ids, (x, y) => {
+      const rx = x - base.p[0], ry = y - base.p[1];
+      return [q.p[0] + rx * co - ry * si, q.p[1] + rx * si + ry * co];
+    }, { rotates: turn }));
+    made++;
+  }
+  return { ids: out, made };
+}
 // Circular pattern: n copies round centre (cx, cy) spread over `total` degrees (360: evenly round).
 export function circularPattern(sk, ids, { n = 4, total = 360, cx = 0, cy = 0 }) {
   const out = [], step = (total >= 360 - 1e-9 ? total / n : total / Math.max(1, n - 1)) * (Math.PI / 180);

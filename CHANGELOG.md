@@ -6,6 +6,15 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-25 01:45 — Reference planes from sketch entities, sketch patterns along a curve, fillet points by clicking, fixes in the sketcher
+From suggestions on GitHub (Discussions):
+- **Reference planes from a sketch**: a line, a circle or arc (its axis) or a point of a sketch shown in the view can be picked as a reference, alone or with others (normal to the line, through the line and a point, through two lines, at an angle to a plane through the line…). The plane follows the sketch when it changes.
+- **Linear Sketch Pattern along a line or curve**: select the line or curve with the entities (Ctrl+click it too) and choose it as direction 1: the copies go its way (a line), or follow it at the spacing measured along it (an arc, a circle, a spline), turned with it if wanted. Past an open curve's end no more copies are made.
+- **Variable fillet points**: **Add by Clicking** puts a point where you click on one of the fillet's edges; a point's place can also be given in **mm from the edge's start** instead of %.
+- Fixed: relation symbols of deleted geometry stayed on the screen (they were hidden but their own display style kept them showing); the numbers were right underneath.
+- Fixed: where a control-point spline crosses its own control polygon, a click picked the spline, so the polygon's leg could not be dimensioned there (and a point was dimensioned instead, which came out driven): the leg is picked now.
+- Tests: plane-sketch-refs, sketch-pattern-path, fillet-edge-points (a point given in mm), sketch-stale-labels, sketch-pick-polygon-leg.
+
 ## 2026-10-25 01:26 — Sketching: box selection, Control-Point Splines up to degree 7, Sketch Fillet on arcs
 From suggestions on GitHub (Discussions):
 - **Box selection** in sketches: drag from empty space with Select. Left to right is a **window** (solid box): what lies wholly inside it is selected. Right to left is **crossing** (dashed box): whatever it touches is selected. Ctrl or Shift adds to what is selected.

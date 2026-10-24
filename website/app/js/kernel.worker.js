@@ -1926,6 +1926,13 @@ function filletByVertex(shape, edges, radAt, ptsOf = null) {
     return { shape: R.cast(mf.Shape()), vertices, points };
   } finally { mf.delete(); }
 }
+// An edge's length (along points close together, as atLength measures it).
+function edgeLength(E) {
+  const n = 64;
+  let L = 0, prev = vec(E.pointAt(0));
+  for (let i = 1; i <= n; i++) { const q = vec(E.pointAt(i / n)); L += len(sub(q, prev)); prev = q; }
+  return L;
+}
 // The point of an edge a share t (0 to 1) of its length from its start.
 function atLength(E, t) {
   const n = 64, q = Array.from({ length: n + 1 }, (_, i) => vec(E.pointAt(i / n))), L = [0];
@@ -2325,6 +2332,18 @@ async function rebuild(doc, previewId = null, opts = {}) {
     }
     if (r.kind === 'point') return { kind: 'point', p: resolvePoint(r.id) };
     if (r.kind === 'vertex') return { kind: 'point', p: resolvePoint(null, r) };
+    if (r.kind === 'sketch') {
+      // a sketch's point, line, or circle / arc (its axis), where the sketch has it now
+      const s = sketches.get(r.sketch);
+      if (!s) throw new Error('The sketch of a reference is missing, suppressed or has errors');
+      const W = (q) => S.fromFrame2D(s.frame, q.x, q.y);
+      if (r.point) { const q = r.point === 'O' ? { x: 0, y: 0 } : S.getPoint(s.sk, r.point); if (!q) throw new Error('A sketch point used as a reference is gone'); return { kind: 'point', p: W(q) }; }
+      const c = S.getCurve(s.sk, r.curve);
+      if (!c) throw new Error('A sketch entity used as a reference is gone');
+      if (c.type === 'line') { const a = W(S.getPoint(s.sk, c.p1)), b = W(S.getPoint(s.sk, c.p2)); return { kind: 'line', d: unit(sub(b, a)), start: a, end: b, mid: mul(add(a, b), 0.5) }; }
+      if (c.type === 'circle' || c.type === 'arc') { const o = W(S.getPoint(s.sk, c.c)); return { kind: 'line', d: s.frame.n, start: o, end: add(o, s.frame.n), mid: o }; }
+      throw new Error('Pick a line, circle or arc of the sketch (or one of its points)');
+    }
     throw new Error('Unknown reference');
   };
   // axis { o, d } from X/Y/Z or a reference axis feature
@@ -3122,7 +3141,8 @@ async function rebuild(doc, previewId = null, opts = {}) {
               if (vr.some((x) => !(x.r > 0))) throw new Error('The radii must be greater than zero');
               const radAt = (q) => vr.find((x) => len(sub(x.p, q)) < 1e-4)?.r ?? r1;
               // points along the edges: { edge (its place in the edge list), t (% of its length from its start), r }
-              const ep = (f.edgePoints || []).map((x) => ({ e: pickedAt.get(x.edge), t: ev(x.t) / 100, r: ev(x.r) }));
+              // (a distance in mm from the edge's start: a share of its length)
+              const ep = (f.edgePoints || []).map((x) => { const e = pickedAt.get(x.edge); return { e, t: x.unit === 'mm' ? (e ? ev(x.t) / edgeLength(e) : NaN) : ev(x.t) / 100, r: ev(x.r) }; });
               if (ep.some((x) => !(x.r > 0))) throw new Error('The radii must be greater than zero');
               if (ep.some((x) => !(x.t > 0 && x.t < 1))) throw new Error('A point along an edge must lie between its ends (more than 0 % and less than 100 %)');
               const ptsOf = (E) => ep.filter((x) => x.e && x.e.isSame(E)).map((x) => ({ t: x.t, r: x.r }));

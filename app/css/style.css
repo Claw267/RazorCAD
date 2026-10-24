@@ -274,6 +274,8 @@ table.bom th { background: #f1f5f9; font-weight: 600; }
   user-select: none;
 }
 .rel:hover { background: #f59e0b; border-color: #b45309; }
+/* (labels not in use are hidden: their own display would otherwise keep them on the screen) */
+.dim[hidden], .rel[hidden] { display: none; }
 .rel.selected { background: #0ea5e9; border-color: #0369a1; }
 /* DXF export preview */
 .modal.modal-wide { width: min(1180px, 96vw); max-width: 96vw; }

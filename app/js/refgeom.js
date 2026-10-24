@@ -18,7 +18,7 @@ export const PLANE_TYPES = {
   tangent: 'Tangent to a cylindrical face',
 };
 
-export const refGroup = (r) => (r.kind === 'face' && !r.n ? 'C' : r.kind === 'plane' || r.kind === 'face' ? 'P' : r.kind === 'edge' || r.kind === 'axis' ? 'L' : 'X');
+export const refGroup = (r) => (r.kind === 'sketch' ? (r.point ? 'X' : 'L') : r.kind === 'face' && !r.n ? 'C' : r.kind === 'plane' || r.kind === 'face' ? 'P' : r.kind === 'edge' || r.kind === 'axis' ? 'L' : 'X');
 
 // Infer the plane type from its references (null if they don't define a plane). through: an edge and a point make
 // a plane through both (else normal to the edge at the point).
