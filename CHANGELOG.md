@@ -6,6 +6,18 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-24 21:18 — Version 0.17.0-beta: installer, user manual and website
+- **RazorCAD-Setup-0.17.0-beta.exe** built (in "RazorCAD Install", 45 MB, unsigned), with everything since 0.16.0-beta:
+  - from the first suggestion on GitHub: the Control-Point Spline (degree 1 to 5, its control polygon dimensioned and constrained like any lines), the Midpoint relation on an arc, more reference planes (through an edge and a point, through two edges, at a distance along an edge, tangent to a cylindrical face) with placement for every plane, and loft guide curves;
+  - Convert to Sheet Metal: square-to-round transitions, cones and closed tubes unrolled, butt corners and RazorCAD's own closed corners exact, a curved face picked either way round;
+  - section views saved with the part or assembly;
+  - STEP files written as surface models read as solids; big STEP imports meshed in several kernels at once;
+  - STEP, IGES and mesh files opened from Windows are imported;
+  - the browser version runs the multi-threaded kernel and no longer shows the browser's right-click menu over RazorCAD.
+- **User manual** 0.17.0-beta (revision history), the PDF and the online manual rebuilt.
+- **Website**: version 0.17.0-beta on the home page and its download links; the browser version rebuilt.
+- Published on GitHub as a pre-release with the setup and the manual. 0.16.0-beta users get it through Update Now.
+
 ## 2026-10-24 20:54 — Control-point splines, an arc's midpoint, more reference planes, loft guide curves (from the first suggestion on GitHub)
 - **Control-Point Spline** (Sketch tab, beside Spline): click control points; the curve is the B-spline they make, starting and ending on the first and last and passing near the others. Its **degree** (1 to 5, at most one less than the control points) is set in the panel when it is selected. Its control polygon is drawn dashed and is made of construction lines, so it takes dimensions and relations like any lines (horizontal, parallel, equal, an angle…); the curve leaves each end along the polygon's end leg, so a relation on that leg (tangent, collinear) sets its direction there. Drag the control points to reshape it. Degree 2 and 3 are exact; degree 4 and 5 are made of cubic pieces within 0.00001 mm of the curve. Copies and mirror images keep it a control-point spline; deleting it deletes its polygon.
 - **Midpoint of an arc**: a point and an arc now offer the Midpoint relation (half way round the arc, from its start to its end), and drawing snaps to an arc's midpoint as it does to a line's.
