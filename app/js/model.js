@@ -367,11 +367,12 @@ export function createFeature(doc, type, props = {}) {
     // hemType: 'closed' | 'open' (gap) | 'teardrop' (radius, angle 181-269) | 'rolled' (radius, angle)
     smHem: { edges: [], hemType: 'closed', length: 10, gap: 1, radius: 1, angle: 270, tearAngle: 225, position: 'inside', flip: false, reliefType: 'rect', reliefRatio: 0.5 },
     // lengthRef: 'outer' | 'inner' (virtual sharp) | 'tangent'; position: 'inside' | 'outside' | 'bend'
-    // corner: 'butt' (flanges meeting at a corner meet corner to corner on the diagonal, cornerGap apart) |
-    // 'closed' (one runs on to cover the other's end) | 'open'
-    smFlange: { edges: [], length: 20, lengthRef: 'outer', angle: 90, position: 'inside', offset: 0, flip: false, useDefaultRadius: true, radius: 2, reliefType: 'rect', reliefRatio: 0.5, corner: 'butt', cornerGap: 0.1, cornerSwap: false, cornerBend: 'vcut' },
+    // corner: 'square' (flanges meeting at a corner each run square up to the other's inside face, their
+    // inner edges cornerGap apart, the outside corner open) | 'butt' (mitred: they meet on the diagonal,
+    // cornerGap apart) | 'closed' (one runs on to cover the other's end) | 'open'
+    smFlange: { edges: [], length: 20, lengthRef: 'outer', angle: 90, position: 'inside', offset: 0, flip: false, useDefaultRadius: true, radius: 2, reliefType: 'rect', reliefRatio: 0.5, corner: 'square', cornerGap: 0.1, cornerSwap: false, cornerBend: 'vcut' },
     smCornerRelief: { body: null, reliefType: 'rect', size: 4 },
-    // faces: picked flange faces, one per corner (none: every corner); cornerType: overlap | underlap | butt
+    // faces: picked flange faces, one per corner (none: every corner); cornerType: overlap | underlap | square | butt
     // bendCorner: 'vcut' (bends as formed from the flat, lens-shaped opening) | 'mitre' (bends closed on the diagonal)
     smClosedCorner: { body: null, faces: [], cornerType: 'overlap', bendCorner: 'vcut', gap: 0.1, swap: false },
     smUnfold: { face: null },

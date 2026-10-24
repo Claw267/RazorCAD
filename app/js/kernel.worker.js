@@ -5635,11 +5635,11 @@ async function rebuild(doc, previewId = null, opts = {}) {
             R: R0, flip: !!f.flip, relief: { type: f.reliefType || 'rect', ratio: ev(f.reliefRatio ?? 0.5) },
           });
           // corners between these flanges: closed with the gap (older parts: open)
-          if ((f.corner === 'closed' || f.corner === 'butt') && edges.length > 1) {
+          if ((f.corner === 'closed' || f.corner === 'butt' || f.corner === 'square') && edges.length > 1) {
             const gap = ev(f.cornerGap ?? 0.1);
             if (!(gap >= 0)) throw new Error('The corner gap can\'t be negative');
             const only = new Set(out.bends.slice(sheet.bends.length).map((b) => b.id));
-            out = SM.closedCorner(out, { gap, swap: !!f.cornerSwap, only, quiet: true, type: f.corner === 'butt' ? 'butt' : 'overlap', bend: f.cornerBend || 'vcut' });
+            out = SM.closedCorner(out, { gap, swap: !!f.cornerSwap, only, quiet: true, type: f.corner === 'closed' ? 'overlap' : f.corner, bend: f.cornerBend || 'vcut' });
             if (out.cornerCount) res.notes[f.id] = `${out.cornerCount} corner${out.cornerCount === 1 ? '' : 's'} closed`;
           }
           setSheet(rec, out);

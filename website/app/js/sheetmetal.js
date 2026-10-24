@@ -8,7 +8,8 @@
 // - rootPt: a point in the panel that stays where it is when folding; flat: { pt } when unbent
 // - corners: [{ a, b, gap, type }] closed corners: the bends a and b (ids) run on into the corner and meet
 //   on the mitre, the gap across it (formed material, not in the flat pattern); type 'butt': the walls are
-//   mitred too (otherwise the flat pattern makes one wall cover the other's end)
+//   mitred too; 'square': each wall runs square to the other's inner face (the flat pattern ends them there,
+//   the outside corner left open); otherwise the flat pattern makes one wall cover the other's end
 // The 3D body is made by folding the pattern (fold → toSolid): every panel (the region between
 // bend zones) is placed by the bends that lead to it from the root panel, every bend zone becomes
 // a bent strip (inner radius R) with the neutral surface at R + K·t. Flattening is therefore exact.
@@ -1075,7 +1076,9 @@ export function cornerRelief(sheet, { type = 'rect', size }) {
 // Close the open corners between 90° flanges: one flange runs on to the other's outer face (covering
 // its end), the other runs on to the first one's inner face, less the gap. swap: the other way round.
 // only: a Set of bend ids (only corners between two of these); quiet: no error when there is nothing to close.
-// type: 'overlap' (the first flange covers the other's end) | 'underlap' (the other way) | 'butt' (mitred).
+// type: 'overlap' (the first flange covers the other's end) | 'underlap' (the other way) | 'butt' (mitred) |
+// 'square' (both to the other's inner face, square ended, less the gap's share across the inside corner: the
+// walls' inner edges are the gap apart; the bends always a V cutout).
 // picks: [{ chosen, other }] bend ids of the corners to close (chosen = the flange picked); else every corner.
 // bend: 'vcut' (the bends as formed from the flat, a lens-shaped opening between them) | 'mitre' (closed).
 export function closedCorner(sheet, { gap = 0, swap = false, only = null, quiet = false, type = 'overlap', picks = null, bend = 'vcut' }) {
@@ -1106,7 +1109,7 @@ export function closedCorner(sheet, { gap = 0, swap = false, only = null, quiet 
     const atEnd = d2(s2(X, A.p0), A.e) > A.w / 2;
     return { Pe: a2(A.p0, m2(A.e, atEnd ? A.w : 0)), dir: m2(A.e, atEnd ? 1 : -1) };
   };
-  const butt = type === 'butt';
+  const butt = type === 'butt', square = type === 'square';
   for (const pr of pairs) {
     const [A, B] = type === 'underlap' ? [pr.B, pr.A] : [pr.A, pr.B];
     if (Math.abs(A.ang - Math.PI / 2) > 1e-3 || Math.abs(B.ang - Math.PI / 2) > 1e-3) continue;
@@ -1116,9 +1119,10 @@ export function closedCorner(sheet, { gap = 0, swap = false, only = null, quiet 
     let extA = (B.R + t - d2(s2(ea.Pe, B.p0), B.d)) / d2(ea.dir, B.d);
     // butt: the flat pattern takes both walls to the inside of the mitre (so they can never meet in the
     // flat); the rest of the mitred end is added to the folded body (wallRunOn)
+    // (square: the same as butt in the flat, folded without the mitred rest)
     const c45 = gap / Math.SQRT2;
-    const extB = (A.R - d2(s2(eb.Pe, A.p0), A.d)) / d2(eb.dir, A.d) - (butt ? c45 : gap);
-    if (butt) extA = (B.R - d2(s2(ea.Pe, B.p0), B.d)) / d2(ea.dir, B.d) - c45;
+    const extB = (A.R - d2(s2(eb.Pe, A.p0), A.d)) / d2(eb.dir, A.d) - (butt || square ? c45 : gap);
+    if (butt || square) extA = (B.R - d2(s2(ea.Pe, B.p0), B.d)) / d2(ea.dir, B.d) - c45;
     const hA = wallHeight(region, A), hB = wallHeight(region, B);
     let done = false;
     if (extA > 1e-6 && hA > 1e-6) { region = bop('fuse', region, rectFace(a2(ea.Pe, m2(A.d, A.ba)), ea.dir, A.d, extA, hA)); done = true; }
@@ -1127,7 +1131,7 @@ export function closedCorner(sheet, { gap = 0, swap = false, only = null, quiet 
     if (A.up === B.up && Math.abs(A.R - B.R) < 1e-9) {
       const k = corners.findIndex((c) => (c.a === A.id && c.b === B.id) || (c.a === B.id && c.b === A.id));
       if (k >= 0) corners.splice(k, 1);
-      corners.push({ a: A.id, b: B.id, gap, type: butt ? 'butt' : 'overlap', bend: bend === 'mitre' ? 'mitre' : 'vcut', ea: extA, eb: extB, ...(butt ? { ha: hA, hb: hB } : {}) });
+      corners.push({ a: A.id, b: B.id, gap, type: butt ? 'butt' : square ? 'square' : 'overlap', bend: bend === 'mitre' && !square ? 'mitre' : 'vcut', ea: extA, eb: extB, ...(butt ? { ha: hA, hb: hB } : {}) });
       done = true;
     }
     if (done) n++;
@@ -3006,6 +3010,7 @@ export function exactCorners(sheet, solid) {
     let rec = null;
     if (Math.abs(wa.ext - outerA) < CORNER_TOL && innerB - wb.ext > -CORNER_TOL) rec = { A, B, gap: Math.max(0, innerB - wb.ext), type: 'overlap' };
     else if (Math.abs(wb.ext - outerB) < CORNER_TOL && innerA - wa.ext > -CORNER_TOL) rec = { A: B, B: A, gap: Math.max(0, innerA - wa.ext), type: 'overlap' };
+    else if (Math.abs((innerA - wa.ext) - (innerB - wb.ext)) < CORNER_TOL && a.dq > CORNER_TOL && innerA - wa.ext > -CORNER_TOL) rec = { A, B, gap: Math.max(0, innerA - wa.ext) * Math.SQRT2, type: 'square' };
     else if (Math.abs((innerA - wa.ext) - (innerB - wb.ext)) < CORNER_TOL && innerA + t - wa.ext > -CORNER_TOL) rec = { A, B, gap: Math.max(0, innerA + t - wa.ext) * Math.SQRT2, type: 'butt' };
     if (!rec) return null;
     rec.gap = Math.round(rec.gap * 1e5) / 1e5;
@@ -3020,14 +3025,14 @@ export function exactCorners(sheet, solid) {
   // (a bend at two corners: lengthened at both ends, its final version used for both)
   for (const c of found) { c.A = bends.get(c.A.id); c.B = bends.get(c.B.id); }
   // each corner as closedCorner closes it: how far each wall runs on in the flat (to the other's outer face, or its
-  // inner face less the gap; a butt corner's both to the inner face less the mitre's share of the gap)
+  // inner face less the gap; a butt or square corner's both to the inner face less the mitre's share of the gap)
   const records = found.map((c) => {
     const Q = cornerUV(c.A, c.B)(0, 0);
     const end = (b) => { const atEnd = d2(s2(Q, b.p0), b.e) > b.w / 2; return { Pe: a2(b.p0, m2(b.e, atEnd ? b.w : 0)), dir: m2(b.e, atEnd ? 1 : -1) }; };
-    const ea = end(c.A), eb = end(c.B), c45 = c.gap / Math.SQRT2, butt = c.type === 'butt';
-    const extA = (c.B.R + (butt ? 0 : t) - d2(s2(ea.Pe, c.B.p0), c.B.d)) / d2(ea.dir, c.B.d) - (butt ? c45 : 0);
-    const extB = (c.A.R - d2(s2(eb.Pe, c.A.p0), c.A.d)) / d2(eb.dir, c.A.d) - (butt ? c45 : c.gap);
-    return { c, ea, eb, extA, extB, rec: { a: c.A.id, b: c.B.id, gap: c.gap, type: butt ? 'butt' : 'overlap', bend: c.bend, ea: extA, eb: extB, ...(butt ? { ha: c.ha, hb: c.hb } : {}) } };
+    const ea = end(c.A), eb = end(c.B), c45 = c.gap / Math.SQRT2, butt = c.type === 'butt', both = butt || c.type === 'square';
+    const extA = (c.B.R + (both ? 0 : t) - d2(s2(ea.Pe, c.B.p0), c.B.d)) / d2(ea.dir, c.B.d) - (both ? c45 : 0);
+    const extB = (c.A.R - d2(s2(eb.Pe, c.A.p0), c.A.d)) / d2(eb.dir, c.A.d) - (both ? c45 : c.gap);
+    return { c, ea, eb, extA, extB, rec: { a: c.A.id, b: c.B.id, gap: c.gap, type: c.type, bend: c.bend, ea: extA, eb: extB, ...(butt ? { ha: c.ha, hb: c.hb } : {}) } };
   });
   // the corner bends formed as usual, over their strips: the pattern without their traced zones, with the strips;
   // the panel's corner filled where the V cutout's round took it away (the round is made again when folding); a butt

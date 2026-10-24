@@ -134,10 +134,9 @@ async function importStore(which) {
 }
 
 // Convert to Sheet Metal, kinds of sheet: the tray (written to STEP, read back as a plain body and converted from its
-// base) with open corners and with 120° flanges comes out exactly as made (faces, volume, flat pattern); with
-// butt corners and with mitred bends at closed corners, inside the body and within 0.5 % (the closed corners'
-// bends run into each other; butt corners lost a third of the material); with a hem, a clear message; and one
-// body of two converted, the other left as it was
+// base) with open corners, with 120° flanges and with RazorCAD's own closed corners (mitred, square ended, mitred
+// bends) comes out exactly as made (faces, volume, flat pattern); with a hem, a clear message; and one body of two
+// converted, the other left as it was
 async function convertSheetVariants(part) {
   // (the part's own kernel, with its threads: six sheet metal parts built, converted and flattened)
   const k = window.app.kernel, pool = { request: (type, data) => k.request(type, data) }, aff = null;
@@ -176,6 +175,7 @@ async function convertSheetVariants(part) {
     angle120: { set: (d) => { Object.assign(d.features[2], { corner: 'open', angle: 120, edges: d.features[2].edges.slice(0, 2) }); }, exact: true },
     // (RazorCAD's own corners made again as it made them)
     butt: { set: (d) => { d.features[2].corner = 'butt'; }, exact: true },
+    square: { set: (d) => { d.features[2].corner = 'square'; }, exact: true },
     mitre: { set: (d) => { d.features[2].cornerBend = 'mitre'; }, exact: true },
   };
   const out = [], bad = [];
@@ -3043,9 +3043,9 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     } finally { k.dispose(); }
   },
 
-  // A new Edge-Flange's flanges meet corner to corner (mitred) where they meet, not one overlapping the other: the
-  // tray's four flanges with the defaults close their four corners, the same body as with corner 'butt' set and
-  // not the overlap's
+  // A new Edge-Flange's flanges meet corner to corner where they meet: each runs square up to the other's inside
+  // face, not mitred and not one overlapping the other. The tray's four flanges with the defaults close their four
+  // corners, the same body as with corner 'square' set and neither the mitred one's nor the overlap's
   async 'flange-corner-default'() {
     const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient({ threads: threadsPerKernel() });
     try {
@@ -3068,10 +3068,19 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
         const r = await k.rebuild(d, null, null);
         return { f, r, v: vol(r), note: r.notes?.[f.id] || '' };
       };
-      const def = await build({}), butt = await build({ corner: 'butt' }), over = await build({ corner: 'closed' });
-      const ok = def.f.corner === 'butt' && !def.r.errors.length && /4 corners closed/.test(def.note)
-        && Math.abs(def.v - butt.v) < 1e-6 * butt.v && Math.abs(def.v - over.v) > 1e-4 * over.v;
-      return { ok, detail: `default corner '${def.f.corner}', ${def.note || JSON.stringify(def.r.errors)}; volume ${def.v.toFixed(3)} (corner to corner ${butt.v.toFixed(3)}, overlap ${over.v.toFixed(3)})` };
+      const def = await build({}), sq = await build({ corner: 'square' }), butt = await build({ corner: 'butt' }), over = await build({ corner: 'closed' });
+      // square ends: the wall on the edge x = 60 (inside face x = 58.5) ends square at z = 40 − 1.5 − 0.1 / √2, short of
+      // the other wall's inside face by the gap's share, its inside edge the gap from the other's; the outside corner open
+      const V = def.r.body.vertices, T = def.r.body.triangles, zEnd = 40 - 1.5 - 0.1 / Math.SQRT2;
+      const end = def.r.body.faceGroups.find((g) => {
+        if (g.surf?.t !== 'PLANE' || Math.abs(Math.abs(g.surf.n[2]) - 1) > 1e-6) return false;
+        const xs = [], zs = [];
+        for (let q = g.start; q < g.start + g.count; q++) { xs.push(V[3 * T[q]]); zs.push(V[3 * T[q] + 2]); }
+        return zs.every((z) => Math.abs(z - zEnd) < 1e-4) && Math.abs(Math.min(...xs) - 58.5) < 1e-4 && Math.abs(Math.max(...xs) - 60) < 1e-4;
+      });
+      const ok = def.f.corner === 'square' && !def.r.errors.length && /4 corners closed/.test(def.note) && !!end
+        && Math.abs(def.v - sq.v) < 1e-6 * sq.v && Math.abs(def.v - butt.v) > 1e-5 * butt.v && Math.abs(def.v - over.v) > 1e-4 * over.v;
+      return { ok, detail: `default corner '${def.f.corner}', ${def.note || JSON.stringify(def.r.errors)}; wall end square at z ${zEnd.toFixed(4)}: ${end ? 'yes' : 'no'}; volume ${def.v.toFixed(3)} (square ${sq.v.toFixed(3)}, mitred ${butt.v.toFixed(3)}, overlap ${over.v.toFixed(3)})` };
     } finally { k.dispose(); }
   },
   async 'loft-guides'() {

@@ -506,11 +506,11 @@ const PM_SCHEMAS = {
     },
     {
       title: 'Corners', fields: [
-        { key: 'corner', type: 'select', label: 'Where these flanges meet', options: [['butt', 'Corner to corner (mitred)'], ['closed', 'Overlap (one covers the other\'s end)'], ['open', 'Open corner']] },
-        { key: 'cornerGap', type: 'expr', label: 'Gap', unit: 'mm', show: (f) => f.corner === 'closed' || f.corner === 'butt' },
+        { key: 'corner', type: 'select', label: 'Where these flanges meet', options: [['square', 'Corner to corner (square ends)'], ['butt', 'Mitred (meet on the diagonal)'], ['closed', 'Overlap (one covers the other\'s end)'], ['open', 'Open corner']] },
+        { key: 'cornerGap', type: 'expr', label: 'Gap', unit: 'mm', show: (f) => f.corner !== 'open' },
         { key: 'cornerBend', type: 'select', label: 'Bend region', options: [['vcut', 'V cutout (as formed from the flat; lens-shaped opening)'], ['mitre', 'Closed (the bends meet on the diagonal)']], show: (f) => f.corner === 'closed' },
         { key: 'cornerSwap', type: 'check', label: 'Swap which flange covers the other', show: (f) => f.corner === 'closed' },
-        { key: 'cHint', type: 'hint', show: (f) => f.corner !== 'open', text: 'For 90° flanges picked in this feature that meet at a corner. Corner to corner: the two meet on the diagonal, the gap apart. Overlap: one runs on to cover the other\'s end (bends included), the other runs up to it, leaving the gap.' },
+        { key: 'cHint', type: 'hint', show: (f) => f.corner !== 'open', text: 'For 90° flanges picked in this feature that meet at a corner. Corner to corner: each runs square up to the other\'s inside face, their inside edges the gap apart, the outside corner left open; the bends end in a V cutout. Mitred: the two meet on the diagonal, the gap apart. Overlap: one runs on to cover the other\'s end (bends included), the other runs up to it, leaving the gap.' },
       ],
     },
     {
@@ -541,10 +541,10 @@ const PM_SCHEMAS = {
     { ...SM_BODY, show: (f) => !f.faces?.length },
     {
       title: 'Corner Type', fields: [
-        { key: 'cornerType', type: 'select', label: 'Type', options: [['overlap', 'Overlap (covers the other flange\'s end)'], ['underlap', 'Underlap (tucks under the other flange)'], ['butt', 'Butt (mitred, ends meet on the diagonal)']] },
+        { key: 'cornerType', type: 'select', label: 'Type', options: [['overlap', 'Overlap (covers the other flange\'s end)'], ['underlap', 'Underlap (tucks under the other flange)'], ['square', 'Butt (square ends, each to the other\'s inside face)'], ['butt', 'Mitre (ends meet on the diagonal)']] },
         { key: 'gap', type: 'expr', label: 'Gap', unit: 'mm' },
-        { key: 'bendCorner', type: 'select', label: 'Bend region', options: [['vcut', 'V cutout (as formed from the flat; lens-shaped opening)'], ['mitre', 'Closed (the bends meet on the diagonal)']], show: (f) => f.cornerType !== 'butt' },
-        { key: 'swap', type: 'check', label: 'Swap which flange covers the other', show: (f) => !f.faces?.length && f.cornerType !== 'butt' },
+        { key: 'bendCorner', type: 'select', label: 'Bend region', options: [['vcut', 'V cutout (as formed from the flat; lens-shaped opening)'], ['mitre', 'Closed (the bends meet on the diagonal)']], show: (f) => f.cornerType === 'overlap' || f.cornerType === 'underlap' },
+        { key: 'swap', type: 'check', label: 'Swap which flange covers the other', show: (f) => !f.faces?.length && (f.cornerType === 'overlap' || f.cornerType === 'underlap') },
         { key: 'ccHint', type: 'hint', text: 'For corners between 90° flanges. Bend region: V cutout runs each bend on as it would form from the flat (a lens-shaped opening is left between them); Closed meets them on the diagonal with the gap.' },
       ],
     },

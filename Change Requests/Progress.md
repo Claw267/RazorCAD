@@ -716,3 +716,8 @@ Skipped for now (from the list of 2026-10-21):
 - [ ] Assemblies: component placement fields and assembly measure not renamed yet (they show the up axis for new parts).
 - [x] (user 2026-10-25: "Add a right click menu when right clicking on the origin in the feature tree where user can change WCS") the Origin's tree node: sub label "Y up" / "Z up", tooltip, menu with both (setUpAxis). Test up-axis-z.
 - [x] Test standard-parts failed once in a full run (the bolt read at 0,0,0: its mates are solved after its mesh comes, under load a moment later): it now waits for the bolt to be placed (5 s at most). Three full runs pass.
+
+## Edge-Flange default corner: square ends (user 2026-10-25, a picture of a formed lid's corner: "this is what the default sheetmetal corner must look like when adding edge flanges")
+- [x] closedCorner type 'square': the walls in the flat as a butt corner's (each to the other's inner face less gap / √2: inner edges the gap apart), folded without the mitred run-on; the bends always a V cutout. smFlange corner 'square' (the default; 'butt' is now labelled Mitred), smClosedCorner cornerType 'square' (Butt, square ends; 'butt' labelled Mitre).
+- [x] Convert to Sheet Metal of RazorCAD's own square corners (walls short of the inner faces alike, bends short of the corner point by the relief): made again exactly.
+- [x] Checked against the real lid (local harness only): wall ends the same to 0.001 mm, volume 2e-5.

@@ -663,7 +663,7 @@ This tutorial builds a small duct and a tray with tools added in the 0.17 versio
 ## The tray
 
 1. Sketch an 80 × 60 rectangle on the **Top Plane**, beside the duct, and click **Base Flange** on the Sheet Metal tab with a thickness of 1.5 mm.
-2. Click **Edge Flange** and pick the four top edges, with a length of 20. Under **Corners**, **Corner to corner** is the default: where two flanges meet they close on the diagonal, the gap apart. **Overlap** would run one flange past the other's end instead.
+2. Click **Edge Flange** and pick the four top edges, with a length of 20. Under **Corners**, **Corner to corner** is the default: where two flanges meet, each runs on up to the other's inside face and ends square, the gap apart, and the bends end in a small V cutout. **Mitred** would close them on the diagonal, and **Overlap** would run one flange past the other's end.
 3. Click **Flatten** to see the tray laid out, with its bend lines.
 
 > Tip: change any value in the tree (the spline's degree, a weight, the plane's turn, the fillet's point) and the part rebuilds from there.
@@ -1059,7 +1059,7 @@ Click straight edges on the top or bottom face. {idx:Edge Flange}
 | Position | Material inside, material outside, bend outside, plus an offset; flip |
 | Bend radius | Its own radius, or the default |
 | Auto relief | Rectangular, obround or tear relief where a bend ends next to material |
-| Corners | Flanges picked together that meet at a corner: **Corner to corner** (the default: they meet on the diagonal, mitred), **Overlap** (one runs on to cover the other's end) or **Open**. Closed corners keep a gap (default 0.1 mm). For Overlap, **Swap** reverses which covers, and the Bend region is a V cutout or Closed. |
+| Corners | Flanges picked together that meet at a corner: **Corner to corner** (the default: each runs on up to the other's inside face and ends square, their inside edges the gap apart; the outside corner is left open and the bends end in a V cutout), **Mitred** (they meet on the diagonal), **Overlap** (one runs on to cover the other's end) or **Open**. Closed corners keep a gap (default 0.1 mm). For Overlap, **Swap** reverses which covers, and the Bend region is a V cutout or Closed. |
 
 ## Miter Flange
 
@@ -1119,7 +1119,7 @@ Adds a rectangular, circular or tear relief at every corner where two bends meet
 
 Closes the corners between 90° flanges: one flange covers the other's end, with a gap. {idx:Closed Corner}
 
-- **Corner type**: Overlap, Underlap or Butt (mitred, gap across the mitre, bends included).
+- **Corner type**: Overlap, Underlap, Butt (square ends: each flange runs on up to the other's inside face, the gap between their inside edges, the bends in a V cutout) or Mitre (the gap across the mitre, bends included).
 - **Which corners**: click a face of a flange next to a corner and the matching flange is found automatically; the clicked flange is the one that overlaps or tucks under. With no corners picked, every corner of the body is closed.
 - **Swap** reverses which flange covers.
 - **Bend region**: **V cutout** (default) runs each bend into the corner as it would form from the flat, leaving a small teardrop-shaped opening with a relief at the corner point. **Closed** keeps the bends meeting on the diagonal.

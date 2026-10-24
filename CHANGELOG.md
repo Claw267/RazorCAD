@@ -6,6 +6,13 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-25 08:16 — Edge-Flange corners: square ends by default
+- Flanges picked together in an **Edge Flange** now meet **corner to corner with square ends** by default: each wall runs on up to the other wall's inside face and ends square, the walls' inside edges the gap apart (measured across the corner), and the small square at the outside of the corner is left open. The bends run on into the corner and end in a V cutout with a small relief between them, as they form from the flat. This is how a real formed lid's corners are made; the mitred corner of 0.17.1 is still there as **Mitred (meet on the diagonal)**.
+- **Closed Corner** has the same corner as **Butt (square ends)**; the mitred one is now called **Mitre**.
+- Parts saved with a mitred corner keep it. Convert to Sheet Metal knows RazorCAD's own square corners and makes them again exactly.
+- Checked against a real lid folded in another CAD program (3 mm, inside radius 3, walls 43, gap 0.5): the wall ends are where that lid has them, and the volume is within 2 parts in 100 000 (the bend relief's shape differs).
+- Tests: flange-corner-default (the default square; a wall's end square at the other's inside face less the gap's share), convert-sheet-variants (square corners converted exactly).
+
 ## 2026-10-25 06:57 — The up axis from the Origin in the feature tree
 - Right-click **Origin** in the feature tree to choose **Y up** or **Z up**; the Origin shows the current one beside it (“Y up” / “Z up”).
 - Test: up-axis-z (also: Z up chosen from the Origin's right-click menu).
