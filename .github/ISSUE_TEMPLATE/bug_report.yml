@@ -1,0 +1,48 @@
+name: Bug report
+description: Something in RazorCAD doesn't work, gives the wrong shape, or crashes.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. If RazorCAD crashed, **Help ▸ Report a Problem** in the app fills most of this in for you (with the log, your user name taken out).
+  - type: input
+    id: version
+    attributes:
+      label: RazorCAD version
+      description: Help ▸ About RazorCAD, or the setup's file name. Say if it's the browser version.
+      placeholder: 0.17.0-beta (desktop)
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did and what went wrong. An error message or note in the feature tree helps, word for word.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to make it happen again
+      description: The fewer steps the better. "New part, sketch a 50 × 30 rectangle, Base-Flange 2 mm, Edge-Flange on all four edges…"
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+  - type: textarea
+    id: files
+    attributes:
+      label: Screenshots or a part file
+      description: Drag a screenshot in here. A small `.rcad` part that shows it helps most (zip it first, GitHub doesn't take `.rcad`). Only share parts you're free to share.
+  - type: input
+    id: system
+    attributes:
+      label: Windows version / browser
+      placeholder: Windows 11, or Edge 141

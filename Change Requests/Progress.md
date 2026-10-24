@@ -677,3 +677,6 @@ Skipped for now (from the list of 2026-10-21):
 
 ## Edge-Flange corner default (user 2026-10-24: a sheet metal tray "produces a closed corner by default. This is incorrect. The corners of the flanges should be a corner-to-corner result by default not overlapped")
 - [x] model.js smFlange corner default 'butt' (was 'closed' = overlap); panel options reordered and named Corner to corner (mitred) / Overlap / Open corner, hint for both; claudespec; manual Edge Flange table. Saved parts keep their own corner (a part without one is open, as before). Test flange-corner-default.
+
+## Improvements round (user 2026-10-24: "go ahead with 1, 2 and 3")
+- [x] 2. Contributing: .github/ISSUE_TEMPLATE bug_report.yml / feature_request.yml (labels bug / enhancement, which exist) / config.yml (blank issues kept for Report a Problem's prefilled issue; links to Discussions and the online manual); CONTRIBUTING.md; README issues line links them. Discussions categories: no API for them, left to the user (repo Discussions settings).

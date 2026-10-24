@@ -1,0 +1,32 @@
+name: Feature request
+description: An idea for something RazorCAD should do, or do better.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ideas are very welcome. For an open-ended idea or a question, [Discussions](https://github.com/Labs9119/RazorCAD/discussions) may be the better place.
+  - type: textarea
+    id: what
+    attributes:
+      label: What would you like RazorCAD to do?
+      description: The feature or change, as you'd use it.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: What is it for?
+      description: The part or job you'd use it for. Knowing the real use helps get the details right.
+    validations:
+      required: true
+  - type: textarea
+    id: how
+    attributes:
+      label: How you'd expect it to work
+      description: Optional. The options it would have, how it would be picked, a sketch or screenshot of the result.
+  - type: input
+    id: version
+    attributes:
+      label: RazorCAD version you're on
+      placeholder: 0.17.0-beta

@@ -1,0 +1,9 @@
+# blank issues stay on: Help > Report a Problem in RazorCAD opens a new issue with the report filled in
+blank_issues_enabled: true
+contact_links:
+  - name: Questions, ideas and show-and-tell
+    url: https://github.com/Labs9119/RazorCAD/discussions
+    about: Ask how to do something, talk over an idea, or show what you've made.
+  - name: User manual
+    url: https://razorcad.com/docs
+    about: How every tool works.

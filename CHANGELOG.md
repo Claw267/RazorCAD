@@ -6,6 +6,10 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-24 22:17 — Reporting bugs and ideas on GitHub: forms and a contributing guide
+- New issues on GitHub start from a **Bug report** form (version, steps, what was expected, screenshots or a part) or a **Feature request** form (what it should do and what it's for). Questions and open-ended ideas are pointed to Discussions; the manual is linked too. A plain issue can still be opened, so **Help ▸ Report a Problem** works as before.
+- **CONTRIBUTING.md**: how to report a problem, where ideas go, running the app from source and the tests, and what a pull request needs. The README links to it.
+
 ## 2026-10-24 22:14 — Edge-Flange: flanges meet corner to corner by default
 - Flanges picked together in an Edge-Flange (a tray's sides, say) now meet **corner to corner** where they meet: on the diagonal, mitred, the gap apart. Before, one flange ran on to cover the other's end (an overlap), which is not what a plain tray should get.
 - Overlap and Open are still offered under Corners. Parts already made keep the corners they were made with.

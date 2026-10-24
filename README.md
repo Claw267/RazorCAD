@@ -17,7 +17,7 @@ My ultimate vision is to give makers and professionals a powerful alternative to
 
 A small request: If you're using this to generate DXFs for manufacturing, please double-check your exported files initially until we know everything is rock solid!
 
-I’m pouring a lot of time (and API tokens :P) into this. If you run into bugs or have feature requests, please drop them in the issues! And if you enjoy using the app and want to support its development, any small donation goes a long way toward keeping the momentum going. Thanks for trying it out!
+I’m pouring a lot of time (and API tokens :P) into this. If you run into bugs or have feature requests, please drop them in the [issues](https://github.com/Labs9119/RazorCAD/issues/new/choose), or start a thread in [Discussions](https://github.com/Labs9119/RazorCAD/discussions) ([how to report and contribute](CONTRIBUTING.md))! And if you enjoy using the app and want to support its development, any small donation goes a long way toward keeping the momentum going. Thanks for trying it out!
 
 ------------------------------
 
