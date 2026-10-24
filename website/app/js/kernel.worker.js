@@ -160,7 +160,10 @@ const STD = {
   top: { o: [0, 0, 0], u: [1, 0, 0], v: [0, 0, -1], n: [0, 1, 0] },
   right: { o: [0, 0, 0], u: [0, 0, -1], v: [0, 1, 0], n: [1, 0, 0] },
 };
-const AXES = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] };
+// (the negative ones: a part shown Z up names its Y axis RazorCAD's −Z, see wcs.js)
+const AXES = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1], '-x': [-1, 0, 0], '-y': [0, -1, 0], '-z': [0, 0, -1] };
+// the part's up axis as the user sees it (doc.upAxis): files are exported in those axes
+let docUp = 'y';
 
 const rPlane = (fr, origin = fr.o) => new R.Plane(origin, fr.u, fr.n);
 
@@ -1824,6 +1827,14 @@ const boxNear = (a, b, tol) => !!a && !!b && a.every((v, k) => Math.abs(v - b[k]
 const boxWithin = (a, b, tol) => !!a && !!b && [0, 1, 2].every((k) => a[k] >= b[k] - tol && a[k + 3] <= b[k + 3] + tol);
 const lookTol = (box) => Math.max(1e-4, (box ? Math.hypot(box[3] - box[0], box[4] - box[1], box[5] - box[2]) : 0) * 1e-6);
 
+// An import's appearances (f.appearance) with their boxes turned as the import is into a part shown Z up: the
+// file's (x, y, z) RazorCAD's (x, z, −y).
+function turnedLooks(app) {
+  if (!app) return app;
+  const t = (b) => (b ? [b[0], b[2], -b[4], b[3], b[5], -b[1]] : b);
+  return { ...app, ...(app.solids ? { solids: app.solids.map((e) => ({ ...e, b: t(e.b) })) } : {}), ...(app.faces ? { faces: app.faces.map((e) => ({ ...e, b: t(e.b) })) } : {}) };
+}
+
 // The look of each imported body (f.appearance from stepasm.js): { c, t, faces } or null, by shape.
 // Solids are found by their vertex box (those without vertices, e.g. spheres, in file order); face looks go
 // with the bodies they lie in, and meshPart finds each face by its own vertex box.
@@ -2074,6 +2085,7 @@ function noteRefs(f, res) {
 }
 
 async function rebuild(doc, previewId = null, opts = {}) {
+  docUp = doc.upAxis === 'z' ? 'z' : 'y';
   const t0 = performance.now();
   // the active configuration: its variable values and the features it suppresses (or un-suppresses)
   const cfg = doc.activeConfig ? (doc.configs || []).find((c) => c.id === doc.activeConfig) : null;
@@ -3253,6 +3265,11 @@ async function rebuild(doc, previewId = null, opts = {}) {
           let shape = rec.shape.clone();
           // (an IGES file's faces, each on its own: sewn together, a solid where they close)
           if (f.sew && !shape.solids.length) shape = sewFaces(shape, f.sewTolerance ?? 0.01);
+          // imported into a part shown Z up (f.upAxis, set when it was imported): the file's Z made RazorCAD's Y
+          // (turned −90° about X), its appearances' boxes with it
+          const turned = f.upAxis === 'z';
+          if (turned) shape = shape.rotate(-90, [0, 0, 0], [1, 0, 0]);
+          const appearance = turned ? turnedLooks(f.appearance) : f.appearance;
           if (rec.dense) dense = true;
           // imported bodies stay separate unless "Merge touching bodies" is ticked
           const mergeBodies = f.mergeBodies === true;
@@ -3266,16 +3283,16 @@ async function rebuild(doc, previewId = null, opts = {}) {
             const s0 = surfaces.length;
             for (const s of parts.surfaces) { surfaces.push(bodyRec(newId(f.id), s, f.id)); applied.push({ op: 'add', tool: s }); }
             // (bodies each as the file has them: other kernels can mesh them from the store)
-            if (rec.stored && !mergeBodies && !f.sew && solids.length - n0 === parts.solids.length) {
+            if (rec.stored && !turned && !mergeBodies && !f.sew && solids.length - n0 === parts.solids.length) {
               solids.slice(n0).forEach((r, k) => importedFrom.set(r.shape, { key: rec.stored, k, kind: 'solid' }));
               surfaces.slice(s0).forEach((r, k) => importedFrom.set(r.shape, { key: rec.stored, k, kind: 'surface' }));
             }
             // the appearances the file gave its solids and faces (f.appearance, from stepasm.js)
-            if (f.appearance) {
+            if (appearance) {
               const recs = [...(mergeBodies ? [] : solids.slice(n0)), ...surfaces.slice(s0)];
-              const looks = importedLooks(f.appearance, recs.map((r) => r.shape));
+              const looks = importedLooks(appearance, recs.map((r) => r.shape));
               recs.forEach((r, i) => { if (looks[i]) r.look = looks[i]; });
-              if (mergeBodies && f.appearance.c != null) for (const r of solids.slice(n0)) r.look = { c: f.appearance.c, t: f.appearance.t || 0 };
+              if (mergeBodies && appearance.c != null) for (const r of solids.slice(n0)) r.look = { c: appearance.c, t: appearance.t || 0 };
             }
           } else if (shape.solids.length) apply('add', shape, mergeBodies);
           else {
@@ -6008,6 +6025,8 @@ async function exportBody(format, bodyId = null, info = {}) {
     list = list.filter((s) => s.id === bodyId);
     if (!list.length) throw new Error('That body no longer exists');
   }
+  // (a part shown Z up: written in its axes, turned +90° about X: RazorCAD's (x, y, z) is the file's (x, −z, y))
+  if (docUp === 'z') list = list.map((s) => ({ ...s, shape: s.shape.clone().rotate(90, [0, 0, 0], [1, 0, 0]) }));
   const shape = compoundOf(list);
   let blob;
   if (format === 'step') {

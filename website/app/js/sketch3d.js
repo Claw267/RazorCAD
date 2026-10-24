@@ -33,6 +33,7 @@ import {
 } from './sketch3dmodel.js';
 import { splineGeom, splineBeziers, bezierCurvature, segEnds as segEndIds } from './sketch3dmodel.js';
 import { sketchDefined, sketchUnder } from './theme.js';
+import * as W from './wcs.js';
 export { REL3D, normalize3d, solve3d, freedom3d, applicableRelations, getPt, getSeg, arcGeom, circleGeom } from './sketch3dmodel.js';
 
 // the Sketch tab's tools a 3D sketch has (the rest are 2D only), and their keys
@@ -1610,20 +1611,21 @@ export class Sketcher3D {
       gs.appendChild(el('div', { class: 'pm-hint' }, esc(ids.map(name).join(', '))));
       const only = ids.length === 1 ? kindOf(f, ids[0]) : null;
       if (only === 'pt') {
-        // the point's coordinates: type to move it
-        const p = getPt(f, ids[0]);
+        // the point's coordinates (in the user's axes, wcs.js): type to move it
+        const p = getPt(f, ids[0]), shown = W.toUser(V(p));
         const row = el('div', { class: 's3-xyz s3-coords' });
         const inputs = ['X', 'Y', 'Z'].map((a, i) => {
           const wrap = el('label', { class: 's3-coord' }, `<span>${a}</span>`);
           const inp = el('input', { type: 'text', spellcheck: 'false' });
-          inp.value = fmt(V(p)[i]);
+          inp.value = fmt(shown[i]);
           wrap.appendChild(inp);
           row.appendChild(wrap);
           return inp;
         });
         const apply = () => {
-          const v = inputs.map((i) => this.ev(i.value.trim() || '0'));
-          if (!v.every(Number.isFinite)) { inputs.forEach((i, k) => i.classList.toggle('bad', !Number.isFinite(v[k]))); return; }
+          const u = inputs.map((i) => this.ev(i.value.trim() || '0'));
+          if (!u.every(Number.isFinite)) { inputs.forEach((i, k) => i.classList.toggle('bad', !Number.isFinite(u[k]))); return; }
+          const v = W.fromUser(u);
           if (v.some((x, i) => Math.abs(x - V(p)[i]) > 1e-9)) this.movePoint(p.id, v);
         };
         inputs.forEach((i) => { i.addEventListener('change', apply); i.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); apply(); } }); });
@@ -1767,9 +1769,10 @@ export class Sketcher3D {
     });
     const go = el('button', { class: 'pm-btn', title: 'Add the point (Enter)' }, 'Add');
     const addTyped = () => {
-      const v = inputs.map((i) => this.ev(i.value.trim() || '0'));
-      if (!v.every(Number.isFinite)) { inputs.forEach((i, k) => i.classList.toggle('bad', !Number.isFinite(v[k]))); return; }
-      this.typedPoint(...v);
+      const u = inputs.map((i) => this.ev(i.value.trim() || '0'));
+      if (!u.every(Number.isFinite)) { inputs.forEach((i, k) => i.classList.toggle('bad', !Number.isFinite(u[k]))); return; }
+      // (typed in the user's axes, wcs.js)
+      this.typedPoint(...W.fromUser(u));
     };
     go.onclick = addTyped;
     inputs.forEach((i) => i.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); addTyped(); } }));

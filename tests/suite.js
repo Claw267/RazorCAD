@@ -2593,6 +2593,58 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     return bad.length ? { ok: false, detail: bad.join('; ') } : { ok: true, detail: out.join('; ') };
   },
 
+  // Z up: a 100 × 60 × 10 plate on the Top plane of a part shown Z up is 10 high along Z in its STEP file; read back
+  // into a part shown Y up it stands on edge (10 along Z), into one shown Z up it lies flat again (10 along RazorCAD's
+  // Y); the panels speak the user's axes: the Top plane is XY, a Move's ΔY is RazorCAD's −ΔZ, a direction "Z axis" is
+  // RazorCAD's Y, and the triad's Z points along RazorCAD's Y
+  async 'up-axis-z'() {
+    const a = window.app, W = await import('/js/wcs.js');
+    const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient({ threads: threadsPerKernel() });
+    const box = (r) => { const V = r.body.vertices, lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity]; for (let i = 0; i < V.length; i += 3) for (let c = 0; c < 3; c++) { lo[c] = Math.min(lo[c], V[i + c]); hi[c] = Math.max(hi[c], V[i + c]); } return hi.map((x, c) => +(x - lo[c]).toFixed(3)); };
+    const bad = [], out = [];
+    try {
+      const d = M.newDoc(); d.name = 'Plate'; d.upAxis = 'z';
+      const sk = M.createFeature(d, 'sketch', { plane: { ref: 'top' } });
+      const P = [[-50, -30], [50, -30], [50, 30], [-50, 30]];
+      Object.assign(sk, { points: P.map(([x, y], i) => ({ id: 'p' + i, x, y })), curves: P.map((_, i) => ({ id: 'c' + i, type: 'line', p1: 'p' + i, p2: 'p' + ((i + 1) % 4), construction: false })), constraints: [] });
+      d.features.push(sk, M.createFeature(d, 'extrude', { sketch: sk.id, depth: 10 }));
+      const r = await k.rebuild(d, null, null);
+      const own = box(r);
+      const step = new TextDecoder().decode(await k.request('export', { format: 'step' }));
+      const imp = async (up) => {
+        const di = M.newDoc(); if (up === 'z') di.upAxis = 'z';
+        di.features.push(M.createFeature(di, 'import', { format: 'step', fileName: 'plate.step', data: step, ...(up === 'z' ? { upAxis: 'z' } : {}) }));
+        return box(await k.rebuild(di, null, null));
+      };
+      const intoY = await imp('y'), intoZ = await imp('z');
+      if (own.join() !== '100,10,60' || intoY.join() !== '100,60,10' || intoZ.join() !== '100,10,60') bad.push(`boxes: own ${own}, into Y up ${intoY}, into Z up ${intoZ}`);
+      else out.push('exported Z up and read back either way');
+    } finally { k.dispose(); }
+    // the panels
+    await a.newDocument?.();
+    closeModals();
+    a.setUpAxis('z');
+    const top = [...document.querySelectorAll('#tree .tn')].find((n) => n.dataset.fid === 'top')?.querySelector('.tsub')?.textContent;
+    const mv = M.createFeature(a.doc, 'moveBody', {});
+    a.doc.features.push(mv); a.commit();
+    a.editFeature(mv.id); await wait(300);
+    const row = [...document.querySelectorAll('#pm .pm-row')].find((x) => x.textContent.trim().startsWith('ΔY'));
+    const inp = row?.querySelector('input');
+    if (inp) { inp.value = '5'; inp.dispatchEvent(new Event('input')); inp.dispatchEvent(new Event('change')); }
+    const f = a.pm?.feature;
+    const moved = f && String(f.dz) === '-5' && Number(f.dy || 0) === 0;
+    a.cancelPM();
+    const zAxis = W.internalAxis('z'), yAxis = W.internalAxis('y'), tri = W.fromUser([0, 0, 1]);
+    a.setUpAxis('y');
+    const back = W.getUp();
+    if (top !== 'XY') bad.push(`Top plane shown as ${top}`);
+    if (!moved) bad.push(`ΔY 5 stored as dy ${f?.dy}, dz ${f?.dz}`);
+    if (zAxis !== 'y' || yAxis !== '-z' || tri.join() !== '0,1,0') bad.push(`axes: Z ${zAxis}, Y ${yAxis}, triad Z ${tri}`);
+    if (back !== 'y') bad.push('not back to Y up');
+    if (!bad.length) out.push('Top plane XY, ΔY kept as −ΔZ, Z axis is RazorCAD\'s Y');
+    return bad.length ? { ok: false, detail: bad.join('; ') } : { ok: true, detail: out.join('; ') };
+  },
+
   // a control-point spline: the B-spline of its control points for degree 2 to 5 (against a plain de Boor
   // evaluation, to a hundred-thousandth of a mm); its control polygon is construction lines that take relations
   // (the first leg made horizontal); deleting the spline takes its polygon; a profile closed by a line extrudes to

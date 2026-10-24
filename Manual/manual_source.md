@@ -309,6 +309,12 @@ Lines, arcs and circles are exact; other curves become fine polylines. The file 
 
 **View** menu: Front ([[Ctrl+1]]), Back ([[Ctrl+2]]), Left ([[Ctrl+3]]), Right ([[Ctrl+4]]), Top ([[Ctrl+5]]), Bottom ([[Ctrl+6]]), Isometric ([[Ctrl+7]]) and Trimetric. **Normal To** ([[Ctrl+8]]) looks straight at the selected face or plane. {idx:standard views}{idx:Normal To}
 
+## Up axis: Y or Z
+
+A part can be shown **Y up** (the default) or **Z up**: **View ▸ Up Axis**, or click **Y up** / **Z up** at the right of the status bar. With Z up the **Top plane is XY**, the **Front plane XZ** and the **Right plane YZ**, and Z points up; the tree shows each standard plane's axes beside its name. The choice is kept with the part and used for new parts too. {idx:up axis}{idx:Z up}
+
+Only the names of the axes change: the model stays where it is and no feature moves. The triad, X / Y / Z directions, Move / Copy Bodies, reference point coordinates, Measure, Mass Properties and 3D sketch coordinates all use the part's axes, and so do exported STEP, STL, OBJ and 3MF files: a part shown Z up is written Z up, and a file imported into it is read Z up.
+
 ## Display styles
 
 **View** menu or the heads-up toolbar: **Shaded With Edges**, **Shaded**, **Hidden Lines Removed** and **Wireframe**. {idx:display styles}

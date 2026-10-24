@@ -6,6 +6,13 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-25 06:47 — The world's up axis: Y or Z
+- Each part can be shown **Y up** (as before) or **Z up**: **View ▸ Up Axis**, or click **Y up / Z up** in the status bar. With Z up the **Top plane is XY**, the **Front plane XZ** and the **Right plane YZ**, and Z points up; the tree shows each plane's axes beside it. The choice is kept with the part and is used for new parts too.
+- The model stays where it is: only what the axes are called changes, so switching never moves or breaks a feature. Everything that shows or takes world axes follows: the triad and the origin, X / Y / Z directions (patterns, axes, rotations), Move / Copy Bodies' ΔX ΔY ΔZ, a reference point's coordinates, Measure (points and ΔX ΔY ΔZ), Mass Properties (centre of mass, bounding box), 3D sketch coordinates and its Along X / Y / Z and On / Parallel to plane relations, and the Ask Claude panel.
+- **Files** are written and read in the part's axes: a STEP, STL, OBJ or 3MF exported from a part shown Z up has Z up, and a file imported into it comes in Z up (the import keeps the axes it came in with, so changing the part's up axis later doesn't turn it).
+- Assemblies and drawings show the up axis chosen for new parts (their components' own placements are not renamed yet).
+- Test: up-axis-z (a plate exported Z up and read back into a part shown Y up and one shown Z up; the Top plane named XY; a Move's ΔY kept as RazorCAD's −ΔZ; directions and the triad).
+
 ## 2026-10-25 06:37 — Fixed: two file dialogs open at once froze both
 - Reported on GitHub: several Open File dialogs could be opened together (File ▸ Open, Ctrl+O, the start window, Import, Save As…), and then none of them answered or could be closed, so RazorCAD had to be ended from outside. Only one file dialog is now open at a time: while one is open, another request does nothing (as if it were cancelled), and the open one closes with Cancel, its close button or Esc as usual.
 - Checked: a second request while a dialog is open returns at once, and the next one after it closes opens normally.

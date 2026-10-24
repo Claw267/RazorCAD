@@ -29,6 +29,8 @@ import { Macros } from './macros.js';
 import { igesToStep } from './igesstep.js';
 import { installA11y, onControl } from './a11y.js';
 import { machineInfo, kernelBudget, memoryFor, threadsPerKernel } from './machine.js';
+import * as W from './wcs.js';
+import { relabelAxes3D } from './sketch3dmodel.js';
 
 // Saved parts are auto-saved next to their file at most this often while they have unsaved changes.
 const AUTOSAVE_MS = 20000;
@@ -319,8 +321,43 @@ class App {
     ]);
   }
 
+  // The up axis of the part shown (doc.upAxis; assemblies and drawings: the one for new parts) applied: the
+  // triad, the 3D sketch's names and the status bar.
+  applyUpAxis() {
+    const u = this.mode === 'part' || this.mode === 'sketch' || this.mode === 'sketch3d' ? this.doc?.upAxis : this.ui.prefs?.upAxis;
+    const was = W.getUp();
+    W.setUp(u);
+    if (W.getUp() !== was) { this.viewport.setUpAxis(); relabelAxes3D(); }
+    const s = $('#status-up');
+    if (!s) return;
+    const z = W.getUp() === 'z';
+    s.textContent = z ? 'Z up' : 'Y up';
+    s.title = `World axes: ${z ? 'Z' : 'Y'} up (Top plane ${W.stdPlaneAxes('top')}, Front ${W.stdPlaneAxes('front')}, Right ${W.stdPlaneAxes('right')}) — click to change`;
+    s.style.cursor = 'pointer';
+    s.onclick = (e) => this.ui.showContext(e.clientX, e.clientY - 60, [
+      { label: (!z ? '● ' : '　') + 'Y up (Top plane XZ, Front XY)', icon: '', action: () => this.setUpAxis('y') },
+      { label: (z ? '● ' : '　') + 'Z up (Top plane XY, Front XZ)', icon: '', action: () => this.setUpAxis('z') },
+    ]);
+  }
+  // The part's up axis: the world axes renamed (with Z up the Top plane is XY, the Front plane XZ, the Right plane
+  // YZ); the model stays where it is. Also the up axis for new parts.
+  setUpAxis(u) {
+    u = u === 'z' ? 'z' : 'y';
+    if (this.ui.prefs) { if (u === 'z') this.ui.prefs.upAxis = 'z'; else delete this.ui.prefs.upAxis; this.ui.savePrefs(); }
+    if (this.mode === 'part' || this.mode === 'sketch' || this.mode === 'sketch3d') {
+      if ((this.doc.upAxis === 'z' ? 'z' : 'y') !== u) {
+        if (u === 'z') this.doc.upAxis = 'z'; else delete this.doc.upAxis;
+        this.commit();
+      }
+    }
+    this.applyUpAxis();
+    this.ui.renderPM(); this.ui.renderTree(); this.updateEdgeHighlights();
+    this.status(`World axes: ${u.toUpperCase()} up. The Top plane is ${W.stdPlaneAxes('top')}, the Front plane ${W.stdPlaneAxes('front')} and the Right plane ${W.stdPlaneAxes('right')}; the model stays where it is (only the axes' names change). New parts start ${u.toUpperCase()} up.`);
+  }
+
   updateTitle() {
     this.updateUnitsStatus();
+    this.applyUpAxis();
     if (this.mode === 'drawing' && this.drawing) {
       const d = this.drawing;
       const file = d.filePath ? d.filePath.split(/[\\/]/).pop() : null;
@@ -1806,7 +1843,9 @@ class App {
     if (this.mode === 'sketch') this.exitSketch(true);
     if (this.mode === 'sketch3d') this.exitSketch3D(true);
     if (this.pm) this.cancelPM();
-    const f = M.createFeature(this.doc, 'import', { format: file.format, fileName: file.name, data: file.data, name: file.name.replace(/\.[^.]+$/, ''), ...(appearance ? { appearance } : {}), ...(file.sew ? { sew: true } : {}) });
+    // (into a part shown Z up: the file's Z up made the part's, kept with the import so changing the part's up
+    // axis later moves nothing)
+    const f = M.createFeature(this.doc, 'import', { format: file.format, fileName: file.name, data: file.data, name: file.name.replace(/\.[^.]+$/, ''), ...(appearance ? { appearance } : {}), ...(file.sew ? { sew: true } : {}), ...(this.doc.upAxis === 'z' ? { upAxis: 'z' } : {}) });
     M.insertFeature(this.doc, f);
     this.commit();
     this.status(`Importing ${file.name}…`);
@@ -3913,6 +3952,7 @@ class App {
     this.beginTab();
     this.cancelAutosave();
     const doc = M.newDoc();
+    if (this.ui.prefs?.upAxis === 'z') doc.upAxis = 'z';
     // a new part in another tab gets the next free name
     const names = new Set(this.tabs.map((t, i) => (i === this.tabIndex ? null : t.doc?.name)).filter(Boolean));
     for (let n = 1; names.has(doc.name); n++) doc.name = 'Part' + n;

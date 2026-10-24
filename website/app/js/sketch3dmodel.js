@@ -1,6 +1,8 @@
 // 3D sketch data, geometry and solver (no display): shared by the 3D sketch editor (sketch3d.js) and the
 // geometry kernel, which re-solves 3D sketches whose converted entities follow model edges.
 
+import * as W from './wcs.js';
+
 export const REL3D = {
   alongX: { label: 'Along X', glyph: 'X', refs: ['seg'] },
   alongY: { label: 'Along Y', glyph: 'Y', refs: ['seg'] },
@@ -36,6 +38,18 @@ export const PLANES = {
   ZX: { n: [0, 1, 0], u: [0, 0, 1], v: [1, 0, 0], color: 0x16a34a, name: 'ZX (Top)' },
 };
 export const AXES = { X: [1, 0, 0], Y: [0, 1, 0], Z: [0, 0, 1] };
+// The names of the axes and planes above as the user sees them (wcs.js: with Z up, RazorCAD's Y is called Z and its
+// Z −Y; the XY plane is called XZ, ZX is XY): the relations and planes keep RazorCAD's keys, only their names change.
+export function relabelAxes3D() {
+  const L = (k) => W.axisLetter(k.toLowerCase()), P = (k) => W.planeLabel(k);
+  for (const k of ['X', 'Y', 'Z']) Object.assign(REL3D['along' + k], { label: `Along ${L(k)}`, glyph: L(k) });
+  const std = { XY: 'Front', YZ: 'Right', ZX: 'Top' };
+  for (const k of ['XY', 'YZ', 'ZX']) {
+    Object.assign(REL3D['parallel' + k], { label: `Parallel to ${P(k)}`, glyph: '∥' + P(k) });
+    Object.assign(REL3D['on' + k], { label: `On ${P(k)} (${std[k]}) plane`, glyph: '⌗' + P(k) });
+    PLANES[k].name = `${P(k)} (${std[k]})`;
+  }
+}
 export const COORD = { x: 0, y: 1, z: 2 };
 export const TAU = 2 * Math.PI;
 

@@ -26,6 +26,7 @@ import { ACI, aciColor, LTYPES, OPTION_LABELS, loadDxfSettings, saveDxfSettings,
 import { CLAUDE_MODELS } from './claudespec.js';
 import { lenText, lenValue, fmtLen, lenWithUnit, areaWithUnit, volWithUnit } from './units.js';
 import { groupBodies } from './bodygroups.js';
+import * as W from './wcs.js';
 
 // Draw DXF entities (flat pattern) on a canvas: CAD colours on dark, line types as dash patterns.
 // view: { zoom, px, py } on top of the fit-to-window placement (zoom / pan in the preview);
@@ -156,7 +157,21 @@ const el = (tag, attrs = {}, html = '') => {
 };
 
 const ENDS = [['blind', 'Blind'], ['midplane', 'Mid Plane'], ['through', 'Through All'], ['through2', 'Through All - Both']];
-const AXES = [['x', 'X axis'], ['y', 'Y axis'], ['z', 'Z axis']];
+// The X, Y and Z axes as choices (RazorCAD's keys for the user's axes, wcs.js); cur: the value held, listed too
+// when the up axis has changed since it was chosen (e.g. RazorCAD's 'z' with Z up: −Y)
+const axisChoices = (cur) => {
+  const out = ['x', 'y', 'z'].map((u) => [W.internalAxis(u), `${u.toUpperCase()} axis`]);
+  if (/^-?[xyz]$/.test(cur || '') && !out.some(([k]) => k === cur)) out.push([cur, `${W.axisLabel(cur)} axis`]);
+  return out;
+};
+// A value negated (a number, or an expression: −(…), which undoes itself)
+const negExpr = (e) => {
+  if (typeof e === 'number') return e ? -e : 0;
+  const t = String(e ?? '').trim();
+  if (/^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(t)) { const v = -Number(t); return String(v || 0); }
+  const m = /^-\((.*)\)$/.exec(t);
+  return m ? m[1] : `-(${t})`;
+};
 const ENDS_REF = [...ENDS, ['upToVertex', 'Up To Vertex'], ['upToSurface', 'Up To Surface'], ['offsetSurface', 'Offset From Surface']];
 const isSurfEnd = (f) => f.end === 'upToSurface' || f.end === 'offsetSurface';
 
@@ -928,7 +943,7 @@ const PM_SCHEMAS = {
   moveBody: [
     { title: 'Bodies to Move/Copy', fields: [{ key: 'bodies', type: 'bodyList', kinds: ['solid', 'surface'] }, { key: 'copy', type: 'check', label: 'Copy (keep the original bodies)' }, { key: 'copies', type: 'expr', label: 'Copies', unit: '#', show: (f) => f.copy && f.mode !== 'mates' }] },
     { title: 'Method', fields: [{ key: 'mode', type: 'select', label: 'Move by', options: [['translate', 'Translate / Rotate (coordinates)'], ['mates', 'Mates']] }] },
-    { title: 'Translate', fields: [{ key: 'dx', type: 'expr', label: 'ΔX', unit: 'mm', show: (f) => f.mode !== 'mates' }, { key: 'dy', type: 'expr', label: 'ΔY', unit: 'mm', show: (f) => f.mode !== 'mates' }, { key: 'dz', type: 'expr', label: 'ΔZ', unit: 'mm', show: (f) => f.mode !== 'mates' }] },
+    { title: 'Translate', fields: [{ key: 'dx', world: ['x', ['dx', 'dy', 'dz']], type: 'expr', label: 'ΔX', unit: 'mm', show: (f) => f.mode !== 'mates' }, { key: 'dy', world: ['y', ['dx', 'dy', 'dz']], type: 'expr', label: 'ΔY', unit: 'mm', show: (f) => f.mode !== 'mates' }, { key: 'dz', world: ['z', ['dx', 'dy', 'dz']], type: 'expr', label: 'ΔZ', unit: 'mm', show: (f) => f.mode !== 'mates' }] },
     { title: 'Rotate', fields: [{ key: 'rotAxis', type: 'direction', label: 'Axis', none: true, show: (f) => f.mode !== 'mates' }, { key: 'angle', type: 'expr', label: 'Angle', unit: '°', show: (f) => f.mode !== 'mates' && f.rotAxis !== 'none' }, { key: 'rotCenter', type: 'select', label: 'About', options: [['origin', 'The axis (through the origin for X/Y/Z)'], ['body', 'The center of the bodies']], show: (f) => f.mode !== 'mates' && f.rotAxis !== 'none' }] },
     { title: 'Mates', fields: [{ key: 'mates', type: 'mates', show: (f) => f.mode === 'mates' }] },
   ],
@@ -1154,9 +1169,9 @@ const PM_SCHEMAS = {
     {
       title: 'Selections', fields: [
         { key: 'pointType', type: 'select', label: 'Defined by', options: [['coords', 'Coordinates'], ['vertex', 'Model vertex'], ['arcCenter', 'Arc / circle center'], ['edgeMid', 'Edge midpoint']] },
-        { key: 'x', type: 'expr', label: 'X', unit: 'mm', show: (f) => f.pointType === 'coords' },
-        { key: 'y', type: 'expr', label: 'Y', unit: 'mm', show: (f) => f.pointType === 'coords' },
-        { key: 'z', type: 'expr', label: 'Z', unit: 'mm', show: (f) => f.pointType === 'coords' },
+        { key: 'x', world: ['x', ['x', 'y', 'z']], type: 'expr', label: 'X', unit: 'mm', show: (f) => f.pointType === 'coords' },
+        { key: 'y', world: ['y', ['x', 'y', 'z']], type: 'expr', label: 'Y', unit: 'mm', show: (f) => f.pointType === 'coords' },
+        { key: 'z', world: ['z', ['x', 'y', 'z']], type: 'expr', label: 'Z', unit: 'mm', show: (f) => f.pointType === 'coords' },
         { key: 'vertex', type: 'pick', label: 'Vertex', what: 'vertex', show: (f) => f.pointType === 'vertex' },
         { key: 'edge', type: 'pick', label: 'Edge', what: 'edge', show: (f) => f.pointType === 'arcCenter' || f.pointType === 'edgeMid' },
       ],
@@ -1213,9 +1228,14 @@ export class UI {
   // the menus of the document in front, with the theme and language in View and the macros in Tools
   menuDefs() {
     const defs = this.baseMenuDefs();
-    if (defs) defs.View = [...(defs.View || []), 'sep', ...this.themeItems(), 'sep', ...this.languageItems()];
+    if (defs) defs.View = [...(defs.View || []), 'sep', ...this.upAxisItems(), 'sep', ...this.themeItems(), 'sep', ...this.languageItems()];
     if (defs && this.app.macros) defs.Tools = [...(defs.Tools || []), 'sep', ...this.app.macros.menuItems()];
     return defs;
+  }
+  // the world's up axis (the part's own; also for new parts): see wcs.js
+  upAxisItems() {
+    const cur = W.getUp();
+    return [['Y (Top plane XZ, Front XY)', 'y'], ['Z (Top plane XY, Front XZ)', 'z']].map(([l, v]) => ({ label: `Up Axis ▸ ${cur === v ? '● ' : ''}${l}`, icon: 'axis', action: () => this.app.setUpAxis(v) }));
   }
   themeItems() {
     const cur = themePref();
@@ -2285,7 +2305,8 @@ export class UI {
     });
     for (const key of Object.keys(STD_PLANES)) {
       node({
-        icon: 'plane', label: STD_PLANES[key].name, depth: 1, fid: key,
+        // (its axes beside it: with Z up the Top plane is XY, see wcs.js)
+        icon: 'plane', label: STD_PLANES[key].name, sub: W.stdPlaneAxes(key), title: `${STD_PLANES[key].name}: the ${W.stdPlaneAxes(key)} plane (${W.getUp().toUpperCase()} up)`, depth: 1, fid: key,
         cls: a.stdPlaneShown(key) ? '' : 'hidden-item',
         vis: { on: a.stdPlaneShown(key), toggle: () => a.setStdPlaneVisible(key, !a.stdPlaneShown(key)) },
         selected: sel?.kind === 'plane' && sel.id === key,
@@ -2942,20 +2963,20 @@ export class UI {
     if (surface) { matSel.closest('div').previousElementSibling.remove(); matSel.closest('div').remove(); [...wrap.querySelectorAll('.bp-sec')].at(-1).textContent = 'Geometry'; }
     const renderMass = () => {
       if (surface) {
-        const size = mp.bbox.getSize(new (mp.bbox.min.constructor)());
-        $('.bp-mass', wrap).innerHTML = `<div class="k">Surface area</div><div>${fmt(mp.area, 2)} mm² (one side)</div><div class="k">Bounding box</div><div>${fmt(size.x)} × ${fmt(size.y)} × ${fmt(size.z)} mm</div>`;
+        const size = W.toUser(mp.bbox.getSize(new (mp.bbox.min.constructor)()).toArray()).map(Math.abs);
+        $('.bp-mass', wrap).innerHTML = `<div class="k">Surface area</div><div>${fmt(mp.area, 2)} mm² (one side)</div><div class="k">Bounding box</div><div>${fmt(size[0])} × ${fmt(size[1])} × ${fmt(size[2])} mm</div>`;
         return;
       }
       const mat = materialById(st.material) || partMat;
       const density = mat ? mat.density : 1.0;
-      const size = mp.bbox.getSize(new (mp.bbox.min.constructor)());
+      const size = W.toUser(mp.bbox.getSize(new (mp.bbox.min.constructor)()).toArray()).map(Math.abs), com = W.toUser([mp.com.x, mp.com.y, mp.com.z]);
       $('.bp-mass', wrap).innerHTML = `
         <div class="k">Density</div><div>${fmt(density, 3)} g/cm³${mat ? '' : ' <i>(no material: 1.00 assumed)</i>'}</div>
         <div class="k">Mass</div><div><b>${fmt((mp.volume / 1000) * density, 2)} g</b></div>
         <div class="k">Volume</div><div>${fmt(mp.volume, 2)} mm³</div>
         <div class="k">Surface area</div><div>${fmt(mp.area, 2)} mm²</div>
-        <div class="k">Center of mass</div><div>X ${fmt(mp.com.x)} &nbsp; Y ${fmt(mp.com.y)} &nbsp; Z ${fmt(mp.com.z)} mm</div>
-        <div class="k">Bounding box</div><div>${fmt(size.x)} × ${fmt(size.y)} × ${fmt(size.z)} mm</div>`;
+        <div class="k">Center of mass</div><div>X ${fmt(com[0])} &nbsp; Y ${fmt(com[1])} &nbsp; Z ${fmt(com[2])} mm</div>
+        <div class="k">Bounding box</div><div>${fmt(size[0])} × ${fmt(size[1])} × ${fmt(size[2])} mm</div>`;
     };
     const table = $('.bp-props', wrap);
     const renderProps = () => {
@@ -3279,6 +3300,8 @@ export class UI {
         // labels, hints and options may depend on the feature
         const fd = { ...fd0 };
         for (const k of ['label', 'hint', 'options', 'text']) if (typeof fd[k] === 'function') fd[k] = fd[k](f, a);
+        // (world: [the user's axis, the feature's keys for RazorCAD's x, y, z]: which one it is, and negated or not)
+        if (fd.world) { const ik = W.internalAxis(fd.world[0]); fd.key = fd.world[1]['xyz'.indexOf(ik.slice(-1))]; fd.neg = ik.startsWith('-'); }
         if (fd.type === 'hint') {
           body.appendChild(el('div', { class: 'pm-hint' }, esc(fd.text)));
         } else if (fd.type === 'sketchList') {
@@ -3383,7 +3406,7 @@ export class UI {
           if (picked) row.appendChild(el('button', { class: 'pm-btn', onclick: () => { f[fd.key] = null; this.renderPM(); a.updateEdgeHighlights(); a.preview(); } }, 'Clear'));
           body.appendChild(this.row(fd.label, row));
         } else if (fd.type === 'expr') {
-          body.appendChild(this.row(fd.label, this.exprInput(f[fd.key], fd.unit, (v) => { f[fd.key] = v; a.preview(); }, { optional: !!fd.optional })));
+          body.appendChild(this.row(fd.label, this.exprInput(fd.neg ? negExpr(f[fd.key]) : f[fd.key], fd.unit, (v) => { f[fd.key] = fd.neg ? negExpr(v) : v; a.preview(); }, { optional: !!fd.optional })));
         } else if (fd.type === 'check') {
           const cb = el('input', { type: 'checkbox' });
           cb.checked = !!(f[fd.key] ?? fd.default);
@@ -3404,7 +3427,7 @@ export class UI {
           const axisFeats = before.filter((x) => x.type === 'axis' && !x.suppressed).map((x) => [x.id, x.name]);
           const pointFeats = before.filter((x) => x.type === 'point' && !x.suppressed).map((x) => [x.id, x.name]);
           if (fd.type === 'axis') options = [...options, ...axisFeats];
-          if (fd.type === 'direction') options = [...(fd.none ? [['none', 'None']] : []), ...AXES, ...axisFeats];
+          if (fd.type === 'direction') options = [...(fd.none ? [['none', 'None']] : []), ...axisChoices(f[fd.key]), ...axisFeats];
           if (fd.type === 'pointSel') options = [['', '— select a reference point —'], ...pointFeats];
           if (fd.type === 'pointRef') options = [['', f.toVertex ? '✔ Vertex picked on the model' : '— click a vertex on the model —'], ...pointFeats];
           if (fd.type === 'surfaceRef') options = [['', f.toFace ? '✔ Face picked on the model' : '— click a flat face on the model —'], ...Object.entries(STD_PLANES).map(([k, p]) => [k, p.name]), ...before.filter((x) => x.type === 'plane' && !x.suppressed).map((x) => [x.id, x.name])];
@@ -4099,13 +4122,13 @@ export class UI {
     const U = a.units, mm = (x) => lenWithUnit(x, U, U === 'in' ? 4 : 3), at = (x) => fmtLen(x, U, U === 'in' ? 4 : 3);
     if (r.items.length === 1) {
       const it = r.items[0];
-      if (it.type === 'point') row('Point', `X ${at(it.p[0])} · Y ${at(it.p[1])} · Z ${at(it.p[2])} ${U}`);
+      if (it.type === 'point') { const q = W.toUser(it.p); row('Point', `X ${at(q[0])} · Y ${at(q[1])} · Z ${at(q[2])} ${U}`); }
       if (it.type === 'edge') { row('Length', `<b>${mm(it.length)}</b>`); if (it.radius) row(it.curve === 'circle' ? 'Diameter' : 'Radius', it.curve === 'circle' ? mm(2 * it.radius) : mm(it.radius)); }
       if (it.type === 'face') { row('Area', `<b>${areaWithUnit(it.area, U)}</b>`); if (it.radius) row('Diameter', mm(2 * it.radius)); }
       if (it.type === 'body') { if (it.volume != null) row('Volume', `<b>${volWithUnit(it.volume, U)}</b>`); row('Surface area', areaWithUnit(it.area, U)); }
       if (it.type === 'plane') row('Plane', 'Pick a second item to measure the distance');
     } else if (r.distance != null) {
-      const d = [0, 1, 2].map((k) => r.b[k] - r.a[k]);
+      const d = W.toUser([0, 1, 2].map((k) => r.b[k] - r.a[k]));
       row('Distance', `<b>${mm(r.distance)}</b>`);
       row('ΔX', mm(Math.abs(d[0])));
       row('ΔY', mm(Math.abs(d[1])));
@@ -5004,14 +5027,16 @@ export class UI {
       : `<div class="k">Material</div><div>Several (per body, see below)</div>`;
     const bodyTable = rows.length > 1 ? `<div class="bp-sec">Bodies</div><table class="grid"><tr><th>Body</th><th>Material</th><th>Volume (mm³)</th><th>Mass (g)</th></tr>${rows.map((r) => `<tr><td>${esc(r.b.name)}</td><td>${r.b.material ? esc(r.b.material.name) : '<i>not specified</i>'}${r.b.ownMaterial ? '' : ' <span class="pm-hint">(part)</span>'}</td><td class="num">${fmt(r.mp.volume, 2)}</td><td class="num">${fmt(r.mass, 2)}</td></tr>`).join('')}</table>` : '';
     const U = a.units, L = (x) => fmtLen(x, U);
+    // (in the user's axes, wcs.js)
+    const uc = W.toUser([com.x, com.y, com.z]), us = W.toUser([size.x, size.y, size.z]).map(Math.abs);
     const html = `
       <div class="kv">
         ${matRow}
         <div class="k">Mass</div><div><b>${fmt(mass, 2)} g</b>${U === 'in' ? ` (${fmt(mass / 453.59237, 4)} lb)` : ''}</div>
         <div class="k">Volume</div><div>${volWithUnit(volume, U, 2)}</div>
         <div class="k">Surface area</div><div>${areaWithUnit(area, U, 2)}</div>
-        <div class="k">Center of mass</div><div>X ${L(com.x)} &nbsp; Y ${L(com.y)} &nbsp; Z ${L(com.z)} ${U}</div>
-        <div class="k">Bounding box</div><div>${L(size.x)} × ${L(size.y)} × ${L(size.z)} ${U}</div>
+        <div class="k">Center of mass</div><div>X ${L(uc[0])} &nbsp; Y ${L(uc[1])} &nbsp; Z ${L(uc[2])} ${U}</div>
+        <div class="k">Bounding box</div><div>${L(us[0])} × ${L(us[1])} × ${L(us[2])} ${U}</div>
         <div class="k">Bodies</div><div>${rows.length}</div>
         <div class="k">Mesh triangles</div><div>${whole.triangles}</div>
       </div>${bodyTable}`;

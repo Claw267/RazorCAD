@@ -79,6 +79,8 @@ EXAMPLE — "a 100 x 60 x 10 plate with a 20 mm hole in the middle":
 // boxOf(bodyId) → { min: [x, y, z], max: [x, y, z] } (from the displayed mesh) or null.
 export function describePart(doc, result, boxOf = null) {
   const lines = [`Part "${doc.name}" (${doc.features.length} features).`];
+  // (a part the user sees Z up: their axes named, as they will speak of them; the features stay in the axes above)
+  if (doc.upAxis === 'z') lines.push('The user sees this part Z up: their X, Y, Z are the X, -Z, Y above (their Top plane XY is the top plane, their Front plane XZ the front plane). Write the features in the axes above as always; when the user says up or Z they mean +Y here, and their Y is -Z here.');
   const num = (v) => (typeof v === 'number' ? +v.toFixed(4) : v);
   for (const f of doc.features) {
     if (f.suppressed) continue;

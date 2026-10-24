@@ -6,6 +6,7 @@ import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-
 import * as G from './geometry.js';
 import { hatchStyle } from './drawingformats.js';
 import { wireColor } from './theme.js';
+import * as W from './wcs.js';
 
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
@@ -892,11 +893,22 @@ export class Viewport {
       const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(...dir).multiplyScalar(8)]);
       return new THREE.Line(geo, new THREE.LineBasicMaterial({ color, depthTest: false }));
     };
-    g.add(mk([1, 0, 0], 0xc62828), mk([0, 1, 0], 0x1d4ed8), mk([0, 0, 1], 0x2e7d32));
+    // (up blue, the other horizontal axis green: with Z up, the user's Y along RazorCAD's −Z, see wcs.js)
+    g.add(mk([1, 0, 0], 0xc62828), mk([0, 1, 0], 0x1d4ed8), mk(W.getUp() === 'z' ? [0, 0, -1] : [0, 0, 1], 0x2e7d32));
     g.renderOrder = 4;
     g.children.forEach((c) => (c.renderOrder = 4));
     this.origin = g;
     this.scene.add(g);
+  }
+
+  // The triad and the origin again, for the part's up axis (wcs.js)
+  setUpAxis() {
+    this.triadScene?.traverse((o) => { o.geometry?.dispose(); o.material?.map?.dispose(); o.material?.dispose(); });
+    this._buildTriad();
+    const vis = this.origin?.visible ?? true;
+    if (this.origin) { this.scene.remove(this.origin); this.origin.traverse((o) => { o.geometry?.dispose(); o.material?.dispose(); }); }
+    this._buildOrigin();
+    this.origin.visible = vis;
   }
 
   _buildTriad() {
@@ -913,7 +925,8 @@ export class Viewport {
       s.scale.set(0.55, 0.55, 1);
       return s;
     };
-    const axes = [[[1, 0, 0], 0xd32f2f, 'X', '#d32f2f'], [[0, 1, 0], 0x2e7d32, 'Y', '#2e7d32'], [[0, 0, 1], 0x1d4ed8, 'Z', '#1d4ed8']];
+    // (the user's axes: with Z up, Y along RazorCAD's −Z and Z along its Y, see wcs.js)
+    const axes = [[W.fromUser([1, 0, 0]), 0xd32f2f, 'X', '#d32f2f'], [W.fromUser([0, 1, 0]), 0x2e7d32, 'Y', '#2e7d32'], [W.fromUser([0, 0, 1]), 0x1d4ed8, 'Z', '#1d4ed8']];
     for (const [d, col, t, css] of axes) {
       const dir = new THREE.Vector3(...d);
       this.triadScene.add(new THREE.ArrowHelper(dir, new THREE.Vector3(), 1, col, 0.3, 0.16));
