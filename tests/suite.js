@@ -3074,10 +3074,10 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
         const r = await k.rebuild(d, null, null);
         return { f, r, v: vol(r), note: r.notes?.[f.id] || '' };
       };
-      const def = await build({}), sq = await build({ corner: 'square' }), butt = await build({ corner: 'butt' }), over = await build({ corner: 'closed' });
-      // square ends: the wall on the edge x = 60 (inside face x = 58.5) ends square at z = 40 − 1.5 − 0.1 / √2, short of
+      const def = await build({}), sq = await build({ corner: 'square', cornerGap: 0.5 }), butt = await build({ corner: 'butt', cornerGap: 0.5 }), over = await build({ corner: 'closed', cornerGap: 0.5 });
+      // square ends: the wall on the edge x = 60 (inside face x = 58.5) ends square at z = 40 − 1.5 − 0.5 / √2 (the default gap 0.5), short of
       // the other wall's inside face by the gap's share, its inside edge the gap from the other's; the outside corner open
-      const V = def.r.body.vertices, T = def.r.body.triangles, zEnd = 40 - 1.5 - 0.1 / Math.SQRT2;
+      const V = def.r.body.vertices, T = def.r.body.triangles, zEnd = 40 - 1.5 - 0.5 / Math.SQRT2;
       const end = def.r.body.faceGroups.find((g) => {
         if (g.surf?.t !== 'PLANE' || Math.abs(Math.abs(g.surf.n[2]) - 1) > 1e-6) return false;
         const xs = [], zs = [];
@@ -3088,7 +3088,7 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
       // 3 thick, where a corner's run-on of the wall once came out a ten-millionth off and split the wall's end face)
       const nf = (x) => { const c = {}; for (const g of x.r.body.faceGroups) c[g.surf?.t] = (c[g.surf?.t] || 0) + 1; return `${x.r.body.faceGroups.length} (${c.PLANE} planes, ${c.CYLINDER} cylinders, ${c.OTHER} other)`; };
       const thick = await build({}, 3), want = '38 (22 planes, 8 cylinders, 8 other)';
-      const ok = def.f.corner === 'square' && !def.r.errors.length && /4 corners closed/.test(def.note) && !!end && nf(def) === want && nf(thick) === want
+      const ok = def.f.corner === 'square' && def.f.cornerGap === 0.5 && !def.r.errors.length && /4 corners closed/.test(def.note) && !!end && nf(def) === want && nf(thick) === want
         && Math.abs(def.v - sq.v) < 1e-6 * sq.v && Math.abs(def.v - butt.v) > 1e-5 * butt.v && Math.abs(def.v - over.v) > 1e-4 * over.v;
       return { ok, detail: `default corner '${def.f.corner}', ${def.note || JSON.stringify(def.r.errors)}; wall end square at z ${zEnd.toFixed(4)}: ${end ? 'yes' : 'no'}; faces ${nf(def)}, 3 thick ${nf(thick)}; volume ${def.v.toFixed(3)} (square ${sq.v.toFixed(3)}, mitred ${butt.v.toFixed(3)}, overlap ${over.v.toFixed(3)})` };
     } finally { k.dispose(); }

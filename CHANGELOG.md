@@ -6,6 +6,10 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-25 09:42 — Edge-Flange corner gap 0.5 mm by default
+- A new Edge Flange's corner gap is 0.5 mm (was 0.1), as on the formed lid the square corner was matched to. Parts already made keep their gap; Closed Corner's own gap is unchanged (0.1).
+- Test: flange-corner-default (the default gap; the wall's end at the other's inside face less 0.5 / √2).
+
 ## 2026-10-25 08:43 — Square corners exactly as formed; whole faces at closed corners
 - A square (corner to corner) corner's bends now end in plain straight V cuts from the corner point, with no relief and no small round at the corner point: the bend region no longer looks wavy. Checked against the real lid: the same solid (no material in one that is not in the other; volumes equal to 4 parts in 100 million) with the same 38 faces.
 - The flange's end face is no longer split near the corner: a closed corner's run-on of a wall came out a ten-millionth of a mm off the wall's edge (the wall's height was found by a point test), which left the end face in three pieces on some sheets (3 mm, for one). It now sits exactly on the edge.

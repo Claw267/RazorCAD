@@ -370,7 +370,7 @@ export function createFeature(doc, type, props = {}) {
     // corner: 'square' (flanges meeting at a corner each run square up to the other's inside face, their
     // inner edges cornerGap apart, the outside corner open) | 'butt' (mitred: they meet on the diagonal,
     // cornerGap apart) | 'closed' (one runs on to cover the other's end) | 'open'
-    smFlange: { edges: [], length: 20, lengthRef: 'outer', angle: 90, position: 'inside', offset: 0, flip: false, useDefaultRadius: true, radius: 2, reliefType: 'rect', reliefRatio: 0.5, corner: 'square', cornerGap: 0.1, cornerSwap: false, cornerBend: 'vcut' },
+    smFlange: { edges: [], length: 20, lengthRef: 'outer', angle: 90, position: 'inside', offset: 0, flip: false, useDefaultRadius: true, radius: 2, reliefType: 'rect', reliefRatio: 0.5, corner: 'square', cornerGap: 0.5, cornerSwap: false, cornerBend: 'vcut' },
     smCornerRelief: { body: null, reliefType: 'rect', size: 4 },
     // faces: picked flange faces, one per corner (none: every corner); cornerType: overlap | underlap | square | butt
     // bendCorner: 'vcut' (bends as formed from the flat, lens-shaped opening) | 'mitre' (bends closed on the diagonal)
