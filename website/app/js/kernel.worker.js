@@ -6435,7 +6435,7 @@ function flatView(solids, v) {
   const notes = bends.map((b, i) => ({ p: [(b.a[0] + b.b[0]) / 2, (b.a[1] + b.b[1]) / 2], rot: b.rot, text: b.note, len: b.len, n: i + 1, up: b.up, deg: b.deg, R: b.R }));
   return {
     edges, cut: [], notes, box: { min: [0, 0], max: [fp.size[0], fp.size[1]] },
-    flat: { size: fp.size, area: fp.area, cut: SM.cutInfo(fp.region), t: rec.sheet.t, K: rec.sheet.K, R: rec.sheet.R, bends: bends.length, body: rec.id, bodies: sheets.map((r) => r.id), stale: rec.sheet.stale || null, flip },
+    flat: { size: fp.size, area: fp.area, cut: (({ length, loops }) => ({ length: length + SM.cutLines(rec.sheet), loops }))(SM.cutInfo(fp.region)), t: rec.sheet.t, K: rec.sheet.K, R: rec.sheet.R, bends: bends.length, body: rec.id, bodies: sheets.map((r) => r.id), stale: rec.sheet.stale || null, flip },
   };
 }
 
@@ -7527,7 +7527,7 @@ function sheetFlatData(bodyId, flip = false) {
   const mesh = meshData([flatSolid], bbox(flatSolid).diag);
   return {
     ents, size: fp.size, area: fp.area, bends, t: sheet.t, R: sheet.R, K: sheet.K,
-    cut: SM.cutInfo(fp.region),
+    cut: (({ length, loops }) => ({ length: length + SM.cutLines(sheet), loops }))(SM.cutInfo(fp.region)),
     frame: sheet.frame, origin: [x0, y0], mesh, stale: sheet.stale || null, flip: !!flip,
   };
 }
@@ -7591,7 +7591,7 @@ function flatEntsTop(sheet) {
   const noted = new Set();
   for (const mk of fp.marks || []) {
     const a = sh(mk.a), b = sh(mk.b);
-    ents.push({ type: 'LINE', layer: mk.kind === 'slit' ? 'HOLES' : mk.kind === 'etch' ? 'ETCH' : 'FORMING', a, b });
+    ents.push({ type: 'LINE', layer: mk.kind === 'slit' || mk.kind === 'rip' ? 'HOLES' : mk.kind === 'etch' ? 'ETCH' : 'FORMING', a, b });
     const text = mk.kind === 'crossbreak' ? `CROSS BREAK ${mk.up ? 'UP' : 'DOWN'}` : mk.note;
     if (text && !noted.has(mk.id)) {
       noted.add(mk.id);

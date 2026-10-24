@@ -3888,6 +3888,15 @@ class App {
     this.updateTitle();
   }
 
+  // The example part of the tutorial in the manual (splines, a guided loft, a variable fillet, a sheet metal tray).
+  openExample() {
+    this.beginTab();
+    this.cancelAutosave();
+    this.setDoc(M.exampleDoc());
+    this.filePath = null;
+    this.updateTitle();
+  }
+
   // Only one file is opened at a time (repeated clicks while a part loads are ignored).
   async openGuarded(fn) {
     if (this._opening) { this.status('Still opening the previous file…'); return null; }

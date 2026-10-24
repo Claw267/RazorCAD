@@ -6,6 +6,24 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-25 01:26 — Sketching: box selection, Control-Point Splines up to degree 7, Sketch Fillet on arcs
+From suggestions on GitHub (Discussions):
+- **Box selection** in sketches: drag from empty space with Select. Left to right is a **window** (solid box): what lies wholly inside it is selected. Right to left is **crossing** (dashed box): whatever it touches is selected. Ctrl or Shift adds to what is selected.
+- **Control-Point Spline**: degrees up to **7**, and the degree can be chosen **before drawing**, in the panel while the tool is on (a spline with fewer control points gets one degree less than its control points).
+- **Sketch Fillet** now rounds a corner where a **line meets an arc** or **two arcs** meet, not only two lines: the curves are cut back to a tangent arc with the radius dimension, as for lines.
+- Tests: sketch-box-select (a window round a rectangle, crossing over a circle, Ctrl adding; and a spline drawn with the degree chosen first), ctrl-spline (degrees 6 and 7 against a plain de Boor evaluation), sketch-fillet-arcs (a line and an arc, two arcs: tangent to both, the sketch solving).
+
+## 2026-10-25 01:14 — An example part and a tutorial for the new tools
+- **File ▸ Open Example Part (Tutorial)** (and **Example Part** on the start window): a duct lofted from a closed control-point spline up to a circle on a plane moved up and turned with Placement, following a guide curve, with a variable fillet that has a point along its bottom edge; beside it a sheet metal tray whose edge flanges meet corner to corner.
+- **Manual**: a new chapter, *Tutorial: a Guided Loft and a Sheet Metal Tray*, builds the same part step by step (also in the online manual).
+- Test: example-part (it rebuilds with no errors: the loft with its guide, the fillet with its point, the tray's four corners closed).
+
+## 2026-10-25 01:08 — Convert to Sheet Metal: a rip is one cut line in the flat pattern and its DXF, along the bend too
+- Where a converted flange runs flush against the material beside it, the flat pattern no longer has a slot 0.001 mm wide (two lines a hair apart for the laser) but **one cut line**, on the cut-outs layer (HOLES), as a louver's slit is. It now runs on across the bend as well as along the flange, as far as the bend runs flush too, so the flange really comes free. The outline itself stays whole; the cut length counts the line once.
+- Two flanges that unfold toward each other and fill a slot between them leave one cut line where they meet.
+- Checked against real parts converted alongside another program's flats: a panel with five flanged slots now has the same flat as theirs (the slots fill with their flanges; the area within 0.1 %, the size within what their K-factor gives).
+- Test: convert-flush-flange (also: along each side of the window the cut lines run end to end, none drawn twice).
+
 ## 2026-10-25 01:01 — Variable fillets: radii at points along the edges
 - A **Variable size** fillet set **At vertices and points along edges** now also takes **points along the edges** (from a suggestion on GitHub): **Add Point**, choose the edge, where along it (a share of its length from its start, in %) and the radius there. The radius runs smoothly along the edge from its start through its points to its end, and each point is marked on the edge in the view while the fillet is edited.
 - The fillet's note says how many points it has.

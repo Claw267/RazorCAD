@@ -435,7 +435,7 @@ In the sketch Property panel, **Rotate 90°** turns the sketch axes about the sk
 | **Text** | | See below |
 | **Gears** | | See the Gears chapter |
 | **Airfoil** | | See the Airfoils chapter |
-| **Sketch Fillet / Sketch Chamfer** | | Set the radius or distance, then click corners. The first one made gets the dimension; the others made before you leave the tool are made Equal to it, so one value changes them all. |
+| **Sketch Fillet / Sketch Chamfer** | | Set the radius or distance, then click corners (a fillet: where two lines, a line and an arc, or two arcs meet; a chamfer: two lines). The first one made gets the dimension; the others made before you leave the tool are made Equal to it, so one value changes them all. |
 | **Intersection Curve** | | Projects the outline where the sketch plane cuts the bodies |
 | **Construction Geometry** | [[Q]] | Toggles the selected curves to or from construction (drawn dotted, ignored by features) |
 | **Display Relations** | | Shows or hides the relation glyphs |
@@ -477,7 +477,7 @@ Click the points the curve runs through (they snap like line points), then doubl
 
 ## Control-Point Spline
 
-**Control-Point Spline** (beside Spline) draws a spline from control points: click them, then double-click, [[Enter]] or [[Esc]] to finish (click the first point again to close it: it then runs round smoothly, with no join). An open one starts and ends on the first and last control points and passes near the others; a closed one passes near them all. The **Closed** box in its panel opens or closes it. Select it to set its **degree**, 1 to 5 (at most one less than the control points): a higher degree is smoother and keeps farther from the polygon. The control polygon is drawn dashed and is made of construction lines, so you can dimension it and give it relations like any lines: horizontal, parallel, equal, an angle. The curve leaves each end along the polygon's end leg, so a relation on that leg (tangent to an arc, collinear with a line) sets its direction there. Drag the control points to reshape it. Deleting the spline deletes its polygon. {idx:control-point spline}{idx:spline, degree}
+**Control-Point Spline** (beside Spline) draws a spline from control points: click them, then double-click, [[Enter]] or [[Esc]] to finish (click the first point again to close it: it then runs round smoothly, with no join). An open one starts and ends on the first and last control points and passes near the others; a closed one passes near them all. The **Closed** box in its panel opens or closes it. Choose the **degree** (1 to 7) in the panel before drawing, or select the spline afterwards to change it (at most one less than the control points): a higher degree is smoother and keeps farther from the polygon. {idx:selection box} The control polygon is drawn dashed and is made of construction lines, so you can dimension it and give it relations like any lines: horizontal, parallel, equal, an angle. The curve leaves each end along the polygon's end leg, so a relation on that leg (tangent to an arc, collinear with a line) sets its direction there. Drag the control points to reshape it. Deleting the spline deletes its polygon. {idx:control-point spline}{idx:spline, degree}
 
 Select a control point for its own settings. **Weight** (1 is plain) pulls the curve toward that point when larger and lets it go farther when smaller: with three control points at the corners of a square, degree 2 and a weight of 0.7071 on the middle one, the curve is a quarter circle (to within 0.00001 mm). **Insert After** adds a control point half way along the next leg (the curve changes shape a little); **Remove**, or deleting the point, takes it out and joins its two legs. {idx:spline, weights}
 
@@ -491,7 +491,7 @@ Click **Text** on the Sketch tab, then click to place. The panel sets the text, 
 
 ## Relations
 
-Select entities ([[Ctrl]]+click for several). The Property panel lists the relations that apply: {idx:relations}
+Select entities ([[Ctrl]]+click for several, or drag a box from empty space: left to right selects what lies wholly inside it, right to left whatever it touches; [[Ctrl]] or [[Shift]] adds). The Property panel lists the relations that apply: {idx:relations}
 
 | Selection | Relations offered |
 |---|---|
@@ -620,6 +620,47 @@ The **Airfoil** tool on the Sketch tab draws a wing or blade section on a line. 
 | Custom | 4-digit: maximum camber, its position and thickness. 5-digit: design lift coefficient, camber position, reflexed camber line and thickness. Clark Y: thickness. Decimals are allowed. |
 
 Options: sharp or blunt trailing edge, camber to the other side, and the leading edge at the other end of the line.
+
+# Tutorial: a Guided Loft and a Sheet Metal Tray
+
+This tutorial builds a small duct and a tray with tools added in the 0.17 versions: the closed control-point spline, a plane placed with **Placement**, a loft that follows a guide curve, a variable fillet with a point along its edge, and edge flanges that meet corner to corner. The finished part is in **File ▸ Open Example Part (Tutorial)** (also on the start window): open it to look round, or follow the steps in a new part. {idx:tutorial}{idx:example part}
+
+## The bottom profile
+
+1. Select the **Top Plane** and click **Sketch**.
+2. Click **Control-Point Spline** on the Sketch tab and click eight control points round the origin, roughly at (50, 0), (40, 25), (0, 30), (−40, 25), (−50, 0), (−40, −25), (0, −30) and (40, −25). Click the first point again to close it: the curve runs round smoothly, near the points rather than through them.
+3. Select the spline: its panel shows the **Degree** (3) and the **Closed** box. Select a control point to see its **Weight**; leave it at 1 for now. Drag a control point and the curve follows.
+4. Exit the sketch.
+
+## A plane, moved and turned
+
+1. Click **Reference Plane**, pick the **Top Plane** and set the offset to 100.
+2. Under **Placement**, set **Turn its axes in the plane** to 30°: the plane's axes turn in the plane, so whatever is sketched on it turns with them.
+3. Sketch a circle of radius 20 at the origin on this plane and exit the sketch.
+
+## The guide curve
+
+1. Sketch on the **Front Plane**. With **Control-Point Spline**, click three points: the first where the bottom profile crosses the X axis (about 46.67, 0), one out to the side (about 62, 45) and the last on the circle (20, 100). Finish with a double-click or [[Enter]].
+2. A guide curve has to touch every profile. The first point lies on the bottom profile's curve, not on a control point: with these control points the curve crosses the axis at 140/3 = 46.6667 mm (select the point and type 46.6667 for its X in the panel).
+
+## The guided loft
+
+1. Click **Loft**, pick the bottom sketch and then the circle's sketch as the profiles.
+2. Under **Guide Curves**, pick the guide sketch. The loft's side follows the guide between the two profiles, and the profiles stay exactly as drawn. The note reads "2 profiles, 1 guide curve".
+
+## A fillet with a point along its edge
+
+1. Click **Fillet**, set the type to **Variable size** and **Radius** to **At vertices and points along edges**, and click the loft's bottom edge where the guide starts.
+2. Set the radius to 3: that is the radius at the edge's vertices.
+3. Under **Points along the edges**, click **Add Point**: half way along the edge (50 %) with a radius of 8. The point is marked on the edge; the fillet swells smoothly from 3 at the vertices to 8 there.
+
+## The tray
+
+1. Sketch an 80 × 60 rectangle on the **Top Plane**, beside the duct, and click **Base Flange** on the Sheet Metal tab with a thickness of 1.5 mm.
+2. Click **Edge Flange** and pick the four top edges, with a length of 20. Under **Corners**, **Corner to corner** is the default: where two flanges meet they close on the diagonal, the gap apart. **Overlap** would run one flange past the other's end instead.
+3. Click **Flatten** to see the tray laid out, with its bend lines.
+
+> Tip: change any value in the tree (the spline's degree, a weight, the plane's turn, the fillet's point) and the part rebuilds from there.
 
 # Solid Features
 
@@ -1097,7 +1138,7 @@ Turns an ordinary body into sheet metal. Pick a flat face of a thin-walled body 
 - RazorCAD follows that side of the sheet across every smooth edge, through flat faces and cylindrical bend faces, so the whole body is found. Each bend keeps its own radius and angle.
 - Bends that run straight into each other with no flat between (rolled shapes such as a fan scroll) are joined automatically. Cut-outs in bends are kept and holes stay true circles in the DXF.
 - Sharp-cornered bodies (shelled boxes) get bends of the chosen radius at every edge between two flat faces.
-- A flange whose ends run right up against the material beside it, with no relief (a flange off a cross bar between the sides of a window, or off the edges of a slot), is ripped there: the flat pattern has a cut of next to no width (0.001 mm) along each flange end, from the bend to the flange's edge, as the part is cut and bent. {idx:Convert to Sheet Metal, rips}
+- A flange whose ends run right up against the material beside it, with no relief (a flange off a cross bar between the sides of a window, or off the edges of a slot), is ripped there: the flat pattern (and its DXF) has a cut line along each flange end, across the bend and on to the flange's edge, on the cut-outs layer, as the part is cut and bent. {idx:Convert to Sheet Metal, rips}
 - The panel shows what was found in the body, for example "thickness 3 mm · bend radii R300, R227, R13 (inside, 3 bends)" or "4 sharp edges".
 - **Use the body's thickness** and **Use the body's bend radii** are on by default. Untick either to set your own value (pre-filled with the detected one).
 - A body curved other than in plain bends (a square-to-round transition or a reducer from another program, a cone) is **unrolled**: laid out flat at the neutral layer, triangle by triangle, so its flat pattern keeps every length; a ring is cut open at a seam. For a cone, click its curved face. A closed tube (bends all the way round) is unrolled the same way, cut open at a seam. A face curved both ways (a dished end) can't be laid flat and is refused. Cuts in such a sheet are unrolled with it (the hole is in the flat pattern); flanges, hems and corners can't be added (as on a lofted bend).

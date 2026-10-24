@@ -66,7 +66,7 @@ export const SKETCH_TOOLS = {
   offset: { label: 'Offset', hint: 'Click a line, arc or circle — or a model edge (its chain of edges in a plane parallel to the sketch) — then move to the side and distance you want and click, and type the exact distance. Choose a linked or a single offset in the Property panel.' },
   convert: { label: 'Project Edges', hint: 'Click model edges, vertices or entities of other sketches to project them into this sketch. Projected geometry stays linked and updates when its source changes.' },
   text: { label: 'Text', hint: 'Click where the text should start. Type it and choose the font, height, bold and italic in the Property panel. Text makes closed outlines for extruded bosses and cuts (and Wrap).' },
-  sfillet: { label: 'Sketch Fillet', hint: 'Set the radius in the Property panel, then click a corner where two lines meet. The lines are trimmed and joined by a tangent arc.' },
+  sfillet: { label: 'Sketch Fillet', hint: 'Set the radius in the Property panel, then click a corner where two lines, a line and an arc, or two arcs meet. They are trimmed and joined by a tangent arc.' },
   schamfer: { label: 'Sketch Chamfer', hint: 'Set the distance in the Property panel, then click a corner where two lines meet. The corner is cut off by a line at that distance along both lines.' },
 };
 
@@ -79,6 +79,7 @@ export class Sketcher {
     this.relsVisible = true;
     this.autoRelations = true;
     this.polySides = 6;
+    this.splineDegree = 3;   // the degree a Control-Point Spline is drawn with (chosen in the panel before drawing)
     this.offsetLinked = true; // offsets stay linked to their source (off: plain geometry)
     this.offsetChain = true;  // model edges: offset the connected chain of edges
     this.filletR = 5;         // Sketch Fillet radius
@@ -817,7 +818,12 @@ export class Sketcher {
         if (multi) { this.sel.has(hit.id) ? this.sel.delete(hit.id) : this.sel.add(hit.id); }
         else if (!this.sel.has(hit.id)) { this.sel.clear(); this.sel.add(hit.id); }
         if (!multi && !external) this.startDrag(hit, raw);
-      } else if (!multi) this.sel.clear();
+      } else {
+        if (!multi) this.sel.clear();
+        // a drag from empty space: a selection box (see boxMove / boxEnd)
+        const at = this.vp.screenPos(ev);
+        this.box = { a: at, b: at, el: null };
+      }
       if (this.airfoilPick && hit && S.getCurve(this.f, hit.id)?.type === 'line') { this.drag = null; this.makeAirfoil(); return; }
       this.pruneUnusedRefs();
       this.redraw();
@@ -935,7 +941,7 @@ export class Sketcher {
       if (pid === d.pts[d.pts.length - 1]) return;
       if (pid === d.pts[0] && d.pts.length >= 3) {
         // back on the first point: a closed loop (a control-point spline runs round smoothly)
-        if (t === 'cspline') S.addCtrlSpline(this.f, d.pts, Math.min(3, d.pts.length - 1), false, true);
+        if (t === 'cspline') S.addCtrlSpline(this.f, d.pts, Math.min(this.splineDegree, d.pts.length - 1), false, true);
         else S.addSpline(this.f, d.pts, true);
         this.draw = null;
         this.solve();
@@ -1041,6 +1047,7 @@ export class Sketcher {
     const raw = this.localFromEvent(ev);
     const screen = this.vp.screenPos(ev);
     if (this.drag) return this.dragMove(raw, screen);
+    if (this.box) return this.boxMove(screen);
     const t = this.tool;
     if (t === 'select') {
       const hit = this.hitTest(raw);
@@ -1187,6 +1194,7 @@ export class Sketcher {
   }
 
   pointerUp(ev) {
+    if (this.box) { this.boxEnd(); return; }
     if (this.drag) {
       const moved = this.drag.moved;
       this.drag = null;
@@ -1198,6 +1206,62 @@ export class Sketcher {
       const s = this.vp.screenPos(ev);
       if (Math.hypot(s.x - d.downAt.x, s.y - d.downAt.y) > 6) { d.s1 = d.p1; this.commit(); }
     }
+  }
+
+  // ------------------------------------------------------------ selection box
+  // Dragged from empty space with the Select tool. Left to right: a window, selecting what lies wholly inside it
+  // (drawn solid); right to left: crossing, selecting whatever it touches (drawn dashed). Points and curves, tested
+  // as they are drawn on the screen (so any view works); Ctrl or Shift adds to the selection.
+  boxMove(screen) {
+    const B = this.box;
+    B.b = screen;
+    if (Math.hypot(B.b.x - B.a.x, B.b.y - B.a.y) < 4 && !B.el) return;
+    if (!B.el) {
+      B.el = document.createElement('div');
+      B.el.className = 'sk-box';
+      this.vp.canvas.parentElement.appendChild(B.el);
+    }
+    const cr = this.vp.canvas.getBoundingClientRect(), pr = this.vp.canvas.parentElement.getBoundingClientRect();
+    const x0 = Math.min(B.a.x, B.b.x), y0 = Math.min(B.a.y, B.b.y);
+    Object.assign(B.el.style, { left: `${x0 + cr.left - pr.left}px`, top: `${y0 + cr.top - pr.top}px`, width: `${Math.abs(B.b.x - B.a.x)}px`, height: `${Math.abs(B.b.y - B.a.y)}px` });
+    B.el.classList.toggle('crossing', B.b.x < B.a.x);
+  }
+  boxEnd() {
+    const B = this.box;
+    this.box = null;
+    B.el?.remove();
+    if (!B.el) return;
+    const ids = this.boxItems(B.a, B.b, B.b.x < B.a.x);
+    for (const id of ids) this.sel.add(id);
+    this.redraw();
+    this.app.ui.renderPM();
+    this.app.ui.refreshCommandStates();
+    this.app.status(`${ids.length} entit${ids.length === 1 ? 'y' : 'ies'} selected by the box (${B.b.x < B.a.x ? 'crossing: whatever it touches' : 'window: wholly inside'}).`);
+  }
+  // The points and curves of the sketch in the box a–b (screen); crossing: also those it touches
+  boxItems(a, b, crossing) {
+    const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x), y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
+    const scr = (x, y) => this.vp.project(G.toWorld(this.frame, x, y));
+    const inside = (q) => q.x >= x0 && q.x <= x1 && q.y >= y0 && q.y <= y1;
+    // a segment touching the box: an end inside, or crossing one of its sides
+    const cuts = (p, q) => {
+      if (inside(p) || inside(q)) return true;
+      const sides = [[{ x: x0, y: y0 }, { x: x1, y: y0 }], [{ x: x1, y: y0 }, { x: x1, y: y1 }], [{ x: x1, y: y1 }, { x: x0, y: y1 }], [{ x: x0, y: y1 }, { x: x0, y: y0 }]];
+      const cr = (o, u, v) => (u.x - o.x) * (v.y - o.y) - (u.y - o.y) * (v.x - o.x);
+      return sides.some(([c, d]) => cr(p, q, c) * cr(p, q, d) < 0 && cr(c, d, p) * cr(c, d, q) < 0);
+    };
+    const out = [];
+    for (const p of this.f.points) {
+      if (p.id === 'O') continue;
+      if (inside(scr(p.x, p.y))) out.push(p.id);
+    }
+    for (const c of this.f.curves) {
+      const q = S.curvePoints(this.f, c).map(([x, y]) => scr(x, y));
+      if (!q.length) continue;
+      const hit = crossing ? q.some((p, i) => (i ? cuts(q[i - 1], p) : inside(p))) : q.every(inside);
+      if (hit) out.push(c.id);
+    }
+    return out;
   }
 
   doubleClick() {
@@ -1216,7 +1280,7 @@ export class Sketcher {
     if (this.draw?.tool === 'spline' || this.draw?.tool === 'cspline') {
       const pts = this.draw.pts.filter((id, i, a) => !i || id !== a[i - 1]);
       if (pts.length >= 2) {
-        if (this.draw.tool === 'cspline') S.addCtrlSpline(this.f, pts, Math.min(3, pts.length - 1));
+        if (this.draw.tool === 'cspline') S.addCtrlSpline(this.f, pts, Math.min(this.splineDegree, pts.length - 1));
         else S.addSpline(this.f, pts);
         this.solve(); changed = true;
       }
@@ -2515,7 +2579,7 @@ export class Sketcher {
       const Q = P.filter((q, i, a) => !i || Math.hypot(q[0] - a[i - 1][0], q[1] - a[i - 1][1]) > 1e-9);
       // (a control-point spline: its control polygon too)
       if (d.tool === 'cspline' && Q.length >= 2) out.push(Q);
-      const pcs = d.tool === 'cspline' ? S.ctrlSplineBeziers(Q, Math.min(3, Q.length - 1)) : S.splineBeziers(Q);
+      const pcs = d.tool === 'cspline' ? S.ctrlSplineBeziers(Q, Math.min(this.splineDegree, Q.length - 1)) : S.splineBeziers(Q);
       if (pcs.length) out.push(pcs.flatMap((g, k) => Array.from({ length: 25 - (k ? 1 : 0) }, (_, i) => S.bezierAt(g, (i + (k ? 1 : 0)) / 24))));
       return out;
     }

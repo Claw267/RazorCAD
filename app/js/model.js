@@ -537,6 +537,37 @@ export class History {
   redo() { return this.canRedo() ? JSON.parse(this.stack[++this.idx]) : null; }
 }
 
+// ---------------------------------------------------------------- example part
+// The tools of the tutorial in the manual, in one part: a duct lofted from a closed control-point spline up to a
+// circle on a plane moved up and turned, following a guide curve; a variable fillet with points along its bottom
+// edge; and beside it a sheet metal tray whose flanges meet corner to corner.
+export function exampleDoc() {
+  const doc = newDoc();
+  doc.name = 'Example Duct and Tray';
+  const add = (type, props) => { const f = createFeature(doc, type, props); doc.features.push(f); return f; };
+  // the bottom profile: a closed control-point spline (it runs round smoothly near its points); symmetric, so it
+  // crosses the x axis at (40 + 4·50 + 40) / 6 = 140/3, where the guide starts
+  const s1 = add('sketch', { plane: { ref: 'top' } });
+  const P1 = [[50, 0], [40, 25], [0, 30], [-40, 25], [-50, 0], [-40, -25], [0, -30], [40, -25]].map(([x, y]) => S.addPoint(s1, x, y));
+  S.addCtrlSpline(s1, P1, 3, false, true);
+  // the top profile: a circle on a plane 100 up, its axes turned 30° (Placement)
+  const pl = add('plane', { refs: [{ kind: 'plane', id: 'top' }], offset: 100, turn: 30 });
+  const s2 = add('sketch', { plane: { ref: pl.id } });
+  S.addCircle(s2, 'O', 20);
+  // the guide: an open control-point spline from the bottom profile to the top one, in the front plane
+  const s3 = add('sketch', { plane: { ref: 'front' } });
+  S.addCtrlSpline(s3, [[140 / 3, 0], [62, 45], [20, 100]].map(([x, y]) => S.addPoint(s3, x, y)), 2);
+  add('loft', { profiles: [s1.id, s2.id], guides: [s3.id] });
+  // a variable fillet round the bottom: R3 at its vertices, R8 half way along the edge where the guide starts
+  add('fillet', { filletType: 'variable', radiusMode: 'vertices', radius: 3, edges: [{ p: [140 / 3, 0, 0] }], edgePoints: [{ edge: 0, t: 50, r: 8 }] });
+  // the tray: a base flange 80 × 60 and four edge flanges meeting corner to corner
+  const s4 = add('sketch', { plane: { ref: 'top' } });
+  S.buildCenterRect(s4, S.addPoint(s4, 150, 0), 150, 0, 40, 30);
+  add('smBase', { sketch: s4.id, thickness: 1.5, radius: 1.5 });
+  add('smFlange', { edges: [{ p: [150, 1.5, 30] }, { p: [150, 1.5, -30] }, { p: [110, 1.5, 0] }, { p: [190, 1.5, 0] }], length: 20 });
+  return doc;
+}
+
 // ---------------------------------------------------------------- sample part
 export function sampleDoc() {
   const doc = newDoc();

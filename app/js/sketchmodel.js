@@ -312,7 +312,7 @@ export function splinePieces(sk, c) {
   return c.ctrl ? ctrlSplineBeziers(P, c.degree ?? 3, !!c.closed, c.weights) : splineBeziers(P, !!c.closed);
 }
 
-// A control-point spline (ctrl: true): a B-spline of `degree` (1–5) on its points, knots evenly spaced. Open, it is
+// A control-point spline (ctrl: true): a B-spline of `degree` (1–7) on its points, knots evenly spaced. Open, it is
 // clamped (it starts at the first and ends at the last, leaving them along the first and last legs of its control
 // polygon); closed, it is periodic (it runs round smoothly, with no join, near the points rather than through
 // them). weights (optional, one per point, 1 when left out): a weighted (rational) spline, pulled harder toward the
@@ -331,7 +331,8 @@ export function addCtrlSpline(sk, pts, degree = 3, construction = false, closed 
 }
 // The fewest control points a control-point spline can have, and the highest degree it can have.
 export const ctrlMin = (c) => (c.closed ? 3 : 2);
-export const ctrlMaxDegree = (c) => Math.max(1, Math.min(5, c.pts.length - 1));
+export const CTRL_MAX_DEGREE = 7;
+export const ctrlMaxDegree = (c) => Math.max(1, Math.min(CTRL_MAX_DEGREE, c.pts.length - 1));
 // After its points changed: the control polygon as construction lines between consecutive points (and from the
 // last back to the first when closed), keeping the legs that are still there (with their dimensions and relations),
 // the degree within what the point count allows and the weights one per point; ends p1 / p2 on the right points.
@@ -2147,8 +2148,13 @@ export function blendCorner(sk, P, r, chamfer = false) {
     if (Q !== 'O' && sk.curves.some((c) => c.type === 'line' && (c.p1 === Q || c.p2 === Q))) mergePoints(sk, Q, P);
   }
   const lines = cornerLines(sk, P);
-  if (!lines) throw new Error('Pick a corner where exactly two lines meet');
   if (!(r > 0)) throw new Error(chamfer ? 'The chamfer distance must be greater than zero' : 'The radius must be greater than zero');
+  if (!lines) {
+    // a line and an arc, or two arcs: rounded (not chamfered)
+    const two = sk.curves.filter((c) => (c.type === 'line' || c.type === 'arc') && (c.p1 === P || c.p2 === P));
+    if (two.length !== 2 || chamfer) throw new Error(chamfer ? 'Pick a corner where exactly two lines meet' : 'Pick a corner where exactly two lines, a line and an arc, or two arcs meet');
+    return filletCurves(sk, P, two[0], two[1], r);
+  }
   const [L1, L2] = lines;
   const p = getPoint(sk, P);
   const far = (L) => getPoint(sk, L.p1 === P ? L.p2 : L.p1);
@@ -2188,6 +2194,89 @@ export function blendCorner(sk, P, r, chamfer = false) {
     created.push(C, arc);
   }
   return created;
+}
+
+// Round the corner at P where a line and an arc, or two arcs, meet (A, B: the two curves). The fillet's centre is r
+// from both: where their offsets meet (a line's two parallels, an arc's circles r wider and r narrower); of the
+// places that touch both curves within what they are (not past their other ends), the one nearest the corner. The
+// curves are cut back to the fillet, which gets tangent relations and a radius dimension, as for two lines.
+function filletCurves(sk, P, A, B, r) {
+  const p = getPoint(sk, P), tol = 1e-9;
+  const geo = (c) => {
+    if (c.type === 'line') {
+      const a = getPoint(sk, c.p1 === P ? c.p2 : c.p1), L = Math.hypot(a.x - p.x, a.y - p.y), u = [(a.x - p.x) / L, (a.y - p.y) / L];
+      return { c, line: true, far: a, L, u, n: [-u[1], u[0]] };
+    }
+    const C = getPoint(sk, c.c), s = getPoint(sk, c.p1), e = getPoint(sk, c.p2), R = Math.hypot(s.x - C.x, s.y - C.y);
+    const a0 = Math.atan2(s.y - C.y, s.x - C.x);
+    let span = Math.atan2(e.y - C.y, e.x - C.x) - a0;
+    while (span <= 0) span += 2 * Math.PI;
+    return { c, line: false, C, R, a0, span };
+  };
+  const g1 = geo(A), g2 = geo(B);
+  // the offsets: { line: point + direction } or { circle: centre, radius }
+  const offsets = (g) => (g.line
+    ? [1, -1].map((sg) => ({ line: true, q: [p.x + g.n[0] * r * sg, p.y + g.n[1] * r * sg], u: g.u }))
+    : [g.R + r, g.R - r].filter((x) => x > tol).map((rr) => ({ line: false, C: [g.C.x, g.C.y], R: rr })));
+  const meet = (o1, o2) => {
+    if (o1.line && o2.line) return [];
+    if (!o1.line && o2.line) return meet(o2, o1);
+    if (o1.line) {
+      // the line q + t u and the circle (C, R)
+      const d = [o1.q[0] - o2.C[0], o1.q[1] - o2.C[1]], b = d[0] * o1.u[0] + d[1] * o1.u[1], cc = d[0] * d[0] + d[1] * d[1] - o2.R * o2.R, D = b * b - cc;
+      if (D < -tol) return [];
+      const sq = Math.sqrt(Math.max(0, D));
+      return [-b - sq, -b + sq].map((t) => [o1.q[0] + o1.u[0] * t, o1.q[1] + o1.u[1] * t]);
+    }
+    // two circles
+    const dx = o2.C[0] - o1.C[0], dy = o2.C[1] - o1.C[1], d = Math.hypot(dx, dy);
+    if (d < tol || d > o1.R + o2.R + tol || d < Math.abs(o1.R - o2.R) - tol) return [];
+    const a = (o1.R * o1.R - o2.R * o2.R + d * d) / (2 * d), h = Math.sqrt(Math.max(0, o1.R * o1.R - a * a));
+    const m = [o1.C[0] + (dx * a) / d, o1.C[1] + (dy * a) / d];
+    return [[m[0] - (dy * h) / d, m[1] + (dx * h) / d], [m[0] + (dy * h) / d, m[1] - (dx * h) / d]];
+  };
+  // where a fillet centred at O touches the curve, if within it (a line: between the corner and its other end; an
+  // arc: within its sweep)
+  const touch = (g, O) => {
+    if (g.line) {
+      const t = (O[0] - p.x) * g.u[0] + (O[1] - p.y) * g.u[1];
+      return t > tol && t < g.L - tol ? [p.x + g.u[0] * t, p.y + g.u[1] * t] : null;
+    }
+    const v = [O[0] - g.C.x, O[1] - g.C.y], vl = Math.hypot(v[0], v[1]);
+    if (vl < tol) return null;
+    const T = [g.C.x + (v[0] / vl) * g.R, g.C.y + (v[1] / vl) * g.R];
+    let a = Math.atan2(T[1] - g.C.y, T[0] - g.C.x) - g.a0;
+    while (a < 0) a += 2 * Math.PI;
+    return a > 1e-9 && a < g.span - 1e-9 ? T : null;
+  };
+  let best = null;
+  for (const o1 of offsets(g1)) {
+    for (const o2 of offsets(g2)) {
+      for (const O of meet(o1, o2)) {
+        const T1 = touch(g1, O), T2 = touch(g2, O);
+        if (!T1 || !T2) continue;
+        const cost = Math.hypot(T1[0] - p.x, T1[1] - p.y) + Math.hypot(T2[0] - p.x, T2[1] - p.y);
+        if (!best || cost < best.cost) best = { O, T1, T2, cost };
+      }
+    }
+  }
+  if (!best) throw new Error('The radius is too large (or too small) for these curves: no fillet fits between them');
+  const used = P === 'O' || sk.constraints.some((k) => k.refs.includes(P));
+  const T1 = addPoint(sk, ...best.T1), T2 = addPoint(sk, ...best.T2), C = addPoint(sk, ...best.O);
+  for (const [c, T] of [[A, T1], [B, T2]]) { if (c.p1 === P) c.p1 = T; else c.p2 = T; }
+  const construction = A.construction && B.construction;
+  const c = getPoint(sk, C), a = getPoint(sk, T1), b = getPoint(sk, T2);
+  const ccw = (a.x - c.x) * (b.y - c.y) - (a.y - c.y) * (b.x - c.x) > 0;
+  const arc = ccw ? addArc(sk, C, T1, T2, construction) : addArc(sk, C, T2, T1, construction);
+  // (the solver takes a line first in a tangent relation)
+  for (const g of [A, B]) addRel(sk, 'tangent', g.type === 'line' ? [g.id, arc] : [arc, g.id]);
+  addRel(sk, 'dim', [arc], { kind: 'radius', value: +r.toFixed(6) });
+  if (used) {
+    if (P !== 'O') getPoint(sk, P).keep = true;
+    addRel(sk, 'onCurve', [P, A.id]);
+    addRel(sk, 'onCurve', [P, B.id]);
+  }
+  return [T1, T2, C, arc];
 }
 
 // Turn the sketch's axes by 90° (dir = 1: counter-clockwise, -1: clockwise) while the geometry

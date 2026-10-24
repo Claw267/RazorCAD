@@ -1250,6 +1250,7 @@ export class UI {
         { label: 'Make Drawing from Part', icon: 'std3View', action: () => a.newDrawing(true), disabled: !a.doc?.features.length },
         { label: 'Open…', icon: 'open', key: 'Ctrl+O', action: () => a.openFile() },
         { label: 'Open Sample Part', icon: 'part', action: () => a.openSample() },
+        { label: 'Open Example Part (Tutorial)', icon: 'loft', action: () => a.openExample() },
         { label: 'Recent Parts / Start…', icon: 'open', action: () => a.showStart() },
         'sep',
         { label: 'Save', icon: 'save', key: 'Ctrl+S', action: () => a.saveFile() },
@@ -3466,7 +3467,7 @@ export class UI {
         if (x > 0) { if (fillet) sk.filletR = x; else sk.chamferD = x; }
       }, { min: 0 })));
       g.appendChild(el('div', { class: 'pm-hint' }, fillet
-        ? 'Click corners where two lines meet. The first fillet gets tangent relations and a radius dimension; the next ones are made <b>equal</b> to it (Equal) until you leave the tool, so one dimension sizes them all.'
+        ? 'Click corners where two lines, a line and an arc, or two arcs meet. The first fillet gets tangent relations and a radius dimension; the next ones are made <b>equal</b> to it (Equal) until you leave the tool, so one dimension sizes them all.'
         : 'Click corners where two lines meet. The first chamfer is dimensioned from the original corner (kept as a point); the next ones are made <b>equal</b> to it (Equal Distance) until you leave the tool.'));
     }
 
@@ -3477,6 +3478,16 @@ export class UI {
     if (train) this.renderGearPM(root, sk, train);
     const foil = sk.selectedAirfoil();
     if (foil) this.renderAirfoilPM(root, sk, foil);
+
+    if (sk.tool === 'cspline') {
+      // the degree it is drawn with (lower when it has fewer control points; changed afterwards in its own panel)
+      const g = this.pmGroup(root, 'Control-Point Spline', 'sk:cspline');
+      const sel = el('select');
+      for (let d = 1; d <= SM.CTRL_MAX_DEGREE; d++) sel.appendChild(el('option', { value: String(d), ...(d === sk.splineDegree ? { selected: '' } : {}) }, d === 1 ? '1 (straight)' : d === 2 ? '2 (quadratic)' : d === 3 ? '3 (cubic)' : String(d)));
+      sel.onchange = () => { sk.splineDegree = +sel.value; sk.redraw(); };
+      g.appendChild(this.row('Degree', sel));
+      g.appendChild(el('div', { class: 'pm-hint' }, `Click the control points; double-click or Enter ends it, clicking the first point closes it. It is drawn with this degree, or one less than its control points when it has fewer (a degree ${sk.splineDegree} spline needs ${sk.splineDegree + 1}).`));
+    }
 
     if (sk.tool === 'polygon') {
       const g = this.pmGroup(root, 'Polygon', 'sk:poly');
@@ -4232,6 +4243,7 @@ export class UI {
     big('drawing', 'New Drawing', 'A 2D drawing of a part, from a template', () => a.newDrawing());
     big('open', 'Open…', 'Open a part or drawing file', () => a.openFile());
     big('part', 'Sample Part', 'A mounting plate to explore', () => a.openSample());
+    big('loft', 'Example Part', 'Splines, a guided loft and a sheet metal tray (the tutorial in the manual)', () => a.openExample());
     if (info.legacy) {
       const when = info.legacy.modified ? new Date(info.legacy.modified).toLocaleString() : 'an earlier version';
       big('rebuild', 'Recover Previous Session', `Unsaved work kept by RazorCAD (${when})`, () => a.recoverLegacySession(), 'warn');

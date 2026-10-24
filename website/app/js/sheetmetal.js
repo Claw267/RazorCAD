@@ -276,9 +276,13 @@ export function fold(sheet) {
     // (a converted bend's zone is its own: the union starts from a copy, as the union is freed below)
     strips = swap(strips, next === z && !own ? z.clone() : next);
   }
-  const panelShape = strips ? bop('cut', region, strips) : region;
+  // (rips: cut RIP wide, so the pieces either side of each fold apart)
+  const rips = seamRips((sheet.marks || []).filter((m) => m.kind === 'rip').map((m) => [m.a, m.b]), t);
+  const cutter = rips ? bop('fuse', strips, rips) : strips;
+  const panelShape = cutter ? bop('cut', region, cutter) : region;
   const panels = facesOf(panelShape).map((face, i) => ({ i, face, M: null }));
-  free(strips);
+  if (cutter !== strips && cutter !== rips) free(cutter);
+  free(strips, rips);
   if (panelShape !== region) free(panelShape); // (its faces are kept)
   // (a rolled part can be all bends: no flat panel at all)
   if (!panels.length && !bends.length) throw new Error('The sheet metal part has no flat panel left');
@@ -1578,10 +1582,13 @@ export function sheetInfo(sheet) {
   return {
     t: sheet.t, R: sheet.R, K: sheet.K, bends: sheet.bends.length + (sheet.lofted?.bendLines?.length || 0), lofted: sheet.lofted ? sheet.lofted.method : null,
     flatSize: [bb.max[0] - bb.min[0], bb.max[1] - bb.min[1]], flatArea: areaOf(region),
-    cutLength: cut.length, pierces: cut.loops,
+    cutLength: cut.length + cutLines(sheet), pierces: cut.loops,
     flat: !!sheet.flat, stale: sheet.stale || null,
   };
 }
+
+// The length of the cut lines in a sheet's marks (louver slits, rips), cut as well as the outline.
+export const cutLines = (sheet) => (sheet.marks || []).filter((m) => m.kind === 'slit' || m.kind === 'rip').reduce((s, m) => s + l2(s2(m.b, m.a)), 0);
 
 // What a laser (or other profile cutter) cuts: the total length of the flat pattern's outline and of
 // every hole and cut-out in it, and the number of closed contours (one pierce each). Edges shared by two
@@ -2160,7 +2167,7 @@ export function addProfileFlanges(sheet, edges, segs, { R, position = 'inside', 
 // straight past the bend) and holes so close to a bend (under 2t + R) that they would be pulled out of
 // shape.
 export function sheetCheck(sheet) {
-  const t = sheet.t, out = { t, K: sheet.K, R: sheet.R, bends: [], warnings: [], forms: (sheet.forms || []).length, marks: new Set((sheet.marks || []).map((m) => m.id)).size };
+  const t = sheet.t, out = { t, K: sheet.K, R: sheet.R, bends: [], warnings: [], forms: (sheet.forms || []).length, marks: new Set((sheet.marks || []).filter((m) => m.kind !== 'rip').map((m) => m.id)).size };
   if (sheet.lofted) { out.lofted = sheet.lofted.method; return out; }
   const { links } = fold(sheet);
   const pts = (face) => wireLoop(face.clone().outerWire(), 16).map((q) => [q[0], q[1]]);
@@ -3683,20 +3690,29 @@ export function fromFaces(faces, fixed, { t, R: R0, K, connectedOnly = false, li
     }
     for (const tr of trims.get(F.i) || []) face = bop('cut', face, rectFace(tr.p, tr.e, tr.d, tr.w, tr.depth));
     if (F.i === fixed) fixedFace = face;
-    // (each straight edge with its box, to pass over the pairs far apart quickly)
-    const es = lineEdges(face).map((ed) => ({ ed, lo: [Math.min(ed[0][0], ed[1][0]) - tol, Math.min(ed[0][1], ed[1][1]) - tol], hi: [Math.max(ed[0][0], ed[1][0]) + tol, Math.max(ed[0][1], ed[1][1]) + tol] }));
-    images.push({ i: F.i, edges: es, lo: [Math.min(...es.map((x) => x.lo[0])), Math.min(...es.map((x) => x.lo[1]))], hi: [Math.max(...es.map((x) => x.hi[0])), Math.max(...es.map((x) => x.hi[1]))] });
+    images.push(imageOf(face, { i: F.i }, tol));
     region = bop('fuse', region, face);
+  }
+  // (the bends' zones too: a flange's bend can run flush against the material beside it as well)
+  for (const b of bends) {
+    const z = b.zone || stripFace(b);
+    images.push(imageOf(z, { zone: true, e: b.e }, tol));
+    if (!b.zone) free(z);
   }
   // seams: where the images of two faces touch side by side in the flat without being joined in the body (not
   // one plane across an edge they share): a flange whose end runs flush against the material beside it, with no
-  // relief. The flat is ripped there (a cut of next to no width, as it is made), so the flange folds up free.
+  // relief. The sheet is ripped there, as it is made: a cut line in the flat pattern, and folded a cut of next to
+  // no width (fold), so the flange folds up free.
   const samePlane = new Set(shared.filter((sh) => byI.get(sh.i) && byI.get(sh.j) && !byI.get(sh.i).joint && !byI.get(sh.j).joint && dot3(byI.get(sh.i).n, byI.get(sh.j).n) > 1 - 1e-8).map((sh) => `${sh.i}|${sh.j}`));
   const seams = [];
   for (let a = 0; a < images.length; a++) {
     for (let b = a + 1; b < images.length; b++) {
       const A = images[a], B = images[b];
-      if (samePlane.has(`${Math.min(A.i, B.i)}|${Math.max(A.i, B.i)}`)) continue;
+      // (two zones meet at corners; a zone touches the faces its bend joins along the bend lines, which is no seam:
+      // only where it touches across its ends)
+      if (A.zone && B.zone) continue;
+      const Z = A.zone ? A : B.zone ? B : null;
+      if (!Z && samePlane.has(`${Math.min(A.i, B.i)}|${Math.max(A.i, B.i)}`)) continue;
       const apart = (x, y) => x.lo[0] > y.hi[0] || y.lo[0] > x.hi[0] || x.lo[1] > y.hi[1] || y.lo[1] > x.hi[1];
       if (!A.edges.length || !B.edges.length || apart(A, B)) continue;
       for (const ea of A.edges) {
@@ -3704,8 +3720,27 @@ export function fromFaces(faces, fixed, { t, R: R0, K, connectedOnly = false, li
         for (const eb of B.edges) {
           if (apart(ea, eb)) continue;
           const ov = overlapSegs(ea.ed, eb.ed, tol);
-          if (ov && len3(sub3(ov[1], ov[0])) > 10 * tol) seams.push([[ov[0][0], ov[0][1]], [ov[1][0], ov[1][1]]]);
+          if (!ov || !(len3(sub3(ov[1], ov[0])) > 10 * tol)) continue;
+          if (Z) { const v = u2(s2([ov[1][0], ov[1][1]], [ov[0][0], ov[0][1]])); if (Math.abs(v[0] * Z.e[1] - v[1] * Z.e[0]) < 1e-3) continue; }
+          seams.push([[ov[0][0], ov[0][1]], [ov[1][0], ov[1][1]]]);
         }
+      }
+    }
+  }
+  // (pieces of one rip, along the face and along the bend zone: one line)
+  for (let merged = true; merged;) {
+    merged = false;
+    for (let a = 0; a < seams.length && !merged; a++) {
+      for (let b = a + 1; b < seams.length && !merged; b++) {
+        const [p, q] = seams[a], [r, s] = seams[b], e = u2(s2(q, p));
+        const off = (x) => { const v = s2(x, p); return Math.abs(e[0] * v[1] - e[1] * v[0]); };
+        if (off(r) > tol || off(s) > tol) continue;
+        const ts = [0, d2(s2(q, p), e), d2(s2(r, p), e), d2(s2(s, p), e)];
+        if (Math.max(ts[2], ts[3]) < -tol || Math.min(ts[2], ts[3]) > ts[1] + tol) continue;
+        const lo = Math.min(...ts), hi = Math.max(...ts);
+        seams[a] = [a2(p, m2(e, lo)), a2(p, m2(e, hi))];
+        seams.splice(b, 1);
+        merged = true;
       }
     }
   }
@@ -3715,9 +3750,15 @@ export function fromFaces(faces, fixed, { t, R: R0, K, connectedOnly = false, li
   // the fixed face's middle (not a corner: corners end up in bend zones)
   const c = facesOf(fixedFace)[0]?.center;
   const cc = !c ? [0, 0] : Array.isArray(c) ? c : c.toTuple ? c.toTuple() : [c.x, c.y];
-  const rips = seamRips(seams, t);
-  if (rips) { region = swap(region, bop('cut', region, rips)); free(rips); }
-  return { t, K, R: R0, frame: fr0, region, bends, rootPt: insidePoint(fixedFace || region, [cc[0], cc[1]]), flat: null, stale: null, nextBend };
+  // (kept as rip marks: one cut line each in the flat pattern and its DXF, ripped when folded)
+  return { t, K, R: R0, frame: fr0, region, bends, ...(seams.length ? { marks: seams.map(([a, b]) => ({ kind: 'rip', a, b })) } : {}), rootPt: insidePoint(fixedFace || region, [cc[0], cc[1]]), flat: null, stale: null, nextBend };
+}
+// A face laid flat, for finding where it touches another: its straight edges, each with its box, and its box
+// (to pass over the pairs far apart quickly; tol: how near counts as touching). extra: what it is (i: the face;
+// zone, e: a bend's zone and its bend line's direction).
+function imageOf(face, extra, tol) {
+  const es = lineEdges(face).map((ed) => ({ ed, lo: [Math.min(ed[0][0], ed[1][0]) - tol, Math.min(ed[0][1], ed[1][1]) - tol], hi: [Math.max(ed[0][0], ed[1][0]) + tol, Math.max(ed[0][1], ed[1][1]) + tol] }));
+  return { ...extra, edges: es, lo: [Math.min(...es.map((x) => x.lo[0])), Math.min(...es.map((x) => x.lo[1]))], hi: [Math.max(...es.map((x) => x.hi[0])), Math.max(...es.map((x) => x.hi[1]))] };
 }
 function planeFrame(p, n) {
   n = unit3(n);

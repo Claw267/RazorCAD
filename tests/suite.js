@@ -508,6 +508,61 @@ const UI = {
     return { ok: true, detail: `${notes.length} parts restored without rebuilding (${(bytes / 1048576).toFixed(1)} MB of BRep; meshing ${mesh1} ms → ${mesh2} ms)` };
   },
 
+  // the sketch's selection box, with the pointer: a rectangle and a circle beside it. Dragged left to right round the
+  // rectangle (a window): its four lines and four corners, not the circle; dragged right to left over part of the
+  // circle (crossing): the circle and its centre, not the rectangle; Ctrl adds to what is selected
+  async 'sketch-box-select'() {
+    const a = window.app;
+    await a.newDocument?.();
+    closeModals();
+    const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'top' } });
+    a.doc.features.push(f); a.commit();
+    await a.enterSketch(f, true);
+    await wait(300);
+    const { toScreen, fire, vp } = viewEvents();
+    vp.setStandardView('top', false); vp.zoomToFit(); await wait(200);
+    const sk = a.sketcher, fr = sk.frame, S = await import('/js/sketchmodel.js');
+    const r = S.buildCenterRect(sk.f, 'O', 0, 0, 20, 10);
+    const cc = S.addPoint(sk.f, 45, 0), circ = S.addCircle(sk.f, cc, 8);
+    sk.changed();
+    vp.zoomToFit(); await wait(200);
+    const at = (x, y) => toScreen(fr.o.clone().addScaledVector(fr.u, x).addScaledVector(fr.v, y));
+    const drag = async (p, q, o = {}) => {
+      fire('pointerdown', ...p, { button: 0, buttons: 1, ...o }); await wait(30);
+      fire('pointermove', ...q, { button: 0, buttons: 1, ...o }); await wait(30);
+      fire('pointerup', ...q, { button: 0, buttons: 0, ...o }); await wait(60);
+    };
+    sk.setTool('select');
+    await drag(at(-28, -16), at(28, 16));
+    const win = new Set(sk.sel);
+    const rectIds = [...r.lines, ...r.corners];
+    // (a centre rectangle has its construction diagonals too: inside the window as well)
+    const winOk = rectIds.every((id) => win.has(id)) && !win.has(circ) && !win.has(cc);
+    // crossing, right to left over the circle's left part (x 40 to 50 takes in its centre too)
+    sk.sel.clear();
+    await drag(at(50, 12), at(40, -12));
+    const cross = new Set(sk.sel);
+    const crossOk = cross.has(circ) && cross.has(cc) && !rectIds.some((id) => cross.has(id));
+    // Ctrl: the rectangle added
+    await drag(at(-28, -16), at(28, 16), { ctrlKey: true });
+    const both = sk.sel.size === win.size + cross.size;
+    const crossNames = [...cross].map((id) => S.itemName(sk.f, id)).join(', ');
+    // (and a Control-Point Spline drawn with the degree chosen before drawing: 5, from seven clicks)
+    sk.setTool('cspline');
+    const degSel = [...document.querySelectorAll('#pm select')].find((x) => x.options.length === S.CTRL_MAX_DEGREE);
+    if (degSel) { degSel.value = '5'; degSel.dispatchEvent(new Event('change')); }
+    const { click } = viewEvents();
+    for (const [x, y] of [[-30, 30], [-20, 45], [-10, 30], [0, 45], [10, 30], [20, 45], [30, 30]]) await click(...at(x, y));
+    sk.key(new KeyboardEvent('keydown', { key: 'Enter' }));
+    await wait(100);
+    const drawn = sk.f.curves.find((c) => c.ctrl);
+    sk.setTool('select');
+    await a.exitSketch(true);
+    const degOk = !!degSel && drawn?.degree === 5 && drawn?.pts.length === 7;
+    const ok = winOk && crossOk && both && degOk;
+    return { ok, detail: `window: ${win.size} selected (the rectangle's ${rectIds.length}, circle ${win.has(circ)}); crossing: ${crossNames}; with Ctrl: ${both ? 'added' : 'not added'}; spline drawn with the degree chosen first: ${drawn ? `degree ${drawn.degree}, ${drawn.pts.length} control points` : 'none'}` };
+  },
+
   // an inch document: a sketch dimension shown and changed in inches, an extrude depth typed in inches (and
   // as an expression of a variable), the defaults in round inches; the geometry stays in millimetres
   async 'inch-units'() {
@@ -2416,6 +2471,47 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
       : { ok: false, detail: `solved ${r1.ok}/${r2.ok}, (${M1.x}, ${M1.y}) then (${M2.x}, ${M2.y}), offered ${offered}` };
   },
 
+  // Sketch Fillet where a line meets an arc, and where two arcs meet: the fillet is tangent to both (its centre r from
+  // the line, R ± r from each arc's centre), the curves are cut back to it, and the sketch still solves
+  async 'sketch-fillet-arcs'() {
+    const S = await import('/js/sketchmodel.js'), { solveSketch } = await import('/js/solver.js');
+    const out = [], bad = [];
+    const check = (name, sk, ids, curves) => {
+      const r0 = solveSketch(sk, (x) => +x);
+      const arc = S.getCurve(sk, ids[3]), O = S.getPoint(sk, arc.c), R = S.radiusOf(sk, arc);
+      const fits = curves.map((c) => {
+        const cc = S.getCurve(sk, c);
+        if (cc.type === 'line') { const a = S.getPoint(sk, cc.p1), b = S.getPoint(sk, cc.p2), L = Math.hypot(b.x - a.x, b.y - a.y); return Math.abs(Math.abs((b.x - a.x) * (a.y - O.y) - (a.x - O.x) * (b.y - a.y)) / L - R); }
+        const C = S.getPoint(sk, cc.c), Rc = S.radiusOf(sk, cc), d = Math.hypot(O.x - C.x, O.y - C.y);
+        return Math.min(Math.abs(d - (Rc + R)), Math.abs(d - Math.abs(Rc - R)));
+      });
+      const worst = Math.max(...fits);
+      if (!r0.ok || Math.abs(R - 3) > 1e-6 || worst > 1e-6) bad.push(`${name}: solved ${r0.ok}, radius ${R}, ${worst} off tangent`);
+      else out.push(`${name}: R${+R.toFixed(6)}, tangent to both`);
+    };
+    // a line from the corner at 45°, and an arc (centre (20, 0)) from (20, 20) round to the corner
+    {
+      const sk = S.newSketchData();
+      const P = S.addPoint(sk, 0, 0), A = S.addPoint(sk, 30, 30), E = S.addPoint(sk, 20, 20), C = S.addPoint(sk, 20, 0);
+      const L = S.addLine(sk, P, A), K = S.addArc(sk, C, E, P);
+      let ids;
+      try { ids = S.blendCorner(sk, P, 3); } catch (e) { bad.push('line and arc: ' + e.message); }
+      if (ids) check('line and arc', sk, ids, [L, K]);
+    }
+    // two arcs meeting at a corner: centres (-20, 0) and (20, 0), both through (0, 15)
+    {
+      const sk = S.newSketchData();
+      const R = Math.hypot(20, 15);
+      const P = S.addPoint(sk, 0, 15), C1 = S.addPoint(sk, -20, 0), C2 = S.addPoint(sk, 20, 0);
+      const E1 = S.addPoint(sk, -20 + R, 0), E2 = S.addPoint(sk, 20 - R, 0);
+      const K1 = S.addArc(sk, C1, E1, P), K2 = S.addArc(sk, C2, P, E2);
+      let ids;
+      try { ids = S.blendCorner(sk, P, 3); } catch (e) { bad.push('two arcs: ' + e.message); }
+      if (ids) check('two arcs', sk, ids, [K1, K2]);
+    }
+    return bad.length ? { ok: false, detail: bad.join('; ') } : { ok: true, detail: out.join('; ') };
+  },
+
   // a control-point spline: the B-spline of its control points for degree 2 to 5 (against a plain de Boor
   // evaluation, to a hundred-thousandth of a mm); its control polygon is construction lines that take relations
   // (the first leg made horizontal); deleting the spline takes its polygon; a profile closed by a line extrudes to
@@ -2436,15 +2532,18 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
       return d[p];
     };
     const bad = [], out = [];
-    for (const deg of [2, 3, 4, 5]) {
-      const pcs = S.ctrlSplineBeziers(Pc, deg), pts = pcs.flatMap((g) => Array.from({ length: 21 }, (_, i) => S.bezierAt(g, i / 20)));
-      const spans = Pc.length - deg;
+    // (degrees 6 and 7 need eight control points or more)
+    const P9 = [[0, 0], [15, 35], [45, 40], [70, 10], [95, 30], [120, 0], [140, 25], [160, 45], [180, 5]];
+    for (const deg of [2, 3, 4, 5, 6, 7]) {
+      const Pd = deg > 5 ? P9 : Pc;
+      const pcs = S.ctrlSplineBeziers(Pd, deg), pts = pcs.flatMap((g) => Array.from({ length: 21 }, (_, i) => S.bezierAt(g, i / 20)));
+      const spans = Pd.length - deg;
       // (each curve point's distance to the de Boor curve: to the nearest of its finely divided pieces)
-      const ref = Array.from({ length: 4001 }, (_, i) => deBoor(Pc, deg, (spans * i) / 4000));
+      const ref = Array.from({ length: 4001 }, (_, i) => deBoor(Pd, deg, (spans * i) / 4000));
       const segD = (q, a, b) => { const dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy || 1e-30, t = Math.max(0, Math.min(1, ((q[0] - a[0]) * dx + (q[1] - a[1]) * dy) / L2)); return Math.hypot(q[0] - a[0] - t * dx, q[1] - a[1] - t * dy); };
       let worst = 0;
       for (const q of pts) { let dmin = Infinity; for (let i = 1; i < ref.length; i++) dmin = Math.min(dmin, segD(q, ref[i - 1], ref[i])); worst = Math.max(worst, dmin); }
-      const ends = Math.hypot(pts[0][0] - Pc[0][0], pts[0][1] - Pc[0][1]) + Math.hypot(pts[pts.length - 1][0] - Pc[5][0], pts[pts.length - 1][1] - Pc[5][1]);
+      const ends = Math.hypot(pts[0][0] - Pd[0][0], pts[0][1] - Pd[0][1]) + Math.hypot(pts[pts.length - 1][0] - Pd[Pd.length - 1][0], pts[pts.length - 1][1] - Pd[Pd.length - 1][1]);
       // (to a hundred-thousandth of a mm, and the reference's own chords)
       if (worst > 1e-4 || ends > 1e-9) bad.push(`degree ${deg}: ${worst.toFixed(6)} mm off, ends ${ends}`);
       else out.push(`degree ${deg}`);
@@ -2678,14 +2777,28 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
         if (!sb) return { errors: r.errors };
         const v1 = (await k.request('measure', { refs: [{ kind: 'body', id: sb.id }] })).items?.[0]?.volume;
         const flat = await k.request('sheetFlat', { bodyId: sb.id, flip: false });
-        return { errors: r.errors, bends: sb.sheet.bends, dv: v1 - v0, size: flat.size.map((x) => +x.toFixed(3)).sort((x, y) => x - y) };
+        // the cut lines along each side of the window (the window's edge, then the rip on along the flange and its
+        // bend, one line each): lines on one line of the flat, end to end, none twice (a slot would be two lines)
+        const holes = flat.ents.filter((e) => e.type === 'LINE' && e.layer === 'HOLES');
+        const key = (e) => { const v = [e.b[0] - e.a[0], e.b[1] - e.a[1]], L = Math.hypot(...v); const n = [-v[1] / L, v[0] / L]; const c = n[0] * e.a[0] + n[1] * e.a[1]; return `${Math.abs(n[0]).toFixed(3)},${Math.abs(n[1]).toFixed(3)},${Math.abs(c).toFixed(3)}`; };
+        const groups = new Map();
+        for (const e of holes) { const k = key(e); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(e); }
+        // (the window's sides: the lines that come in twos, its edge and the rip)
+        const sides = [...groups.values()].filter((g) => g.length === 2).map((g) => {
+          const v = [g[0].b[0] - g[0].a[0], g[0].b[1] - g[0].a[1]], L = Math.hypot(...v), u = [v[0] / L, v[1] / L];
+          const ts = g.flatMap((e) => [e.a, e.b].map((p) => p[0] * u[0] + p[1] * u[1]));
+          const span = Math.max(...ts) - Math.min(...ts), sum = g.reduce((t, e) => t + Math.hypot(e.b[0] - e.a[0], e.b[1] - e.a[1]), 0);
+          return { span, sum };
+        });
+        return { errors: r.errors, bends: sb.sheet.bends, dv: v1 - v0, size: flat.size.map((x) => +x.toFixed(3)).sort((x, y) => x - y), sides };
       };
       const flush = await build(30), relief = await build(29);
       if (!flush.bends) return { ok: false, detail: `not converted: ${JSON.stringify(flush.errors)}` };
       // (the sharp corner made a bend of radius 2 adds the same volume per mm of flange width either way)
       const per = (o, w) => o.dv / w;
-      const ok = !flush.errors.length && flush.bends === 1 && flush.size.join() === '100,100' && Math.abs(per(flush, 60) - per(relief, 58)) < 0.005 * Math.abs(per(relief, 58));
-      return { ok, detail: `${flush.bends} bend; flat ${flush.size.join(' × ')}; folded volume ${per(flush, 60).toFixed(3)} mm³ more per mm of flange (with reliefs ${per(relief, 58).toFixed(3)}: the bend made round)` };
+      const ripped = flush.sides.length === 2 && flush.sides.every((x) => Math.abs(x.sum - x.span) < 1e-3 && x.span > 30);
+      const ok = !flush.errors.length && flush.bends === 1 && flush.size.join() === '100,100' && ripped && Math.abs(per(flush, 60) - per(relief, 58)) < 0.005 * Math.abs(per(relief, 58));
+      return { ok, detail: `${flush.bends} bend; flat ${flush.size.join(' × ')}; cut along each side of the window (its edge and the rip, end to end, one line each) ${flush.sides.map((x) => `${x.sum.toFixed(3)} of ${x.span.toFixed(3)}`).join(' and ')} mm; folded volume ${per(flush, 60).toFixed(3)} mm³ more per mm of flange (with reliefs ${per(relief, 58).toFixed(3)}: the bend made round)` };
     } finally { k.dispose(); }
   },
 
@@ -2736,6 +2849,22 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
       const one = await build({ t: 25, r: 6 }), plain = await build({ t: 25, r: 2 }), bad = await build({ t: 120, r: 6 });
       const ok = !fails.length && one.vol < plain.vol - 20 && bad.err.length > 0;
       return { ok, detail: `${[...out, ...fails].join('; ')}; body ${one.vol?.toFixed(1)} (all R2: ${plain.vol?.toFixed(1)}); 120 %: ${bad.err.length ? 'refused' : 'taken'}` };
+    } finally { k.dispose(); }
+  },
+
+  // The example part of the manual's tutorial rebuilds as the tutorial says: no errors, the guided loft (one guide
+  // curve), the fillet with its point along the edge, the tray with its four corners closed, two bodies (one sheet)
+  async 'example-part'() {
+    const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient({ threads: threadsPerKernel() });
+    try {
+      const d = M.exampleDoc();
+      const r = await k.rebuild(d, null, null);
+      const id = (type) => d.features.find((f) => f.type === type).id;
+      const notes = [r.notes[id('loft')], r.notes[id('fillet')], r.notes[id('smFlange')]];
+      const bodies = r.body?.bodies || [];
+      const ok = !r.errors.length && notes[0] === '2 profiles, 1 guide curve' && /1 point along/.test(notes[1] || '') && notes[2] === '4 corners closed'
+        && bodies.length === 2 && bodies.filter((b) => b.sheet).length === 1;
+      return { ok, detail: `${bodies.length} bodies (${bodies.filter((b) => b.sheet).length} sheet metal); ${notes.join('; ')}${r.errors.length ? '; errors ' + JSON.stringify(r.errors) : ''}` };
     } finally { k.dispose(); }
   },
 
