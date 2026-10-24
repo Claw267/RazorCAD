@@ -1828,6 +1828,7 @@ A body or part with no material uses 1.00 g/cm³ for mass calculations.
 
 | Date | Software version | Changes |
 |---|---|---|
+| 2026-10-25 | 0.17.1-beta | Edge-Flange: flanges meet corner to corner by default. Control-point splines: closed smoothly, weights, control points inserted and removed, splines converted. Loft guide curves move holes and thin walls too. Convert to Sheet Metal: flanges flush against the material beside them ripped; a wrapped blade unrolled. |
 | 2026-10-24 | 0.17.0-beta | Control-Point Spline (degree 1 to 5, its polygon dimensioned and constrained). Midpoint of an arc. Reference planes: through an edge and a point, through two edges, at a distance along an edge, tangent to a cylindrical face; placement for every plane. Loft guide curves. Convert to Sheet Metal: square-to-round transitions, cones and closed tubes unrolled, exact corners. Section views saved with the part. STEP, IGES and mesh files opened from Windows are imported. |
 | 2026-10-21 | 0.16.0-beta | Section view: from a selected face or plane, a drag arrow, in assemblies, two or three planes at once. The view turns about the point under the cursor. Big imports kept and read back quicker; Measure quicker on sheet metal. |
 | 2026-10-21 | 0.15.0-beta | Speed on your PC: the multi-threaded geometry kernel and cuts made together. For Developers: the kernel builds; the browser version built in its own folder. |

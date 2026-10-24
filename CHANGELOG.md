@@ -6,6 +6,17 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-25 00:05 — Version 0.17.1-beta: installer, user manual and website
+- **RazorCAD-Setup-0.17.1-beta.exe** built (in "RazorCAD Install", 45 MB, unsigned), with everything since 0.17.0-beta:
+  - Edge-Flange: flanges picked together meet corner to corner (mitred) by default, not overlapped;
+  - Control-Point Spline: closed smoothly, weights, control points inserted and removed; a spline through points converted to one;
+  - loft guide curves move holes and a thin loft's inside with the outline;
+  - Convert to Sheet Metal: flanges flush against the material beside them (no relief) ripped as they are made; a wrapped blade unrolled;
+  - bug report and feature request forms on GitHub, and a contributing guide.
+- **User manual** 0.17.1-beta (revision history), the PDF and the online manual rebuilt.
+- **Website**: version 0.17.1-beta on the home page and its download links; the browser version rebuilt.
+- Published on GitHub as a pre-release with the setup and the manual. 0.17.0-beta users get it through Update Now.
+
 ## 2026-10-24 23:18 — Convert to Sheet Metal: flanges that run flush against the material beside them; a wrapped blade unrolled
 - A body drawn elsewhere often has a flange whose ends run right up against the material beside it, with no relief: a flange bent off a cross bar between the sides of a window, or off the edges of slots in a panel. Converting it stopped with "A bend needs a relief at its end". The flat is now ripped there, as the part is made: a cut of next to no width (0.001 mm) along each flange end, from the bend to the flange's edge, so the flange folds up free and the flat pattern (and its DXF) has the cut the laser needs.
 - Checked against real parts converted alongside another program's flats: the two parts that failed this way now convert, with the outline the size of theirs.
