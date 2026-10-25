@@ -8,6 +8,7 @@ const KERNEL_BUILD = MULTI ? 'replicad_multi' : 'replicad_single';
 import * as R from '../vendor/replicad/replicad.js';
 import { evaluate, evalEquations } from './expr.js';
 import * as S from './sketchmodel.js';
+import * as LR from './loftrefs.js';
 import { solveSketch } from './solver.js';
 import { inferPlaneType, planeRefs } from './refgeom.js';
 import { threadList, minorDiameter, nearestThread } from './threads.js';
@@ -3409,9 +3410,12 @@ async function rebuild(doc, previewId = null, opts = {}) {
           if (ids.length < 2) throw new Error('Select at least two profiles (in order)');
           const wires = ids.map((id) => {
             if (curves.has(id)) return curves.get(id).wire;
-            const sk = sketches.get(id);
+            const sk = sketches.get(LR.sourceId(id));
             if (!sk) throw new Error('A profile is missing, suppressed or has errors');
-            const ws = sketchWires(sk.sk, sk.frame);
+            const resolved = typeof id === 'string' ? { sketch: sk.sk } : LR.resolveContour(sk.sk, id);
+            if (resolved.region) return sectionWire(loftSection(sk.frame, resolved.region.outer.segs));
+            const subset = resolved.sketch;
+            const ws = sketchWires(subset, sk.frame);
             if (ws.length !== 1) throw new Error(`${sk.sk.name} must be one connected chain of curves (it has ${ws.length})`);
             return ws[0];
           });
@@ -3422,10 +3426,13 @@ async function rebuild(doc, previewId = null, opts = {}) {
             // closed profiles: matched like a solid loft (same start points, same way round)
             const secs = ids.map((id, i) => {
               if (curves.has(id)) return null;
-              const sk = sketches.get(id), ch = S.curveChains(sk.sk).find((c) => c.closed);
-              return loftSection(sk.frame, S.chainSegs(sk.sk, ch));
+              const sk = sketches.get(LR.sourceId(id)), resolved = typeof id === 'string' ? { sketch: sk.sk } : LR.resolveContour(sk.sk, id);
+              if (resolved.region) return loftSection(sk.frame, resolved.region.outer.segs);
+              const subset = resolved.sketch;
+              const ch = S.curveChains(subset).find((c) => c.closed);
+              return loftSection(sk.frame, S.chainSegs(subset, ch));
             });
-            if (secs.every(Boolean)) list = matchLoftSections(secs, ids.map((id) => sketches.get(id).sk.name)).map(sectionWire);
+            if (secs.every(Boolean)) list = matchLoftSections(secs, ids.map((id) => sketches.get(LR.sourceId(id)).sk.name)).map(sectionWire);
           } else {
             // open profiles: each one runs the same way as the one before it
             list = [wires[0]];
@@ -4608,13 +4615,14 @@ async function rebuild(doc, previewId = null, opts = {}) {
         }
         case 'loft': {
           const ids = (f.profiles || []).filter(Boolean);
-          if (ids.length < 2) throw new Error('Select at least two profile sketches (in order)');
+          if (ids.length < 2) throw new Error('Select at least two profiles (in order)');
           const thin = f.thin ? { t: ev(f.thinT), dir: f.thinDir || 'one' } : null;
           // each profile: one region (outline + holes), as 3D sections
           const profs = ids.map((id) => {
-            const s = sketches.get(id);
+            const s = sketches.get(LR.sourceId(id));
             if (!s) throw new Error('A profile sketch is missing, suppressed or has errors');
-            const regions = thin ? S.thinRegions(s.sk, thin.t, thin.dir) : S.profileRegions(s.sk);
+            const resolved = typeof id === 'string' ? { sketch: s.sk } : LR.resolveContour(s.sk, id);
+            const regions = thin ? S.thinRegions(resolved.sketch, thin.t, thin.dir) : resolved.region ? [resolved.region] : S.profileRegions(resolved.sketch);
             if (regions.length !== 1) throw new Error(`${s.sk.name} must have exactly one closed profile (it has ${regions.length})`);
             return { name: s.sk.name, outer: loftSection(s.frame, regions[0].outer.segs), holes: regions[0].holes.map((h) => loftSection(s.frame, h.segs)) };
           });
@@ -4625,9 +4633,10 @@ async function rebuild(doc, previewId = null, opts = {}) {
           // follows them (guidedLoftWires); not with straight (ruled) sides
           const guides = (f.guides || []).filter(Boolean).map((id) => {
             if (curves.has(id)) return { name: doc.features.find((x) => x.id === id)?.name || 'A guide curve', wire: curves.get(id).wire };
-            const s = sketches.get(id);
+            const s = sketches.get(LR.sourceId(id));
             if (!s) throw new Error('A guide curve is missing, suppressed or has errors');
-            const ws = sketchWires(s.sk, s.frame);
+            const subset = typeof id === 'string' ? s.sk : LR.resolveContour(s.sk, id, true).sketch;
+            const ws = sketchWires(subset, s.frame);
             if (ws.length !== 1) throw new Error(`The guide ${s.sk.name} must be one connected chain of curves`);
             return { name: s.sk.name, wire: ws[0] };
           });

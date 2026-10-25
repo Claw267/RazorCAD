@@ -1102,7 +1102,7 @@ export function pointInPoly(pt, poly) {
 
 // Like profileLoops, but each loop also carries its exact boundary as line /
 // arc / circle segments, and loops are grouped into regions (outer + holes).
-export function profileRegions(sk) {
+export function profileRegions(sk, withSources = false) {
   const segs = [];
   for (const c of sk.curves) {
     if (c.construction) continue;
@@ -1187,7 +1187,7 @@ export function profileRegions(sk) {
     if (!seq || seq.length < 2) continue;
     const poly = seq.map((i) => [nodes[i].x, nodes[i].y]);
     if (Math.abs(signedArea(poly)) < 1e-9) continue;
-    loops.push({ poly, segs: loopSegments(sk, nodes, edges, seq) });
+    loops.push({ poly, segs: loopSegments(sk, nodes, edges, seq, withSources) });
   }
   // nesting: even depth = material, odd depth = hole of its immediate parent
   const items = loops.map((l) => ({ ...l, area: Math.abs(signedArea(l.poly)) }));
@@ -1209,7 +1209,7 @@ export function profileRegions(sk) {
 // The parameter range that comes round to its start: circles 2π, closed splines their piece count.
 const periodOf = (c, sk) => (c?.type === 'circle' || c?.type === 'ellipse' ? TAU : c?.type === 'spline' && c.closed ? splinePieces(sk, c).length : 0);
 
-function loopSegments(sk, nodes, edges, seq) {
+function loopSegments(sk, nodes, edges, seq, withSources = false) {
   const C = new Map(sk.curves.map((c) => [c.id, c]));
   const pieces = [];
   const n = seq.length;
@@ -1236,7 +1236,7 @@ function loopSegments(sk, nodes, edges, seq) {
     }
   }
   const P = (i) => [nodes[i].x, nodes[i].y];
-  return pieces.flatMap((p) => {
+  const segmentsOf = (p) => {
     const c = C.get(p.cid);
     if (c.type === 'line') return { type: 'line', a: P(p.start), b: P(p.end) };
     if (c.type === 'spline') {
@@ -1256,6 +1256,10 @@ function loopSegments(sk, nodes, edges, seq) {
     if (Math.abs(p.u1 - p.u0) >= TAU - 1e-6) return { type: 'circle', c: [ctr.x, ctr.y], r };
     const um = a0 + (p.u0 + p.u1) / 2;
     return { type: 'arc', a: P(p.start), b: P(p.end), m: [ctr.x + r * Math.cos(um), ctr.y + r * Math.sin(um)] };
+  };
+  return pieces.flatMap((p) => {
+    const result = [segmentsOf(p)].flat();
+    return withSources ? result.map((g) => ({ ...g, sourceCurve: p.cid })) : result;
   });
 }
 

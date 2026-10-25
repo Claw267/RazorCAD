@@ -13,6 +13,7 @@ import { completeExpression } from './exprcomplete.js';
 import { S3_TOOLS, S3_KEYS } from './sketch3d.js';
 import { RELATION_INFO, analyzeSketch } from './solver.js';
 import * as SM from './sketchmodel.js';
+import * as LR from './loftrefs.js';
 import { axisCandidates, PATTERN_SKIP, fileStem } from './model.js';
 import { BUILTIN_TEMPLATES, DEFAULT_TEMPLATE_ID, templateSummary, isTemplate } from './drawtemplates.js';
 import { SHEET_SIZES as DW_SIZES } from './drawingformats.js';
@@ -197,7 +198,9 @@ function stdPlaneRefs(f) {
 
 // Thin-feature directions read differently for closed profiles and open curves.
 function thinDirOptions(f) {
-  const sk = window.app?.doc && findFeature(window.app.doc, f.sketch || f.profile || f.profiles?.[0]);
+  const ref = f.sketch || f.profile || f.profiles?.[0];
+  let sk = window.app?.doc && findFeature(window.app.doc, LR.sourceId(ref));
+  if (sk && ref?.kind === 'sketchContour') { try { sk = LR.contourSketch(sk, ref); } catch { /* invalid reference is reported by the feature */ } }
   return SM.isOpenSketch(sk)
     ? [['one', 'One side'], ['other', 'Other side'], ['mid', 'Mid-plane (half each side)']]
     : [['one', 'Outside the profile'], ['other', 'Inside the profile'], ['mid', 'Mid-plane (half each side)']];
@@ -595,10 +598,9 @@ const PM_SCHEMAS = {
     ...SCOPE_GROUP,
   ],
   loft: [
-    { title: 'Profiles', fields: [{ key: 'profiles', type: 'sketchList' }] },
+    { title: 'Profiles', fields: [{ key: 'profiles', type: 'loftSelection' }] },
     { title: 'Guide Curves', fields: [
-      { key: 'guides', type: 'curveList', show: (f) => !f.ruled },
-      { key: 'gHint', type: 'hint', show: (f) => !f.ruled, text: 'Optional: curves the loft\'s outline follows between the profiles (e.g. a body\'s outline seen from the side). Each runs from the first profile to the last, through every profile, and is a sketch with one chain of curves or a curve. One guide pulls the loft along it; two or more shape it round the outline, each where it touches the profiles.' },
+      { key: 'guides', type: 'loftSelection', show: (f) => !f.ruled || f.guides?.length },
     ] },
     { title: 'Options', fields: [
       { key: 'ruled', type: 'check', label: 'Straight (ruled) sides between profiles' },
@@ -961,7 +963,7 @@ const PM_SCHEMAS = {
     { title: 'Bounding Entities', fields: [{ key: 'sketch', type: 'sketch', label: 'Sketch (closed)' }] },
   ],
   surfLoft: [
-    { title: 'Profiles', fields: [{ key: 'profiles', type: 'sketchList', with3d: true, hint: 'Two or more profiles in order: sketches (one chain of curves each) or 3D sketches, all open or all closed. Open profiles give an open surface; closed ones a tube.' }] },
+    { title: 'Profiles', fields: [{ key: 'profiles', type: 'loftSelection', with3d: true }] },
     { title: 'Options', fields: [{ key: 'ruled', type: 'check', label: 'Straight (ruled) between profiles' }] },
   ],
   surfSweep: [
@@ -3338,8 +3340,11 @@ export class UI {
     const info = TYPE_INFO[f.type];
     this.pmHeader(root, iconFor(f), f.name);
     const err = a.result?.errors.get(f.id);
+    if (f.type === 'loft' && f.ruled && pm.loftSlot === 'guides') { pm.loftSlot = 'profiles'; pm.loftDraft = null; pm.loftHover = null; }
     const waitingForRefs = f.type === 'plane' && !inferPlaneType(planeRefs(f), f.through); // the References box explains this
-    if (err && !waitingForRefs) root.appendChild(el('div', { class: 'pm-msg pm-status err' }, esc(err)));
+    const waitingForProfiles = ['loft', 'surfLoft'].includes(f.type) && (f.profiles || []).length < 2;
+    if (waitingForProfiles) root.appendChild(el('div', { class: 'pm-msg' }, 'Select two or more section profiles in the canvas.'));
+    else if (err && !waitingForRefs) root.appendChild(el('div', { class: 'pm-msg pm-status err' }, esc(err)));
     else if (pm.isNew && !waitingForRefs) root.appendChild(el('div', { class: 'pm-msg pm-status' }, 'Set the parameters. The model previews live. Click ✔ to accept.'));
 
     const note = a.result?.notes?.get(f.id);
@@ -3360,6 +3365,8 @@ export class UI {
         if (fd.world) { const ik = W.internalAxis(fd.world[0]); fd.key = fd.world[1]['xyz'.indexOf(ik.slice(-1))]; fd.neg = ik.startsWith('-'); }
         if (fd.type === 'hint') {
           body.appendChild(el('div', { class: 'pm-hint' }, esc(fd.text)));
+        } else if (fd.type === 'loftSelection') {
+          this.renderLoftSelection(body, f, before, fd);
         } else if (fd.type === 'sketchList') {
           this.renderSketchList(body, f, before, fd);
         } else if (fd.type === 'vertexRadii') {
@@ -4827,6 +4834,54 @@ export class UI {
   }
 
   // Loft profiles: sketches in order (the loft goes through them from first to last).
+  renderLoftSelection(body, f, before, fd) {
+    const a = this.app, pm = a.pm, key = fd.key, guide = key === 'guides';
+    pm.loftSlot ||= 'profiles'; f[key] ||= [];
+    const active = pm.loftSlot === key;
+    body.appendChild(el('button', { class: 'pm-btn' + (active ? ' on' : ''), 'aria-pressed': String(active), disabled: guide && f.ruled, 'data-loft-slot': key, onclick: () => {
+      pm.loftSlot = key; pm.loftDraft = null; pm.loftHover = null;
+      this.renderPM(); a.updateSketchDisplay(); a.status(guide ? 'Click the guide curves in the canvas.' : 'Click the section contours or inside closed profiles in the canvas.');
+    } }, guide ? 'Select guides in canvas' : 'Select profiles in canvas'));
+    if (!guide) {
+      const cb = el('input', { type: 'checkbox', 'data-loft-chain': '' }); cb.checked = pm.loftChain !== false;
+      cb.onchange = () => { pm.loftChain = cb.checked; pm.loftDraft = null; pm.loftHover = null; this.renderPM(); a.updateSketchDisplay(); };
+      const label = el('label'); label.append(cb, document.createTextNode(' Chain selection'));
+      body.appendChild(this.row(null, label, 'check'));
+    }
+    body.appendChild(el('div', { class: 'pm-hint' }, guide ? f.ruled ? 'Guide curves require a smooth loft. Remove the guides or untick straight (ruled) sides.' : 'Pick guide curves or connected chains, including construction curves. Guides must meet every section.' : f.type === 'loft' ? 'Pick closed contours or click inside regions. Each selection adds one section.' : 'Pick open or closed contours. All sections must be open, or all closed.'));
+    const ul = el('div', { class: 'pm-list', 'data-loft-list': key });
+    if (!f[key].length) ul.appendChild(el('div', { class: 'li pm-hint' }, guide ? 'No guides selected' : 'No profiles selected'));
+    f[key].forEach((ref, i) => {
+      const li = el('div', { class: 'li sel' });
+      li.appendChild(el('span', {}, `${i + 1}. ${LR.describeRef(a.doc, ref)}`));
+      for (const [label, action] of [['▲', 'up'], ['▼', 'down'], ['✕', 'remove']]) {
+        const b = el('button', { class: 'pm-btn', title: action === 'up' ? 'Move up' : action === 'down' ? 'Move down' : 'Remove', 'data-loft-action': action, disabled: action === 'up' ? i === 0 : action === 'down' ? i === f[key].length - 1 : false }, label);
+        b.onclick = () => {
+          if (action === 'remove') f[key].splice(i, 1);
+          else { const j = i + (action === 'up' ? -1 : 1); [f[key][i], f[key][j]] = [f[key][j], f[key][i]]; }
+          pm.loftHover = null; a.preview(true); a.updateSketchDisplay();
+        };
+        li.appendChild(b);
+      }
+      li.onpointerenter = () => { pm.loftHover = ref; a.updateSketchDisplay(); };
+      li.onpointerleave = () => { pm.loftHover = null; a.updateSketchDisplay(); };
+      ul.appendChild(li);
+    });
+    body.appendChild(ul);
+    if (active && pm.loftChain === false) {
+      const count = pm.loftDraft?.curves.length || 0;
+      body.appendChild(el('div', { class: 'pm-hint' }, `Manual selection: ${count} curves. Click segments to add/remove them, then confirm this contour.`));
+      body.appendChild(el('button', { class: 'pm-btn', 'data-loft-finish': '', disabled: !count, onclick: () => a.finishLoftSelection() }, 'Add selected contour'));
+      if (count) body.appendChild(el('button', { class: 'pm-btn', onclick: () => { pm.loftDraft = null; this.renderPM(); a.updateSketchDisplay(); } }, 'Clear current selection'));
+    }
+    const details = el('details'), summary = el('summary', {}, 'Other sources (whole sketch / curve)'); details.appendChild(summary);
+    const select = el('select', { 'data-loft-legacy': key }); select.appendChild(el('option', { value: '' }, '+ Add source…'));
+    const kinds = guide ? ['sketch', 'sketch3d', 'compCurve', 'projCurve', 'helix'] : fd.with3d ? ['sketch', 'sketch3d', 'compCurve', 'projCurve'] : ['sketch'];
+    for (const source of before.filter((s) => kinds.includes(s.type) && !s.suppressed && !f[key].includes(s.id))) select.appendChild(el('option', { value: source.id }, esc(source.name)));
+    select.onchange = () => { if (select.value) { f[key].push(select.value); a.preview(true); a.updateSketchDisplay(); } };
+    details.appendChild(select); body.appendChild(details);
+  }
+
   renderSketchList(body, f, before, fd = {}) {
     const a = this.app, doc = a.doc;
     if (!Array.isArray(f.profiles)) f.profiles = [];

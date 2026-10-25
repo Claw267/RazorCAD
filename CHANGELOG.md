@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## Unreleased — Loft contour and guide selection
+- Loft and Loft Cut accept individual sketch regions, including holes, through direct canvas selection. Surface Loft accepts open or closed sketch contours. Separate profile/guide lists support automatic chains, manual segment groups, ordering, removal and numbered highlights; source visibility is preserved.
+- References retain source sketch and curve IDs, track dependencies and report missing/ambiguous contours. Existing whole-sketch and supported 3D curve references remain supported. Guide interpolation and boundary continuity algorithms are unchanged; new G1/G2 boundary and Align to Surface controls are not included.
+- Validation: 22 browser regression tests passed, including contour references, selected guides, canvas selection, existing guided lofts and sketch regressions. Real mouse selection of two sections and two guides also verified.
+
 ## Unreleased — Distinct tangent-handle graphics
 - Fit spline tangent controls use solid teal stems, direction arrows and round grips; fit points retain their square markers. Selected, hovered and constrained controls retain their corresponding state colours.
 - Selection labels identify tangent grips and tangent-handle lines explicitly. Native mouse dragging and the fit spline regression test verified after the visual change.

@@ -829,6 +829,18 @@ export class Viewport {
     }
   }
 
+  setLoftTags(tags) {
+    for (const tag of this._loftTags || []) { tag.el.remove(); this.frameCallbacks.delete(tag.place); }
+    this._loftTags = tags.map((tag) => {
+      const el = document.createElement('div'); el.className = 'plabel'; el.dataset.loftLabel = '';
+      el.textContent = tag.text; el.style.color = '#' + tag.color.toString(16).padStart(6, '0');
+      this.labelsEl.appendChild(el);
+      const place = () => { const p = this.project(tag.at); el.style.left = p.x + 8 + 'px'; el.style.top = p.y - 18 + 'px'; };
+      this.frameCallbacks.add(place); place();
+      return { el, place };
+    });
+  }
+
   // Reference planes: list of {id, name, frame, state: 'normal'|'hover'|'selected'}
   setPlanes(list) {
     for (const c of [...this.planeGroup.children]) { this.planeGroup.remove(c); c.traverse((o) => o.geometry?.dispose()); }

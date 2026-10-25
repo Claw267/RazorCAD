@@ -745,12 +745,16 @@ Sweeps a profile along a path. {idx:sweep}
 
 ## Loft and Loft Cut
 
-Blends between two or more profile sketches, in order. A third or later profile shapes the middle. {idx:loft}
+Blends between two or more section profiles, in order. A third or later profile shapes the middle. {idx:loft}
+
+Activate **Select profiles in canvas**, then click a sketch contour or inside a closed region. Multiple regions in one sketch can be selected independently; holes belong to their enclosing region. **Select guides in canvas** switches to guide selection, including construction curves. Source sketches are temporarily shown while selecting, without changing their saved visibility.
+
+**Chain selection** picks connected curves automatically. Turn it off to select individual segments from one sketch, then choose **Add selected contour** or press Enter. Escape clears an unfinished selection. Profiles and guides have separate ordered lists with move and remove controls, matching numbered highlights in the canvas. **Other sources** retains whole-sketch and supported 3D curve selection. Stored contour references follow source curve IDs through edits and renaming; missing or ambiguous boundaries report an error. Surface Loft uses the same contour selection for open or closed sections.
 
 - A circle is split into as many equal arcs as the other profile has corners.
 - Profiles with different segment counts give an error naming the sketches.
 - Options: straight (ruled) sides, Thin. Without straight sides: **Through the profiles** curvature-continuous (C2) or tangent-continuous (C1), and **Smooth the surface**, which evens out its bends. {idx:loft, continuity}
-- **Guide Curves** (optional): curves the loft's outline follows between the profiles, such as a body's outline seen from the side. Each runs from the first profile to the last, through every profile, and is a sketch with one chain of curves or a curve. One guide pulls the loft along it; two or more shape it round the outline, each where it touches the profiles. The profiles themselves are kept as drawn. Holes in the profiles, and a thin loft's inside, move with the outline, so a thin wall keeps its thickness; for a thin loft, draw the guide on the sketched line. {idx:loft, guide curves}
+- **Guide Curves** (optional): curves the loft's outline follows between the profiles, such as a body's outline seen from the side. Each runs from the first profile to the last, through every profile, and is a selected chain of sketch curves or a supported curve source. Separate guides can come from the same sketch. One guide pulls the loft along it; two or more shape it round the outline, each where it touches the profiles. The profiles themselves are kept as drawn. Holes in the profiles, and a thin loft's inside, move with the outline, so a thin wall keeps its thickness; for a thin loft, draw the guide on the sketched line. {idx:loft, guide curves}
 
 ## Hole
 
