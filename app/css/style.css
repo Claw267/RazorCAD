@@ -22,7 +22,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); }
 button { font: inherit; color: inherit; }
 input, select { font: inherit; color: inherit; }
 
-#app { display: grid; grid-template-rows: 30px auto 1fr 22px; height: 100vh; user-select: none; }
+#app { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 30px auto 1fr 22px; height: 100vh; user-select: none; }
 #app input, #app select, .modal { user-select: text; }
 
 /* ---------- Title bar & menus ---------- */
@@ -715,7 +715,7 @@ svg.ref-arrows { position: absolute; left: 0; top: 0; pointer-events: none; z-in
 .bomcols .bc-grid input { width: 100%; min-width: 90px; box-sizing: border-box; }
 
 /* The browser version's notice */
-#app.with-notice { grid-template-rows: auto 30px auto 1fr 22px; grid-template-columns: minmax(0, 1fr); }
+#app.with-notice { grid-template-rows: auto 30px auto 1fr 22px; }
 #web-notice { display: flex; align-items: center; gap: 10px; padding: 5px 10px; background: #fff6d6; border-bottom: 1px solid #e6d28a; color: #4a3f12; font-size: 12.5px; }
 #web-notice span { flex: 1; min-width: 0; }
 #web-notice a { color: #1d5fb8; }

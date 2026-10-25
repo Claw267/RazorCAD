@@ -2494,7 +2494,20 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     n?.querySelector('.x').click();
     const gone = !document.getElementById('web-notice') && !root.classList.contains('with-notice');
     try { if (kept === null) localStorage.removeItem('razorcad.webNoticeClosed'); else localStorage.setItem('razorcad.webNoticeClosed', kept); } catch { /* no storage */ }
-    return fits && gone ? { ok: true, detail: 'fits the window; closes' } : { ok: false, detail: `fits ${fits}, gone ${gone}` };
+    // Many open tabs must not widen the app after closing the notice (and move the model off screen on zoom).
+    const bar = document.getElementById('doc-title'), tabs = [];
+    let bounded = false;
+    try {
+      for (let i = 0; i < 40; i++) {
+        const tab = bar.querySelector('.doctab').cloneNode(true);
+        tab.querySelector('span').textContent = `Layout regression part ${i + 1}`;
+        bar.appendChild(tab); tabs.push(tab);
+      }
+      const view = document.getElementById('viewport').getBoundingClientRect();
+      bounded = document.documentElement.scrollWidth <= innerWidth + 1 && view.right <= innerWidth + 1;
+    } finally { tabs.forEach((tab) => tab.remove()); }
+    return fits && gone && bounded ? { ok: true, detail: 'fits the window; closes; many tabs keep the viewport within the window' }
+      : { ok: false, detail: `fits ${fits}, gone ${gone}, viewport bounded with many tabs ${bounded}` };
   },
 
   // no browser right-click menu over RazorCAD (the browser version): a right-click on a panel, the status bar or the
