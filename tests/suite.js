@@ -1710,7 +1710,9 @@ const UI = {
     await asm.addComponent(asm.addPart(p, null, null));
     const plate = asm.doc.components[0];
     await until(() => asm.geo(plate)?.mesh, 30000);
-    asm.vp.setStandardView('iso');
+    // (at once, not animated: the hole's end is the one facing the camera, and a view left from before, e.g. a
+    // sketch's, faces neither end)
+    asm.vp.setStandardView('iso', false);
     const mesh = asm.geo(plate).mesh, gi = mesh.faceGroups.findIndex((g) => g.surf?.t === 'CYLINDER');
     const sf = mesh.faceGroups[gi].surf;
     const ref = { comp: plate.id, kind: 'axis', p: sf.p, d: sf.d, r: sf.r, face: gi, gi: `0:f${gi}`, what: 'Cylindrical face' };

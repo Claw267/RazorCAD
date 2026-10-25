@@ -1102,7 +1102,7 @@ export function pointInPoly(pt, poly) {
 
 // Like profileLoops, but each loop also carries its exact boundary as line /
 // arc / circle segments, and loops are grouped into regions (outer + holes).
-export function profileRegions(sk) {
+export function profileRegions(sk, withSources = false) {
   const segs = [];
   for (const c of sk.curves) {
     if (c.construction) continue;
@@ -1187,7 +1187,7 @@ export function profileRegions(sk) {
     if (!seq || seq.length < 2) continue;
     const poly = seq.map((i) => [nodes[i].x, nodes[i].y]);
     if (Math.abs(signedArea(poly)) < 1e-9) continue;
-    loops.push({ poly, segs: loopSegments(sk, nodes, edges, seq) });
+    loops.push({ poly, segs: loopSegments(sk, nodes, edges, seq, withSources) });
   }
   // nesting: even depth = material, odd depth = hole of its immediate parent
   const items = loops.map((l) => ({ ...l, area: Math.abs(signedArea(l.poly)) }));
@@ -1209,7 +1209,7 @@ export function profileRegions(sk) {
 // The parameter range that comes round to its start: circles 2π, closed splines their piece count.
 const periodOf = (c, sk) => (c?.type === 'circle' || c?.type === 'ellipse' ? TAU : c?.type === 'spline' && c.closed ? splinePieces(sk, c).length : 0);
 
-function loopSegments(sk, nodes, edges, seq) {
+function loopSegments(sk, nodes, edges, seq, withSources = false) {
   const C = new Map(sk.curves.map((c) => [c.id, c]));
   const pieces = [];
   const n = seq.length;
@@ -1236,7 +1236,7 @@ function loopSegments(sk, nodes, edges, seq) {
     }
   }
   const P = (i) => [nodes[i].x, nodes[i].y];
-  return pieces.flatMap((p) => {
+  const segmentsOf = (p) => {
     const c = C.get(p.cid);
     if (c.type === 'line') return { type: 'line', a: P(p.start), b: P(p.end) };
     if (c.type === 'spline') {
@@ -1256,6 +1256,10 @@ function loopSegments(sk, nodes, edges, seq) {
     if (Math.abs(p.u1 - p.u0) >= TAU - 1e-6) return { type: 'circle', c: [ctr.x, ctr.y], r };
     const um = a0 + (p.u0 + p.u1) / 2;
     return { type: 'arc', a: P(p.start), b: P(p.end), m: [ctr.x + r * Math.cos(um), ctr.y + r * Math.sin(um)] };
+  };
+  return pieces.flatMap((p) => {
+    const result = [segmentsOf(p)].flat();
+    return withSources ? result.map((g) => ({ ...g, sourceCurve: p.cid })) : result;
   });
 }
 
@@ -1357,6 +1361,39 @@ function sampleCircle3(g, n) {
     pts.push([0, 1, 2].map((k) => g.c[k] + g.r * (u[k] * Math.cos(t) + w[k] * Math.sin(t))));
   }
   return pts;
+}
+
+// Intersections with a sketch plane. Coplanar curves retain their geometry.
+export function intersectCurve(fr, g) {
+  if (!g) return [];
+  const distance = (p) => dot3(sub3(p, fr.o), fr.n), tol = 1e-7;
+  let points = [];
+  if (g.type === 'circle' || g.type === 'arc') {
+    const u = sub3(g.a, g.c).map((v) => v / g.r), v = cross3(g.normal, u);
+    const A = g.r * dot3(u, fr.n), B = g.r * dot3(v, fr.n), D = distance(g.c), h = Math.hypot(A, B);
+    if (h < tol) return Math.abs(D) < tol ? projectCurve(fr, g, { preserveSpline: true }) : [];
+    if (Math.abs(D) > h + tol) return [];
+    const phi = Math.atan2(B, A), alpha = Math.acos(Math.max(-1, Math.min(1, -D / h)));
+    const norm = (t) => ((t % TAU) + TAU) % TAU;
+    const span = g.type === 'circle' ? TAU : norm(Math.atan2(dot3(sub3(g.b, g.c), v), dot3(sub3(g.b, g.c), u))) || TAU;
+    for (const t of [norm(phi - alpha), norm(phi + alpha)].sort((a, b) => a - b)) {
+      if (t > span + tol) continue;
+      points.push(g.c.map((q, i) => q + g.r * (u[i] * Math.cos(t) + v[i] * Math.sin(t))));
+    }
+  } else {
+    const pts = g.type === 'line' ? [g.a, g.b] : g.pts || [];
+    if (pts.length && pts.every((p) => Math.abs(distance(p)) < tol)) return projectCurve(fr, g, { preserveSpline: true });
+    if (g.spline) return []; // Non-coplanar spline intersection needs a root solver.
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i], da = distance(a), db = distance(b);
+      if (Math.abs(da) < tol) points.push(a);
+      if (da * db < 0) points.push(a.map((q, k) => q + (b[k] - q) * da / (da - db)));
+      if (Math.abs(db) < tol) points.push(b);
+    }
+  }
+  const out = [];
+  for (const p of points) { const q = toFrame2D(fr, p); if (!out.some((g) => Math.hypot(g.p[0] - q[0], g.p[1] - q[1]) < tol)) out.push({ type: 'point', p: q }); }
+  return out;
 }
 
 // World-space classification of a sketch curve (for projecting other sketches).

@@ -174,7 +174,7 @@ export const SKETCH_FEATURES = new Set(['extrude', 'revolve', 'surfExtrude', 'su
 
 // Sketches a feature uses (they are hidden and shown under it in the tree once used).
 export function sketchesUsedBy(f) {
-  return [f.sketch, f.profile, f.path, f.profileA, f.profileB, ...(Array.isArray(f.profiles) ? f.profiles : [])].filter((x) => typeof x === 'string' && x);
+  return [...new Set([f.sketch, f.profile, f.path, f.profileA, f.profileB, ...(Array.isArray(f.profiles) ? f.profiles : []), ...(f.guides || [])].map((x) => typeof x === 'string' ? x : x?.sketch).filter(Boolean))];
 }
 
 export function iconFor(f) {
@@ -421,7 +421,8 @@ export function referencesOf(doc, f) {
   const addId = (v) => { if (typeof v === 'string' && ids.has(v)) out.add(v); };
   const addBody = (v) => { if (typeof v === 'string' && v) addId(bodyOwner(v)); };
   for (const k of ['sketch', 'feature', 'base', 'toPoint', 'toPlane', 'planeA', 'planeB', 'pointA', 'pointB', 'axis', 'dir1', 'dir2', 'rotAxis', 'parent', 'profile', 'path']) addId(f[k]);
-  for (const id of [...(f.profiles || []), ...(f.guides || []), ...(f.features || [])]) addId(id);
+  for (const ref of [...(f.profiles || []), ...(f.guides || [])]) addId(typeof ref === 'string' ? ref : ref?.sketch);
+  for (const id of f.features || []) addId(id);
   if (f.type !== 'sketch' && typeof f.plane === 'string') addId(f.plane);
   if (f.plane?.ref) addId(f.plane.ref);
   if (f.type === 'split') { addId(f.tool); addBody(f.tool); }
