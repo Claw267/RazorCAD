@@ -10,6 +10,7 @@ import { UI } from './ui.js';
 import * as M from './model.js';
 import * as G from './geometry.js';
 import * as S from './sketchmodel.js';
+import * as LR from './loftrefs.js';
 import { evaluate, evalEquations, fmt } from './expr.js';
 import { KernelClient, KernelPool } from './kernelclient.js';
 import { platform } from './platform.js';
@@ -1948,11 +1949,114 @@ class App {
   }
 
   // What the open Property panel wants picked on the model: 'edge', 'vertex' or 'face'.
+  loftPicking() { return this.pm?.kind === 'feature' && ['loft', 'surfLoft'].includes(this.pm.feature.type); }
+
+  loftCandidates() {
+    if (!this.loftPicking()) return [];
+    const before = this.doc.features.indexOf(this.pm.feature);
+    return [...this.result.sketches].filter(([id, s]) => s.sketch.type === 'sketch' && !s.sketch.suppressed && !this.result.errors.has(id) && this.doc.features.indexOf(s.sketch) < before);
+  }
+
+  loftPickData(id, s) {
+    this._loftPickCache ||= new Map();
+    let cache = this._loftPickCache.get(id);
+    if (!cache || cache.points !== s.sketch.points || cache.curves !== s.sketch.curves) {
+      cache = { points: s.sketch.points, curves: s.sketch.curves, lines: s.sketch.curves.filter((c) => !c.ctrlOf).map((c) => ({ c, pts: S.curvePoints(s.sketch, c) })) };
+      this._loftPickCache.set(id, cache);
+    }
+    return cache;
+  }
+
+  pickLoftContour(e) {
+    const slot = this.pm.loftSlot || 'profiles', guide = slot === 'guides', chain = this.pm.loftChain !== false;
+    const candidates = this.loftCandidates(), vp = this.viewport, m = vp.screenPos(e);
+    let edge = null, distance = 7;
+    for (const [id, s] of candidates) for (const line of this.loftPickData(id, s).lines) {
+      if (!guide && line.c.construction) continue;
+      const pts = line.pts.map(([x, y]) => vp.project(G.toWorld(s.frame, x, y)));
+      for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1], b = pts[i], d = S.segDist(m.x, m.y, a.x, a.y, b.x, b.y);
+        if (d < distance) { distance = d; edge = { id, s, curve: line.c.id }; }
+      }
+    }
+    const regions = (id, s) => { const cache = this.loftPickData(id, s); return cache.regions ||= LR.selectableRegions(s.sketch); };
+    const regionRef = (id, region) => LR.regionRef(id, this.pm.feature.type === 'surfLoft' ? { ...region, holes: [] } : region);
+    if (edge) {
+      if (!guide && chain) {
+        const matches = regions(edge.id, edge.s).filter((r) => [r.outer, ...r.holes].some((loop) => loop.segs.some((g) => g.sourceCurve === edge.curve)));
+        if (matches.length === 1) return regionRef(edge.id, matches[0]);
+        if (matches.length > 1) throw new Error('This edge borders several profiles; click inside the desired region or select its segments manually');
+      }
+      return LR.chainRef(edge.s.sketch, edge.id, edge.curve, chain, guide);
+    }
+    if (guide || !chain) return null;
+    const ray = vp.aimRay(e).ray;
+    let best = null, depth = Infinity;
+    for (const [id, s] of candidates) {
+      const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(s.frame.n, s.frame.o), hit = ray.intersectPlane(plane, new THREE.Vector3());
+      if (!hit) continue;
+      const p = G.toLocal(s.frame, hit), d = hit.distanceTo(ray.origin);
+      if (d >= depth) continue;
+      const found = regions(id, s).find((r) => S.pointInPoly([p.x, p.y], r.outer.poly) && !r.holes.some((h) => S.pointInPoly([p.x, p.y], h.poly)));
+      if (found) { depth = d; best = regionRef(id, found); }
+    }
+    return best;
+  }
+
+  addLoftContour(ref) {
+    const f = this.pm.feature, key = this.pm.loftSlot || 'profiles', guide = key === 'guides';
+    const source = this.result.sketches.get(LR.sourceId(ref));
+    if (!source) throw new Error('The source sketch is unavailable');
+    const result = LR.resolveContour(source.sketch, ref, guide);
+    if (!guide && f.type === 'loft' && !f.thin && !result.region && !result.chain.closed) throw new Error('A solid loft needs a closed profile. Use Surface Loft for open sections');
+    f[key] ||= [];
+    if (f[key].some((q) => LR.refKey(q) === LR.refKey(ref))) {
+      this.pm.loftDraft = null; this.pm.loftHover = null;
+      this.ui.renderPM(); this.updateSketchDisplay();
+      this.status('That contour is already selected.'); return;
+    }
+    f[key].push(ref); this.pm.loftDraft = null; this.pm.loftHover = null;
+    this.preview(true); this.updateSketchDisplay();
+    this.status(`${guide ? 'Guide' : 'Profile'} ${f[key].length} selected.`);
+  }
+
+  finishLoftSelection() {
+    if (!this.pm?.loftDraft?.curves.length) return;
+    try {
+      let ref = this.pm.loftDraft;
+      if ((this.pm.loftSlot || 'profiles') === 'profiles' && this.pm.feature.type === 'loft') {
+        const source = this.result.sketches.get(ref.sketch), subset = source && LR.contourSketch(source.sketch, ref);
+        const regions = subset && S.profileRegions(subset, true);
+        if (regions?.length === 1) {
+          const canonical = LR.regionRef(ref.sketch, regions[0]);
+          if (canonical.curves.length === new Set(ref.curves).size) ref = canonical;
+        }
+      }
+      this.addLoftContour(ref);
+    } catch (e) { this.toast(e.message, true); }
+  }
+
+  loftClick(e) {
+    try {
+      const ref = this.pickLoftContour(e);
+      if (!ref) { this.status('Click a sketch contour, or inside a closed profile.'); return; }
+      if (this.pm.loftChain !== false) return this.addLoftContour(ref);
+      let draft = this.pm.loftDraft;
+      if (draft && draft.sketch !== ref.sketch) throw new Error('Finish the current contour before selecting another sketch');
+      draft ||= { ...ref, curves: [] };
+      const id = ref.curves[0], i = draft.curves.indexOf(id);
+      if (i < 0) draft.curves.push(id); else draft.curves.splice(i, 1);
+      this.pm.loftDraft = draft; this.pm.loftHover = null;
+      this.ui.renderPM(); this.updateSketchDisplay();
+    } catch (e) { this.toast(e.message, true); }
+  }
+
   pickMode() {
     if (this.pm?.kind === 'measure') return 'measure';
     if (this.pm?.kind === 'section') return 'section';
     const f = this.pm?.kind === 'feature' ? this.pm.feature : null;
     if (!f) return null;
+    if (this.loftPicking()) return 'loftContour';
     if (f.type === 'plane') return 'ref'; // vertices, edges, faces and planes
     if (f.type === 'shell' || f.type === 'surfOffset' || f.type === 'surfCopy' || f.type === 'hole' || f.type === 'smClosedCorner' || f.type === 'smCrossBreak' || f.type === 'smGusset' || (f.type === 'smForm' && f.formType !== 'louver')) return 'faces';
     const scoped = (f.type === 'extrude' || f.type === 'revolve') && f.op === 'cut' && f.scopeAll === false;
@@ -2256,9 +2360,12 @@ class App {
 
   updateSketchDisplay() {
     const res = this.result, list = [];
+    const loft = this.loftPicking(), loftFeature = loft ? this.pm.feature : null;
+    if (!loft) this._loftPickCache = null;
     // Dependent sketches still contain the last rebuilt projections while their source is being edited.
     // Hide that stale geometry until leaving the sketch rebuilds it; keep independent references visible.
     const editing = this.mode === 'sketch' ? this.sketcher.f?.id : null;
+    const referencePicking = editing && ['convert', 'intersect'].includes(this.sketcher.tool);
     const stale = new Set(editing ? [editing] : []);
     if (editing) {
       const refs = this.doc.features.map((f) => [f.id, M.referencesOf(this.doc, f)]);
@@ -2272,8 +2379,8 @@ class App {
       if (stale.has(id)) continue;
       const pmSketch = this.pm?.kind === 'feature' && this.pm.feature.sketch === id;
       const selected = (this.selection?.kind === 'feature' && this.selection.id === id) || this.hoverSketchId === id;
-      if ((this.vis.sketches && this.sketchShown(s.sketch)) || pmSketch || selected) {
-        const polylines = s.sketch.curves.map((c) => ({ pts: S.curvePoints(s.sketch, c), construction: c.construction }));
+      if ((this.vis.sketches && this.sketchShown(s.sketch)) || pmSketch || selected || loft || (referencePicking && this.doc.features.findIndex((f) => f.id === id) < this.doc.features.findIndex((f) => f.id === editing))) {
+        const polylines = s.sketch.curves.filter((c) => !loft || !c.ctrlOf).map((c) => ({ pts: S.curvePoints(s.sketch, c), construction: c.construction }));
         for (const polys of Object.values(s.textPolys || {})) for (const pts of polys) polylines.push({ pts, construction: false });
         if (s.sketch.gearTrains?.length) for (const pts of S.gearPolylines(s.sketch)) polylines.push({ pts, construction: false });
         if (s.sketch.airfoils?.length) for (const pts of S.airfoilPolylines(s.sketch)) polylines.push({ pts, construction: false });
@@ -2287,7 +2394,25 @@ class App {
       const s = res.sketches.get(x.sketch), c = s && S.getCurve(s.sketch, x.curve);
       if (c) list.push({ frame: s.frame, polylines: [{ pts: S.curvePoints(s.sketch, c), construction: false }], highlight: true, color: 0xf97316 });
     }
+    const tags = [];
+    if (loft) {
+      const show = (ref, color, label = '') => {
+        const s = res.sketches.get(LR.sourceId(ref)); if (!s) return;
+        const ids = typeof ref === 'string' ? null : new Set(ref.curves);
+        const curves = s.sketch.curves.filter((c) => !c.ctrlOf && (ids ? ids.has(c.id) : !c.construction));
+        list.push({ frame: s.frame, polylines: curves.map((c) => ({ pts: S.curvePoints(s.sketch, c), construction: false })), highlight: true, color });
+        if (label && curves.length) {
+          const p = S.curvePoints(s.sketch, curves[0])[0];
+          tags.push({ text: label, at: G.toWorld(s.frame, p[0], p[1]), color });
+        }
+      };
+      (loftFeature.profiles || []).forEach((r, i) => show(r, 0x0ea5e9, `Profile ${i + 1}`));
+      (loftFeature.guides || []).forEach((r, i) => show(r, 0xf97316, `Guide ${i + 1}`));
+      if (this.pm.loftDraft?.curves.length) show(this.pm.loftDraft, 0x16a34a);
+      if (this.pm.loftHover) show(this.pm.loftHover, 0xfacc15);
+    }
     this.viewport.setSketches(list);
+    this.viewport.setLoftTags(tags);
   }
 
   updatePlanes() {
@@ -2591,6 +2716,11 @@ class App {
     const before = this.doc.features.indexOf(f);
     const target = M.findFeature(this.doc, id);
     if (target && before >= 0 && this.doc.features.indexOf(target) > before) return false; // only earlier references
+    if (this.loftPicking() && kind === 'sketch') {
+      this.hoverSketchId = id; this.updateSketchDisplay();
+      this.status('Select the desired contour in the canvas; a sketch can contain several profiles or guides.');
+      return true;
+    }
     // two-slot fields (axis from two planes / two points) fill alternately
     const slot = (a, b) => { const k = this.pm.slot === a ? b : a; this.pm.slot = k; return k; };
     if (f.type === 'plane' && (kind === 'plane' || kind === 'point' || kind === 'axis')) {
@@ -2735,6 +2865,7 @@ class App {
     }
     this.clearCycle();
     const mode = this.pickMode();
+    if (mode === 'loftContour') { this.loftClick(e); return; }
     if (mode === 'section') {
       // a flat face or a plane: the section moves onto it
       const p = this.pickAt(e);
@@ -2896,6 +3027,12 @@ class App {
       if (on) { vp.setFaceHighlight('hover', null); this.hoverFaceKey = null; vp.canvas.style.cursor = 'grab'; return; }
     }
     const mode = this.showHiddenMode ? 'body' : this.pickMode();
+    if (mode === 'loftContour') {
+      let ref = null;
+      try { ref = this.pickLoftContour(e); } catch { /* ambiguous edges need a region or manual selection */ }
+      if (LR.refKey(ref) !== LR.refKey(this.pm.loftHover)) { this.pm.loftHover = ref; this.updateSketchDisplay(); }
+      vp.canvas.style.cursor = ref ? 'pointer' : 'default'; return;
+    }
     if (mode === 'body') {
       const fh = this.faceAt(e);
       const bi = fh ? vp.faceBody[fh.hit.face] : -1;
@@ -3469,7 +3606,7 @@ class App {
       const free = doc.features.slice(0, ri).filter((x) => x.type === 'sketch' && !used.has(x.id) && !x.suppressed);
       const closed = free.filter((x) => !S.isOpenSketch(x) && x.curves.some((c) => !c.construction));
       if (type === 'loft') {
-        props.profiles = selF?.type === 'sketch' ? [selF.id] : closed.slice(-2).map((x) => x.id);
+        props.profiles = [];
         if (!doc.features.some((x) => x.type === 'sketch')) { this.toast('A loft needs two or more sketches: draw the profiles on different planes first.', true); return; }
       } else {
         const helix = [...doc.features.slice(0, ri)].reverse().find((x) => (x.type === 'helix' || x.type === 'sketch3d') && !x.suppressed && !used.has(x.id));
@@ -3621,6 +3758,7 @@ class App {
   }
 
   async okPM() {
+    if (this.loftPicking() && this.pm.loftDraft?.curves.length) { this.toast('Add or clear the current contour selection before accepting the loft', true); return; }
     if (this.mode === 'sketch' && this.sketcher.patternDraft) { this.sketcher.finishPattern(true); return; }
     const pm = this.pm;
     if (!pm) return;
@@ -4305,6 +4443,12 @@ class App {
         return;
       }
       if (document.querySelector('.modal-back')) return;
+      if (this.loftPicking() && this.pm.loftDraft?.curves.length && ['Enter', 'Escape'].includes(e.key)) {
+        e.preventDefault();
+        if (e.key === 'Enter') this.finishLoftSelection();
+        else { this.pm.loftDraft = null; this.pm.loftHover = null; this.ui.renderPM(); this.updateSketchDisplay(); }
+        return;
+      }
       if (this.mode === 'sketch' && this.sketcher.key(e)) { e.preventDefault(); return; }
       if (this.mode === 'sketch3d' && this.sketch3d.key(e)) { e.preventDefault(); return; }
       if (e.key === 'Escape' && this.flatView) { this.exitFlatten(); return; }

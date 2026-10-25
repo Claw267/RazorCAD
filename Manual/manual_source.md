@@ -449,7 +449,7 @@ In the sketch Property panel, **Rotate 90°** turns the sketch axes about the sk
 | **Gears** | | See the Gears chapter |
 | **Airfoil** | | See the Airfoils chapter |
 | **Sketch Fillet / Sketch Chamfer** | | Set the radius or distance, then click corners (a fillet: where two lines, a line and an arc, or two arcs meet; a chamfer: two lines). The first one made gets the dimension; the others made before you leave the tool are made Equal to it, so one value changes them all. |
-| **Intersection Curve** | | Projects the outline where the sketch plane cuts the bodies |
+| **Intersection Curve** | | Click earlier sketch curves to create linked intersections with the active sketch plane, or select a model section |
 | **Construction Geometry** | [[Q]] | Toggles selected curves to/from construction; with no curves selected, toggles construction mode for newly drawn geometry. The drawing panel also has **For construction**. Preview and resulting geometry are dashed and ignored by features. |
 | **Display Relations** | | Shows or hides the relation glyphs |
 | **Delete** | [[Del]] | Deletes the selected entities or relations |
@@ -745,12 +745,16 @@ Sweeps a profile along a path. {idx:sweep}
 
 ## Loft and Loft Cut
 
-Blends between two or more profile sketches, in order. A third or later profile shapes the middle. {idx:loft}
+Blends between two or more section profiles, in order. A third or later profile shapes the middle. {idx:loft}
+
+Activate **Select profiles in canvas**, then click a sketch contour or inside a closed region. Multiple regions in one sketch can be selected independently; holes belong to their enclosing region. **Select guides in canvas** switches to guide selection, including construction curves. Source sketches are temporarily shown while selecting, without changing their saved visibility.
+
+**Chain selection** picks connected curves automatically. Turn it off to select individual segments from one sketch, then choose **Add selected contour** or press Enter. Escape clears an unfinished selection. Profiles and guides have separate ordered lists with move and remove controls, matching numbered highlights in the canvas. **Other sources** retains whole-sketch and supported 3D curve selection. Stored contour references follow source curve IDs through edits and renaming; missing or ambiguous boundaries report an error. Surface Loft uses the same contour selection for open or closed sections.
 
 - A circle is split into as many equal arcs as the other profile has corners.
 - Profiles with different segment counts give an error naming the sketches.
 - Options: straight (ruled) sides, Thin. Without straight sides: **Through the profiles** curvature-continuous (C2) or tangent-continuous (C1), and **Smooth the surface**, which evens out its bends. {idx:loft, continuity}
-- **Guide Curves** (optional): curves the loft's outline follows between the profiles, such as a body's outline seen from the side. Each runs from the first profile to the last, through every profile, and is a sketch with one chain of curves or a curve. One guide pulls the loft along it; two or more shape it round the outline, each where it touches the profiles. The profiles themselves are kept as drawn. Holes in the profiles, and a thin loft's inside, move with the outline, so a thin wall keeps its thickness; for a thin loft, draw the guide on the sketched line. {idx:loft, guide curves}
+- **Guide Curves** (optional): curves the loft's outline follows between the profiles, such as a body's outline seen from the side. Each runs from the first profile to the last, through every profile, and is a selected chain of sketch curves or a supported curve source. Separate guides can come from the same sketch. One guide pulls the loft along it; two or more shape it round the outline, each where it touches the profiles. The profiles themselves are kept as drawn. Holes in the profiles, and a thin loft's inside, move with the outline, so a thin wall keeps its thickness; for a thin loft, draw the guide on the sketched line. {idx:loft, guide curves}
 
 ## Hole
 
@@ -1926,3 +1930,7 @@ A body or part with no material uses 1.00 g/cm³ for mass calculations.
 | 2026-10-20 | 0.13.0-beta | New sections: Updates, Getting Started Tour, Search commands, Your own keyboard shortcuts, Units (inches), Cosmetic Thread, References that follow edits, Fix References, gear and rack-pinion mates, Fix Mates, assembly Interference Check, Code signing and Regression tests. Drawings add Balloon and BOM Table, exploded views and units; Hole callouts give cosmetic threads. Faster opening (the geometry after each feature is kept) and faster patterns of added features. |
 | 2026-10-20 | 0.12.0-beta | Brought up to date with the software. New chapters: 3D Sketches, Airfoils, Fast Structure, Configurations and Assemblies. Sheet Metal adds Sheet Metal Extrude, Lofted Bend, Transition / Reducer, Miter Flange, Hem, Sketched Bend, Jog, Cross Break, Tab and Slot, Forming Tools, Gusset, gauge tables and Sheet Metal Check. Drawings add templates, auxiliary, break and crop views, baseline, ordinate and chamfer dimensions, hole callouts, GD&T, surface finish and weld symbols, revision and cut list tables, bend tables and DXF export. Surfaces add lofted, swept, filled, boundary and ruled surfaces, trim, extend, untrim, delete and replace face, split line, projected and composite curves, flatten surface, convert to solid and repair mesh. Also: new sketch tools, Hole, Draft, Rib, Dome, Move Face, Scale, new patterns, appearances, exploded views, interference check, surface analysis, OBJ and 3MF, toolbar customising and the Claude subscription option. Feature and tool names follow the software's new names. |
 | 2026-10-13 | 0.9.0-beta | First edition. Covers parts, sketching, gears, solid features, bodies, surfaces, reference geometry, the feature tree, sheet metal (including Convert to Sheet Metal with detected thickness and bend radii), drawings, evaluate tools, Ask Claude, troubleshooting and developer notes. |
+
+### Selecting source sketches for Project and Intersection
+
+While editing a sketch, activate **Project Edges** or **Intersection Curve**. Earlier independent sketches are temporarily shown, including hidden and absorbed sketches; their saved visibility does not change. Click the source curves in the canvas (orbit the view if they overlap). Project creates linked projected geometry. Intersection creates linked points where source lines, arcs or circles cross the active plane; coplanar curves retain their geometry. Use the points as guide endpoints. Non-coplanar spline intersections are not yet supported. For solid/surface sections, click the displayed section outline. Escape returns to Select.

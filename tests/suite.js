@@ -22,7 +22,13 @@ async function until(fn, ms = 60000, step = 100) {
   }
 }
 const r6 = (x) => (typeof x === 'number' ? +x.toPrecision(10) : x);
-const closeModals = () => document.querySelectorAll('.modal-back').forEach((x) => x.remove());
+const closeModals = () => {
+  document.querySelectorAll('.modal-back').forEach((x) => {
+    const close = x.querySelector('.modal-h .x');
+    if (close) close.click(); else x.remove();
+  });
+  [...document.querySelectorAll('#tour button')].find((b) => b.textContent === 'Skip the tour')?.click();
+};
 
 // ---------------------------------------------------------------- parts
 async function partResult(doc) {
@@ -228,7 +234,7 @@ const UI = {
     await a.enterSketch(f, true);
     await wait(300);
     const { toScreen, click, vp } = viewEvents();
-    vp.setStandardView('top', false); vp.zoomToFit(); await wait(200);
+    vp.setStandardView('top', false); vp.zoomToFit(null, false); vp.camera.updateMatrixWorld(true);
     const sk = a.sketcher, fr = sk.frame;
     const at = (x, y) => toScreen(fr.o.clone().addScaledVector(fr.u, x).addScaledVector(fr.v, y));
     // (a 40 × 20 rectangle about the origin)
@@ -510,6 +516,129 @@ const UI = {
       notes.push(p.name);
     }
     return { ok: true, detail: `${notes.length} parts restored without rebuilding (${(bytes / 1048576).toFixed(1)} MB of BRep; meshing ${mesh1} ms → ${mesh2} ms)` };
+  },
+
+  async 'loft-contour-references'() {
+    const a = window.app, S = await import('/js/sketchmodel.js'), LR = await import('/js/loftrefs.js');
+    const build = (hole = false) => {
+      const d = M.newDoc(), plane = M.createFeature(d, 'plane', { refs: [{ kind: 'plane', id: 'top' }], offset: 30 }); d.features.push(plane);
+      const profiles = [], sources = [];
+      for (const ref of ['top', plane.id]) {
+        const sk = M.createFeature(d, 'sketch', { plane: { ref } });
+        const outer = S.addCircle(sk, 'O', 10); if (hole) S.addCircle(sk, 'O', 3);
+        S.addCircle(sk, S.addPoint(sk, 50, 0), 5);
+        d.features.push(sk); sources.push({ sk, outer });
+        profiles.push(LR.regionRef(sk.id, S.profileRegions(sk, true).find((r) => r.outer.segs.some((g) => g.sourceCurve === outer))));
+      }
+      const loft = M.createFeature(d, 'loft', { profiles }); d.features.push(loft);
+      return { d, loft, sources };
+    };
+    const volume = async (r) => {
+      const body = r.body?.bodies?.[0]; if (!body || r.errors.length) return null;
+      const measured = await a.kernel.request('measure', { refs: [{ kind: 'body', id: body.id }] });
+      return measured.items?.[0]?.volume;
+    };
+    for (const hole of [false, true]) {
+      const { d, loft, sources } = build(hole);
+      let r = await a.kernel.rebuild(d, null, null), vol = await volume(r), expected = Math.PI * (100 - (hole ? 9 : 0)) * 30;
+      if (vol == null || Math.abs(vol - expected) > expected * 1e-5) return { ok: false, detail: `Selected region (hole=${hole}) failed: volume=${vol}, ${JSON.stringify(r.errors)}` };
+      if (hole) {
+        const inner = LR.selectableRegions(sources[0].sk).find((r) => r.outer.segs[0].r === 3);
+        if (!inner || inner.holes.length || LR.resolveContour(sources[0].sk, LR.regionRef(sources[0].sk.id, inner)).region.outer.segs[0].r !== 3) return { ok: false, detail: 'The region inside a hole could not be selected independently' };
+      }
+      if (sources.some(({ sk }) => !M.referencesOf(d, loft).has(sk.id) || !M.sketchesUsedBy(loft).includes(sk.id))) return { ok: false, detail: 'Contour source omitted from dependency/absorption tracking' };
+      for (const { sk, outer } of sources) { S.getCurve(sk, outer).r = 12; sk.name += ' renamed'; sk.rev = M.newRev(); }
+      r = await a.kernel.rebuild(JSON.parse(JSON.stringify(d)), null, null); vol = await volume(r); expected = Math.PI * (144 - (hole ? 9 : 0)) * 30;
+      if (vol == null || Math.abs(vol - expected) > expected * 1e-5) return { ok: false, detail: 'Rename, source dimensions or serialization lost the selected region' };
+      sources[0].sk.curves = sources[0].sk.curves.filter((c) => c.id !== sources[0].outer); sources[0].sk.rev = M.newRev();
+      r = await a.kernel.rebuild(d, null, null);
+      if (!r.errors.some(([id, message]) => id === loft.id && message.includes('deleted'))) return { ok: false, detail: 'Deleted boundary silently selected another contour' };
+    }
+    // An explicitly selected open contour is valid for a surface loft, alongside unrelated geometry.
+    const d = M.newDoc(), plane = M.createFeature(d, 'plane', { refs: [{ kind: 'plane', id: 'front' }], offset: 30 }); d.features.push(plane);
+    const refs = [];
+    for (const ref of ['front', plane.id]) {
+      const sk = M.createFeature(d, 'sketch', { plane: { ref } }), line = S.addLine(sk, S.addPoint(sk, 0, 0), S.addPoint(sk, 20, 10));
+      S.addLine(sk, S.addPoint(sk, 100, 0), S.addPoint(sk, 100, 10)); d.features.push(sk); refs.push(LR.chainRef(sk, sk.id, line));
+    }
+    d.features.push(M.createFeature(d, 'surfLoft', { profiles: refs }));
+    const r = await a.kernel.rebuild(d, null, null);
+    if (r.errors.length || !r.body?.bodies?.some((b) => b.kind === 'surface')) return { ok: false, detail: `Open selected contours failed to loft: ${JSON.stringify(r.errors)}` };
+    return { ok: true, detail: 'Regions from multi-profile sketches, holes and exact volume, stable IDs after source edits/rename/reopen, dependency tracking, missing-boundary diagnostics and open surface contours' };
+  },
+
+  async 'loft-selected-guides'() {
+    const a = window.app, S = await import('/js/sketchmodel.js'), LR = await import('/js/loftrefs.js');
+    const d = M.newDoc(), plane = M.createFeature(d, 'plane', { refs: [{ kind: 'plane', id: 'top' }], offset: 100 }); d.features.push(plane);
+    const profiles = [];
+    for (const ref of ['top', plane.id]) {
+      const sk = M.createFeature(d, 'sketch', { plane: { ref } });
+      const rect = S.buildRect(sk, S.addPoint(sk, -20, -20), S.addPoint(sk, 20, 20));
+      S.addCircle(sk, S.addPoint(sk, 80, 0), 5); d.features.push(sk);
+      profiles.push(LR.chainRef(sk, sk.id, rect.lines[0]));
+    }
+    const rails = M.createFeature(d, 'sketch', { plane: { ref: 'front' }, name: 'Both rails' }), guides = [];
+    for (const sign of [1, -1]) {
+      const centre = S.addPoint(rails, -32.5 * sign, 50), start = S.addPoint(rails, 20 * sign, sign > 0 ? 0 : 100), end = S.addPoint(rails, 20 * sign, sign > 0 ? 100 : 0);
+      const arc = S.addArc(rails, centre, start, end, sign > 0);
+      guides.push(LR.chainRef(rails, rails.id, arc, true, true));
+    }
+    S.addLine(rails, S.addPoint(rails, 90, 0), S.addPoint(rails, 90, 100)); d.features.push(rails);
+    const loft = M.createFeature(d, 'loft', { profiles, guides }); d.features.push(loft);
+    const r = await a.kernel.rebuild(d, null, null);
+    if (r.errors.length || !r.body?.bodies?.length || guides.some((ref) => ref.curves.length !== 1) || !M.referencesOf(d, loft).has(rails.id)) return { ok: false, detail: `Selected rails from one sketch failed: ${JSON.stringify(r.errors)}` };
+    const body = r.body.bodies[0], measured = await a.kernel.request('measure', { refs: [{ kind: 'body', id: body.id }] });
+    if (!(measured.items?.[0]?.volume > 160000)) return { ok: false, detail: 'Selected bulged guides did not shape the loft' };
+    const baseline = JSON.parse(JSON.stringify(d)); baseline.features.at(-1).guides = []; const plain = await a.kernel.rebuild(baseline, null, null);
+    const plainBody = plain.body?.bodies?.[0], info = plainBody && await a.kernel.request('measure', { refs: [{ kind: 'body', id: plainBody.id }] });
+    if (plain.errors.length || Math.abs(info.items?.[0]?.volume - 160000) > 1) return { ok: false, detail: 'Removing selected rails did not restore the straight loft' };
+    return { ok: true, detail: 'Two rails in one multi-curve sketch, construction rail selection, unrelated geometry excluded, dependencies and measured deformation' };
+  },
+
+  async 'loft-canvas-selection'() {
+    const a = window.app, S = await import('/js/sketchmodel.js');
+    document.querySelectorAll('.modal-back .modal-h .x').forEach((b) => b.click());
+    await a.newDocument?.(); closeModals();
+    const d = M.newDoc(), plane = M.createFeature(d, 'plane', { refs: [{ kind: 'plane', id: 'top' }], offset: 30 }); d.features.push(plane);
+    const sources = [];
+    for (const ref of ['top', plane.id]) {
+      const sk = M.createFeature(d, 'sketch', { plane: { ref }, visible: false });
+      S.addCircle(sk, 'O', 10); S.addCircle(sk, S.addPoint(sk, 50, 0), 5); d.features.push(sk); sources.push(sk);
+    }
+    await a.setDoc(d); a.startFeature('loft'); await a.rebuild();
+    const f = a.pm.feature;
+    if (f.profiles.length || !document.querySelector('[data-loft-slot="profiles"]')) return { ok: false, detail: 'Loft did not start with a canvas profile selector' };
+    a.viewport.setStandardView('iso', false); a.viewport.camera.zoom = 2; a.viewport.camera.updateProjectionMatrix(); a.viewport.camera.updateMatrixWorld(true);
+    const v = viewEvents();
+    for (const sk of sources) {
+      const frame = a.result.sketches.get(sk.id).frame, p = frame.o.clone().addScaledVector(frame.u, 10);
+      await v.click(...v.toScreen(p));
+    }
+    await a.rebuild();
+    if (f.profiles.length !== 2 || f.profiles.some((r) => r.kind !== 'sketchContour' || r.curves.length !== 1) || a.result.errors.size || !a.result.preview) return { ok: false, detail: `Canvas selection failed: ${JSON.stringify(f.profiles)}; ${JSON.stringify([...a.result.errors])}` };
+    if (document.querySelectorAll('[data-loft-label]').length !== 2) return { ok: false, detail: 'Viewport profile labels are missing' };
+    const first = JSON.stringify(f.profiles[0]);
+    document.querySelector('[data-loft-list="profiles"] [data-loft-action="down"]').click();
+    if (JSON.stringify(f.profiles[1]) !== first) return { ok: false, detail: 'Profile order could not be changed' };
+    document.querySelector('[data-loft-slot="guides"]').click();
+    if (a.pm.loftSlot !== 'guides') return { ok: false, detail: 'Guide and profile pick modes are not separate' };
+    document.querySelector('[data-loft-slot="profiles"]').click();
+    const cb = document.querySelector('[data-loft-chain]'); cb.checked = false; cb.dispatchEvent(new Event('change'));
+    const frame = a.result.sketches.get(sources[0].id).frame, p = frame.o.clone().addScaledVector(frame.u, 50).addScaledVector(frame.v, 5);
+    await v.click(...v.toScreen(p));
+    if (a.pm.loftDraft?.curves.length !== 1 || f.profiles.length !== 2) return { ok: false, detail: 'Manual selection mutated the feature before confirmation' };
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    if (!a.pm || a.pm.loftDraft || f.profiles.length !== 2) return { ok: false, detail: `Escape state: ${JSON.stringify({ pm: a.pm?.kind, draft: a.pm?.loftDraft, count: f.profiles.length, modal: !!document.querySelector('.modal-back'), mode: a.mode })}` };
+    await v.click(...v.toScreen(p)); document.querySelector('[data-loft-finish]').click();
+    if (f.profiles.length !== 3 || a.pm.loftDraft) return { ok: false, detail: 'Manual contour could not be confirmed' };
+    document.querySelector('[data-loft-list="profiles"] .li:last-child [data-loft-action="remove"]').click();
+    await a.okPM();
+    if (a.pm || document.querySelector('[data-loft-label]') || sources.some((s) => s.visible !== false)) return { ok: false, detail: 'Accept left selection labels or changed source visibility' };
+    a.undo(); await a.rebuild(); if (a.doc.features.some((q) => q.id === f.id)) return { ok: false, detail: 'Created loft could not be undone' };
+    a.redo(); await a.rebuild(); if (!a.doc.features.find((q) => q.id === f.id)?.profiles.every((r) => r.kind === 'sketchContour')) return { ok: false, detail: 'Redo lost contour references' };
+    a.editFeature(f.id); await a.rebuild(); a.pm.feature.profiles.pop(); a.cancelPM(); await a.rebuild();
+    if (a.doc.features.find((q) => q.id === f.id).profiles.length !== 2) return { ok: false, detail: 'Cancel failed to restore edited contour references' };
+    return { ok: true, detail: 'Native canvas picks from hidden source sketches, separate slots, numbered highlights, reorder/remove, manual confirmation/Escape, visibility, accept/cancel and undo/redo' };
   },
 
   async 'sketch-grouped-tools'() {
@@ -912,6 +1041,30 @@ const UI = {
     input.value = 'Neck outline';
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     return { ok: f.name === 'Neck outline', detail: 'Renamed a sketch whose tree label includes (-)' };
+  },
+
+  async 'sketch-intersection-references'() {
+    const a = window.app, S = await import('/js/sketchmodel.js'), doc = M.newDoc();
+    const plane = M.createFeature(doc, 'plane', { refs: [{ kind: 'plane', id: 'top' }], offset: 40 });
+    const source = M.createFeature(doc, 'sketch', { plane: { ref: plane.id }, visible: false });
+    const circle = S.addCircle(source, 'O', 40);
+    const target = M.createFeature(doc, 'sketch', { plane: { ref: 'front' } });
+    doc.features.push(plane, source, target); await a.setDoc(doc); closeModals(); await a.enterSketch(target, false); await wait(350);
+    const sk = a.sketcher, vp = a.viewport; sk.intersectionCurve(); vp.setStandardView('iso', false); vp.camera.updateMatrixWorld(true);
+    const frame = a.result.sketches.get(source.id).frame, world = frame.o.clone().addScaledVector(frame.u, 40);
+    const v = viewEvents(), screen = v.toScreen(world);
+    if (sk.externalHit({ clientX: screen[0], clientY: screen[1] }, { vertices: false })?.cid !== circle) return { ok: false, detail: 'Hidden source curve not pickable' };
+    await v.click(...screen);
+    if (target.constraints.filter(k => k.src?.intersection).length !== 2) return { ok: false, detail: 'Intersection click did not create two linked points' };
+    await v.click(...screen);
+    if (target.points.length !== 2) return { ok: false, detail: 'Repeated intersection duplicated points' };
+    sk.setTool('select'); a.exitSketch(true); await a.rebuild();
+    S.getCurve(source, circle).r = 50; source.rev = M.newRev(); await a.rebuild();
+    const points = a.result.sketches.get(target.id).sketch.points;
+    if (a.result.errors.size || !points.every(p => Math.abs(Math.abs(p.x) - 50) < 1e-6 && Math.abs(p.y - 40) < 1e-6)) return { ok: false, detail: 'Source edit broke intersection links' };
+    await a.enterSketch(target, false); sk.setTool('convert'); vp.setStandardView('iso', false); vp.camera.updateMatrixWorld(true);
+    const next = v.toScreen(frame.o.clone().addScaledVector(frame.u, 50)); await v.click(...next);
+    return { ok: source.visible === false && target.constraints.some(k => k.src?.fid === source.id && !k.src.intersection), detail: 'Hidden source selection, linked circle-plane points, repeat click, radius update, independent projection and saved visibility' };
   },
 
   async 'sketch-project-small-arc'() {

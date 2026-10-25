@@ -24,6 +24,16 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 - **Lofted Surface** has **Guide Curves**, as the solid Loft has: sketches (one chain of curves) or curves (3D sketches, composite and projected curves, helices) the surface follows between the profiles, each running from the first profile to the last through every profile. One guide pulls the surface along it; two or more shape it across, each where it touches the profiles. Open and closed profiles both, sketches or 3D sketches; not with straight (ruled) sides.
 - A guide may now cross a profile anywhere along it (the solid Loft too): where the two meet is found between the points they are measured at, not only at them.
 - Test: surface-loft-guides (two open straight profiles and two arc guides: the surface spreads out to the arcs and fills the area they bound, to 0.03 %; a closed one with one guide bulges out to it on that side only; ruled with guides: a message).
+## Unreleased — Sketch source selection and plane intersections
+- Project Edges and Intersection Curve temporarily display earlier source sketches, including hidden/absorbed ones, without altering saved visibility. Spline helper lines are excluded from external curve picking.
+- Intersection Curve now selects individual sketch curves or model section chains. Lines, circles and arcs produce linked plane intersections; coplanar geometry is retained. Source edits refresh intersections independently of ordinary projections. Non-coplanar spline intersections are explicitly unsupported.
+- Verified on the supplied Part1 document: circle intersections follow a diameter edit from 80 to 100 mm. Four browser tests passed, including mouse selection, duplicate prevention, linked updates, projections and loft selection.
+
+## Unreleased — Loft contour and guide selection
+- Loft and Loft Cut accept individual sketch regions, including holes, through direct canvas selection. Surface Loft accepts open or closed sketch contours. Separate profile/guide lists support automatic chains, manual segment groups, ordering, removal and numbered highlights; source visibility is preserved.
+- References retain source sketch and curve IDs, track dependencies and report missing/ambiguous contours. Existing whole-sketch and supported 3D curve references remain supported. Guide interpolation and boundary continuity algorithms are unchanged; new G1/G2 boundary and Align to Surface controls are not included.
+- Validation: 22 browser regression tests passed, including contour references, selected guides, canvas selection, existing guided lofts and sketch regressions. Real mouse selection of two sections and two guides also verified.
+
 ## Unreleased — Distinct tangent-handle graphics
 - Fit spline tangent controls use solid teal stems, direction arrows and round grips; fit points retain their square markers. Selected, hovered and constrained controls retain their corresponding state colours.
 - Selection labels identify tangent grips and tangent-handle lines explicitly. Native mouse dragging and the fit spline regression test verified after the visual change.
