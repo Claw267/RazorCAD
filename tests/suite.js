@@ -736,6 +736,37 @@ const UI = {
     return { ok: f.name === 'Neck outline', detail: 'Renamed a sketch whose tree label includes (-)' };
   },
 
+  async 'sketch-project-small-arc'() {
+    const a = window.app, S = await import('/js/sketchmodel.js');
+    const doc = M.newDoc(), source = M.createFeature(doc, 'sketch', { plane: { ref: 'front' }, visible: true });
+    const centre = S.addPoint(source, 0, 0), start = S.addPoint(source, 2, 0), end = S.addPoint(source, 0, 2);
+    const arc = S.addArc(source, centre, start, end);
+    const target = M.createFeature(doc, 'sketch', { plane: { ref: 'front' } });
+    doc.features.push(source, target); await a.setDoc(doc); closeModals(); await a.enterSketch(target, false); await wait(300);
+    const sk = a.sketcher, vp = a.viewport;
+    sk.normalTo(false); vp.camera.zoom = 1; vp.camera.updateProjectionMatrix(); vp.camera.updateMatrixWorld(true);
+    const world = sk.frame.o.clone().addScaledVector(sk.frame.u, Math.SQRT2).addScaledVector(sk.frame.v, Math.SQRT2);
+    const v = viewEvents(), screen = v.toScreen(world);
+    const event = { clientX: screen[0], clientY: screen[1] };
+    const hit = sk.externalHit(event, { vertices: false });
+    if (hit?.kind !== 'extCurve' || hit.cid !== arc) return { ok: false, detail: `Project Edges picked ${hit?.kind} instead of the small arc` };
+    sk.setTool('convert'); await v.click(...screen);
+    const projection = target.constraints.find((k) => k.type === 'projected');
+    if (!projection || projection.src.cid !== arc || projection.ref || S.getCurve(target, projection.refs[0])?.type !== 'arc') return { ok: false, detail: 'Click did not create a persistent projected arc' };
+    // A previously selected external entity may already have an automatic reference.
+    // An explicit Project Edges click must promote it, rather than report "already in sketch".
+    projection.ref = true; S.getCurve(target, projection.refs[0]).construction = true;
+    sk.sel.clear(); await v.click(...screen);
+    if (projection.ref || S.getCurve(target, projection.refs[0]).construction || target.constraints.filter((k) => k.type === 'projected').length !== 1) return { ok: false, detail: 'Explicit projection did not promote an automatic reference in place' };
+    sk.setTool('select'); sk.sel.clear(); a.exitSketch(true); await a.rebuild();
+    await a.enterSketch(source, false); a.exitSketch(true); await a.rebuild();
+    if (!S.getCurve(target, projection.refs[0])) return { ok: false, detail: 'Opening and closing the source removed the projection' };
+    S.getPoint(source, centre).x += 5; S.getPoint(source, start).x += 5; S.getPoint(source, end).x += 5; source.rev = M.newRev();
+    await a.rebuild(); await a.enterSketch(target, false);
+    const curve = S.getCurve(target, projection.refs[0]);
+    return { ok: !a.result.errors.size && !!curve && Math.abs(S.getPoint(target, curve.c).x - 5) < 1e-6, detail: 'Small arc selected instead of nearby vertices; persistent projection survives exit, source translation and reopening' };
+  },
+
   async 'sketch-project-spline'() {
     const S = await import('/js/sketchmodel.js');
     const source = S.newSketchData(), dest = S.newSketchData();

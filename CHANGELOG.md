@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## Unreleased — Persistent projection of small sketch arcs
+- Project Edges respects curve-only picking for source sketches, so nearby endpoints and arc centres cannot replace a small arc with a projected point.
+- Explicitly projecting an existing automatic reference promotes it to persistent profile geometry instead of reporting that it is already present or duplicating it.
+- Test: sketch-project-small-arc (click near vertices, promote a temporary reference, enter/exit the source unchanged, source translation and target reopening); spline projection and shared-endpoint regression tests also pass.
+
 ## Unreleased — Coincident sketch midpoints
 - Select two line segments and choose Coincident Midpoints to keep their centres together without creating helper points. Works with construction lines and spline control-polygon segments, preserves lengths and directions set by other constraints, and survives save/reopen and rotated copies.
 - Test: sketch-coincident-midpoints (selection UI, source edits, no extra points, undo/redo, serialization and conflict rollback).

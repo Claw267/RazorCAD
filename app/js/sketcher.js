@@ -976,6 +976,17 @@ export class Sketcher {
       }
       const prims = this.externalPrims(ext);
       if (!prims.length) return;
+      const existing = this.existingRef(ext);
+      if (existing) {
+        const k = this.f.constraints.find((k) => k.type === 'projected' && k.refs[0] === existing.id);
+        const c = S.getCurve(this.f, existing.id);
+        if (k?.ref || c?.construction) {
+          this.sel = new Set([existing.id]);
+          this.extHover = null;
+          this.convertSelection();
+          return;
+        }
+      }
       if (prims.every((g) => this.hasCurveLike(g))) { this.app.status('That is already in the sketch (converted entities are purple).'); return; }
       this.joinEnds(S.addProjected(this.f, prims, this.externalSrc(ext)), true);
       this.extHover = null;
@@ -2076,7 +2087,7 @@ export class Sketcher {
       others.push([fid, s]);
     }
     let best = null, bd = 8;
-    for (const [fid, s] of others) {
+    if (vertices) for (const [fid, s] of others) {
       for (const p of s.sketch.points) {
         const w = G.toWorld(s.frame, p.x, p.y), sp = vp.project(w);
         const dd = Math.hypot(sp.x - m.x, sp.y - m.y);
