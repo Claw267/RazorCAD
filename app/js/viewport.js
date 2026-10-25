@@ -893,8 +893,8 @@ export class Viewport {
       const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(...dir).multiplyScalar(8)]);
       return new THREE.Line(geo, new THREE.LineBasicMaterial({ color, depthTest: false }));
     };
-    // (up blue, the other horizontal axis green: with Z up, the user's Y along RazorCAD's −Z, see wcs.js)
-    g.add(mk([1, 0, 0], 0xc62828), mk([0, 1, 0], 0x1d4ed8), mk(W.getUp() === 'z' ? [0, 0, -1] : [0, 0, 1], 0x2e7d32));
+    // Keep X red, Y green and Z blue in the user's axes, as in the corner triad.
+    g.add(mk(W.fromUser([1, 0, 0]), 0xc62828), mk(W.fromUser([0, 1, 0]), 0x2e7d32), mk(W.fromUser([0, 0, 1]), 0x1d4ed8));
     g.renderOrder = 4;
     g.children.forEach((c) => (c.renderOrder = 4));
     this.origin = g;

@@ -313,7 +313,7 @@ Lines, arcs and circles are exact; other curves become fine polylines. The file 
 
 A part can be shown **Y up** (the default) or **Z up**: **View ▸ Up Axis**, right-click **Origin** in the feature tree, or click **Y up** / **Z up** at the right of the status bar. With Z up the **Top plane is XY**, the **Front plane XZ** and the **Right plane YZ**, and Z points up; the tree shows each standard plane's axes beside its name. The choice is kept with the part and used for new parts too. {idx:up axis}{idx:Z up}
 
-Only the names of the axes change: the model stays where it is and no feature moves. The triad, X / Y / Z directions, Move / Copy Bodies, reference point coordinates, Measure, Mass Properties and 3D sketch coordinates all use the part's axes, and so do exported STEP, STL, OBJ and 3MF files: a part shown Z up is written Z up, and a file imported into it is read Z up.
+Only the names of the axes change: the model stays where it is and no feature moves. The triad, X / Y / Z directions, Move / Copy Bodies, reference point coordinates, Measure, Mass Properties and 3D sketch coordinates all use the part's axes, and so do exported STEP, STL, OBJ and 3MF files: a part shown Z up is written Z up, and a file imported into it is read Z up. The origin and corner triad always show X in red, Y in green and Z in blue: the vertical axis is green with Y up and blue with Z up.
 
 ## Display styles
 

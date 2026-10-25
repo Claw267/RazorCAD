@@ -6,6 +6,9 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## Unreleased — Origin axis colours
+- The origin now uses X red, Y green and Z blue in both up-axis settings, matching the corner triad. With Y up, the vertical origin axis is green.
+
 ## 2026-10-25 09:42 — Edge-Flange corner gap 0.5 mm by default
 - A new Edge Flange's corner gap is 0.5 mm (was 0.1), as on the formed lid the square corner was matched to. Parts already made keep their gap; Closed Corner's own gap is unchanged (0.1).
 - Test: flange-corner-default (the default gap; the wall's end at the other's inside face less 0.5 / √2).
