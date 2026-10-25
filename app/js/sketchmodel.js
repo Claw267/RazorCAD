@@ -1110,8 +1110,9 @@ export function classifyPolyline3(pts) {
 }
 
 // Project a classified 3D curve onto a sketch frame -> list of 2D primitives.
-export function projectCurve(fr, g) {
+export function projectCurve(fr, g, { preserveSpline = false } = {}) {
   if (!g) return [];
+  if (preserveSpline && g.spline) return [{ type: 'spline', ...g.spline, pts: g.spline.pts.map((p) => toFrame2D(fr, p)) }];
   if (g.type === 'line') {
     const a = toFrame2D(fr, g.a), b = toFrame2D(fr, g.b);
     if (Math.hypot(b[0] - a[0], b[1] - a[1]) < 1e-7) return [{ type: 'point', p: a }];
@@ -1153,7 +1154,11 @@ function sampleCircle3(g, n) {
 // World-space classification of a sketch curve (for projecting other sketches).
 export function curve3D(sk, c, fr) {
   const P = (id) => { const p = getPoint(sk, id); return fromFrame2D(fr, p.x, p.y); };
-  if (c.type === 'spline' || isEll(c)) return { type: 'poly', pts: curvePoints(sk, c).map(([x, y]) => fromFrame2D(fr, x, y)) };
+  if (c.type === 'spline' || isEll(c)) {
+    const g = { type: 'poly', pts: curvePoints(sk, c).map(([x, y]) => fromFrame2D(fr, x, y)) };
+    if (c.type === 'spline') g.spline = { pts: c.pts.map(P), ctrl: !!c.ctrl, degree: c.degree, closed: !!c.closed, weights: c.weights ? [...c.weights] : undefined };
+    return g;
+  }
   if (c.type === 'line') return { type: 'line', a: P(c.p1), b: P(c.p2) };
   const C = getPoint(sk, c.c);
   const r = radiusOf(sk, c);
@@ -1168,7 +1173,12 @@ export function addProjected(sk, prims, src, construction = false) {
   prims.forEach((g, idx) => {
     // a single item picked out of a larger list (e.g. one curve of a section) keeps its own index
     const s = src.idx != null && src.of != null && prims.length === 1 ? { ...src } : { ...src, idx, of: prims.length };
-    if (g.type === 'point') {
+    if (g.type === 'spline') {
+      const pts = g.pts.map((p) => addPoint(sk, p[0], p[1]));
+      const id = g.ctrl ? addCtrlSpline(sk, pts, g.degree, construction, g.closed, g.weights) : addSpline(sk, pts, g.closed, construction);
+      addRel(sk, 'projected', [id], { src: { ...s, spline: true }, pts: Object.fromEntries(pts.map((p, i) => [p, g.pts[i]])) });
+      out.push(id);
+    } else if (g.type === 'point') {
       const p = addPoint(sk, g.p[0], g.p[1]);
       getPoint(sk, p).keep = true;
       addRel(sk, 'projected', [p], { src: s, pts: { [p]: g.p } });
@@ -1200,7 +1210,12 @@ export function updateProjected(sk, k, prims) {
   const target = k.refs[0];
   const c = getCurve(sk, target);
   if (!c) { if (g.type === 'point') { k.pts = { [target]: g.p }; return true; } return false; }
-  if (c.type === 'line' && g.type === 'line') k.pts = { [c.p1]: g.a, [c.p2]: g.b };
+  if (c.type === 'spline' && g.type === 'spline') {
+    if (c.pts.length !== g.pts.length || !!c.ctrl !== !!g.ctrl || !!c.closed !== !!g.closed) return false;
+    if (c.ctrl) { c.degree = g.degree; if (g.weights) c.weights = [...g.weights]; else delete c.weights; }
+    k.pts = Object.fromEntries(c.pts.map((p, i) => [p, g.pts[i]]));
+  }
+  else if (c.type === 'line' && g.type === 'line') k.pts = { [c.p1]: g.a, [c.p2]: g.b };
   else if (c.type === 'circle' && g.type === 'circle') { k.pts = { [c.c]: g.c }; k.r = g.r; }
   else if (c.type === 'arc' && g.type === 'arc') k.pts = { [c.c]: g.c, [c.p1]: g.a, [c.p2]: g.b };
   else return false;

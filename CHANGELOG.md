@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## Unreleased — Sketch rename and spline projection
+- Rename works on under-defined sketches marked with `(-)` in the feature tree, and identifies the selected feature even when names are duplicated.
+- Project Edges from another sketch preserves a spline as one linked spline, including its degree and weights, instead of creating hundreds or thousands of line segments. Existing segment projections keep their previous representation.
+- Tests: sketch-rename-underdefined, sketch-project-spline.
+
 ## Unreleased — Origin axis colours
 - The origin now uses X red, Y green and Z blue in both up-axis settings, matching the corner triad. With Y up, the vertical origin axis is green.
 

@@ -512,6 +512,43 @@ const UI = {
     return { ok: true, detail: `${notes.length} parts restored without rebuilding (${(bytes / 1048576).toFixed(1)} MB of BRep; meshing ${mesh1} ms → ${mesh2} ms)` };
   },
 
+  async 'sketch-rename-underdefined'() {
+    const a = window.app;
+    await a.newDocument?.(); closeModals();
+    const S = await import('/js/sketchmodel.js');
+    const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } });
+    const p = S.addPoint(f, 2, 3), q = S.addPoint(f, 20, 5);
+    S.addLine(f, p, q);
+    a.doc.features.push(f); a.commit(); a.ui.renderTree();
+    const row = document.querySelector(`#tree .tn[data-fid="${f.id}"]`);
+    if (!row?.querySelector('.tl')?.textContent.startsWith('(-)')) return { ok: false, detail: 'Expected an under-defined sketch' };
+    a.ui.renameFeature(f.id);
+    const input = row.querySelector('input.rename');
+    if (!input) return { ok: false, detail: 'Rename did not open' };
+    input.value = 'Neck outline';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    return { ok: f.name === 'Neck outline', detail: 'Renamed a sketch whose tree label includes (-)' };
+  },
+
+  async 'sketch-project-spline'() {
+    const S = await import('/js/sketchmodel.js');
+    const source = S.newSketchData(), dest = S.newSketchData();
+    const pts = [[0, 0], [0, 4], [4, 8], [8, 8], [12, 4], [12, 0]].map(([x, y]) => S.addPoint(source, x, y));
+    const id = S.addCtrlSpline(source, pts, 5), c = S.getCurve(source, id);
+    const fr = { o: [0, 0, 0], u: [1, 0, 0], v: [0, 1, 0], n: [0, 0, 1] };
+    const target = { ...fr, o: [0, 0, 19] };
+    const project = () => S.projectCurve(target, S.curve3D(source, c, fr), { preserveSpline: true });
+    const ids = S.addProjected(dest, project(), { kind: 'sketch', fid: 'source', cid: id });
+    const d = S.getCurve(dest, ids[0]), k = dest.constraints.find((k) => k.type === 'projected');
+    if (ids.length !== 1 || d.type !== 'spline' || d.degree !== 5 || !k.src.spline) return { ok: false, detail: 'Projection did not preserve one linked spline' };
+    const expected = S.curvePoints(source, c), actual = S.curvePoints(dest, d);
+    if (JSON.stringify(expected) !== JSON.stringify(actual)) return { ok: false, detail: 'Projection changed the curve' };
+    S.getPoint(source, pts[2]).y += 3;
+    if (!S.updateProjected(dest, k, project()) || k.pts[d.pts[2]][1] !== 11) return { ok: false, detail: 'Source edit did not update projection targets' };
+    const legacy = S.projectCurve(target, S.curve3D(source, c, fr));
+    return { ok: legacy.length > 1 && legacy.every((g) => g.type === 'line'), detail: 'One degree-5 linked spline, source edits followed, legacy segment projections preserved' };
+  },
+
   // a control-point spline crossing its own control polygon: a click where they cross picks the polygon's leg (the
   // spline can be picked anywhere else), so the leg can be dimensioned; elsewhere along the curve, the spline
   async 'sketch-pick-polygon-leg'() {

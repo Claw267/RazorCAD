@@ -404,7 +404,7 @@ Sketches are made of points, lines, arcs and circles held in place by **relation
 
 - Geometry is **blue when under-defined** and **black when fully defined**.
 - The Property panel shows the remaining degrees of freedom.
-- An under-defined sketch shows **(-)** in the tree. Construction lines only need to be positioned.
+- An under-defined sketch shows **(-)** in the tree. Construction lines only need to be positioned. To rename a sketch, right-click its tree item and choose **Rename**, including when it has the **(-)** marker.
 
 ## Sketch orientation
 
@@ -474,6 +474,8 @@ Click a line, arc or circle and its whole connected chain is offset. Move the mo
 - While the tool is active, the faces the sketch plane cuts are highlighted and the cut outline is drawn in teal. Clicking it offsets the whole outline.
 
 ## Project Edges
+
+Splines projected from another sketch remain linked splines, preserving their control points, degree and weights. Earlier projections saved as line segments retain that representation.
 
 Click a model edge, or an entity of an earlier sketch, to project it into this sketch. Or select edges first and then click **Project Edges** (or press [[E]]): they are projected at once. Projected geometry is drawn in **purple**, is linked and updates when the source changes (relation "On Edge ⇲"). The ends of projected lines are joined to each other and to sketch geometry already there, so the edges of a face give a closed outline ready to extrude. While the tool is active, the outline where the sketch plane cuts the bodies is drawn in teal; clicking it converts the whole outline. This works for solids and surfaces. {idx:Project Edges}
 

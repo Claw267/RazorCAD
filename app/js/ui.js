@@ -3080,8 +3080,9 @@ export class UI {
 
   renameFeature(id) {
     const f = findFeature(this.app.doc, id);
+    if (!f) return;
     const rows = [...document.querySelectorAll('#tree .tn')];
-    const row = rows.find((r) => r.querySelector('.tl')?.textContent === f.name);
+    const row = rows.find((r) => r.dataset.fid === id);
     if (row) this.inlineRename(row, f.name, (v) => { f.name = v; this.app.commit(); this.app.refresh(); });
   }
 

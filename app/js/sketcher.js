@@ -2043,7 +2043,7 @@ export class Sketcher {
     if (ext.kind === 'extSection') return ext.chain.map((i) => this.sectionPrims[i]);
     const fr = this.frameArr();
     if (ext.kind === 'extPoint' || ext.kind === 'extVertex') return [{ type: 'point', p: S.toFrame2D(fr, ext.p) }];
-    return S.projectCurve(fr, ext.geom);
+    return S.projectCurve(fr, ext.geom, { preserveSpline: true });
   }
 
   externalSrc(ext) {
@@ -2503,6 +2503,11 @@ export class Sketcher {
           addSegs(COL.hover, false, [[g.p[0] - s, g.p[1] - s], [g.p[0] + s, g.p[1] + s]]);
           addSegs(COL.hover, false, [[g.p[0] - s, g.p[1] + s], [g.p[0] + s, g.p[1] - s]]);
         } else if (g.type === 'line') addSegs(COL.hover, false, [g.a, g.b]);
+        else if (g.type === 'spline') {
+          const temp = S.newSketchData();
+          const ids = S.addProjected(temp, [g], {});
+          addSegs(COL.hover, false, S.curvePoints(temp, S.getCurve(temp, ids[0])));
+        }
         else if (g.type === 'circle' || g.type === 'arc') {
           const a0 = g.type === 'arc' ? Math.atan2(g.a[1] - g.c[1], g.a[0] - g.c[0]) : 0;
           let span = g.type === 'arc' ? Math.atan2(g.b[1] - g.c[1], g.b[0] - g.c[0]) - a0 : Math.PI * 2;
