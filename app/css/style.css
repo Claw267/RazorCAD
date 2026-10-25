@@ -266,7 +266,7 @@ table.bom th { background: #f1f5f9; font-weight: 600; }
 .dim:hover { border-color: var(--accent); background: #fff; color: #000; }
 .dim.driven { color: #6a7385; border-style: dashed; }
 .dim.selected { border-color: var(--accent); background: #e0efff; }
-.dim.preview { opacity: .75; pointer-events: none; }
+.dim.preview { color: #c2410c; border-color: #fb923c; opacity: .9; pointer-events: none; }
 .rel {
   position: absolute; transform: translate(-50%, -50%); pointer-events: auto; cursor: pointer;
   min-width: 15px; height: 15px; padding: 0 2px; display: grid; place-items: center;
@@ -776,6 +776,7 @@ svg.ref-arrows { position: absolute; left: 0; top: 0; pointer-events: none; z-in
 [data-theme="dark"] .plabel { color: #b6c0cd; background: rgba(27, 31, 37, .6); }
 [data-theme="dark"] .dim { color: #9cc2ff; background: rgba(28, 34, 44, .9); border-color: #3b4f70; }
 [data-theme="dark"] .dim:hover { background: #26303c; color: #fff; }
+[data-theme="dark"] .dim.preview { color: #fb923c; border-color: #fb923c; }
 [data-theme="dark"] .dim.selected { background: #263d5c; }
 [data-theme="dark"] .dim.driven { color: #8f99a9; }
 [data-theme="dark"] .dim .sig { color: #f0a050; }

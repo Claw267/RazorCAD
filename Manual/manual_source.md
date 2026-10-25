@@ -462,6 +462,8 @@ Fillet corners can share one endpoint or have endpoints joined by Coincident rel
 
 Click a line, circle or arc (or two entities), then click to place the dimension. {idx:Dimension}
 
+You can also select a curve or two entities before starting **Dimension**. Move the pointer to position the orange preview, then click to confirm; the dimension is not created until that click. Press **Esc** to cancel the pending dimension. The text is placed at the point you choose.
+
 With **Select** or **Dimension** active, drag a dimension's number to reposition its annotation without changing the measured geometry or value. A plain click still opens the value editor. This also works for driven/reference dimensions; placement is saved with the sketch and follows undo/redo. Press **Esc** during a drag to cancel the move.
 
 - Moving the mouse switches between horizontal, vertical and aligned.

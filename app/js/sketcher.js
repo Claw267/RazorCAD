@@ -213,6 +213,7 @@ export class Sketcher {
   setTool(t) {
     this.dimLabelDrag?.cancel();
     if (this.patternDraft) this.finishPattern(false);
+    const dimPicks = t === 'dim' ? this.selectedItems().filter((p) => ['point', 'line', 'circle', 'arc', 'ellipse', 'earc'].includes(p.kind)).map(({ id, kind }) => ({ id, kind })) : [];
     // Project Edges with model edges (or another sketch's entities) selected: those become sketch
     // geometry at once (the tool itself waits for clicks when nothing is selected)
     if (t === 'convert' && this.convertSelection()) return;
@@ -223,6 +224,10 @@ export class Sketcher {
     else if (t !== 'convert' && t !== 'offset') this.clearSection();
     this.tool = t;
     if (t !== 'select') this.sel.clear();
+    if (dimPicks.length && dimPicks.length <= 2) {
+      this.draw = { tool: 'dim', picks: dimPicks, spec: null, ext: [], placing: !!this.dimSpec(dimPicks, { x: 0, y: 0 }) };
+      this.sel = new Set(dimPicks.map((p) => p.id));
+    }
     this.trimHover = null;
     this.app.status(SKETCH_TOOLS[t].hint);
     this.extHover = null;
@@ -1139,14 +1144,14 @@ export class Sketcher {
       this.hover = hit ? hit.id : null;
       this.cursor = { p: raw, screen };
       const n = this.draw?.picks?.length ?? 0;
-      const picking = t === 'convert' || n === 0 || (n === 1 && !['circle', 'arc'].includes(this.draw.picks[0].kind));
+      const picking = !this.draw?.placing && (t === 'convert' || n === 0 || (n === 1 && !['circle', 'arc'].includes(this.draw.picks[0].kind)));
       const now = performance.now();
       if (!hit && picking && now - (this._extT || 0) > 30) {
         this._extT = now;
         const ext = this.externalHit(ev, { vertices: t === 'dim' });
         this.extHover = ext ? { prims: this.externalPrims(ext) } : null;
       } else if (hit || !picking) this.extHover = null;
-      if (this.draw?.picks?.length) this.draw.spec = this.dimSpec(this.draw.picks, raw);
+      if (this.draw?.picks?.length) this.draw.spec = this.dimensionPreview(this.draw.picks, raw);
       this.redraw();
       return;
     }
@@ -1324,7 +1329,7 @@ export class Sketcher {
     if (this.gearPick && e.key === 'Escape') { this.endGearPick(); this.sel.clear(); this.redraw(); this.app.ui.renderPM(); this.app.status('Gears cancelled.'); return true; }
     if (e.key === 'Escape') {
       if (this.modifyEl) { this.closeModify(); return true; }
-      if (this.draw) { this.endDraw(true); return true; }
+      if (this.draw) { this.endDraw(this.draw.tool !== 'dim'); return true; }
       if (this.tool !== 'select') { this.setTool('select'); return true; }
       if (this.sel.size) { this.sel.clear(); this.redraw(); this.app.ui.renderPM(); this.app.ui.refreshCommandStates(); return true; }
       return false;
@@ -1904,11 +1909,18 @@ export class Sketcher {
   }
 
   // ------------------------------------------------------------ Dimension
+  dimensionPreview(picks, raw) {
+    const spec = this.dimSpec(picks, raw);
+    const gfx = spec && this.dimGraphics(spec, this.wpp());
+    if (gfx) spec.labelOffset = [raw.x - gfx.at[0], raw.y - gfx.at[1]];
+    return spec;
+  }
+
   dimClick(raw, ev) {
     if (!this.draw) this.draw = { tool: 'dim', picks: [], spec: null, ext: [] };
     const d = this.draw;
-    const canPick = d.picks.length < 2;
-    let hit = this.hitTest(raw);
+    const canPick = !d.placing && d.picks.length < 2;
+    let hit = canPick ? this.hitTest(raw) : null;
     if (!hit && canPick && !(d.picks.length === 1 && ['circle', 'arc'].includes(d.picks[0].kind))) {
       // outside reference: model edge/vertex or another sketch -> linked construction geometry
       const ext = this.externalHit(ev);
@@ -1919,15 +1931,16 @@ export class Sketcher {
     }
     if (hit && canPick && !(d.picks.length && hit.id === d.picks[0].id)) {
       d.picks.push(hit);
-      d.spec = this.dimSpec(d.picks, raw);
+      d.spec = this.dimensionPreview(d.picks, raw);
       this.extHover = null;
       this.redraw();
       return;
     }
+    if (d.placing || d.spec) d.spec = this.dimensionPreview(d.picks, raw);
     if (d.spec) {
       const sp = d.spec;
       this.draw = null;
-      const extra = { kind: sp.kind, value: r4(sp.value), s: sp.s, off: sp.off, ang: sp.ang, e1: sp.e1, e2: sp.e2 };
+      const extra = { kind: sp.kind, value: r4(sp.value), s: sp.s, off: sp.off, ang: sp.ang, e1: sp.e1, e2: sp.e2, labelOffset: sp.labelOffset };
       if (sp.axis) extra.axis = sp.axis;
       if (sp.kind === 'arcDist') { extra.cond = sp.cond; extra.nested = !!sp.nested; }
       const res = this.tryAddConstraints([['dim', sp.refs, extra]], { asDriven: true });
@@ -2586,7 +2599,7 @@ export class Sketcher {
 
     // dimensions
     this.dims = [];
-    const dimSegs = [], drivenSegs = [];
+    const dimSegs = [], drivenSegs = [], previewDimSegs = [];
     const dimList = this.dimsVisible ? sk.constraints.filter((k) => k.type === 'dim' && !k.hidden) : [];
     for (const k of dimList) {
       const gfx = this.dimGraphics(k, wpp);
@@ -2596,7 +2609,7 @@ export class Sketcher {
     }
     if (d?.tool === 'dim' && d.spec) {
       const gfx = this.dimGraphics(d.spec, wpp);
-      if (gfx) { dimSegs.push(...gfx.segs); this.dims.push({ k: { id: '__preview', ...d.spec }, ...gfx, preview: true }); }
+      if (gfx) { previewDimSegs.push(...gfx.segs); this.dims.push({ k: { id: '__preview', ...d.spec }, ...gfx, preview: true }); }
     }
 
     const mkLines = (pts, color, dashed, order = 10, dist = null) => {
@@ -2613,6 +2626,7 @@ export class Sketcher {
     for (const { color, dashed, pts, dist } of byColor.values()) mkLines(pts, color, dashed, 10, dist);
     mkLines(dimSegs, COL.dim, false, 9);
     mkLines(drivenSegs, 0x9aa3b2, false, 9);
+    mkLines(previewDimSegs, COL.preview, false, 9);
 
     // points
     const ptGroups = new Map();
@@ -2948,6 +2962,12 @@ export class Sketcher {
   _updateCursorUI() {
     const fmt = (x, d) => (d === 1 ? fmtLen(x, 'mm', 1) : this.L(x)); // (lengths in the document's unit; angles have 1 decimal)
     const c = this.cursor;
+    if (this.tool === 'dim' && this.draw?.spec && c) {
+      this.snapEl.hidden = true; this.tipEl.hidden = false;
+      this.tipEl.textContent = this.draw.placing || this.draw.picks.length === 2 ? 'Click to place dimension · Esc cancels' : 'Click to place, or pick another entity · Esc cancels';
+      this.tipEl.style.left = c.screen.x + 'px'; this.tipEl.style.top = c.screen.y + 'px';
+      return;
+    }
     const drawing = !['select', 'trim', 'dim', 'convert', 'offset', 'extend', 'split'].includes(this.tool);
     if (this.tool === 'offset' && this.draw?.tool === 'offset' && c) {
       this.tipEl.hidden = false;

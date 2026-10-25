@@ -512,6 +512,37 @@ const UI = {
     return { ok: true, detail: `${notes.length} parts restored without rebuilding (${(bytes / 1048576).toFixed(1)} MB of BRep; meshing ${mesh1} ms → ${mesh2} ms)` };
   },
 
+  async 'sketch-dimension-confirm-placement'() {
+    const a = window.app, S = await import('/js/sketchmodel.js');
+    await a.newDocument?.(); closeModals();
+    const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } });
+    a.doc.features.push(f); a.commit(); await a.enterSketch(f, true);
+    const sk = a.sketcher, p = S.addPoint(f, 0, 0), q = S.addPoint(f, 40, 0), line = S.addLine(f, p, q);
+    const circle = S.addCircle(f, S.addPoint(f, 60, 0), 5);
+    sk.changed(); sk.normalTo(false); a.viewport.camera.updateMatrixWorld(true);
+    const v = viewEvents(), at = (x, y) => v.toScreen(sk.frame.o.clone().addScaledVector(sk.frame.u, x).addScaledVector(sk.frame.v, y));
+    const count = () => f.constraints.filter((k) => k.type === 'dim').length;
+    const before = sk.snapshotData(), history = sk.hist.length;
+    sk.sel = new Set([line]); sk.setTool('dim');
+    if (!sk.draw?.placing || count()) return { ok: false, detail: 'Preselection did not enter placement mode, or created a dimension immediately' };
+    v.fire('pointermove', ...at(20, 15));
+    if (!sk.dims.some((d) => d.preview) || count() || sk.snapshotData() !== before) return { ok: false, detail: 'Preview altered the sketch' };
+    sk.key({ key: 'Escape' });
+    if (sk.draw || count() || sk.hist.length !== history || sk.snapshotData() !== before) return { ok: false, detail: 'Esc committed a dimension or changed undo history' };
+    sk.sel = new Set([line]); sk.setTool('dim');
+    // Placement is an explicit phase: clicking on another curve must not change the chosen references.
+    v.fire('pointermove', ...at(60, 5)); await v.click(...at(60, 5));
+    const k = f.constraints.find((k) => k.type === 'dim'), dm = sk.dims.find((d) => d.k.id === k?.id);
+    if (count() !== 1 || k.kind !== 'hdist' || k.refs.join() !== [p, q].join() || Math.hypot(dm.at[0] - 60, dm.at[1] - 5) > 1e-5) return { ok: false, detail: 'Confirmation picked different geometry or ignored the clicked label position' };
+    sk.closeModify(); sk.sel = new Set([circle]); sk.setTool('dim');
+    v.fire('pointermove', ...at(75, 20));
+    if (count() !== 1) return { ok: false, detail: 'Circle preselection created a dimension before confirmation' };
+    await v.click(...at(75, 20));
+    const diameter = f.constraints.find((k) => k.type === 'dim' && k.kind === 'diameter');
+    sk.closeModify();
+    return { ok: count() === 2 && diameter?.refs[0] === circle && !sk.draw, detail: 'Preselected line and circle stay in preview until a placement click; Esc cancels without history changes; clicked text position is preserved even over other geometry' };
+  },
+
   async 'sketch-dimension-placement'() {
     const a = window.app, S = await import('/js/sketchmodel.js');
     await a.newDocument?.(); closeModals();

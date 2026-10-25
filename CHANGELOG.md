@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## Unreleased — Confirm dimension placement, including preselection
+- Dimension accepts a preselected curve or pair of entities and waits for a placement click. An orange preview and cursor hint show the pending dimension; no constraint is created until confirmation and Esc cancels it.
+- The label stays at the chosen click position, including radius, diameter and point-to-line annotations. Existing dimension dragging remains available for later adjustment.
+- Test: sketch-dimension-confirm-placement.
+
 ## Unreleased — Drag sketch dimension annotations
 - Drag a dimension's number with Select or Dimension to reposition the annotation, including linear, radius, diameter, angular and driven dimensions. A click still opens its value editor. Linear dimension lines follow the new offset; moved labels retain a leader to their dimension where needed.
 - Annotation placement is saved with the sketch and supports undo/redo. Esc or pointer cancellation restores the position before the drag; geometry and dimension values do not change.
