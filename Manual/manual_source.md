@@ -534,7 +534,7 @@ Select entities ([[Ctrl]]+click for several, or drag a box from empty space: lef
 | 2 points + line | Symmetric (about the line) |
 | 3 lines | Symmetric (two lines about a centerline) |
 
-Relations are shown as small green glyphs next to the geometry. Click a glyph to select it, then press [[Del]] to remove it. Hovering a glyph highlights the entities it ties together. Redundant or conflicting relations are refused with a message.
+Relations are shown as small green glyphs next to the geometry. Click a glyph to select it, then press [[Del]] to remove it. Hovering a glyph highlights the entities it ties together. For several selected entities, relations already implied by existing constraints are skipped while useful relations are added. If every requested relation is already constrained, an informational message explains that no new relation is needed. A true conflict rejects the entire request without changing the sketch.
 
 **Equal Curve Length (≋)** constrains the length measured along each selected curve, not its chord or control polygon. Two arcs may have different radii and sweeps while keeping equal lengths; a spline can also match a line or another curve. Select the curves with Ctrl and choose **Equal Curve Length** in **Add Relations**. With more than two curves, each is matched to the first. Circular curves' **Equal Radius (=)** keeps their radii equal and remains a separate relation. Length links survive source edits, undo/redo, save/reopen and rebuild. Ellipse and spline lengths are integrated numerically from their definitions.
 

@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## Unreleased — Equal on several control-polygon segments
+- Adding relations to several selected entities now keeps the useful relations and skips ones already implied by existing constraints. Equal on all four oblique legs of an eight-control-point spline no longer fails because one pair is already Equal.
+- Already-constrained pairs get an informational message; true conflicts still reject the entire request without changing geometry or constraints. A failed single relation refreshes annotation references after restoring the sketch.
+- Test: sketch-equal-control-polygon-batch (all six pairs, useful plus redundant relations, undo/redo and atomic rollback on conflicts).
+
 ## Unreleased — Clearer sketch dimensions and Equal Curve Length
 - Linear and perpendicular dimensions use aligned, upright text, extension-line gaps and overruns, and outside arrows when space is tight. Moving a perpendicular dimension now moves its dimension line along the reference edge instead of leaving a floating label and a diagonal leader. Preview placement and later dragging still keep the text at the chosen position.
 - Equal Curve Length constrains the actual length of arcs, splines, circles, ellipses and mixed curve selections. Lines retain their existing Equal relation. Circular-curve Equal is labelled Equal Radius to distinguish it from equal arc length. Spline lengths use the curve definition (including rational weights), not the displayed polyline.

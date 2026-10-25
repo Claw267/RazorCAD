@@ -512,6 +512,42 @@ const UI = {
     return { ok: true, detail: `${notes.length} parts restored without rebuilding (${(bytes / 1048576).toFixed(1)} MB of BRep; meshing ${mesh1} ms → ${mesh2} ms)` };
   },
 
+  async 'sketch-equal-control-polygon-batch'() {
+    const a = window.app, S = await import('/js/sketchmodel.js'), V = await import('/js/solver.js');
+    await a.newDocument?.(); closeModals();
+    const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } });
+    a.doc.features.push(f); a.commit(); await a.enterSketch(f, true);
+    const sk = a.sketcher, pts = [[0, 20], [4, 20], [12, 11], [20, 2], [20, -2], [12, -11], [4, -20], [0, -20]].map(([x, y]) => S.addPoint(f, x, y));
+    const spline = S.addCtrlSpline(f, pts, 5);
+    const legs = f.curves.filter((c) => c.ctrlOf === spline).map((c) => c.id), oblique = [legs[1], legs[2], legs[4], legs[5]];
+    for (const i of [0, 1, 3, 4, 6, 7]) { const p = S.getPoint(f, pts[i]); S.addRel(f, 'fix', [p.id], { x: p.x, y: p.y }); }
+    S.addRel(f, 'parallel', [legs[2], legs[1]]); S.addRel(f, 'parallel', [legs[5], legs[4]]);
+    S.addRel(f, 'equal', [legs[1], legs[5]]);
+    sk.changed();
+    const before = sk.snapshotData(), rank = V.sketchRank(f, sk.ev), count = f.constraints.length;
+    sk.sel = new Set(oblique); sk.addRelation('equal');
+    const lengths = oblique.map((id) => S.curveLength(f, S.getCurve(f, id)));
+    if (!sk.solveOk || f.constraints.length !== count + 1 || V.sketchRank(f, sk.ev) !== rank + 1 || Math.max(...lengths) - Math.min(...lengths) > 1e-6) return { ok: false, detail: 'A redundant relation rejected the useful equality in a four-leg batch' };
+    sk.undo(); if (sk.snapshotData() !== before) return { ok: false, detail: 'Undo did not restore the pre-batch sketch' };
+    sk.redo(); if (f.constraints.length !== count + 1) return { ok: false, detail: 'Redo did not restore the accepted subset' };
+    let accepted = 0, redundant = 0;
+    for (let i = 0; i < oblique.length; i++) for (let j = i + 1; j < oblique.length; j++) {
+      sk.restoreData(before);
+      const result = sk.tryAddConstraints([['equal', [oblique[i], oblique[j]]]], { quiet: true });
+      if (result) accepted++; else { redundant++; if (sk.snapshotData() !== before) return { ok: false, detail: 'A redundant pair changed the sketch' }; }
+    }
+    if (accepted !== 4 || redundant !== 2) return { ok: false, detail: `Pair results: ${accepted} useful, ${redundant} already constrained` };
+    sk.restoreData(before);
+    const p = S.addPoint(f, 40, 0), q = S.addPoint(f, 45, 0), fixedLine = S.addLine(f, p, q);
+    for (const id of [p, q]) { const p = S.getPoint(f, id); S.addRel(f, 'fix', [id], { x: p.x, y: p.y }); }
+    sk.changed(); const original = sk.snapshotData();
+    if (sk.tryAddConstraints([['equal', [legs[1], legs[2]]], ['equal', [legs[1], fixedLine]]], { quiet: true }) || sk.snapshotData() !== original) return { ok: false, detail: 'A conflicting batch partially changed the sketch' };
+    for (const id of [pts[2], pts[5]]) { const p = S.getPoint(f, id); S.addRel(f, 'fix', [id], { x: p.x, y: p.y }); }
+    sk.changed(); const fixed = sk.snapshotData();
+    if (sk.tryAddConstraints([['equal', [legs[1], fixedLine]]], { quiet: true }) || sk.snapshotData() !== fixed) return { ok: false, detail: 'A conflicting pair changed the sketch' };
+    return { ok: true, detail: 'Eight-control-point spline: four oblique legs gain one useful equality and skip two implied ones; all six pairs classified; undo/redo works; true conflicts roll back atomically' };
+  },
+
   async 'sketch-equal-curve-length'() {
     const S = await import('/js/sketchmodel.js'), V = await import('/js/solver.js');
     const weighted = S.newSketchData(), control = [[10, 0], [10, 10], [0, 10]].map(([x, y]) => S.addPoint(weighted, x, y));

@@ -641,12 +641,37 @@ export class Sketcher {
   tryAddConstraints(list, { asDriven = false, quiet = false } = {}) {
     const sk = this.f;
     const before = JSON.stringify(sk);
+    if (list.length > 1) {
+      let working = JSON.parse(before), redundant = 0;
+      const kept = [];
+      for (const [type, refs, extra] of list) {
+        const trial = JSON.parse(JSON.stringify(working)), rank = sketchRank(working, this.ev);
+        const k = S.addRel(trial, type, refs, extra || {});
+        const gain = sketchRank(trial, this.ev) - rank;
+        const solved = solveSketch(trial, this.ev);
+        if (!solved.ok || solved.bad.length) {
+          if (!quiet) this.app.toast('That relation conflicts with existing relations or dimensions.', true);
+          return null; // the original sketch, including earlier candidates, is unchanged
+        }
+        if (gain < 1) { redundant++; continue; }
+        working = trial; kept.push(k.id);
+      }
+      if (!kept.length) {
+        if (!quiet) this.app.toast('These entities are already constrained that way; no new relation is needed.');
+        return null;
+      }
+      const { gearTrains, texts, airfoils, ...rest } = working;
+      Object.assign(sk, rest);
+      this.solve();
+      return { kept: sk.constraints.find((k) => k.id === kept[kept.length - 1]), added: kept.length, redundant };
+    }
     const r0 = sketchRank(sk, this.ev);
     const added = list.map(([type, refs, extra]) => S.addRel(sk, type, refs, extra || {}));
     const r1 = sketchRank(sk, this.ev);
     let problem = null;
-    if (r1 - r0 < added.length) problem = 'redundant';
-    else if (!this.solve().ok) problem = 'conflict';
+    const solved = this.solve();
+    if (!solved.ok || solved.bad.length) problem = 'conflict';
+    else if (r1 - r0 < added.length) problem = 'redundant';
     if (problem) {
       // put the geometry back; the gear trains and texts keep their objects (callers hold on to them)
       const { gearTrains, texts, airfoils, ...rest } = JSON.parse(before);
@@ -659,7 +684,8 @@ export class Sketcher {
         return { kept: k, driven: true };
       }
       this.solve();
-      if (!quiet) this.app.toast(problem === 'redundant' ? 'That relation is redundant — the geometry is already defined that way.' : 'That relation conflicts with existing relations or dimensions.', true);
+      this.analyze(); this.redraw();
+      if (!quiet) this.app.toast(problem === 'redundant' ? 'These entities are already constrained that way; no new relation is needed.' : 'That relation conflicts with existing relations or dimensions.', problem !== 'redundant');
       return null;
     }
     return { kept: added[added.length - 1] };
@@ -1530,8 +1556,9 @@ export class Sketcher {
       }
     }
     if (!list.length) return;
-    if (this.tryAddConstraints(list)) {
-      this.app.status(`${this.relationLabel(type)} relation added`);
+    const result = this.tryAddConstraints(list);
+    if (result) {
+      this.app.status(`${this.relationLabel(type)} relation added${result.redundant ? ` (${result.redundant} already satisfied)` : ''}`);
       this.changed();
     }
   }
