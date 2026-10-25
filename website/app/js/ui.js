@@ -9,6 +9,7 @@ import { iconFor, MATERIALS, planeName, findFeature, TYPE_INFO, bodySettings, ma
 import { STD_PLANES } from './geometry.js';
 import { evaluate, evalEquations, fmt, isNumeric, isValidName, normalizeValue } from './expr.js';
 import { SKETCH_TOOLS } from './sketcher.js';
+import { completeExpression } from './exprcomplete.js';
 import { S3_TOOLS, S3_KEYS } from './sketch3d.js';
 import { RELATION_INFO, analyzeSketch } from './solver.js';
 import * as SM from './sketchmodel.js';
@@ -1537,10 +1538,12 @@ export class UI {
             : { id: 'sketch-toggle', icon: 'sketch', label: 'Sketch', action: () => a.startSketch() },
         { id: 'sketch3d-toggle', icon: 'sketch3d', label: '3D Sketch', action: () => (s3 ? null : a.startFeature('sketch3d')), active: s3 },
         tool('dim', 'smartdim', 'Dimension'),
+        { icon: 'equations', label: 'Parameters', action: () => this.showEquations() },
         'sep',
         tool('select', 'select', 'Select'),
         tool('line', 'line', 'Line'),
         tool('centerline', 'centerline', 'Centerline'),
+        tool('midline', 'line', 'Midpoint Line'),
         tool('rect', 'rect', 'Corner Rectangle'),
         tool('crect', 'crect', 'Center Rectangle'),
         tool('circle', 'circle', 'Circle'),
@@ -1548,10 +1551,14 @@ export class UI {
         tool('arc3', 'arc3', '3 Point Arc'),
         tool('tarc', 'tarc', 'Tangent Arc'),
         tool('ellipse', 'ellipse', 'Ellipse'),
-        tool('spline', 'spline', 'Spline'),
+        tool('spline', 'spline', s3 ? 'Spline' : 'Fit Point Spline'),
         tool('cspline', 'cspline', 'Control-Point Spline'),
         tool('point', 'point', 'Point'),
         tool('slot', 'slot', 'Straight Slot'),
+        tool('cslot', 'slot', 'Center Point Slot'),
+        tool('oslot', 'slot', 'Overall Slot'),
+        tool('arcslot3', 'slot', '3 Point Arc Slot'),
+        tool('arcslot', 'slot', 'Center Point Arc Slot'),
         tool('polygon', 'polygon', 'Polygon'),
         'sep',
         tool('trim', 'trim', 'Trim'),
@@ -1572,7 +1579,7 @@ export class UI {
         tool('schamfer', 'sketchChamfer', 'Sketch Chamfer'),
         only2d({ icon: 'intersectCurve', label: 'Intersection Curve', action: () => (sk ? a.sketcher.intersectionCurve() : a.startSketch()) }),
         s3 ? { icon: 'construction', label: 'Construction Geometry', key: 'Q', action: () => a.sketch3d.toggleConstruction(), disabled: ![...a.sketch3d.sel].some((id) => a.sketch3d.f?.segs.some((x) => x.id === id)) }
-          : { icon: 'construction', label: 'Construction Geometry', key: 'Q', action: () => (sk ? a.sketcher.toggleConstruction() : a.startSketch()) },
+          : { icon: 'construction', label: 'Construction Geometry', key: 'Q', active: sk && a.sketcher.constructionMode, action: () => (sk ? a.sketcher.toggleConstruction() : a.startSketch()) },
         only2d({ icon: 'relations', label: 'Display Relations', action: () => (sk ? a.sketcher.toggleRelations() : a.startSketch()), active: sk && a.sketcher.relsVisible }),
         'sep',
         s3 ? { icon: 'trash', label: 'Delete', key: 'Del', action: () => a.sketch3d.deleteSelected(), disabled: !a.sketch3d.sel?.size }
@@ -1695,11 +1702,20 @@ export class UI {
         this.showContext(e.clientX, e.clientY, [{ label: 'Customize Toolbars…', icon: 'gear', action: () => this.showToolbarCustomize(this.cmTab === 'claude' ? 'features' : this.cmTab) }, 'sep', ...this.iconSizeItems()]);
       });
     }
-    for (const d of this.toolbarItems(this.cmTab, defs)) {
+    const items = this.toolbarItems(this.cmTab, defs);
+    for (const d of this.cmTab === 'sketch' && this.tbPrefs().sketchLayout === 'grouped' ? this.groupSketchTools(items) : items) {
       if (d === 'sep') { const s = el('div', { class: 'cm-sep' }); s.dataset.key = 'sep'; this.toolbarDraggable(s); btns.appendChild(s); continue; }
       const b = el('button', { class: 'cm-btn' + (d.active ? ' active' : ''), title: tr(d.label) + (d.key ? ` (${d.key})` : ''), disabled: d.disabled },
         `<span class="cm-ic">${icon(d.icon)}${d.key ? `<span class="cm-key">${esc(d.key)}</span>` : ''}</span><span>${esc(tr(d.label))}</span>`);
       b.dataset.key = cmdKey(d);
+      if (d.children) {
+        b.classList.add('cm-flyout'); b.dataset.group = d.id;
+        b.setAttribute('aria-haspopup', 'menu');
+        b.lastElementChild.appendChild(document.createTextNode(' ▾'));
+        b.onclick = () => { const r = b.getBoundingClientRect(); this.showContext(r.left, r.bottom, d.children); };
+        b.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showToolbarCustomize('sketch'); });
+        btns.appendChild(b); continue;
+      }
       // (the click that ends a drag is not a press)
       b.addEventListener('click', (e) => { if (this._tbJustDragged) { e.preventDefault(); return; } this.app.macros?.note(d.label); d.action(); });
       b.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showContext(e.clientX, e.clientY, this.toolbarButtonMenu(d)); });
@@ -1730,6 +1746,25 @@ export class UI {
     const t = (this.prefs.toolbars ||= {});
     t.order ||= {}; t.hidden ||= {}; t.custom ||= [];
     return t;
+  }
+
+  groupSketchTools(items) {
+    const groups = [
+      ['line', 'Line', 'line', ['tool-line', 'tool-centerline', 'tool-midline']],
+      ['rectangle', 'Rectangle', 'rect', ['tool-rect', 'tool-crect']],
+      ['arc', 'Arc', 'arc', ['tool-arc', 'tool-arc3', 'tool-tarc']],
+      ['spline', 'Spline', 'spline', ['tool-spline', 'tool-cspline']],
+      ['slot', 'Slot', 'slot', ['tool-slot', 'tool-cslot', 'tool-oslot', 'tool-arcslot3', 'tool-arcslot']],
+    ];
+    const emitted = new Set();
+    return items.flatMap((d) => {
+      const group = groups.find((g) => g[3].includes(d.id));
+      if (!group) return [d];
+      if (emitted.has(group[0])) return [];
+      emitted.add(group[0]);
+      const children = items.filter((q) => group[3].includes(q.id));
+      return [{ id: 'sketch-group-' + group[0], label: group[1], icon: group[2], children, active: children.some((q) => q.active), disabled: children.every((q) => q.disabled) }];
+    });
   }
   // The browser version's notice above the window (closed for good with ✕).
   showWebNotice() {
@@ -1995,6 +2030,13 @@ export class UI {
         btn('Add Separator', () => { this.addToToolbar(target, 'sep'); draw(); });
       } else btn('Reset', () => { this.resetToolbar(target); draw(); });
       box.appendChild(top);
+      if (target === 'sketch') {
+        const layout = el('select', { 'data-sketch-layout': '' });
+        layout.append(el('option', { value: 'expanded' }, 'Expanded (all tools)'), el('option', { value: 'grouped' }, 'Grouped (flyout menus)'));
+        layout.value = this.tbPrefs().sketchLayout || 'expanded';
+        layout.onchange = () => { this.tbPrefs().sketchLayout = layout.value; this.savePrefs(); this.renderCommandManager(); };
+        box.appendChild(this.row('Sketch toolbar layout', layout));
+      }
       box.appendChild(el('div', { class: 'pm-hint' }, custom ? 'Add any command to your toolbar. Drag its buttons on the toolbar to rearrange them, or drag one off the toolbar to remove it.' : 'Built-in toolbar: drag its buttons to rearrange them; hidden buttons can be shown again here. To gather tools from several toolbars, make a toolbar of your own (New…).'));
       const on = new Set(this.currentKeys(target));
       const all = this.allCommands();
@@ -3095,8 +3137,9 @@ export class UI {
 
   renameFeature(id) {
     const f = findFeature(this.app.doc, id);
+    if (!f) return;
     const rows = [...document.querySelectorAll('#tree .tn')];
-    const row = rows.find((r) => r.querySelector('.tl')?.textContent === f.name);
+    const row = rows.find((r) => r.dataset.fid === id);
     if (row) this.inlineRename(row, f.name, (v) => { f.name = v; this.app.commit(); this.app.refresh(); });
   }
 
@@ -3248,9 +3291,17 @@ export class UI {
     }
   }
 
+  completeExpression(input) {
+    completeExpression(input, () => {
+      const rows = this.app.doc.equations || [], { vars } = evalEquations(rows);
+      return rows.map((q) => ({ name: q.name, value: this.app.result?.vars?.[q.name] ?? vars[q.name] }));
+    });
+  }
+
   exprInput(value, unit, onValid, { min = null, optional = false } = {}) {
     const wrap = el('div', { class: 'pm-input' });
     const input = el('input', { type: 'text', spellcheck: 'false' });
+    this.completeExpression(input);
     // a length in an inch document: shown and typed in inches, stored in millimetres (units.js)
     const L = unit === 'mm' ? this.app.units : null;
     const toStore = (t) => (L ? lenValue(t, L) : normalizeValue(t));
@@ -3508,12 +3559,81 @@ export class UI {
     void info;
   }
 
+  renderSketchPatternPM(root) {
+    const sk = this.app.sketcher, d = sk.patternDraft;
+    this.pmHeader(root, 'skLinPattern', d.id ? 'Edit Sketch Pattern' : 'Sketch Pattern');
+    const source = this.pmGroup(root, 'Entities to pattern', 'sk:patternSources');
+    const pickSources = el('button', { class: d.pick === 'sources' ? 'active' : '', onclick: () => { d.pick = 'sources'; this.renderPM(); } }, 'Select entities in the sketch');
+    source.appendChild(pickSources);
+    source.appendChild(el('div', { class: 'pm-hint' }, 'Click entities to add or remove them. Copies stay linked; edit the original geometry to change their shape.'));
+    const list = el('div', { class: 'pm-list' });
+    for (const id of d.sources) {
+      const li = el('div', { class: 'li sel' }, `<span>${esc(SM.itemName(sk.f, id))}</span><span class="x" title="Remove">✕</span>`);
+      li.querySelector('.x').onclick = () => { d.sources = d.sources.filter((q) => q !== id); sk.updatePatternPreview(); this.renderPM(); };
+      list.appendChild(li);
+    }
+    source.appendChild(list);
+    const direction = this.pmGroup(root, 'Direction / path', 'sk:patternDirection');
+    const sel = el('select', { 'data-pattern': 'path' });
+    sel.appendChild(el('option', { value: '' }, 'By angle'));
+    const generated = SM.patternEntities(sk.f);
+    for (const c of sk.f.curves) if (!generated.has(c.id) && !c.ctrlOf) sel.appendChild(el('option', { value: c.id }, SM.itemName(sk.f, c.id)));
+    sel.value = d.path || '';
+    sel.onchange = () => { d.path = sel.value; d.sources = d.sources.filter((id) => id !== d.path); sk.updatePatternPreview(); this.renderPM(); };
+    direction.appendChild(this.row('Direction 1', sel));
+    direction.appendChild(el('button', { class: d.pick === 'path' ? 'active' : '', onclick: () => { d.pick = 'path'; this.renderPM(); } }, 'Pick a line or curve'));
+    const curved = d.path && SM.getCurve(sk.f, d.path)?.type !== 'line';
+    const parameters = this.pmGroup(root, 'Parameters', 'sk:patternParameters');
+    const message = el('div', { class: 'pm-msg' });
+    const updateMessage = () => {
+      message.className = 'pm-msg' + (sk.patternError ? ' err' : '');
+      message.textContent = sk.patternError || `${(sk.patternPreview?.pattern.made || 0) + 1} instances including the original${curved ? '; spacing measured along the path (copies stop at an open end)' : ''}.`;
+    };
+    const field = (key, label, unit = '') => {
+      const wrap = el('div', { class: 'pm-input' });
+      const inp = el('input', { type: 'text', value: String(d[key]), 'data-pattern': key });
+      this.completeExpression(inp);
+      inp.oninput = () => { d[key] = inp.value; sk.updatePatternPreview(); updateMessage(); };
+      wrap.appendChild(inp); if (unit) wrap.appendChild(el('span', { class: 'unit' }, unit));
+      parameters.appendChild(this.row(label, wrap));
+    };
+    field('n1', 'Instances 1 (includes original)');
+    field('d1', 'Spacing 1', 'mm');
+    if (!d.path) field('a1', 'Angle 1', '°');
+    if (curved) {
+      const check = el('input', { type: 'checkbox', 'data-pattern': 'turn' }); check.checked = !!d.turn;
+      check.onchange = () => { d.turn = check.checked; sk.updatePatternPreview(); updateMessage(); };
+      const label = el('label'); label.append(check, document.createTextNode(' Rotate instances with the path'));
+      parameters.appendChild(this.row(null, label, 'check'));
+    } else {
+      field('n2', 'Instances 2 (1 disables)'); field('d2', 'Spacing 2', 'mm'); field('a2', 'Angle 2', '°');
+    }
+    parameters.appendChild(message); updateMessage();
+  }
+
   renderSketchPM(root) {
     const a = this.app, sk = a.sketcher, f = sk.f;
+    if (sk.patternDraft) { this.renderSketchPatternPM(root); return; }
     this.pmHeader(root, 'sketch', f.name);
     const st = sk.statusText();
     if (st.text) root.appendChild(el('div', { class: 'pm-msg ' + st.cls }, esc(st.text)));
+    if (f.patterns?.length) {
+      const g = this.pmGroup(root, 'Sketch Patterns', 'sk:patterns');
+      for (const [i, p] of f.patterns.entries()) {
+        const row = el('div', { class: 'pm-row' });
+        row.appendChild(el('button', { onclick: () => sk.linearPatternSel(p.id) }, `Edit Pattern ${i + 1}`));
+        row.appendChild(el('button', { onclick: () => { SM.removeSketchPattern(f, p.id); sk.sel.clear(); sk.changed(); } }, 'Delete'));
+        g.appendChild(row);
+      }
+    }
     if (sk.tool !== 'select') root.appendChild(el('div', { class: 'pm-msg' }, `<b>${esc(SKETCH_TOOLS[sk.tool].label)}:</b> ${esc(SKETCH_TOOLS[sk.tool].hint)}`));
+    if (['line', 'midline', 'rect', 'crect', 'circle', 'arc', 'arc3', 'tarc', 'ellipse', 'spline', 'cspline', 'polygon', 'slot', 'cslot', 'oslot', 'arcslot', 'arcslot3'].includes(sk.tool)) {
+      const g = this.pmGroup(root, 'Creation Options', 'sk:creation');
+      const cb = el('input', { type: 'checkbox', 'data-construction-mode': '' }); cb.checked = sk.constructionMode;
+      cb.onchange = () => { sk.constructionMode = cb.checked; sk.redraw(); this.refreshCommandStates(); };
+      const label = el('label'); label.append(cb, document.createTextNode(' For construction'));
+      g.appendChild(this.row(null, label, 'check'));
+    }
 
     if (sk.tool === 'offset') {
       const g = this.pmGroup(root, 'Offset Options', 'sk:offset');
@@ -3568,7 +3688,9 @@ export class UI {
       g.appendChild(this.row('Sides', w));
     }
 
-    const items = sk.selectedItems().filter((i) => i.kind !== 'text' && i.kind !== 'gear' && i.kind !== 'airfoil'); // they have their own groups above
+    const generated = SM.patternEntities(f);
+    if ([...sk.sel].some((id) => generated.has(id))) root.appendChild(el('div', { class: 'pm-hint' }, 'Linked pattern copies: edit the original geometry or choose Edit Pattern above.'));
+    const items = sk.selectedItems().filter((i) => i.kind !== 'text' && i.kind !== 'gear' && i.kind !== 'airfoil' && !generated.has(i.id) && i.k?.type !== 'sketchPattern'); // they have their own groups above
     if (items.length) {
       const selG = this.pmGroup(root, `Selected Entities (${items.length})`, 'sk:sel');
       const ul = el('div', { class: 'pm-list' });
@@ -3586,7 +3708,9 @@ export class UI {
         const g = this.pmGroup(root, 'Add Relations', 'sk:add');
         const grid = el('div', { class: 'pm-rels' });
         for (const r of rels) {
-          const b = el('button', { title: RELATION_INFO[r].label }, `<span class="g">${esc(RELATION_INFO[r].glyph)}</span>${esc(RELATION_INFO[r].label.replace(' (on curve)', ''))}`);
+          const label = sk.relationLabel(r);
+          const b = el('button', { title: label }, `<span class="g">${esc(RELATION_INFO[r].glyph)}</span>${esc(label.replace(' (on curve)', ''))}`);
+          if (r === 'equalLength' || r === 'midpointCoincident') b.style.gridColumn = '1 / -1';
           b.onclick = () => sk.addRelation(r);
           grid.appendChild(b);
         }
@@ -3601,7 +3725,7 @@ export class UI {
         const g = this.pmGroup(root, `Existing Relations (${existing.length})`, 'sk:exist');
         const ul2 = el('div', { class: 'pm-list' });
         for (const k of existing) {
-          const label = k.type === 'dim' ? `Dimension ${SM.itemName(f, k.id)} (${k.kind})` : `${RELATION_INFO[k.type]?.label || k.type}: ${k.refs.map((r) => SM.itemName(f, r)).join(', ')}`;
+          const label = k.type === 'dim' ? `Dimension ${SM.itemName(f, k.id)} (${k.kind})` : `${sk.relationLabel(k)}: ${k.refs.map((r) => SM.itemName(f, r)).join(', ')}`;
           const glyph = k.type === 'dim' ? '↔' : RELATION_INFO[k.type]?.glyph || '?';
           const li = el('div', { class: 'li' + (sk.sel.has(k.id) ? ' sel' : '') }, `<span class="g">${esc(glyph)}</span><span>${esc(label)}</span><span class="x" title="Delete">✕</span>`);
           li.onpointerenter = () => { sk.relHover = new Set(k.refs); sk.redraw(); };
@@ -3694,7 +3818,7 @@ export class UI {
             const bar = el('div', { class: 'pm-btns' });
             bar.appendChild(conv);
             g.appendChild(bar);
-            g.appendChild(el('div', { class: 'pm-hint' }, 'Drag the points it runs through to reshape it; drag the curve to move it. Convert it, or draw a Control-Point Spline, for control points, weights and a degree to choose.'));
+            g.appendChild(el('div', { class: 'pm-hint' }, it.c.handles ? 'Drag a fit point to move it with its tangent handle. Drag a handle to change tangent direction and strength. The dashed handle lines accept length, angle, parallel and other line constraints.' : 'Drag the points it runs through to reshape it; drag the curve to move it. Convert it, or draw a Control-Point Spline, for control points, weights and a degree to choose.'));
           }
         } else if (it.kind === 'ellipse' || it.kind === 'earc') {
           const eg = SM.ellipseGeom(f, it.c);
@@ -4265,7 +4389,7 @@ export class UI {
     });
   }
 
-  // A dialog of a few fields ({ key, label, value, type: 'text' | 'select' | 'check', options }); resolves
+  // A dialog of a few fields ({ key, label, value, type: 'text' | 'expr' | 'select' | 'check', options }); resolves
   // with { key: value } (strings, booleans for checks), or null if cancelled.
   promptFields(title, ic, fields, hint = '') {
     return new Promise((resolve) => {
@@ -4282,6 +4406,7 @@ export class UI {
           for (const [v, l] of f.options) { const o = el('option', { value: v }, esc(l)); if (String(v) === String(f.value)) o.selected = true; inp.appendChild(o); }
         } else if (f.type === 'check') { inp = el('input', { type: 'checkbox' }); inp.checked = !!f.value; }
         else { inp = el('input', { type: 'text', style: 'width:90px' }); inp.value = f.value ?? ''; }
+        if (f.type === 'expr') this.completeExpression(inp);
         row.append(el('span', { style: 'flex:1' }, esc(f.label)), inp);
         box.appendChild(row);
         inputs[f.key] = inp;

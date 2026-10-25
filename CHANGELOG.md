@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-26 12:40 — Contributions from Claw267 merged (pull request #5)
+- Merged: parametric sketch patterns with a docked panel and live preview, draggable dimension labels with explicit placement, Equal Curve Length and Coincident Midpoints relations, Sketch Fillet between arcs whose ends meet, projected splines kept as splines and small arcs easier to pick, rename of underdefined sketches, grouped sketch tools and slot variants, spline tangent handles, parameter autocomplete and the parameter manager in the Sketch toolbar, origin axes coloured as the user's X / Y / Z, a test fix (entries above, by Claw267).
+- Fixed in the merge: the sketch results sent back an empty pattern list for every sketch, which changed each sketch after every rebuild (a macro recorded a step nobody made, and switching back to a part's tab rebuilt it instead of reusing its features); now only a sketch with patterns sends them.
+- Merged with the reasons for refused relations: worked out before solving, so a relation that would over-define the sketch says so and names what is in the way; one already satisfied is an information message.
+
 ## 2026-10-26 12:27 — Feature suggestions and bugs from the discussion board
 - **Patterns copy more than one thing**: Linear, Circular, Sketch Driven, Curve Driven and Fill Patterns and Mirror take **More features** besides their Feature, each copied the same way. The Linear, Circular, Sketch Driven and Curve Driven Patterns also take **faces** clicked on the model (each brings the feature that made it: click a hole's wall to copy the hole) or **bodies** (copied whole to every place as new bodies, flat patterns too); Mirror takes bodies.
 - **Measure**: snaps to sketch points, the midpoints of edges and the centres of circles and arcs (each can be turned off), marks the point a click would pick as you move, numbers the items picked on the model, can **keep the first item** to measure from it to each next click, and lists the distances measured.

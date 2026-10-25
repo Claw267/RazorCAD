@@ -4,6 +4,8 @@
 // drives them to zero while moving geometry as little as possible.
 // The same Jacobian gives degrees of freedom and fully-defined status.
 
+import { patternEntities, updateSketchPatterns, getCurve, getPoint, curveLength } from './sketchmodel.js';
+
 const H = 1e-6;
 
 export const RELATION_INFO = {
@@ -12,16 +14,19 @@ export const RELATION_INFO = {
   vertical: { label: 'Vertical', glyph: 'V' },
   onCurve: { label: 'Coincident (on curve)', glyph: '◦' },
   midpoint: { label: 'Midpoint', glyph: 'M' },
+  midpointCoincident: { label: 'Coincident Midpoints', glyph: 'M≡' },
   symmetric: { label: 'Symmetric', glyph: '⇋' },
   parallel: { label: 'Parallel', glyph: '∥' },
   perpendicular: { label: 'Perpendicular', glyph: '⊥' },
   collinear: { label: 'Collinear', glyph: '≡' },
   equal: { label: 'Equal', glyph: '=' },
+  equalLength: { label: 'Equal Curve Length', glyph: '≋' },
   equalDist: { label: 'Equal Distance', glyph: '=' },
   concentric: { label: 'Concentric', glyph: '◎' },
   tangent: { label: 'Tangent', glyph: 'T' },
   fix: { label: 'Fixed', glyph: '⚓' },
   projected: { label: 'On Edge (projected)', glyph: '⇲' },
+  sketchPattern: { label: 'Sketch Pattern', glyph: '⋮' },
   offset: { label: 'Offset', glyph: '⇉' },
   dim: { label: 'Dimension', glyph: '↔' },
 };
@@ -78,6 +83,21 @@ export function makeSystem(sk, ev) {
     return { off, ra, rb: (Xa) => Math.abs(Xa[ib]), deps: [...C.deps, ...A.deps, ib] };
   };
   const kindOf = (id) => (curves.has(id) ? curves.get(id).type : 'point');
+  const lengthOf = (id) => {
+    const c = curves.get(id);
+    if (!c || !['line', 'arc', 'circle', 'ellipse', 'earc', 'spline'].includes(c.type)) throw new Error('Select curves for Equal Curve Length');
+    const points = [...new Set([c.p1, c.p2, c.c, c.a, ...(c.pts || []), ...(c.handles || [])].filter(Boolean))].map((id) => ({ id, ...pt(id) }));
+    const size = c.type === 'circle' ? idx.get('r:' + id) : (c.type === 'ellipse' || c.type === 'earc') ? idx.get('b:' + id) : null;
+    return {
+      deps: [...points.flatMap((p) => p.deps), ...(size != null ? [size] : [])],
+      value: (Xa) => {
+        const shape = { ...c };
+        if (c.type === 'circle') shape.r = Xa[size];
+        if (c.type === 'ellipse' || c.type === 'earc') shape.r2 = Math.abs(Xa[size]);
+        return curveLength({ points: points.map((p) => { const q = p.get(Xa); return { id: p.id, x: q[0], y: q[1] }; }) }, shape);
+      },
+    };
+  };
 
   const eqs = [];
   const bad = [];
@@ -139,6 +159,14 @@ export function makeSystem(sk, ev) {
           }
           break;
         }
+        case 'midpointCoincident': {
+          const A = line(R[0]), B = line(R[1]);
+          push((Xa) => {
+            const a = A.a(Xa), b = A.b(Xa), c = B.a(Xa), d = B.b(Xa);
+            return [(a[0] + b[0] - c[0] - d[0]) / 2, (a[1] + b[1] - c[1] - d[1]) / 2];
+          }, [...A.deps, ...B.deps], k);
+          break;
+        }
         case 'midpoint': {
           const p = pt(R[0]);
           if (kindOf(R[1]) === 'arc') {
@@ -180,6 +208,11 @@ export function makeSystem(sk, ev) {
             if (k.type === 'parallel') return [cr];
             return [cr, lineDist(L2.a(Xa), L1.a(Xa), L1.b(Xa))];
           }, [...L1.deps, ...L2.deps], k);
+          break;
+        }
+        case 'equalLength': {
+          const a = lengthOf(R[0]), b = lengthOf(R[1]);
+          push((Xa) => [a.value(Xa) - b.value(Xa)], [...a.deps, ...b.deps], k);
           break;
         }
         case 'equal': {
@@ -238,6 +271,7 @@ export function makeSystem(sk, ev) {
           }
           break;
         }
+        case 'sketchPattern':
         case 'projected': {
           // linked geometry: points (and radius) follow their source
           const deps = [];
@@ -250,10 +284,13 @@ export function makeSystem(sk, ev) {
           let rIdx = -1;
           const c = curves.get(R[0]);
           if (c?.type === 'circle' && k.r != null) { rIdx = idx.get('r:' + c.id); deps.push(rIdx); }
+          const sizes = [...Object.entries(k.radii || {}).map(([id, v]) => [idx.get('r:' + id), v]), ...Object.entries(k.minors || {}).map(([id, v]) => [idx.get('b:' + id), v])].filter(([i]) => i !== undefined);
+          deps.push(...sizes.map(([i]) => i));
           push((Xa) => {
             const out = [];
             for (const [get, t] of getters) { const q = get(Xa); out.push(q[0] - t[0], q[1] - t[1]); }
             if (rIdx >= 0) out.push(Xa[rIdx] - k.r);
+            for (const [i, v] of sizes) out.push(Xa[i] - v);
             return out;
           }, deps, k);
           break;
@@ -482,7 +519,32 @@ function applyX(sk, sys, X) {
 }
 
 // Solve the sketch in place. `pin` holds points at given positions (dragging).
-export function solveSketch(sk, ev, { pin = [], pinR = [] } = {}) {
+export function solveSketch(sk, ev, opts = {}) {
+  if (!sk.patterns?.length) return solveSketchBase(sk, ev, opts);
+  try {
+    const generated = patternEntities(sk);
+    const primary = { ...sk, points: sk.points.filter((p) => !generated.has(p.id)), curves: sk.curves.filter((c) => !generated.has(c.id)), constraints: sk.constraints.filter((k) => k.type !== 'sketchPattern' && !k.refs.some((r) => generated.has(r))) };
+    const r = solveSketchBase(primary, ev, opts);
+    if (!r.ok || r.bad.length) return r;
+    updateSketchPatterns(sk, ev);
+    // Copies follow their sources; relations to copies can position other geometry, but cannot drive the sources.
+    const updated = patternEntities(sk);
+    const attached = sk.constraints.some((k) => k.type !== 'sketchPattern' && k.refs.some((id) => updated.has(id)));
+    if (!attached) return r;
+    const sourcePoints = new Set(), sourceCircles = new Set();
+    for (const p of sk.patterns) for (const id of [...p.sources, p.path].filter(Boolean)) {
+      const c = getCurve(sk, id);
+      if (!c) sourcePoints.add(id);
+      else {
+        for (const q of [c.p1, c.p2, c.c, c.a, ...(c.pts || []), ...(c.handles || [])].filter(Boolean)) sourcePoints.add(q);
+        if (c.type === 'circle') sourceCircles.add(id);
+      }
+    }
+    return solveSketchBase(sk, ev, { pin: [...(opts.pin || []), ...[...sourcePoints].filter((id) => id !== 'O').map((id) => ({ ...getPoint(sk, id) }))], pinR: [...(opts.pinR || []), ...[...sourceCircles].map((id) => ({ id, r: getCurve(sk, id).r }))] });
+  } catch (e) { return { ok: false, err: Infinity, bad: [e.message] }; }
+}
+
+function solveSketchBase(sk, ev, { pin = [], pinR = [] } = {}) {
   const sys = makeSystem(sk, ev);
   const X = Float64Array.from(sys.X);
   const fixed = new Set();
@@ -576,7 +638,7 @@ function constructionSlideRows(sk, sys) {
   for (const k of sk.constraints) for (const r of k.refs) inRelation.add(r);
   const rows = [];
   for (const c of sk.curves) {
-    if (c.type !== 'line' || !c.construction) continue;
+    if (c.type !== 'line' || !c.construction || c.fitHandle) continue;
     const a = sk.points.find((p) => p.id === c.p1) || (c.p1 === 'O' ? { x: 0, y: 0 } : null);
     const b = sk.points.find((p) => p.id === c.p2) || (c.p2 === 'O' ? { x: 0, y: 0 } : null);
     if (!a || !b) continue;
@@ -619,7 +681,7 @@ export function analyzeSketch(sk, ev) {
   for (const c of sk.curves) {
     let ok;
     if (c.type === 'line') ok = pointDefined.get(c.p1) && pointDefined.get(c.p2);
-    else if (c.type === 'spline') ok = c.pts.every((id) => pointDefined.get(id));
+    else if (c.type === 'spline') ok = [...c.pts, ...(c.handles || [])].every((id) => pointDefined.get(id));
     else if (c.type === 'circle') ok = pointDefined.get(c.c) && determined[sys.idx.get('r:' + c.id)];
     else if (c.type === 'ellipse') ok = pointDefined.get(c.c) && pointDefined.get(c.a) && determined[sys.idx.get('b:' + c.id)];
     else if (c.type === 'earc') ok = pointDefined.get(c.c) && pointDefined.get(c.a) && determined[sys.idx.get('b:' + c.id)] && pointDefined.get(c.p1) && pointDefined.get(c.p2);
