@@ -508,6 +508,8 @@ Click a model edge, or an entity of an earlier sketch, to project it into this s
 
 New **Fit Point Splines** include a tangent handle at each fit point. Drag a handle to change tangent direction and strength; adjacent pieces keep the same tangent through their shared fit point. Dragging a fit point carries its handle with it. Handle lines are construction geometry and accept ordinary line constraints and dimensions (for example horizontal, parallel, length or angle). Their remaining freedoms count towards sketch definition. Copies, mirrors, blocks, patterns and linked projections preserve the handles. Existing saved splines retain their previous representation.
 
+Tangent handles are shown with solid teal stems, small direction arrows and round grips. Fit points use square markers. Selection names identify **Tangent Handle** and **Tangent Handle Line**, so these controls can be distinguished from ordinary construction centre lines.
+
 Click the points the curve runs through (they snap like line points), then double-click, [[Enter]] or [[Esc]] to finish, or click the first point again to close it. Drag a point to reshape the curve, or drag the curve to move it; deleting a point takes it out of the spline. **Convert to Control-Point Spline** (in its panel) makes it a control-point spline that runs through the same points. Splines make profiles on their own or with lines and arcs and are exact curves for extrudes, revolves, cuts, lofts and sweep paths. Lines can be trimmed where they cross a spline. {idx:spline}
 
 ## Control-Point Spline

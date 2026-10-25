@@ -6,6 +6,10 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## Unreleased — Distinct tangent-handle graphics
+- Fit spline tangent controls use solid teal stems, direction arrows and round grips; fit points retain their square markers. Selected, hovered and constrained controls retain their corresponding state colours.
+- Selection labels identify tangent grips and tangent-handle lines explicitly. Native mouse dragging and the fit spline regression test verified after the visual change.
+
 ## Unreleased — Sketch tool families, slot variants and fit spline tangent handles
 - Customize Toolbars now offers Expanded or Grouped Sketch layouts, saved as a preference. Grouped mode gathers line, rectangle, arc, spline and slot variants into flyouts while preserving the expanded toolbar's ordering and hidden tools.
 - Midpoint Line creates a line symmetrically about the first click and retains a Midpoint constraint. For construction can be enabled before drawing, through the drawing panel or Construction Geometry with no curves selected; previews and created geometry follow the mode. Existing selection-based construction toggling remains available.

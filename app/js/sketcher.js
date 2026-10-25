@@ -12,10 +12,10 @@ import { isDark, sketchDefined, sketchUnder } from './theme.js';
 
 const COL = {
   under: 0x1d4ed8, defined: 0x111827, selected: 0x0ea5e9, hover: 0xf59e0b, linked: 0x9333ea,
-  preview: 0xf97316, dim: 0x5b6f9c, error: 0xdc2626, trim: 0xef4444, origin: 0xdc2626,
+  preview: 0xf97316, dim: 0x5b6f9c, error: 0xdc2626, trim: 0xef4444, origin: 0xdc2626, handle: 0x0d9488,
 };
 // (the dark theme: light lines for what is fully defined, a lighter blue for the rest)
-const themeCols = () => { COL.defined = sketchDefined(); COL.under = sketchUnder(); COL.dim = isDark() ? 0x93a4c8 : 0x5b6f9c; };
+const themeCols = () => { COL.defined = sketchDefined(); COL.under = sketchUnder(); COL.dim = isDark() ? 0x93a4c8 : 0x5b6f9c; COL.handle = isDark() ? 0x5eead4 : 0x0d9488; };
 themeCols();
 if (typeof window !== 'undefined') window.addEventListener('razorcad-theme', themeCols);
 const r4 = (x) => Math.round(x * 1e4) / 1e4;
@@ -2659,7 +2659,21 @@ export class Sketcher {
     this._patterned = S.patternEntities(sk);
     const editingPattern = this.patternDraft?.id && sk.patterns?.find((p) => p.id === this.patternDraft.id);
     const hiddenPattern = new Set(editingPattern?.generated?.curves || []);
-    for (const c of sk.curves) if (!hiddenPattern.has(c.id)) addSegs(this.curveColor(c), c.construction, S.curvePoints(sk, c));
+    for (const c of sk.curves) if (!hiddenPattern.has(c.id)) {
+      if (!c.fitHandle) { addSegs(this.curveColor(c), c.construction, S.curvePoints(sk, c)); continue; }
+      // Tangent controls have their own visual language, distinct from centre lines.
+      const P = S.getPoint(sk, c.p1), H = S.getPoint(sk, c.p2), dx = H.x - P.x, dy = H.y - P.y, length = Math.hypot(dx, dy);
+      const selected = this.sel.has(c.id) || this.sel.has(c.ctrlOf), hovered = this.hover === c.id;
+      const color = selected ? COL.selected : hovered ? COL.hover : !this.solveOk ? COL.error : this.analysis?.curveDefined.get(c.id) ? COL.defined : COL.handle;
+      if (length > 5 * wpp) {
+        const ux = dx / length, uy = dy / length;
+        addSegs(color, false, [[P.x, P.y], [H.x - ux * 4.5 * wpp, H.y - uy * 4.5 * wpp]]);
+        if (length > 20 * wpp) {
+          const x = H.x - ux * 8 * wpp, y = H.y - uy * 8 * wpp;
+          addSegs(color, false, [[x - (ux + uy) * 3 * wpp, y - (uy - ux) * 3 * wpp], [x, y], [x - (ux - uy) * 3 * wpp, y - (uy + ux) * 3 * wpp]]);
+        }
+      }
+    }
     if (this.patternPreview) {
       const { sketch, pattern } = this.patternPreview;
       for (const id of pattern.generated.curves) { const c = S.getCurve(sketch, id); if (c) addSegs(COL.preview, c.construction, S.curvePoints(sketch, c)); }
@@ -2761,8 +2775,19 @@ export class Sketcher {
       if (!ptGroups.has(color)) ptGroups.set(color, []);
       ptGroups.get(color).push(new THREE.Vector3(p.x, p.y, 0));
     };
+    const handlePoints = new Set(sk.curves.flatMap((c) => c.handles || []));
     for (const p of sk.points) {
       const color = this.sel.has(p.id) ? COL.selected : this.hover === p.id || this.relHover?.has(p.id) ? COL.hover : !this.solveOk ? COL.error : this.analysis?.pointDefined.get(p.id) ? COL.defined : COL.under;
+      if (handlePoints.has(p.id)) {
+        const handleColor = this.sel.has(p.id) || this.hover === p.id || !this.solveOk || this.analysis?.pointDefined.get(p.id) ? color : COL.handle;
+        const ring = [];
+        for (let i = 0; i < 24; i++) {
+          const a = i * Math.PI / 12, b = (i + 1) * Math.PI / 12;
+          ring.push([p.x + Math.cos(a) * 4.5 * wpp, p.y + Math.sin(a) * 4.5 * wpp], [p.x + Math.cos(b) * 4.5 * wpp, p.y + Math.sin(b) * 4.5 * wpp]);
+        }
+        mkLines(ring, handleColor, false, 12);
+        continue;
+      }
       addPt(p, color);
     }
     addPt(S.ORIGIN, this.sel.has('O') || this.hover === 'O' ? COL.selected : COL.origin);

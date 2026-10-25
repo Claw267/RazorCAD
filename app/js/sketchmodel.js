@@ -2697,9 +2697,15 @@ export function mergePoints(sk, from, to) {
 // ------------------------------------------------------------ naming
 export function itemName(sk, id) {
   if (id === 'O') return 'Origin';
+  const fit = sk.curves.find((c) => c.handles?.includes(id));
+  if (fit) return `Tangent Handle ${fit.handles.indexOf(id) + 1} (${itemName(sk, fit.id)})`;
   const counts = { line: 0, circle: 0, arc: 0, spline: 0, ellipse: 0, earc: 0 };
   for (const c of sk.curves) {
     counts[c.type]++;
+    if (c.id === id && c.fitHandle) {
+      const spline = getCurve(sk, c.ctrlOf);
+      return `Tangent Handle Line ${(spline?.handles?.indexOf(c.p2) ?? 0) + 1}`;
+    }
     if (c.id === id) return (c.construction && c.type === 'line' ? 'Centerline' : { line: 'Line', circle: 'Circle', arc: 'Arc', spline: 'Spline', ellipse: 'Ellipse', earc: 'Elliptical Arc' }[c.type]) + counts[c.type];
   }
   const pi = sk.points.findIndex((p) => p.id === id);
