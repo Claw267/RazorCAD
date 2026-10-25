@@ -259,7 +259,7 @@ table.bom th { background: #f1f5f9; font-weight: 600; }
   background: rgba(255,255,255,.6); padding: 0 3px; border-radius: 2px;
 }
 .dim {
-  position: absolute; transform: translate(-50%, -50%); pointer-events: auto; cursor: pointer;
+  position: absolute; transform: translate(-50%, -50%); pointer-events: auto; cursor: move; touch-action: none;
   font-size: 12px; color: #0d3b9e; background: rgba(255,255,255,.88); border: 1px solid #b6c6e6;
   padding: 0 4px; border-radius: 2px; white-space: nowrap; user-select: none;
 }

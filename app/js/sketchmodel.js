@@ -2471,6 +2471,7 @@ export function rotateSketchAxes(sk, dir) {
     else if (k.type === 'fix') [k.x, k.y] = T(k.x, k.y);
     else if (k.type === 'projected' && k.pts) for (const id of Object.keys(k.pts)) k.pts[id] = T(k.pts[id][0], k.pts[id][1]);
     else if (k.type === 'dim') {
+      if (Array.isArray(k.labelOffset)) k.labelOffset = T(...k.labelOffset);
       if (k.kind === 'hdist') { k.kind = 'vdist'; if (dir > 0) k.s = -(k.s || 1); }
       else if (k.kind === 'vdist') { k.kind = 'hdist'; if (dir < 0) k.s = -(k.s || 1); }
       if (typeof k.ang === 'number') k.ang += dir > 0 ? -Math.PI / 2 : Math.PI / 2;

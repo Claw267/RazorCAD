@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## Unreleased — Drag sketch dimension annotations
+- Drag a dimension's number with Select or Dimension to reposition the annotation, including linear, radius, diameter, angular and driven dimensions. A click still opens its value editor. Linear dimension lines follow the new offset; moved labels retain a leader to their dimension where needed.
+- Annotation placement is saved with the sketch and supports undo/redo. Esc or pointer cancellation restores the position before the drag; geometry and dimension values do not change.
+- Test: sketch-dimension-placement; mouse dragging also checked on the guitar-neck model.
+
 ## Unreleased — Hide stale projected sketches while editing their source
 - Sketches that depend on the sketch being edited (including indirect dependencies) are hidden until the edit ends and they rebuild. Old projected arc segments no longer appear over a new fillet. Independent reference sketches remain visible; visibility settings are preserved.
 - When a source fillet separates two previously joined arc endpoints, their projected endpoints separate too. The dependent sketch no longer gets conflicting projection constraints at the old corner.

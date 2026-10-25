@@ -512,6 +512,44 @@ const UI = {
     return { ok: true, detail: `${notes.length} parts restored without rebuilding (${(bytes / 1048576).toFixed(1)} MB of BRep; meshing ${mesh1} ms → ${mesh2} ms)` };
   },
 
+  async 'sketch-dimension-placement'() {
+    const a = window.app, S = await import('/js/sketchmodel.js');
+    await a.newDocument?.(); closeModals();
+    const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } });
+    a.doc.features.push(f); a.commit(); await a.enterSketch(f, true);
+    const sk = a.sketcher, p = S.addPoint(f, 0, 0), q = S.addPoint(f, 40, 0), r = S.addPoint(f, 40, 30);
+    const line = S.addLine(f, p, q), other = S.addLine(f, p, r), circle = S.addCircle(f, S.addPoint(f, 70, 0), 6);
+    const arc = S.addArc(f, S.addPoint(f, 100, 0), S.addPoint(f, 106, 0), S.addPoint(f, 100, 6));
+    const dims = [
+      S.addRel(f, 'dim', [p, q], { kind: 'hdist', value: 40 }),
+      S.addRel(f, 'dim', [q, r], { kind: 'vdist', value: 30 }),
+      S.addRel(f, 'dim', [p, r], { kind: 'distance', value: 50, driven: true }),
+      S.addRel(f, 'dim', [circle], { kind: 'radius', value: 6 }),
+      S.addRel(f, 'dim', [circle], { kind: 'diameter', value: 12, driven: true }),
+      S.addRel(f, 'dim', [line, other], { kind: 'angle', value: 36.86989764584402, driven: true }),
+      S.addRel(f, 'dim', [r, line], { kind: 'pointLine', value: 30, driven: true }),
+      S.addRel(f, 'dim', [arc], { kind: 'radius', value: 6, driven: true }),
+    ];
+    sk.changed();
+    const geometry = JSON.stringify([f.points, f.curves]);
+    for (const k of dims) {
+      const dm = sk.dims.find((d) => d.k.id === k.id), target = k.refs[0] === arc ? [80, -20] : [dm.at[0] + 8, dm.at[1] + 6];
+      const value = k.value;
+      sk.moveDimensionLabel(k, { x: target[0], y: target[1] }); sk.changed();
+      const moved = sk.dims.find((d) => d.k.id === k.id);
+      if (Math.hypot(moved.at[0] - target[0], moved.at[1] - target[1]) > 1e-6 || k.value !== value || JSON.stringify([f.points, f.curves]) !== geometry) return { ok: false, detail: `${k.kind}: annotation failed to move independently of geometry/value` };
+      if (k.refs[0] === arc && (k.ang < 0 || k.ang > Math.PI / 2)) return { ok: false, detail: 'Radius leader left the actual arc' };
+    }
+    const last = dims[dims.length - 1].id, pos = () => sk.dims.find((d) => d.k.id === last).at;
+    const end = JSON.stringify(pos()); sk.undo();
+    if (JSON.stringify(pos()) === end) return { ok: false, detail: 'Undo did not restore annotation position' };
+    sk.redo();
+    if (JSON.stringify(pos()) !== end) return { ok: false, detail: 'Redo did not restore annotation position' };
+    const saved = JSON.parse(JSON.stringify(a.doc)), rebuilt = await a.kernel.rebuild(saved, null, null);
+    const after = rebuilt.sketches[f.id]?.data.constraints.find((k) => k.id === last);
+    return { ok: !rebuilt.errors.length && JSON.stringify(after?.labelOffset) === JSON.stringify(f.constraints.find((k) => k.id === last).labelOffset), detail: 'Seven dimension kinds moved without geometry/value changes; undo/redo and serialized kernel rebuild preserve annotation placement' };
+  },
+
   async 'sketch-rename-underdefined'() {
     const a = window.app;
     await a.newDocument?.(); closeModals();

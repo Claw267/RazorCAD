@@ -152,6 +152,7 @@ export class Sketcher {
 
   exit() {
     if (!this.active) return;
+    this.dimLabelDrag?.cancel();
     this.patternDraft = null; this.patternPreview = null;
     this.endGearPick();
     this.clearSection();
@@ -210,6 +211,7 @@ export class Sketcher {
   }
 
   setTool(t) {
+    this.dimLabelDrag?.cancel();
     if (this.patternDraft) this.finishPattern(false);
     // Project Edges with model edges (or another sketch's entities) selected: those become sketch
     // geometry at once (the tool itself waits for clicks when nothing is selected)
@@ -567,6 +569,7 @@ export class Sketcher {
   }
 
   undo() {
+    if (this.dimLabelDrag) { this.dimLabelDrag.cancel(); return; }
     if (this.patternDraft) { this.finishPattern(false); return; }
     if (this.hist.length < 2) { this.app.toast('Nothing to undo in this sketch'); return; }
     this.redoStack.push(this.hist.pop());
@@ -574,6 +577,7 @@ export class Sketcher {
   }
 
   redo() {
+    if (this.dimLabelDrag) { this.dimLabelDrag.cancel(); return; }
     if (this.patternDraft) { this.finishPattern(false); return; }
     const s = this.redoStack.pop();
     if (!s) return;
@@ -1312,6 +1316,7 @@ export class Sketcher {
   }
 
   key(e) {
+    if (this.dimLabelDrag && e.key === 'Escape') { this.dimLabelDrag.cancel(); return true; }
     if (this.airfoilPick && e.key === 'Escape') { this.endAirfoilPick(true); return true; }
     if (this.gearPick && e.key === 'Enter') { this.makeGears(); return true; }
     if (this.patternDraft && (e.key === 'Escape' || e.key === 'Enter')) { this.finishPattern(e.key === 'Enter'); return true; }
@@ -2442,7 +2447,42 @@ export class Sketcher {
       }
     } catch { return null; }
     if (!at) return null;
+    if (Array.isArray(k.labelOffset)) {
+      const moved = [at[0] + k.labelOffset[0], at[1] + k.labelOffset[1]];
+      if (Math.hypot(...k.labelOffset) > 1e-6) push(at, moved);
+      at = moved;
+    }
     return { segs, at, value, prefix, suffix: k.kind === 'angle' ? '°' : '' };
+  }
+
+  moveDimensionLabel(k, target) {
+    const P = (id) => S.getPoint(this.f, id);
+    delete k.labelOffset;
+    if (['distance', 'hdist', 'vdist'].includes(k.kind)) {
+      const a = P(k.refs[0]), b = P(k.refs[1]), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      if (k.kind === 'hdist') k.off = target.y - my;
+      else if (k.kind === 'vdist') k.off = target.x - mx;
+      else { const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1; k.off = ((target.x - mx) * -dy + (target.y - my) * dx) / len; }
+    } else if (k.kind === 'radius' || k.kind === 'diameter') {
+      const c = S.getCurve(this.f, k.refs[0]), p = P(c.c);
+      let angle = Math.atan2(target.y - p.y, target.x - p.x);
+      if (c.type === 'arc') {
+        const { a0, span } = S.arcAngles(this.f, c), tau = 2 * Math.PI;
+        if (((angle - a0) % tau + tau) % tau > span) {
+          const distance = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+          angle = distance(angle, a0) < distance(angle, a0 + span) ? a0 : a0 + span;
+        }
+      }
+      k.ang = angle;
+    } else if (k.kind === 'angle') {
+      const a = S.getCurve(this.f, k.refs[0]), b = S.getCurve(this.f, k.refs[1]);
+      const p = P(a.p1), q = P(a.p2), r = P(b.p1), s = P(b.p2);
+      const v = lineIntersection(p, norm([q.x - p.x, q.y - p.y]), r, norm([s.x - r.x, s.y - r.y]));
+      k.off = Math.hypot(target.x - v[0], target.y - v[1]) / 1.18;
+    }
+    const graphics = this.dimGraphics(k, this.wpp());
+    if (graphics) k.labelOffset = [target.x - graphics.at[0], target.y - graphics.at[1]];
+    this.redraw();
   }
 
   // ------------------------------------------------------------ drawing
@@ -2719,9 +2759,43 @@ export class Sketcher {
     while (this.dimPool.length < dims.length) {
       const el = document.createElement('div');
       el.className = 'dim';
-      el.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+      let drag = null, suppressClick = false;
+      const finish = (ok) => {
+        if (!drag) return;
+        const d = drag; drag = null; this.dimLabelDrag = null;
+        if (el.hasPointerCapture(d.pointerId)) el.releasePointerCapture(d.pointerId);
+        if (d.moved) {
+          suppressClick = true;
+          if (ok) this.changed();
+          else { for (const key of ['off', 'ang', 'labelOffset']) { if (key in d.before) d.k[key] = d.before[key]; else delete d.k[key]; } this.redraw(); }
+        }
+      };
+      el.addEventListener('pointerdown', (ev) => {
+        ev.stopPropagation();
+        suppressClick = false;
+        if (ev.button !== 0 || ev.ctrlKey || ev.shiftKey || ev.metaKey) return;
+        const dm = this.dims[+el.dataset.idx];
+        if (!dm || dm.preview) return;
+        ev.preventDefault(); this.closeModify();
+        const start = this.localFromEvent(ev);
+        drag = { k: dm.k, pointerId: ev.pointerId, x: ev.clientX, y: ev.clientY, grab: [dm.at[0] - start.x, dm.at[1] - start.y], before: Object.fromEntries(['off', 'ang', 'labelOffset'].filter((key) => key in dm.k).map((key) => [key, dm.k[key]])), moved: false, cancel: () => finish(false) };
+        this.dimLabelDrag = drag;
+        el.setPointerCapture(ev.pointerId);
+      });
+      el.addEventListener('pointermove', (ev) => {
+        if (!drag || ev.pointerId !== drag.pointerId) return;
+        ev.stopPropagation();
+        if (!drag.moved && Math.hypot(ev.clientX - drag.x, ev.clientY - drag.y) < 4) return;
+        drag.moved = true;
+        const p = this.localFromEvent(ev);
+        this.moveDimensionLabel(drag.k, { x: p.x + drag.grab[0], y: p.y + drag.grab[1] });
+      });
+      el.addEventListener('pointerup', (ev) => { if (drag && ev.pointerId === drag.pointerId) { ev.stopPropagation(); finish(true); } });
+      el.addEventListener('pointercancel', () => finish(false));
+      el.addEventListener('lostpointercapture', () => finish(false));
       el.addEventListener('click', (ev) => {
         ev.stopPropagation();
+        if (suppressClick) { suppressClick = false; return; }
         const dm = this.dims[+el.dataset.idx];
         if (!dm || dm.preview) return;
         if (ev.ctrlKey || ev.shiftKey) { this.sel.has(dm.k.id) ? this.sel.delete(dm.k.id) : this.sel.add(dm.k.id); this.redraw(); this.app.ui.renderPM(); return; }
@@ -2738,10 +2812,10 @@ export class Sketcher {
       const k = dm.k;
       const expr = !dm.preview && !isNumeric(k.value);
       el.className = 'dim' + (k.driven ? ' driven' : '') + (this.sel.has(k.id) ? ' selected' : '') + (dm.preview ? ' preview' : '');
-      el.style.pointerEvents = dm.preview || (this.tool !== 'select' && this.tool !== 'dim') ? 'none' : 'auto';
+      el.style.pointerEvents = dm.preview || this.patternDraft || (this.tool !== 'select' && this.tool !== 'dim') ? 'none' : 'auto';
       const txt = (dm.prefix || '') + (k.kind === 'angle' ? fmt(dm.value) : this.L(dm.value)) + (dm.suffix || '');
       el.innerHTML = (expr ? '<span class="sig">Σ</span>' : '') + (k.driven ? `(${txt})` : txt);
-      el.title = k.driven ? 'Driven (reference) dimension' : expr ? `= ${k.kind === 'angle' ? k.value : lenText(k.value, this.app.units)}` : 'Click to modify';
+      el.title = (k.driven ? 'Driven (reference) dimension' : expr ? `= ${k.kind === 'angle' ? k.value : lenText(k.value, this.app.units)}` : 'Click to modify') + ' · Drag to move the annotation';
     });
     this._placeLabels();
   }
