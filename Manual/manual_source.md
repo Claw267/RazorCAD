@@ -484,6 +484,10 @@ Click a line, arc or circle and its whole connected chain is offset. Move the mo
 
 ## Project Edges
 
+While editing a source sketch, sketches that depend on it are temporarily hidden to avoid displaying outdated projections over the current geometry. They return after leaving the sketch and rebuilding; independent reference sketches remain visible and the saved visibility settings are unchanged.
+
+If a source edit such as a fillet separates formerly joined endpoints, their projected endpoints separate on rebuild while retaining their source links.
+
 Splines projected from another sketch remain linked splines, preserving their control points, degree and weights. Earlier projections saved as line segments retain that representation.
 
 Click a model edge, or an entity of an earlier sketch, to project it into this sketch. Or select edges first and then click **Project Edges** (or press [[E]]): they are projected at once. Projected geometry is drawn in **purple**, is linked and updates when the source changes (relation "On Edge ⇲"). The ends of projected lines are joined to each other and to sketch geometry already there, so the edges of a face give a closed outline ready to extrude. While the tool is active, the outline where the sketch plane cuts the bodies is drawn in teal; clicking it converts the whole outline. This works for solids and surfaces. {idx:Project Edges}

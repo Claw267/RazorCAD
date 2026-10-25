@@ -423,7 +423,7 @@ export function referencesOf(doc, f) {
   if (f.plane?.ref) addId(f.plane.ref);
   if (f.type === 'split') { addId(f.tool); addBody(f.tool); }
   if (f.sketchLine) addId(String(f.sketchLine).split(':')[0]);
-  for (const r of f.refs || []) addId(r?.id);
+  for (const r of f.refs || []) { addId(r?.id); if (r?.kind === 'sketch') addId(r.sketch); }
   for (const b of [...(f.bodies || []), ...(f.scope || []), f.main, f.body]) addBody(b);
   for (const m of f.mates || []) { addId(m.a?.id); addId(m.b?.id); }
   // projected (converted) sketch geometry

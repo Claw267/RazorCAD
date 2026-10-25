@@ -6013,6 +6013,7 @@ function updateProjections(f, frame, body, sketches, surfaceShapes = []) {
     } catch { prims = null; }
     if (!prims || !S.updateProjected(f, k, prims)) lost++;
   }
+  if (!lost) S.splitProjectedPoints(f);
   return lost;
 }
 

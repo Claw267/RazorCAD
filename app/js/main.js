@@ -2220,8 +2220,20 @@ class App {
 
   updateSketchDisplay() {
     const res = this.result, list = [];
+    // Dependent sketches still contain the last rebuilt projections while their source is being edited.
+    // Hide that stale geometry until leaving the sketch rebuilds it; keep independent references visible.
+    const editing = this.mode === 'sketch' ? this.sketcher.f?.id : null;
+    const stale = new Set(editing ? [editing] : []);
+    if (editing) {
+      const refs = this.doc.features.map((f) => [f.id, M.referencesOf(this.doc, f)]);
+      let changed;
+      do {
+        changed = false;
+        for (const [id, dependencies] of refs) if (!stale.has(id) && [...dependencies].some((r) => stale.has(r))) { stale.add(id); changed = true; }
+      } while (changed);
+    }
     for (const [id, s] of res.sketches) {
-      if (this.mode === 'sketch' && this.sketcher.f?.id === id) continue;
+      if (stale.has(id)) continue;
       const pmSketch = this.pm?.kind === 'feature' && this.pm.feature.sketch === id;
       const selected = (this.selection?.kind === 'feature' && this.selection.id === id) || this.hoverSketchId === id;
       if ((this.vis.sketches && this.sketchShown(s.sketch)) || pmSketch || selected) {

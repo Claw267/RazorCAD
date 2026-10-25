@@ -2715,6 +2715,70 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
 
   // Sketch Fillet where a line meets an arc, and where two arcs meet: the fillet is tangent to both (its centre r from
   // the line, R ± r from each arc's centre), the curves are cut back to it, and the sketch still solves
+  async 'sketch-projected-fillet-endpoints'() {
+    const a = window.app, S = await import('/js/sketchmodel.js');
+    const doc = M.newDoc(), source = M.createFeature(doc, 'sketch', { plane: { ref: 'front' } });
+    const p = S.addPoint(source, 0, 15), q = S.addPoint(source, 0, 15);
+    const c1 = S.addPoint(source, -20, 0), c2 = S.addPoint(source, 20, 0), e1 = S.addPoint(source, 5, 0), e2 = S.addPoint(source, -5, 0);
+    const first = S.addArc(source, c1, e1, p), second = S.addArc(source, c2, q, e2);
+    S.addRel(source, 'coincident', [p, q]);
+    const target = M.createFeature(doc, 'sketch', { plane: { ref: 'front' } });
+    const frame = { o: [0, 0, 0], u: [1, 0, 0], v: [0, 1, 0], n: [0, 0, 1] };
+    const copied = [first, second].map((cid) => S.addProjected(target, S.projectCurve(frame, S.curve3D(source, S.getCurve(source, cid), frame)), { kind: 'sketch', fid: source.id, cid })[0]);
+    S.mergePoints(target, S.getCurve(target, copied[1]).p1, S.getCurve(target, copied[0]).p2);
+    doc.features.push(source, target);
+    const initial = await a.kernel.rebuild(doc, null, null);
+    if (initial.errors.length) return { ok: false, detail: 'Initial projection failed' };
+    const initialData = initial.sketches[target.id].data;
+    if (S.getCurve(initialData, copied[0]).p2 !== S.getCurve(initialData, copied[1]).p1) return { ok: false, detail: 'Matching projected endpoints were unnecessarily split' };
+    S.blendCorner(source, p, 3); source.rev = M.newRev();
+    const rebuilt = await a.kernel.rebuild(doc, null, null);
+    if (rebuilt.errors.length) return { ok: false, detail: `Filleted source broke its projection: ${JSON.stringify(rebuilt.errors)}` };
+    const data = rebuilt.sketches[target.id].data;
+    const one = S.getCurve(data, copied[0]), two = S.getCurve(data, copied[1]);
+    if (one.p2 === two.p1) return { ok: false, detail: 'Separated source endpoints still share a projected point' };
+    for (const [id, curve, key] of [[first, one, 'p2'], [second, two, 'p1']]) {
+      const expected = S.getPoint(source, S.getCurve(source, id)[key]), actual = S.getPoint(data, curve[key]);
+      if (Math.hypot(expected.x - actual.x, expected.y - actual.y) > 1e-6) return { ok: false, detail: 'Projection did not follow the trimmed endpoint' };
+    }
+    return { ok: true, detail: 'Shared projected arc endpoints stay joined until a source fillet separates them; kernel rebuild preserves both links without conflicting targets' };
+  },
+
+  async 'sketch-hide-dependent-projections'() {
+    const a = window.app, S = await import('/js/sketchmodel.js');
+    await a.newDocument?.(); closeModals();
+    const doc = M.newDoc();
+    const source = M.createFeature(doc, 'sketch', { plane: { ref: 'front' }, visible: true });
+    const p = S.addPoint(source, 0, 0), q = S.addPoint(source, 10, 0), line = S.addLine(source, p, q);
+    const dependent = M.createFeature(doc, 'sketch', { plane: { ref: 'front' }, visible: true });
+    const copied = S.addProjected(dependent, [{ type: 'line', a: [0, 0], b: [10, 0] }], { kind: 'sketch', fid: source.id, cid: line })[0];
+    const indirect = M.createFeature(doc, 'sketch', { plane: { ref: 'front' }, visible: true });
+    S.addProjected(indirect, [{ type: 'line', a: [0, 0], b: [10, 0] }], { kind: 'sketch', fid: dependent.id, cid: copied });
+    const independent = M.createFeature(doc, 'sketch', { plane: { ref: 'front' }, visible: true });
+    S.addLine(independent, S.addPoint(independent, 0, 30), S.addPoint(independent, 10, 30));
+    doc.features.push(source, dependent, indirect, independent);
+    if (!M.referencesOf(doc, { type: 'plane', refs: [{ kind: 'sketch', sketch: source.id, curve: line }] }).has(source.id)) return { ok: false, detail: 'Reference-plane sketch dependency was not recognised' };
+    await a.setDoc(doc); a.vis.sketches = true;
+    const original = a.viewport.setSketches;
+    let displayed = [];
+    a.viewport.setSketches = function (list) { displayed = list; return original.call(this, list); };
+    try {
+      a.updateSketchDisplay();
+      if (displayed.length !== 4) return { ok: false, detail: 'Expected all four sketches before editing' };
+      await a.enterSketch(source, false);
+      if (displayed.length !== 1 || displayed[0].polylines[0].pts[0][1] !== 30) return { ok: false, detail: 'Dependent or transitive projections remained visible, or independent references were hidden' };
+      S.getPoint(source, q).x = 20; a.sketcher.changed();
+      a.exitSketch(true); await a.rebuild(); a.updateSketchDisplay();
+      const result = a.result.sketches.get(indirect.id)?.sketch;
+      const c = result?.curves[0], end = c && S.getPoint(result, c.p2);
+      if (displayed.length !== 4 || Math.abs(end?.x - 20) > 1e-6) return { ok: false, detail: 'Dependent projections did not return with rebuilt geometry' };
+      await a.enterSketch(source, false);
+      S.getPoint(source, q).x = 25; a.sketcher.changed();
+      a.exitSketch(false); await a.rebuild(); a.updateSketchDisplay();
+      return { ok: displayed.length === 4 && S.getPoint(source, q).x === 20, detail: 'Direct and transitive projections hidden while editing; independent references kept; rebuilt projections restored on save and cancel' };
+    } finally { a.viewport.setSketches = original; }
+  },
+
   async 'sketch-fillet-arcs-click'() {
     const a = window.app, S = await import('/js/sketchmodel.js');
     await a.newDocument?.(); closeModals();
@@ -2726,10 +2790,12 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     S.addArc(sk.f, c1, end1, p); S.addArc(sk.f, c2, q, end2);
     S.addRel(sk.f, 'coincident', [p, q]); sk.changed();
     sk.filletR = 3; sk.setTool('sfillet');
+    sk.normalTo(false);
+    a.viewport.camera.updateMatrixWorld(true);
     const v = viewEvents(), corner = sk.frame.o.clone().addScaledVector(sk.frame.v, 15);
     await v.click(...v.toScreen(corner));
     const count = () => sk.f.curves.filter((c) => c.type === 'arc').length;
-    if (count() !== 3 || !sk.solveOk) return { ok: false, detail: 'Clicking coincident arc endpoints did not create a valid fillet' };
+    if (count() !== 3 || !sk.solveOk) return { ok: false, detail: `Clicking coincident arc endpoints did not create a valid fillet (${count()} arcs; ${sk.solveMsg || 'no solver error'})` };
     sk.undo(); if (count() !== 2) return { ok: false, detail: 'Undo did not restore both arcs' };
     sk.redo(); if (count() !== 3 || !sk.solveOk) return { ok: false, detail: 'Redo did not restore the fillet' };
     return { ok: true, detail: 'Pointer click creates an R3 arc fillet; undo restores two arcs and redo restores the solved fillet' };

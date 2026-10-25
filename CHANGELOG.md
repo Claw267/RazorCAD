@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## Unreleased — Hide stale projected sketches while editing their source
+- Sketches that depend on the sketch being edited (including indirect dependencies) are hidden until the edit ends and they rebuild. Old projected arc segments no longer appear over a new fillet. Independent reference sketches remain visible; visibility settings are preserved.
+- When a source fillet separates two previously joined arc endpoints, their projected endpoints separate too. The dependent sketch no longer gets conflicting projection constraints at the old corner.
+- Tests: sketch-hide-dependent-projections (save, rebuild and cancel), sketch-projected-fillet-endpoints.
+
 ## Unreleased — Sketch Fillet between coincident arcs
 - Sketch Fillet recognises arc endpoints joined by Coincident relations, including chains of coincidences and the origin. Construction geometry through a corner no longer hides the two regular curves to round.
 - A failed fillet or chamfer leaves the sketch unchanged.

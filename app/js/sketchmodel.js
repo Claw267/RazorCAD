@@ -1290,6 +1290,45 @@ export function updateProjected(sk, k, prims) {
   return true;
 }
 
+// Projected edges can share an endpoint until a source edit (e.g. a fillet) separates them.
+// Split only targets that now disagree, after all projection targets have been refreshed.
+export function splitProjectedPoints(sk) {
+  const uses = new Map();
+  for (const k of sk.constraints) {
+    if (k.type !== 'projected') continue;
+    for (const [id, xy] of Object.entries(k.pts || {})) {
+      if (!uses.has(id)) uses.set(id, []);
+      uses.get(id).push({ k, xy });
+    }
+  }
+  let split = 0;
+  for (const [id, targets] of uses) {
+    if (id === 'O') continue;
+    const groups = [];
+    for (const target of targets) {
+      let g = groups.find((g) => Math.hypot(g[0].xy[0] - target.xy[0], g[0].xy[1] - target.xy[1]) < EPS);
+      if (!g) { g = []; groups.push(g); }
+      g.push(target);
+    }
+    for (const group of groups.slice(1)) {
+      const next = addPoint(sk, ...group[0].xy);
+      if (getPoint(sk, id)?.keep) getPoint(sk, next).keep = true;
+      for (const { k, xy } of group) {
+        const c = getCurve(sk, k.refs[0]);
+        if (c) {
+          for (const curve of sk.curves.filter((q) => q === c || q.ctrlOf === c.id)) {
+            for (const key of ['p1', 'p2', 'c', 'a']) if (curve[key] === id) curve[key] = next;
+            if (curve.pts) curve.pts = curve.pts.map((p) => p === id ? next : p);
+          }
+        } else if (k.refs[0] === id) k.refs[0] = next;
+        delete k.pts[id]; k.pts[next] = xy;
+      }
+      split++;
+    }
+  }
+  return split;
+}
+
 // ------------------------------------------------------------ hit testing & intersections
 function prim(sk, c) {
   if (c.type === 'line') {
