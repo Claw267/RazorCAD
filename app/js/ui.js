@@ -1523,6 +1523,7 @@ export class UI {
             : { id: 'sketch-toggle', icon: 'sketch', label: 'Sketch', action: () => a.startSketch() },
         { id: 'sketch3d-toggle', icon: 'sketch3d', label: '3D Sketch', action: () => (s3 ? null : a.startFeature('sketch3d')), active: s3 },
         tool('dim', 'smartdim', 'Dimension'),
+        { icon: 'equations', label: 'Parameters', action: () => this.showEquations() },
         'sep',
         tool('select', 'select', 'Select'),
         tool('line', 'line', 'Line'),
