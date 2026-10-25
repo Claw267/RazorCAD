@@ -22,7 +22,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); }
 button { font: inherit; color: inherit; }
 input, select { font: inherit; color: inherit; }
 
-#app { display: grid; grid-template-rows: 30px auto 1fr 22px; height: 100vh; user-select: none; }
+#app { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 30px auto 1fr 22px; height: 100vh; user-select: none; }
 #app input, #app select, .modal { user-select: text; }
 
 /* ---------- Title bar & menus ---------- */
@@ -259,14 +259,14 @@ table.bom th { background: #f1f5f9; font-weight: 600; }
   background: rgba(255,255,255,.6); padding: 0 3px; border-radius: 2px;
 }
 .dim {
-  position: absolute; transform: translate(-50%, -50%); pointer-events: auto; cursor: pointer;
+  position: absolute; transform: translate(-50%, -50%); pointer-events: auto; cursor: move; touch-action: none;
   font-size: 12px; color: #0d3b9e; background: rgba(255,255,255,.88); border: 1px solid #b6c6e6;
   padding: 0 4px; border-radius: 2px; white-space: nowrap; user-select: none;
 }
 .dim:hover { border-color: var(--accent); background: #fff; color: #000; }
 .dim.driven { color: #6a7385; border-style: dashed; }
 .dim.selected { border-color: var(--accent); background: #e0efff; }
-.dim.preview { opacity: .75; pointer-events: none; }
+.dim.preview { color: #c2410c; border-color: #fb923c; opacity: .9; pointer-events: none; }
 .rel {
   position: absolute; transform: translate(-50%, -50%); pointer-events: auto; cursor: pointer;
   min-width: 15px; height: 15px; padding: 0 2px; display: grid; place-items: center;
@@ -715,7 +715,7 @@ svg.ref-arrows { position: absolute; left: 0; top: 0; pointer-events: none; z-in
 .bomcols .bc-grid input { width: 100%; min-width: 90px; box-sizing: border-box; }
 
 /* The browser version's notice */
-#app.with-notice { grid-template-rows: auto 30px auto 1fr 22px; grid-template-columns: minmax(0, 1fr); }
+#app.with-notice { grid-template-rows: auto 30px auto 1fr 22px; }
 #web-notice { display: flex; align-items: center; gap: 10px; padding: 5px 10px; background: #fff6d6; border-bottom: 1px solid #e6d28a; color: #4a3f12; font-size: 12.5px; }
 #web-notice span { flex: 1; min-width: 0; }
 #web-notice a { color: #1d5fb8; }
@@ -776,6 +776,7 @@ svg.ref-arrows { position: absolute; left: 0; top: 0; pointer-events: none; z-in
 [data-theme="dark"] .plabel { color: #b6c0cd; background: rgba(27, 31, 37, .6); }
 [data-theme="dark"] .dim { color: #9cc2ff; background: rgba(28, 34, 44, .9); border-color: #3b4f70; }
 [data-theme="dark"] .dim:hover { background: #26303c; color: #fff; }
+[data-theme="dark"] .dim.preview { color: #fb923c; border-color: #fb923c; }
 [data-theme="dark"] .dim.selected { background: #263d5c; }
 [data-theme="dark"] .dim.driven { color: #8f99a9; }
 [data-theme="dark"] .dim .sig { color: #f0a050; }
@@ -863,3 +864,8 @@ button:focus-visible, [role="button"]:focus-visible, .pm-gt:focus-visible, selec
 /* the sketch's selection box: a window (solid) or crossing (dashed) */
 .sk-box { position: absolute; pointer-events: none; border: 1px solid #2563eb; background: rgba(37, 99, 235, 0.08); z-index: 5; }
 .sk-box.crossing { border-style: dashed; border-color: #16a34a; background: rgba(22, 163, 74, 0.08); }
+
+.expr-complete { position: fixed; z-index: 20000; max-height: 220px; overflow-y: auto; box-sizing: border-box; padding: 4px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel2); color: var(--text); box-shadow: 0 4px 14px #0003; font: 12px 'Segoe UI', sans-serif; }
+.expr-complete [role="option"] { display: flex; justify-content: space-between; gap: 20px; padding: 6px 8px; cursor: pointer; overflow-wrap: anywhere; }
+.expr-complete [aria-selected="true"], .expr-complete [role="option"]:hover { background: var(--accent-weak); }
+.expr-complete-value { color: var(--muted); white-space: nowrap; }

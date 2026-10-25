@@ -10,6 +10,75 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 - **Lofted Surface** has **Guide Curves**, as the solid Loft has: sketches (one chain of curves) or curves (3D sketches, composite and projected curves, helices) the surface follows between the profiles, each running from the first profile to the last through every profile. One guide pulls the surface along it; two or more shape it across, each where it touches the profiles. Open and closed profiles both, sketches or 3D sketches; not with straight (ruled) sides.
 - A guide may now cross a profile anywhere along it (the solid Loft too): where the two meet is found between the points they are measured at, not only at them.
 - Test: surface-loft-guides (two open straight profiles and two arc guides: the surface spreads out to the arcs and fills the area they bound, to 0.03 %; a closed one with one guide bulges out to it on that side only; ruled with guides: a message).
+## Unreleased — Distinct tangent-handle graphics
+- Fit spline tangent controls use solid teal stems, direction arrows and round grips; fit points retain their square markers. Selected, hovered and constrained controls retain their corresponding state colours.
+- Selection labels identify tangent grips and tangent-handle lines explicitly. Native mouse dragging and the fit spline regression test verified after the visual change.
+
+## Unreleased — Sketch tool families, slot variants and fit spline tangent handles
+- Customize Toolbars now offers Expanded or Grouped Sketch layouts, saved as a preference. Grouped mode gathers line, rectangle, arc, spline and slot variants into flyouts while preserving the expanded toolbar's ordering and hidden tools.
+- Midpoint Line creates a line symmetrically about the first click and retains a Midpoint constraint. For construction can be enabled before drawing, through the drawing panel or Construction Geometry with no curves selected; previews and created geometry follow the mode. Existing selection-based construction toggling remains available.
+- Slots include centre-to-centre, centre-point, overall-length, centre-point arc and three-point arc variants. Shared layouts drive previews and creation; outlines keep tangent/equal relations, have no unused helper freedoms, survive undo/redo and form extrudable profiles. Invalid widths, collinear arc inputs and overlapping major-arc caps are rejected.
+- New Fit Point Splines have cubic tangent direction/strength handles at every fit point. Handles are ordinary constraint-aware points with construction lines; their freedoms are included in definition status. Fit-point dragging carries its handle, and copies, mirrors, blocks, patterns, projections and serialization preserve the shape. Existing stored splines and the 3D sketch spline tool keep their representation.
+- Tests: sketch-grouped-tools, sketch-new-drawing-tools, sketch-fit-spline-handles, plus 15 existing expression, constraint, projection, pattern and solid regression tests. Native mouse dragging and the user's existing neck model also verified.
+
+## Unreleased — Parameter name completion in expressions
+- Sketch dimension editing, linear/path and circular sketch patterns, and feature expression fields suggest matching Equations parameters with their evaluated values while typing. Completion replaces only the identifier at the caret, preserving surrounding arithmetic.
+- Choose with Up/Down and Tab or Enter, or click an entry. Escape dismisses suggestions first; completing a name does not confirm a dimension or dialog. Numeric arrow stepping remains available when no suggestions are open.
+- Test: expression-parameter-completion (keyboard/mouse, embedded formulas, live pattern preview, dimension confirmation and undo/redo, modal key handling and popup cleanup); native browser keyboard interaction also verified.
+
+## Unreleased — Persistent projection of small sketch arcs
+- Project Edges respects curve-only picking for source sketches, so nearby endpoints and arc centres cannot replace a small arc with a projected point.
+- Explicitly projecting an existing automatic reference promotes it to persistent profile geometry instead of reporting that it is already present or duplicating it.
+- Test: sketch-project-small-arc (click near vertices, promote a temporary reference, enter/exit the source unchanged, source translation and target reopening); spline projection and shared-endpoint regression tests also pass.
+
+## Unreleased — Coincident sketch midpoints
+- Select two line segments and choose Coincident Midpoints to keep their centres together without creating helper points. Works with construction lines and spline control-polygon segments, preserves lengths and directions set by other constraints, and survives save/reopen and rotated copies.
+- Test: sketch-coincident-midpoints (selection UI, source edits, no extra points, undo/redo, serialization and conflict rollback).
+
+## Unreleased — Equal on several control-polygon segments
+- Adding relations to several selected entities now keeps the useful relations and skips ones already implied by existing constraints. Equal on all four oblique legs of an eight-control-point spline no longer fails because one pair is already Equal.
+- Already-constrained pairs get an informational message; true conflicts still reject the entire request without changing geometry or constraints. A failed single relation refreshes annotation references after restoring the sketch.
+- Test: sketch-equal-control-polygon-batch (all six pairs, useful plus redundant relations, undo/redo and atomic rollback on conflicts).
+
+## Unreleased — Clearer sketch dimensions and Equal Curve Length
+- Linear and perpendicular dimensions use aligned, upright text, extension-line gaps and overruns, and outside arrows when space is tight. Moving a perpendicular dimension now moves its dimension line along the reference edge instead of leaving a floating label and a diagonal leader. Preview placement and later dragging still keep the text at the chosen position.
+- Equal Curve Length constrains the actual length of arcs, splines, circles, ellipses and mixed curve selections. Lines retain their existing Equal relation. Circular-curve Equal is labelled Equal Radius to distinguish it from equal arc length. Spline lengths use the curve definition (including rational weights), not the displayed polyline.
+- Tests: sketch-dimension-drafting-layout, sketch-equal-curve-length, dimension placement/creation and serialized rebuilds.
+
+## Unreleased — Confirm dimension placement, including preselection
+- Dimension accepts a preselected curve or pair of entities and waits for a placement click. An orange preview and cursor hint show the pending dimension; no constraint is created until confirmation and Esc cancels it.
+- The label stays at the chosen click position, including radius, diameter and point-to-line annotations. Existing dimension dragging remains available for later adjustment.
+- Test: sketch-dimension-confirm-placement.
+
+## Unreleased — Drag sketch dimension annotations
+- Drag a dimension's number with Select or Dimension to reposition the annotation, including linear, radius, diameter, angular and driven dimensions. A click still opens its value editor. Linear dimension lines follow the new offset; moved labels retain a leader to their dimension where needed.
+- Annotation placement is saved with the sketch and supports undo/redo. Esc or pointer cancellation restores the position before the drag; geometry and dimension values do not change.
+- Test: sketch-dimension-placement; mouse dragging also checked on the guitar-neck model.
+
+## Unreleased — Hide stale projected sketches while editing their source
+- Sketches that depend on the sketch being edited (including indirect dependencies) are hidden until the edit ends and they rebuild. Old projected arc segments no longer appear over a new fillet. Independent reference sketches remain visible; visibility settings are preserved.
+- When a source fillet separates two previously joined arc endpoints, their projected endpoints separate too. The dependent sketch no longer gets conflicting projection constraints at the old corner.
+- Tests: sketch-hide-dependent-projections (save, rebuild and cancel), sketch-projected-fillet-endpoints.
+
+## Unreleased — Sketch Fillet between coincident arcs
+- Sketch Fillet recognises arc endpoints joined by Coincident relations, including chains of coincidences and the origin. Construction geometry through a corner no longer hides the two regular curves to round.
+- A failed fillet or chamfer leaves the sketch unchanged.
+- Tests: sketch-fillet-coincident-arcs, sketch-fillet-arcs-click, sketch-fillet-arcs.
+
+## Unreleased — Parametric sketch patterns and a side panel
+- Pattern copies use the defined-geometry colour (black in the light theme, light in the dark theme); purple is reserved for projected geometry.
+- Linear Sketch Pattern and its Along Path option now keep a pattern definition: copies update with source geometry, the path/direction, quantity and spacing (including expressions), and survive save/reopen and rebuild. Copies keep stable identifiers when parameters change; their shape is edited through the originals.
+- The command opens in the Property panel with a live preview, source and path selection before or after launch, two straight directions where applicable, path rotation and accept/cancel. Existing patterns can be edited from Sketch Patterns in the panel; preview changes can be cancelled without modifying the sketch.
+- Earlier patterns remain independent copies; recreate them to gain parametric links.
+- Tests: sketch-pattern-parametric, sketch-pattern-curved-updates, sketch-pattern-panel, sketch-pattern-path.
+
+## Unreleased — Sketch rename and spline projection
+- Rename works on under-defined sketches marked with `(-)` in the feature tree, and identifies the selected feature even when names are duplicated.
+- Project Edges from another sketch preserves a spline as one linked spline, including its degree and weights, instead of creating hundreds or thousands of line segments. Existing segment projections keep their previous representation.
+- Tests: sketch-rename-underdefined, sketch-project-spline.
+
+## Unreleased — Origin axis colours
+- The origin now uses X red, Y green and Z blue in both up-axis settings, matching the corner triad. With Y up, the vertical origin axis is green.
 
 ## 2026-10-25 09:42 — Edge-Flange corner gap 0.5 mm by default
 - A new Edge Flange's corner gap is 0.5 mm (was 0.1), as on the formed lid the square corner was matched to. Parts already made keep their gap; Closed Corner's own gap is unchanged (0.1).
