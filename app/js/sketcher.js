@@ -69,6 +69,7 @@ export const SKETCH_TOOLS = {
   split: { label: 'Split', hint: 'Click a line or arc where it should be split into two joined pieces.' },
   block: { label: 'Insert Block', hint: 'Click where the block goes (its centre). Click again for more copies; Esc ends.' },
   offset: { label: 'Offset', hint: 'Click a line, arc or circle — or a model edge (its chain of edges in a plane parallel to the sketch) — then move to the side and distance you want and click, and type the exact distance. Choose a linked or a single offset in the Property panel.' },
+  intersect: { label: 'Intersection Curve', hint: 'Click curves of earlier sketches to intersect them with this sketch plane, or click a model section. References remain linked. Esc exits.' },
   convert: { label: 'Project Edges', hint: 'Click model edges, vertices or entities of other sketches to project them into this sketch. Projected geometry stays linked and updates when its source changes.' },
   text: { label: 'Text', hint: 'Click where the text should start. Type it and choose the font, height, bold and italic in the Property panel. Text makes closed outlines for extruded bosses and cuts (and Wrap).' },
   sfillet: { label: 'Sketch Fillet', hint: 'Set the radius in the Property panel, then click a corner where two lines, a line and an arc, or two arcs meet. They are trimmed and joined by a tangent arc.' },
@@ -227,9 +228,10 @@ export class Sketcher {
     this.blendFirst = null;
     this.endDraw();
     if (t !== 'select') this.endGearPick();
-    if ((t === 'convert' || t === 'offset') && this.tool !== 'convert' && this.tool !== 'offset') { this.tool = t; this.loadSection(); }
-    else if (t !== 'convert' && t !== 'offset') this.clearSection();
+    if (['convert', 'intersect', 'offset'].includes(t)) { this.tool = t; this.loadSection(); }
+    else this.clearSection();
     this.tool = t;
+    this.app.updateSketchDisplay();
     if (t !== 'select') this.sel.clear();
     if (dimPicks.length && dimPicks.length <= 2) {
       this.draw = { tool: 'dim', picks: dimPicks, spec: null, ext: [], placing: !!this.dimSpec(dimPicks, { x: 0, y: 0 }) };
@@ -513,7 +515,7 @@ export class Sketcher {
     this.highlightCutFaces();
     try {
       const prims = await this.app.kernel.sectionCurves(f.id);
-      if (this.f === f && (this.tool === 'convert' || this.tool === 'offset')) { this.sectionPrims = prims; this.redraw(); }
+      if (this.f === f && (['convert', 'intersect', 'offset'].includes(this.tool))) { this.sectionPrims = prims; this.redraw(); }
     } catch { this.sectionPrims = null; }
   }
 
@@ -967,7 +969,7 @@ export class Sketcher {
       if (equalled) this.app.status(t === 'sfillet' ? 'Corner rounded, equal to the first fillet (Equal). Leave the tool to start a new size.' : 'Corner chamfered, equal to the first chamfer (Equal Distance). Leave the tool to start a new size.');
       return;
     }
-    if (t === 'convert') {
+    if (t === 'convert' || t === 'intersect') {
       const ext = this.externalHit(ev, { vertices: false });
       if (!ext) return;
       if (ext.kind === 'extSection') {
@@ -982,8 +984,9 @@ export class Sketcher {
         return;
       }
       const prims = this.externalPrims(ext);
-      if (!prims.length) return;
+      if (!prims.length) { this.app.status(ext.geom?.spline && t === 'intersect' ? 'Intersection of a non-coplanar spline is not supported yet.' : 'That curve does not intersect this sketch plane.'); return; }
       const existing = this.existingRef(ext);
+      if (existing && t === 'intersect') { this.app.status('That intersection is already linked in the sketch.'); return; }
       if (existing) {
         const k = this.f.constraints.find((k) => k.type === 'projected' && k.refs[0] === existing.id);
         const c = S.getCurve(this.f, existing.id);
@@ -1195,13 +1198,13 @@ export class Sketcher {
       this.redraw();
       return;
     }
-    if (t === 'dim' || t === 'convert') {
+    if (t === 'dim' || t === 'convert' || t === 'intersect') {
       this.vp.canvas.style.cursor = CURSORS[t];
       const hit = t === 'dim' ? this.hitTest(raw) : null;
       this.hover = hit ? hit.id : null;
       this.cursor = { p: raw, screen };
       const n = this.draw?.picks?.length ?? 0;
-      const picking = !this.draw?.placing && (t === 'convert' || n === 0 || (n === 1 && !['circle', 'arc'].includes(this.draw.picks[0].kind)));
+      const picking = !this.draw?.placing && (t === 'convert' || t === 'intersect' || n === 0 || (n === 1 && !['circle', 'arc'].includes(this.draw.picks[0].kind)));
       const now = performance.now();
       if (!hit && picking && now - (this._extT || 0) > 30) {
         this._extT = now;
@@ -1418,15 +1421,7 @@ export class Sketcher {
   }
 
   // Curves where this sketch's plane cuts the solid bodies, added as linked geometry.
-  async intersectionCurve() {
-    let prims;
-    try { prims = await this.app.kernel.sectionCurves(this.f.id); } catch (e) { this.app.toast(e.message, true); return; }
-    if (!this.active) return;
-    if (!prims.length) { this.app.toast('The sketch plane does not cut any solid body', true); return; }
-    S.addProjected(this.f, prims, { kind: 'section' });
-    this.changed();
-    this.app.status(`Added ${prims.length} intersection curve${prims.length === 1 ? '' : 's'} where the sketch plane cuts the model (linked: they follow model changes).`);
-  }
+  intersectionCurve() { this.setTool('intersect'); }
 
   // Turn the sketch's horizontal / vertical directions by 90° (dir 1: counter-clockwise).
   rotateAxes(dir) {
@@ -2143,7 +2138,7 @@ export class Sketcher {
       if (fid === this.f.id) continue;
       const i = doc.features.findIndex((x) => x.id === fid);
       if (myIdx >= 0 && i > myIdx) continue;
-      if (this.app.result.consumed.has(fid) && !this.app.showAbsorbed) {
+      if (!['convert', 'intersect'].includes(this.tool) && this.app.result.consumed.has(fid) && !this.app.showAbsorbed) {
         // absorbed sketches are hidden in the view; only offer visible ones
         continue;
       }
@@ -2161,6 +2156,7 @@ export class Sketcher {
     bd = 6;
     for (const [fid, s] of others) {
       for (const c of s.sketch.curves) {
+        if (c.ctrlOf) continue;
         const pts = S.curvePoints(s.sketch, c).map(([x, y]) => vp.project(G.toWorld(s.frame, x, y)));
         for (let i = 0; i < pts.length - 1; i++) {
           const dd = S.segDist(m.x, m.y, pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y);
@@ -2171,9 +2167,9 @@ export class Sketcher {
     if (best) return best;
     const v = vertices ? vp.pickVertex(ev) : null;
     if (v) return { kind: 'extVertex', p: v.point.toArray() };
-    const e = vp.pickEdge(ev);
+    const e = this.tool === 'intersect' ? null : vp.pickEdge(ev);
     if (e) return { kind: 'extEdge', mid: e.edge.mid, geom: S.classifyPolyline3(e.edge.pts.map((q) => q.toArray())) };
-    if (this.sectionPrims?.length && (this.tool === 'convert' || this.tool === 'offset')) {
+    if (this.sectionPrims?.length && (['convert', 'intersect', 'offset'].includes(this.tool))) {
       const raw = this.localFromEvent(ev), tol = 6 * this.wpp();
       let bi = -1, bdd = tol;
       this.sectionPrims.forEach((g, i) => {
@@ -2189,13 +2185,13 @@ export class Sketcher {
     if (ext.kind === 'extSection') return ext.chain.map((i) => this.sectionPrims[i]);
     const fr = this.frameArr();
     if (ext.kind === 'extPoint' || ext.kind === 'extVertex') return [{ type: 'point', p: S.toFrame2D(fr, ext.p) }];
-    return S.projectCurve(fr, ext.geom, { preserveSpline: true });
+    return this.tool === 'intersect' ? S.intersectCurve(fr, ext.geom) : S.projectCurve(fr, ext.geom, { preserveSpline: true });
   }
 
   externalSrc(ext) {
     if (ext.kind === 'extSection') return { kind: 'section', idx: ext.idx, of: this.sectionPrims.length };
     if (ext.kind === 'extPoint') return { kind: 'sketchPoint', fid: ext.fid, pid: ext.pid };
-    if (ext.kind === 'extCurve') return { kind: 'sketch', fid: ext.fid, cid: ext.cid };
+    if (ext.kind === 'extCurve') return { kind: 'sketch', fid: ext.fid, cid: ext.cid, ...(this.tool === 'intersect' ? { intersection: true } : {}) };
     if (ext.kind === 'extVertex') return { kind: 'vertex', p: ext.p };
     return { kind: 'edge', p: ext.mid };
   }
@@ -2232,7 +2228,7 @@ export class Sketcher {
     for (const k of this.f.constraints) {
       if (k.type !== 'projected' || !k.src || k.src.kind !== src.kind) continue;
       const same = src.kind === 'edge' || src.kind === 'vertex' ? near(k.src.p, src.p)
-        : src.kind === 'sketch' ? k.src.fid === src.fid && k.src.cid === src.cid
+        : src.kind === 'sketch' ? k.src.fid === src.fid && k.src.cid === src.cid && !!k.src.intersection === !!src.intersection
           : k.src.fid === src.fid && k.src.pid === src.pid;
       if (!same) continue;
       const id = k.refs[0], c = S.getCurve(this.f, id);
@@ -2702,7 +2698,7 @@ export class Sketcher {
       for (const pl of this.textPolys?.[t.id] || []) addSegs(col, false, pl);
     }
     // where the sketch plane cuts the model (Project Edges / Offset can pick these)
-    if (this.sectionPrims && (this.tool === 'convert' || this.tool === 'offset')) for (const g of this.sectionPrims) addSegs(0x0891b2, true, primPolyline(g));
+    if (this.sectionPrims && (['convert', 'intersect', 'offset'].includes(this.tool))) for (const g of this.sectionPrims) addSegs(0x0891b2, true, primPolyline(g));
 
     // preview geometry
     const d = this.draw;
@@ -3133,7 +3129,7 @@ export class Sketcher {
       this.tipEl.style.left = c.screen.x + 'px'; this.tipEl.style.top = c.screen.y + 'px';
       return;
     }
-    const drawing = !['select', 'trim', 'dim', 'convert', 'offset', 'extend', 'split'].includes(this.tool);
+    const drawing = !['select', 'trim', 'dim', 'convert', 'intersect', 'offset', 'extend', 'split'].includes(this.tool);
     if (this.tool === 'offset' && this.draw?.tool === 'offset' && c) {
       this.tipEl.hidden = false;
       this.tipEl.textContent = `Offset ${fmt(Math.abs(this.draw.dist))}`;

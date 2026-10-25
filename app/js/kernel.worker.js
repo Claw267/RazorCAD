@@ -5986,11 +5986,11 @@ function updateProjections(f, frame, body, sketches, surfaceShapes = []) {
     let prims = null;
     try {
       if (src.kind === 'sketch') {
-        const key = 's:' + src.fid + ':' + src.cid + ':' + !!src.spline;
+        const key = 's:' + src.fid + ':' + src.cid + ':' + !!src.spline + ':' + !!src.intersection;
         if (!cache.has(key)) {
           const s = sketches.get(src.fid);
           const c = s && S.getCurve(s.sk, src.cid);
-          cache.set(key, c ? S.projectCurve(frame, S.curve3D(s.sk, c, s.frame), { preserveSpline: !!src.spline }) : null);
+          cache.set(key, c ? (src.intersection ? S.intersectCurve(frame, S.curve3D(s.sk, c, s.frame)) : S.projectCurve(frame, S.curve3D(s.sk, c, s.frame), { preserveSpline: !!src.spline })) : null);
         }
         prims = cache.get(key);
       } else if (src.kind === 'sketchPoint') {

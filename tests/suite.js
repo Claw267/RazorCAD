@@ -1043,6 +1043,30 @@ const UI = {
     return { ok: f.name === 'Neck outline', detail: 'Renamed a sketch whose tree label includes (-)' };
   },
 
+  async 'sketch-intersection-references'() {
+    const a = window.app, S = await import('/js/sketchmodel.js'), doc = M.newDoc();
+    const plane = M.createFeature(doc, 'plane', { refs: [{ kind: 'plane', id: 'top' }], offset: 40 });
+    const source = M.createFeature(doc, 'sketch', { plane: { ref: plane.id }, visible: false });
+    const circle = S.addCircle(source, 'O', 40);
+    const target = M.createFeature(doc, 'sketch', { plane: { ref: 'front' } });
+    doc.features.push(plane, source, target); await a.setDoc(doc); closeModals(); await a.enterSketch(target, false); await wait(350);
+    const sk = a.sketcher, vp = a.viewport; sk.intersectionCurve(); vp.setStandardView('iso', false); vp.camera.updateMatrixWorld(true);
+    const frame = a.result.sketches.get(source.id).frame, world = frame.o.clone().addScaledVector(frame.u, 40);
+    const v = viewEvents(), screen = v.toScreen(world);
+    if (sk.externalHit({ clientX: screen[0], clientY: screen[1] }, { vertices: false })?.cid !== circle) return { ok: false, detail: 'Hidden source curve not pickable' };
+    await v.click(...screen);
+    if (target.constraints.filter(k => k.src?.intersection).length !== 2) return { ok: false, detail: 'Intersection click did not create two linked points' };
+    await v.click(...screen);
+    if (target.points.length !== 2) return { ok: false, detail: 'Repeated intersection duplicated points' };
+    sk.setTool('select'); a.exitSketch(true); await a.rebuild();
+    S.getCurve(source, circle).r = 50; source.rev = M.newRev(); await a.rebuild();
+    const points = a.result.sketches.get(target.id).sketch.points;
+    if (a.result.errors.size || !points.every(p => Math.abs(Math.abs(p.x) - 50) < 1e-6 && Math.abs(p.y - 40) < 1e-6)) return { ok: false, detail: 'Source edit broke intersection links' };
+    await a.enterSketch(target, false); sk.setTool('convert'); vp.setStandardView('iso', false); vp.camera.updateMatrixWorld(true);
+    const next = v.toScreen(frame.o.clone().addScaledVector(frame.u, 50)); await v.click(...next);
+    return { ok: source.visible === false && target.constraints.some(k => k.src?.fid === source.id && !k.src.intersection), detail: 'Hidden source selection, linked circle-plane points, repeat click, radius update, independent projection and saved visibility' };
+  },
+
   async 'sketch-project-small-arc'() {
     const a = window.app, S = await import('/js/sketchmodel.js');
     const doc = M.newDoc(), source = M.createFeature(doc, 'sketch', { plane: { ref: 'front' }, visible: true });

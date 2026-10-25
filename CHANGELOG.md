@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## Unreleased — Sketch source selection and plane intersections
+- Project Edges and Intersection Curve temporarily display earlier source sketches, including hidden/absorbed ones, without altering saved visibility. Spline helper lines are excluded from external curve picking.
+- Intersection Curve now selects individual sketch curves or model section chains. Lines, circles and arcs produce linked plane intersections; coplanar geometry is retained. Source edits refresh intersections independently of ordinary projections. Non-coplanar spline intersections are explicitly unsupported.
+- Verified on the supplied Part1 document: circle intersections follow a diameter edit from 80 to 100 mm. Four browser tests passed, including mouse selection, duplicate prevention, linked updates, projections and loft selection.
+
 ## Unreleased — Loft contour and guide selection
 - Loft and Loft Cut accept individual sketch regions, including holes, through direct canvas selection. Surface Loft accepts open or closed sketch contours. Separate profile/guide lists support automatic chains, manual segment groups, ordering, removal and numbered highlights; source visibility is preserved.
 - References retain source sketch and curve IDs, track dependencies and report missing/ambiguous contours. Existing whole-sketch and supported 3D curve references remain supported. Guide interpolation and boundary continuity algorithms are unchanged; new G1/G2 boundary and Align to Surface controls are not included.

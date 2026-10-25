@@ -2329,6 +2329,7 @@ class App {
     // Dependent sketches still contain the last rebuilt projections while their source is being edited.
     // Hide that stale geometry until leaving the sketch rebuilds it; keep independent references visible.
     const editing = this.mode === 'sketch' ? this.sketcher.f?.id : null;
+    const referencePicking = editing && ['convert', 'intersect'].includes(this.sketcher.tool);
     const stale = new Set(editing ? [editing] : []);
     if (editing) {
       const refs = this.doc.features.map((f) => [f.id, M.referencesOf(this.doc, f)]);
@@ -2342,7 +2343,7 @@ class App {
       if (stale.has(id)) continue;
       const pmSketch = this.pm?.kind === 'feature' && this.pm.feature.sketch === id;
       const selected = (this.selection?.kind === 'feature' && this.selection.id === id) || this.hoverSketchId === id;
-      if ((this.vis.sketches && this.sketchShown(s.sketch)) || pmSketch || selected || loft) {
+      if ((this.vis.sketches && this.sketchShown(s.sketch)) || pmSketch || selected || loft || (referencePicking && this.doc.features.findIndex((f) => f.id === id) < this.doc.features.findIndex((f) => f.id === editing))) {
         const polylines = s.sketch.curves.filter((c) => !loft || !c.ctrlOf).map((c) => ({ pts: S.curvePoints(s.sketch, c), construction: c.construction }));
         for (const polys of Object.values(s.textPolys || {})) for (const pts of polys) polylines.push({ pts, construction: false });
         if (s.sketch.gearTrains?.length) for (const pts of S.gearPolylines(s.sketch)) polylines.push({ pts, construction: false });
