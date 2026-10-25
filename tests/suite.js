@@ -512,6 +512,59 @@ const UI = {
     return { ok: true, detail: `${notes.length} parts restored without rebuilding (${(bytes / 1048576).toFixed(1)} MB of BRep; meshing ${mesh1} ms → ${mesh2} ms)` };
   },
 
+  async 'expression-parameter-completion'() {
+    const a = window.app, S = await import('/js/sketchmodel.js');
+    const doc = M.newDoc(); doc.equations = [{ name: 'neck_length', expr: '120' }, { name: 'neck_width', expr: '20' }];
+    const f = M.createFeature(doc, 'sketch', { plane: { ref: 'front' } });
+    const p = S.addPoint(f, 100, 0), line = S.addLine(f, 'O', p);
+    S.addRel(f, 'horizontal', [line]);
+    const dim = S.addRel(f, 'dim', ['O', p], { kind: 'hdist', value: 100, s: 1 });
+    doc.features.push(f); await a.setDoc(doc); closeModals(); await a.enterSketch(f, false);
+    const sk = a.sketcher;
+    const key = (input, k) => input.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+    const type = (input, text, caret = text.length) => { input.focus(); input.value = text; input.setSelectionRange(caret, caret); input.dispatchEvent(new Event('input', { bubbles: true })); };
+    sk.openModify(sk.dims.findIndex((d) => d.k.id === dim.id));
+    let input = sk.modifyEl.querySelector('input');
+    type(input, 'neck_');
+    let options = [...document.querySelectorAll('.expr-complete [role="option"]')];
+    if (options.length !== 2 || !options[0].textContent.includes('120')) return { ok: false, detail: 'Missing parameter names or evaluated values' };
+    key(input, 'ArrowDown'); key(input, 'Tab');
+    if (input.value !== 'neck_width' || !sk.modifyEl || document.querySelector('.expr-complete') || S.getPoint(f, p).x !== 100) return { ok: false, detail: 'Tab failed to complete or prematurely applied the dimension' };
+    type(input, 'neck_l'); key(input, 'Escape');
+    if (!sk.modifyEl || document.querySelector('.expr-complete') || input.value !== 'neck_l') return { ok: false, detail: 'Escape cancelled the dimension instead of only the suggestions' };
+    type(input, '(neck_l+4)/2', 7); key(input, 'Enter');
+    if (input.value !== '(neck_length+4)/2' || !sk.modifyEl) return { ok: false, detail: 'Completion damaged the surrounding formula or confirmed the dialog' };
+    key(input, 'Enter');
+    if (sk.modifyEl || Math.abs(S.getPoint(f, p).x - 62) > 1e-6) return { ok: false, detail: 'Completed formula did not drive the dimension' };
+    sk.undo(); if (Math.abs(S.getPoint(f, p).x - 100) > 1e-6) return { ok: false, detail: 'Dimension completion did not undo' };
+    sk.redo();
+    sk.sel = new Set([line]); sk.linearPatternSel();
+    input = document.querySelector('#pm [data-pattern="d1"]');
+    type(input, 'neck_w/2', 6);
+    document.querySelector('.expr-complete [role="option"]').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+    if (input.value !== 'neck_width/2' || sk.patternError || !sk.patternPreview) return { ok: false, detail: 'Mouse completion did not update the pattern preview' };
+    await a.okPM();
+    if (f.patterns[0].d1 !== 'neck_width/2') return { ok: false, detail: 'Pattern lost the completed expression' };
+    sk.linearPatternSel(f.patterns[0].id); input = document.querySelector('#pm [data-pattern="d1"]');
+    type(input, 'neck_'); a.cancelPM(); await wait(0);
+    if (document.querySelector('.expr-complete')) return { ok: false, detail: 'Removed field left an orphan popup' };
+    let stored = null;
+    const wrapper = a.ui.exprInput(10, 'mm', (v) => { stored = v; }); document.body.appendChild(wrapper);
+    input = wrapper.querySelector('input'); type(input, 'Neck_l'); key(input, 'Tab');
+    if (input.value !== 'neck_length' || stored !== 'neck_length') { wrapper.remove(); return { ok: false, detail: 'Feature expression field did not complete case-insensitively' }; }
+    type(input, 'unknown'); if (document.querySelector('.expr-complete')) { wrapper.remove(); return { ok: false, detail: 'Unknown prefix offered unrelated names' }; }
+    type(input, '12'); key(input, 'ArrowUp');
+    const numeric = input.value === '13'; wrapper.remove();
+    const answer = a.ui.promptFields('Expression completion test', 'equations', [{ key: 'value', label: 'Value', type: 'expr', value: 1 }]);
+    await wait(10); input = document.querySelector('.modal-back input');
+    type(input, 'neck_l'); key(input, 'Escape');
+    if (!input.isConnected || document.querySelector('.expr-complete')) return { ok: false, detail: 'Modal capture closed the dialog instead of the suggestions' };
+    type(input, 'neck_l'); key(input, 'Enter');
+    if (!input.isConnected || input.value !== 'neck_length') return { ok: false, detail: 'Modal accepted before completing the name' };
+    key(input, 'Enter'); const result = await answer;
+    return { ok: numeric && result?.value === 'neck_length', detail: 'Dimension, feature and pattern formulas, values, keyboard/mouse, caret replacement, modal Escape/Enter, deferred confirmation, undo/redo, popup cleanup and numeric stepping' };
+  },
+
   async 'sketch-coincident-midpoints'() {
     const a = window.app, S = await import('/js/sketchmodel.js'), V = await import('/js/solver.js');
     await a.newDocument?.(); closeModals();

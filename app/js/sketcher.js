@@ -1746,10 +1746,10 @@ export class Sketcher {
     if (!curves.length) { this.app.toast('Select the entities to pattern first (and a point to turn them about; the origin otherwise)', true); return; }
     const C = ctrId ? S.getPoint(this.f, ctrId) : { x: 0, y: 0 };
     const v = await this.app.ui.promptFields('Circular Sketch Pattern', 'skCirPattern', [
-      { key: 'n', label: 'Number of instances (including the original)', value: 6 },
-      { key: 'total', label: 'Total angle (°; 360 spreads them evenly round)', value: 360 },
-      { key: 'cx', label: 'Centre X (mm)', value: +C.x.toFixed(4) },
-      { key: 'cy', label: 'Centre Y (mm)', value: +C.y.toFixed(4) },
+      { key: 'n', label: 'Number of instances (including the original)', type: 'expr', value: 6 },
+      { key: 'total', label: 'Total angle (°; 360 spreads them evenly round)', type: 'expr', value: 360 },
+      { key: 'cx', label: 'Centre X (mm)', type: 'expr', value: +C.x.toFixed(4) },
+      { key: 'cy', label: 'Centre Y (mm)', type: 'expr', value: +C.y.toFixed(4) },
     ], ctrId ? 'Turned about the selected point.' : 'Turned about the centre below (select a point with the entities to use it).');
     if (!v || !this.active) return;
     const n = (x) => this.ev(String(x));
@@ -3104,6 +3104,7 @@ export class Sketcher {
       <div class="merr"></div>`;
     el.addEventListener('pointerdown', (ev) => ev.stopPropagation());
     const input = el.querySelector('input');
+    this.app.ui.completeExpression(input);
     // (a length in an inch sketch: shown and typed in inches)
     const U = k.kind === 'angle' ? 'mm' : this.app.units;
     input.value = k.driven ? (k.kind === 'angle' ? fmt(dm.value, 4) : fmtLen(dm.value, U, 4)) : String(lenText(k.value, U));

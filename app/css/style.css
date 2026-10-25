@@ -864,3 +864,8 @@ button:focus-visible, [role="button"]:focus-visible, .pm-gt:focus-visible, selec
 /* the sketch's selection box: a window (solid) or crossing (dashed) */
 .sk-box { position: absolute; pointer-events: none; border: 1px solid #2563eb; background: rgba(37, 99, 235, 0.08); z-index: 5; }
 .sk-box.crossing { border-style: dashed; border-color: #16a34a; background: rgba(22, 163, 74, 0.08); }
+
+.expr-complete { position: fixed; z-index: 20000; max-height: 220px; overflow-y: auto; box-sizing: border-box; padding: 4px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel2); color: var(--text); box-shadow: 0 4px 14px #0003; font: 12px 'Segoe UI', sans-serif; }
+.expr-complete [role="option"] { display: flex; justify-content: space-between; gap: 20px; padding: 6px 8px; cursor: pointer; overflow-wrap: anywhere; }
+.expr-complete [aria-selected="true"], .expr-complete [role="option"]:hover { background: var(--accent-weak); }
+.expr-complete-value { color: var(--muted); white-space: nowrap; }

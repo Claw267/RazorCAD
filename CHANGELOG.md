@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## Unreleased — Parameter name completion in expressions
+- Sketch dimension editing, linear/path and circular sketch patterns, and feature expression fields suggest matching Equations parameters with their evaluated values while typing. Completion replaces only the identifier at the caret, preserving surrounding arithmetic.
+- Choose with Up/Down and Tab or Enter, or click an entry. Escape dismisses suggestions first; completing a name does not confirm a dimension or dialog. Numeric arrow stepping remains available when no suggestions are open.
+- Test: expression-parameter-completion (keyboard/mouse, embedded formulas, live pattern preview, dimension confirmation and undo/redo, modal key handling and popup cleanup); native browser keyboard interaction also verified.
+
 ## Unreleased — Persistent projection of small sketch arcs
 - Project Edges respects curve-only picking for source sketches, so nearby endpoints and arc centres cannot replace a small arc with a projected point.
 - Explicitly projecting an existing automatic reference promotes it to persistent profile geometry instead of reporting that it is already present or duplicating it.

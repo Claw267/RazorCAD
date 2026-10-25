@@ -9,6 +9,7 @@ import { iconFor, MATERIALS, planeName, findFeature, TYPE_INFO, bodySettings, ma
 import { STD_PLANES } from './geometry.js';
 import { evaluate, evalEquations, fmt, isNumeric, isValidName, normalizeValue } from './expr.js';
 import { SKETCH_TOOLS } from './sketcher.js';
+import { completeExpression } from './exprcomplete.js';
 import { S3_TOOLS, S3_KEYS } from './sketch3d.js';
 import { RELATION_INFO, analyzeSketch } from './solver.js';
 import * as SM from './sketchmodel.js';
@@ -3234,9 +3235,17 @@ export class UI {
     }
   }
 
+  completeExpression(input) {
+    completeExpression(input, () => {
+      const rows = this.app.doc.equations || [], { vars } = evalEquations(rows);
+      return rows.map((q) => ({ name: q.name, value: this.app.result?.vars?.[q.name] ?? vars[q.name] }));
+    });
+  }
+
   exprInput(value, unit, onValid, { min = null, optional = false } = {}) {
     const wrap = el('div', { class: 'pm-input' });
     const input = el('input', { type: 'text', spellcheck: 'false' });
+    this.completeExpression(input);
     // a length in an inch document: shown and typed in inches, stored in millimetres (units.js)
     const L = unit === 'mm' ? this.app.units : null;
     const toStore = (t) => (L ? lenValue(t, L) : normalizeValue(t));
@@ -3507,6 +3516,7 @@ export class UI {
     const field = (key, label, unit = '') => {
       const wrap = el('div', { class: 'pm-input' });
       const inp = el('input', { type: 'text', value: String(d[key]), 'data-pattern': key });
+      this.completeExpression(inp);
       inp.oninput = () => { d[key] = inp.value; sk.updatePatternPreview(); updateMessage(); };
       wrap.appendChild(inp); if (unit) wrap.appendChild(el('span', { class: 'unit' }, unit));
       parameters.appendChild(this.row(label, wrap));
@@ -4274,7 +4284,7 @@ export class UI {
     });
   }
 
-  // A dialog of a few fields ({ key, label, value, type: 'text' | 'select' | 'check', options }); resolves
+  // A dialog of a few fields ({ key, label, value, type: 'text' | 'expr' | 'select' | 'check', options }); resolves
   // with { key: value } (strings, booleans for checks), or null if cancelled.
   promptFields(title, ic, fields, hint = '') {
     return new Promise((resolve) => {
@@ -4291,6 +4301,7 @@ export class UI {
           for (const [v, l] of f.options) { const o = el('option', { value: v }, esc(l)); if (String(v) === String(f.value)) o.selected = true; inp.appendChild(o); }
         } else if (f.type === 'check') { inp = el('input', { type: 'checkbox' }); inp.checked = !!f.value; }
         else { inp = el('input', { type: 'text', style: 'width:90px' }); inp.value = f.value ?? ''; }
+        if (f.type === 'expr') this.completeExpression(inp);
         row.append(el('span', { style: 'flex:1' }, esc(f.label)), inp);
         box.appendChild(row);
         inputs[f.key] = inp;
