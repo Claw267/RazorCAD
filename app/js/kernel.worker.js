@@ -2866,7 +2866,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
           const lost = updateProjections(f, frame, dense ? null : body, sketches, surfaces.map((x) => x.shape));
           const sol = solveSketch(f, ev);
           sketches.set(f.id, { frame, sk: f });
-          res.sketches[f.id] = { frame, rev: f.rev, data: { points: f.points, curves: f.curves, constraints: f.constraints, nextSid: f.nextSid } };
+          res.sketches[f.id] = { frame, rev: f.rev, data: { points: f.points, curves: f.curves, constraints: f.constraints, nextSid: f.nextSid, ...(f.patterns ? { patterns: f.patterns } : {}) } };
           if (f.texts?.length) res.sketches[f.id].textPolys = textOutlines(f.texts);
           for (const tr of f.gearTrains || []) {
             for (const mm of S.trainMeshes(f, tr)) {
@@ -6050,11 +6050,11 @@ function updateProjections(f, frame, body, sketches, surfaceShapes = []) {
     let prims = null;
     try {
       if (src.kind === 'sketch') {
-        const key = 's:' + src.fid + ':' + src.cid;
+        const key = 's:' + src.fid + ':' + src.cid + ':' + !!src.spline;
         if (!cache.has(key)) {
           const s = sketches.get(src.fid);
           const c = s && S.getCurve(s.sk, src.cid);
-          cache.set(key, c ? S.projectCurve(frame, S.curve3D(s.sk, c, s.frame)) : null);
+          cache.set(key, c ? S.projectCurve(frame, S.curve3D(s.sk, c, s.frame), { preserveSpline: !!src.spline }) : null);
         }
         prims = cache.get(key);
       } else if (src.kind === 'sketchPoint') {
@@ -6086,6 +6086,7 @@ function updateProjections(f, frame, body, sketches, surfaceShapes = []) {
     } catch { prims = null; }
     if (!prims || !S.updateProjected(f, k, prims)) lost++;
   }
+  if (!lost) S.splitProjectedPoints(f);
   return lost;
 }
 

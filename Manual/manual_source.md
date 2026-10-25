@@ -131,6 +131,7 @@ The ribbon shows its buttons in two rows. {idx:toolbars, customising}
 - **Rearrange**: drag a button to a new place; the others slide aside.
 - **Your own toolbars**: click **+** after the tabs (or right-click a tab ▸ **New Toolbar…**). Add tools by dragging a button onto its tab or with right-click ▸ **Add to "…"**. Drag a button off to remove it.
 - Right-click a button on a built-in toolbar to hide it or add a separator after it. **Customize Toolbars…** shows hidden buttons again, and **Reset** puts a toolbar back as it was.
+- In **Customize Toolbars…**, choose **Sketch** and set **Sketch toolbar layout** to **Expanded (all tools)** or **Grouped (flyout menus)**. Grouped mode gathers lines, rectangles, arcs, splines and slots under their family buttons; click a family to select a variant. The preference is saved, and changing it preserves the expanded toolbar order and hidden tools. Use Expanded mode to rearrange individual tools.
 
 The layout is kept in `prefs.json` in RazorCAD's data folder.
 
@@ -313,7 +314,7 @@ Lines, arcs and circles are exact; other curves become fine polylines. The file 
 
 A part can be shown **Y up** (the default) or **Z up**: **View ▸ Up Axis**, right-click **Origin** in the feature tree, or click **Y up** / **Z up** at the right of the status bar. With Z up the **Top plane is XY**, the **Front plane XZ** and the **Right plane YZ**, and Z points up; the tree shows each standard plane's axes beside its name. The choice is kept with the part and used for new parts too. {idx:up axis}{idx:Z up}
 
-Only the names of the axes change: the model stays where it is and no feature moves. The triad, X / Y / Z directions, Move / Copy Bodies, reference point coordinates, Measure, Mass Properties and 3D sketch coordinates all use the part's axes, and so do exported STEP, STL, OBJ and 3MF files: a part shown Z up is written Z up, and a file imported into it is read Z up.
+Only the names of the axes change: the model stays where it is and no feature moves. The triad, X / Y / Z directions, Move / Copy Bodies, reference point coordinates, Measure, Mass Properties and 3D sketch coordinates all use the part's axes, and so do exported STEP, STL, OBJ and 3MF files: a part shown Z up is written Z up, and a file imported into it is read Z up. The origin and corner triad always show X in red, Y in green and Z in blue: the vertical axis is green with Y up and blue with Z up.
 
 ## Display styles
 
@@ -404,7 +405,7 @@ Sketches are made of points, lines, arcs and circles held in place by **relation
 
 - Geometry is **blue when under-defined** and **black when fully defined**.
 - The Property panel shows the remaining degrees of freedom.
-- An under-defined sketch shows **(-)** in the tree. Construction lines only need to be positioned.
+- An under-defined sketch shows **(-)** in the tree. Construction lines only need to be positioned. To rename a sketch, right-click its tree item and choose **Rename**, including when it has the **(-)** marker.
 
 ## Sketch orientation
 
@@ -417,6 +418,7 @@ In the sketch Property panel, **Rotate 90°** turns the sketch axes about the sk
 | **Select** | [[S]] | Select entities, drag geometry |
 | **Line** | [[L]] | Click a chain of points. Coincident, horizontal and vertical relations are added automatically; snapping to a midpoint or onto a curve adds those relations too. Double-click, [[Enter]] or [[Esc]] ends the chain. |
 | **Centerline** | | Construction line for symmetry, mirroring, gears or as a revolve axis |
+| **Midpoint Line** | | Midpoint, then one endpoint; the opposite endpoint is mirrored and a Midpoint relation preserves the centre |
 | **Corner Rectangle** | [[R]] | Built with horizontal and vertical relations |
 | **Center Rectangle** | | Also adds construction diagonals with a midpoint relation |
 | **Circle** | [[C]] | Centre, then radius |
@@ -424,9 +426,13 @@ In the sketch Property panel, **Rotate 90°** turns the sketch axes about the sk
 | **3 Point Arc** | | Start, end, then a point it runs through |
 | **Tangent Arc** | | From the end of a line or arc, kept tangent by a Tangent relation |
 | **Ellipse** | | Centre, end of the major axis, then the minor radius. Trim it for an elliptical arc. |
-| **Spline** | [[N]] | See below |
+| **Fit Point Spline** | [[N]] | Through fit points, with editable tangent direction and strength handles; see below |
 | **Point** | | Lone sketch points that stay, for example to place holes |
 | **Straight Slot** | | Built with tangent and equal relations |
+| **Center Point Slot** | | Slot midpoint, one end-arc centre, then width |
+| **Overall Slot** | | Two outermost points along the axis define total length; the third click defines width |
+| **Center Point Arc Slot** | | Centre of the path arc, start centre, end direction, then width |
+| **3 Point Arc Slot** | | Start centre, end centre, third point on the centre arc, then width |
 | **Polygon** | [[P]] | Set the number of sides in the Property panel |
 | **Dimension** | [[D]] | See below |
 | **Trim** | [[T]] | See below |
@@ -436,22 +442,37 @@ In the sketch Property panel, **Rotate 90°** turns the sketch axes about the sk
 | **Offset** | [[O]] | See below |
 | **Mirror** | | Select the entities plus a centerline, then click Mirror |
 | **Import DXF** | | See below |
-| **Linear / Circular Sketch Pattern** | | Copies the selected entities with the relations and dimensions among them. A selected point is the circular pattern's centre. For a linear pattern, select a line or curve with them too and choose it as direction 1: the copies go the line's way, or follow the curve at the spacing measured along it (optionally turned with it). |
+| **Linear Sketch Pattern** | | Opens a side panel with an orange preview. Select source entities before or after opening it, then choose an angle, line or curve as direction/path. Copies stay linked to their sources, path, quantity and spacing. Along a curve, spacing is measured along it and copies can rotate with it; open paths stop at their end. A straight direction also supports a second direction. |
+| **Circular Sketch Pattern** | | Copies the selected entities with the relations and dimensions among them. A selected point is the pattern's centre. |
 | **Make Block / Insert Block** | | Make Block saves the selection (with its relations) under a name in your settings. Insert Block places copies with a click, in any sketch, and can delete blocks from the library. |
 | **Text** | | See below |
 | **Gears** | | See the Gears chapter |
 | **Airfoil** | | See the Airfoils chapter |
 | **Sketch Fillet / Sketch Chamfer** | | Set the radius or distance, then click corners (a fillet: where two lines, a line and an arc, or two arcs meet; a chamfer: two lines). The first one made gets the dimension; the others made before you leave the tool are made Equal to it, so one value changes them all. |
 | **Intersection Curve** | | Projects the outline where the sketch plane cuts the bodies |
-| **Construction Geometry** | [[Q]] | Toggles the selected curves to or from construction (drawn dotted, ignored by features) |
+| **Construction Geometry** | [[Q]] | Toggles selected curves to/from construction; with no curves selected, toggles construction mode for newly drawn geometry. The drawing panel also has **For construction**. Preview and resulting geometry are dashed and ignored by features. |
 | **Display Relations** | | Shows or hides the relation glyphs |
 | **Delete** | [[Del]] | Deletes the selected entities or relations |
 
 {idx:sketch tools}{idx:Line tool}{idx:rectangle}{idx:circle}{idx:arc}{idx:ellipse}{idx:slot}{idx:polygon}{idx:Extend}{idx:Split, sketch}{idx:sketch pattern}{idx:blocks}{idx:construction geometry}{idx:Mirror}{idx:sketch fillet}
 
+**Linear patterns and patterns along a path**: confirm with the checkmark, or cancel with the cross (Enter / Esc also work outside input fields). The preview does not change the sketch until confirmed. Use **Sketch Patterns ▸ Edit Pattern** in the sketch Property panel to change sources, path, count, spacing or rotation later; count and spacing accept expressions. Edit original geometry to change the copies' shapes. Copies are linked and cannot be independently dragged; deleting a source, path or generated entity removes that pattern's copies. Parameters and links are kept with the part and follow undo/redo and rebuilds.
+
+Patterns made by earlier versions were independent copies and contain no stored pattern definition. Recreate them with the updated command to obtain a parametric pattern.
+
+Pattern copies use the defined-geometry colour: black in the light theme and light in the dark theme. Purple identifies projected geometry; the pattern preview is orange.
+
+Fillet corners can share one endpoint or have endpoints joined by Coincident relations. If exactly two regular lines/arcs meet at a corner, construction geometry there is ignored when choosing the curves to fillet. An invalid radius leaves the sketch unchanged.
+
 ## Dimension
 
 Click a line, circle or arc (or two entities), then click to place the dimension. {idx:Dimension}
+
+You can also select a curve or two entities before starting **Dimension**. Move the pointer to position the orange preview, then click to confirm; the dimension is not created until that click. Press **Esc** to cancel the pending dimension. The text is placed at the point you choose.
+
+With **Select** or **Dimension** active, drag a dimension's number to reposition its annotation without changing the measured geometry or value. A plain click still opens the value editor. This also works for driven/reference dimensions; placement is saved with the sketch and follows undo/redo. Press **Esc** during a drag to cancel the move.
+
+Linear dimension text follows the dimension line and stays upright. Extension lines leave a small gap at the geometry and run slightly beyond the dimension line; short dimensions use outside arrows. For a point-to-line distance, dragging the text also moves the perpendicular dimension line along the reference edge. This lets a short horizontal offset such as 4 mm and an inclined perpendicular offset such as 13 mm use conventional drafting layouts without changing what they measure.
 
 - Moving the mouse switches between horizontal, vertical and aligned.
 - Two lines give an angle; a point and a line give a perpendicular distance.
@@ -475,9 +496,19 @@ Click a line, arc or circle and its whole connected chain is offset. Move the mo
 
 ## Project Edges
 
+While editing a source sketch, sketches that depend on it are temporarily hidden to avoid displaying outdated projections over the current geometry. They return after leaving the sketch and rebuilding; independent reference sketches remain visible and the saved visibility settings are unchanged.
+
+If a source edit such as a fillet separates formerly joined endpoints, their projected endpoints separate on rebuild while retaining their source links.
+
+Splines projected from another sketch remain linked splines, preserving their control points, degree and weights. Earlier projections saved as line segments retain that representation.
+
 Click a model edge, or an entity of an earlier sketch, to project it into this sketch. Or select edges first and then click **Project Edges** (or press [[E]]): they are projected at once. Projected geometry is drawn in **purple**, is linked and updates when the source changes (relation "On Edge ⇲"). The ends of projected lines are joined to each other and to sketch geometry already there, so the edges of a face give a closed outline ready to extrude. While the tool is active, the outline where the sketch plane cuts the bodies is drawn in teal; clicking it converts the whole outline. This works for solids and surfaces. {idx:Project Edges}
 
 ## Spline
+
+New **Fit Point Splines** include a tangent handle at each fit point. Drag a handle to change tangent direction and strength; adjacent pieces keep the same tangent through their shared fit point. Dragging a fit point carries its handle with it. Handle lines are construction geometry and accept ordinary line constraints and dimensions (for example horizontal, parallel, length or angle). Their remaining freedoms count towards sketch definition. Copies, mirrors, blocks, patterns and linked projections preserve the handles. Existing saved splines retain their previous representation.
+
+Tangent handles are shown with solid teal stems, small direction arrows and round grips. Fit points use square markers. Selection names identify **Tangent Handle** and **Tangent Handle Line**, so these controls can be distinguished from ordinary construction centre lines.
 
 Click the points the curve runs through (they snap like line points), then double-click, [[Enter]] or [[Esc]] to finish, or click the first point again to close it. Drag a point to reshape the curve, or drag the curve to move it; deleting a point takes it out of the spline. **Convert to Control-Point Spline** (in its panel) makes it a control-point spline that runs through the same points. Splines make profiles on their own or with lines and arcs and are exact curves for extrudes, revolves, cuts, lofts and sweep paths. Lines can be trimmed where they cross a spline. {idx:spline}
 
@@ -508,11 +539,14 @@ Select entities ([[Ctrl]]+click for several, or drag a box from empty space: lef
 | Point + arc | Coincident (on curve), Midpoint (half way round the arc) |
 | Point + circle | Coincident (on curve) |
 | Line + circle/arc | Tangent |
-| Circles/arcs | Equal, Concentric, Tangent |
+| Circles/arcs | Equal Radius, Equal Curve Length, Concentric, Tangent |
+| 2 or more curves (including splines, ellipses or mixed line/curve selections) | Equal Curve Length; for lines only, use Equal |
 | 2 points + line | Symmetric (about the line) |
 | 3 lines | Symmetric (two lines about a centerline) |
 
-Relations are shown as small green glyphs next to the geometry. Click a glyph to select it, then press [[Del]] to remove it. Hovering a glyph highlights the entities it ties together. Redundant or conflicting relations are refused with a message that says which: one that is **already satisfied** names the relations that already define the geometry that way; one that **would over-define** the sketch names the relations or dimensions in its way. Either way those relations are selected, so you can delete one and add the new relation instead.
+Relations are shown as small green glyphs next to the geometry. Click a glyph to select it, then press [[Del]] to remove it. Hovering a glyph highlights the entities it ties together. For several selected entities, relations already implied by existing constraints are skipped while useful relations are added. A relation refused says why: one that is **already satisfied** names the relations that already define the geometry that way (an information message); one that **would over-define** the sketch names the relations or dimensions in its way. Either way those relations are selected, so you can delete one and add the new relation instead. A true conflict rejects the entire request without changing the sketch.
+
+**Equal Curve Length (≋)** constrains the length measured along each selected curve, not its chord or control polygon. Two arcs may have different radii and sweeps while keeping equal lengths; a spline can also match a line or another curve. Select the curves with Ctrl and choose **Equal Curve Length** in **Add Relations**. With more than two curves, each is matched to the first. Circular curves' **Equal Radius (=)** keeps their radii equal and remains a separate relation. Length links survive source edits, undo/redo, save/reopen and rebuild. Ellipse and spline lengths are integrated numerically from their definitions.
 
 ## How profiles are found
 

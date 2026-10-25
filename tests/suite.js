@@ -512,6 +512,458 @@ const UI = {
     return { ok: true, detail: `${notes.length} parts restored without rebuilding (${(bytes / 1048576).toFixed(1)} MB of BRep; meshing ${mesh1} ms → ${mesh2} ms)` };
   },
 
+  async 'sketch-grouped-tools'() {
+    const a = window.app, prefs = a.ui.tbPrefs(), previous = prefs.sketchLayout;
+    try {
+      await a.newDocument?.(); closeModals();
+      const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } }); a.doc.features.push(f); a.commit(); await a.enterSketch(f, true);
+      a.ui.showToolbarCustomize('sketch');
+      const select = document.querySelector('[data-sketch-layout]');
+      if (!select) return { ok: false, detail: 'Missing layout option' };
+      const keys = a.ui.currentKeys('sketch').join(',');
+      select.value = 'grouped'; select.dispatchEvent(new Event('change'));
+      document.querySelector('.modal-back .modal-h .x').click();
+      if (document.querySelectorAll('#cm-buttons [data-group]').length !== 5 || document.querySelector('#cm-buttons [data-key="tool-midline"]')) return { ok: false, detail: 'Tools were not grouped' };
+      document.querySelector('[data-group="sketch-group-slot"]').click();
+      if (document.querySelectorAll('#ctxmenu .mi').length !== 5) return { ok: false, detail: 'Slot flyout did not expose five variants' };
+      document.querySelector('[data-group="sketch-group-line"]').click();
+      [...document.querySelectorAll('#ctxmenu .mi')].find((q) => q.textContent.includes('Midpoint Line')).click();
+      if (a.sketcher.tool !== 'midline' || !document.querySelector('[data-group="sketch-group-line"]').classList.contains('active')) return { ok: false, detail: 'Flyout did not activate the variant' };
+      prefs.sketchLayout = 'expanded'; a.ui.renderCommandManager();
+      if (!document.querySelector('#cm-buttons [data-key="tool-midline"]') || a.ui.currentKeys('sketch').join(',') !== keys) return { ok: false, detail: 'Switching layout changed toolbar customization' };
+      return { ok: true, detail: 'Layout option, five flyouts, variant selection, active state and preserved expanded ordering' };
+    } finally { prefs.sketchLayout = previous; a.ui.savePrefs(); a.ui.renderCommandManager(); }
+  },
+
+  async 'sketch-new-drawing-tools'() {
+    const a = window.app, S = await import('/js/sketchmodel.js'), V = await import('/js/solver.js');
+    const draw = async (tool, points, construction = false) => {
+      await a.newDocument?.(); closeModals();
+      const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } }); a.doc.features.push(f); a.commit(); await a.enterSketch(f, true); await wait(100);
+      const sk = a.sketcher; sk.autoRelations = false; sk.normalTo(false);
+      a.viewport.camera.zoom = 3; a.viewport.camera.updateProjectionMatrix(); a.viewport.camera.updateMatrixWorld(true);
+      sk.setTool(tool);
+      if (construction) { const cb = document.querySelector('[data-construction-mode]'); cb.checked = true; cb.dispatchEvent(new Event('change')); }
+      const v = viewEvents();
+      for (const [x, y] of points) { const w = sk.frame.o.clone().addScaledVector(sk.frame.u, x).addScaledVector(sk.frame.v, y); const xy = v.toScreen(w); v.fire('pointermove', ...xy); await v.click(...xy); }
+      return { f, sk };
+    };
+    let { f, sk } = await draw('midline', [[10, 10], [40, 10]], true);
+    const line = f.curves.find((c) => c.type === 'line'), mid = f.constraints.find((k) => k.type === 'midpoint');
+    if (!line?.construction || !mid || Math.abs(S.getPoint(f, line.p1).x + 20) > 1e-5 || !sk.solveOk) return { ok: false, detail: `Midpoint line or preconstruction failed: ${JSON.stringify({ line, mid, points: f.points, tool: sk.tool, draw: sk.draw, ok: sk.solveOk })}` };
+    sk.sel = new Set([line.id]); sk.toggleConstruction();
+    if (line.construction) return { ok: false, detail: 'Postcreation construction toggle regressed' };
+    sk.undo(); if (!f.curves[0].construction) return { ok: false, detail: 'Construction toggle did not undo' };
+    const cases = [
+      ['slot', [[10, 10], [50, 10], [30, 18]]],
+      ['cslot', [[10, 10], [50, 10], [30, 18]]],
+      ['oslot', [[10, 10], [70, 10], [30, 18]]],
+      ['arcslot', [[10, 10], [50, 10], [10, 50], [10, 58]]],
+      ['arcslot', [[10, 10], [50, 10], [10, -30], [10, -38]]],
+      ['arcslot3', [[50, 10], [10, 50], [38, 38], [10, 58]]],
+      ['arcslot3', [[50, 10], [10, 50], [-30, 10], [10, 58]]],
+    ];
+    for (const [tool, points] of cases) {
+      ({ f, sk } = await draw(tool, points));
+      const outline = f.curves.filter((c) => !c.construction);
+      if (!sk.solveOk || outline.length !== 4 || S.profileLoops(f).length !== 1) return { ok: false, detail: `${tool}: solve=${sk.solveOk}, outline=${outline.length}, loops=${S.profileLoops(f).length}` };
+      const dof = V.analyzeSketch(f, sk.ev).dofDefined, expected = tool.startsWith('arcslot') ? 6 : 5;
+      if (dof !== expected) return { ok: false, detail: `${tool}: ${dof} freedoms instead of ${expected}; unexpected helper freedoms` };
+      const before = sk.snapshotData(); sk.undo(); if (f.curves.length) return { ok: false, detail: `${tool}: undo left geometry` }; sk.redo();
+      if (sk.snapshotData() !== before) return { ok: false, detail: `${tool}: redo changed geometry` };
+      a.exitSketch(true); await a.rebuild();
+      if (a.result.errors.size) return { ok: false, detail: `${tool}: kernel rebuild failed` };
+      const extrude = M.createFeature(a.doc, 'extrude', { sketch: f.id, depth: 3 }); a.doc.features.push(extrude); await a.rebuild();
+      if (a.result.errors.size || !a.result.body) return { ok: false, detail: `${tool}: closed slot did not produce a solid: ${JSON.stringify([...a.result.errors])}` };
+    }
+    ({ f, sk } = await draw('arcslot', [[10, 10], [50, 10], [10, 50], [10, 58]], true));
+    if (f.curves.some((c) => !c.construction) || S.profileLoops(f).length) return { ok: false, detail: 'Construction arc slot contributed a profile' };
+    if (S.slotLayout('oslot', [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 5, y: 6 }]) || S.slotLayout('arcslot3', [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 2 }])) return { ok: false, detail: 'Invalid slot accepted' };
+    if (S.slotLayout('arcslot', [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 9.99, y: 0.1 }, { x: 12, y: 0 }], -6.27)) return { ok: false, detail: 'Overlapping major-arc caps accepted' };
+    return { ok: true, detail: 'Midpoint line, pre/post construction, five closed tangent slot variants, undo/redo, kernel rebuild and degenerate-input rejection' };
+  },
+
+  async 'sketch-fit-spline-handles'() {
+    const a = window.app, S = await import('/js/sketchmodel.js'), V = await import('/js/solver.js');
+    await a.newDocument?.(); closeModals();
+    const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } }); a.doc.features.push(f); a.commit(); await a.enterSketch(f, true); await wait(100);
+    const sk = a.sketcher; sk.autoRelations = false; sk.normalTo(false);
+    a.viewport.camera.zoom = 3; a.viewport.camera.updateProjectionMatrix(); a.viewport.camera.updateMatrixWorld(true);
+    sk.setTool('spline'); const v = viewEvents();
+    for (const [x, y] of [[10, 10], [40, 40], [70, 10]]) {
+      const w = sk.frame.o.clone().addScaledVector(sk.frame.u, x).addScaledVector(sk.frame.v, y); const xy = v.toScreen(w); v.fire('pointermove', ...xy); await v.click(...xy);
+    }
+    sk.endDraw(true); sk.setTool('select');
+    const c = f.curves.find((c) => c.type === 'spline');
+    if (!c?.handles || c.handles.length !== 3 || f.curves.filter((q) => q.fitHandle).length !== 3) return { ok: false, detail: 'Drawing did not create fit points and tangent handles' };
+    const H = S.getPoint(f, c.handles[0]), before = sk.snapshotData();
+    sk.startDrag({ kind: 'point', id: H.id }, { x: H.x, y: H.y }); sk.dragMove({ x: 23, y: 29 }, { x: 0, y: 0 }); sk.pointerUp({});
+    let pcs = S.splinePieces(f, c);
+    if (Math.hypot(pcs[0].c1[0] - 23, pcs[0].c1[1] - 29) > 1e-6 || Math.hypot(pcs[0].b[0] - 40, pcs[0].b[1] - 40) > 1e-6 || Math.hypot(pcs[0].b[0] - pcs[0].c2[0] - (pcs[1].c1[0] - pcs[1].a[0]), pcs[0].b[1] - pcs[0].c2[1] - (pcs[1].c1[1] - pcs[1].a[1])) > 1e-6) return { ok: false, detail: 'Handle drag failed to preserve interpolation or tangent continuity' };
+    sk.undo(); if (sk.snapshotData() !== before) return { ok: false, detail: 'Handle drag did not undo' }; sk.redo();
+    const point = S.getPoint(f, c.pts[1]), handle = S.getPoint(f, c.handles[1]), oldVector = [handle.x - point.x, handle.y - point.y];
+    sk.startDrag({ kind: 'point', id: point.id }, { ...point }); sk.dragMove({ x: 40, y: 45 }, { x: 0, y: 0 }); sk.pointerUp({});
+    if (Math.hypot(handle.x - point.x - oldVector[0], handle.y - point.y - oldVector[1]) > 1e-6) return { ok: false, detail: 'Fit-point drag left its handle behind' };
+    for (const id of c.pts) { const q = S.getPoint(f, id); S.addRel(f, 'fix', [id], { x: q.x, y: q.y }); }
+    if (V.analyzeSketch(f, sk.ev).dofDefined !== 6) return { ok: false, detail: 'Free handle directions/strengths were incorrectly ignored as construction-line slides' };
+    for (const id of c.handles.slice(1)) { const q = S.getPoint(f, id); S.addRel(f, 'fix', [id], { x: q.x, y: q.y }); }
+    sk.changed(); const leg = f.curves.find((q) => q.fitHandle && q.p2 === c.handles[0]);
+    if (!sk.tryAddConstraints([['horizontal', [leg.id]], ['dim', [c.pts[0], c.handles[0]], { kind: 'distance', value: 12 }]], { quiet: true }) || V.analyzeSketch(f, sk.ev).dofDefined !== 0) return { ok: false, detail: 'Tangent handles could not be dimensioned and fully constrained' };
+    const saved = JSON.parse(JSON.stringify(f)); pcs = S.splinePieces(saved, S.getCurve(saved, c.id));
+    if (Math.abs(pcs[0].c1[0] - 22) > 1e-6 || Math.abs(pcs[0].c1[1] - 10) > 1e-6) return { ok: false, detail: 'Handle length/direction or serialization failed' };
+    const copy = JSON.parse(JSON.stringify(f)), copied = S.copyItems(copy, [c.id], (x, y) => [x + 100, y]);
+    const copySpline = S.getCurve(copy, copied[0]);
+    if (!copySpline.handles || Math.abs(S.splinePieces(copy, copySpline)[0].c1[0] - 122) > 1e-6) return { ok: false, detail: 'Copy lost tangent handles' };
+    const mirror = JSON.parse(JSON.stringify(f)), axis = S.addLine(mirror, S.addPoint(mirror, 0, -100), S.addPoint(mirror, 0, 100), true);
+    S.mirrorItems(mirror, [c.id], axis);
+    const mirrored = mirror.curves.find((q) => q.type === 'spline' && q.id !== c.id);
+    if (!mirrored?.handles || Math.abs(S.splinePieces(mirror, mirrored)[0].c1[0] + 22) > 1e-6 || !V.solveSketch(mirror, sk.ev).ok) return { ok: false, detail: 'Mirror lost tangent handles' };
+    const block = S.blockData(f, [c.id]), pasted = S.pasteItems(copy, block, 0, 0);
+    if (!S.getCurve(copy, pasted[0]).handles || !V.solveSketch(copy, sk.ev).ok) return { ok: false, detail: 'Block insertion lost spline handle geometry' };
+    const fullBlock = S.blockData(f, [c.id, ...f.curves.filter((q) => q.ctrlOf === c.id).map((q) => q.id)]), allPasted = S.pasteItems(copy, fullBlock, 200, 0);
+    const blockSpline = S.getCurve(copy, allPasted[0]);
+    if (copy.curves.filter((q) => q.ctrlOf === blockSpline.id && q.fitHandle).length !== 3 || !V.solveSketch(copy, sk.ev).ok) return { ok: false, detail: 'Block with selected handle lines duplicated helpers or lost their constraints' };
+    const pattern = JSON.parse(JSON.stringify(f));
+    S.setSketchPattern(pattern, { sources: [c.id], path: '', n1: '3', d1: '100', a1: '0', n2: '1', d2: '20', a2: '90' }, sk.ev);
+    const splines = pattern.curves.filter((q) => q.type === 'spline');
+    if (splines.length !== 3 || splines.some((q) => !q.handles) || !V.solveSketch(pattern, sk.ev).ok) return { ok: false, detail: 'Pattern failed to preserve fit spline handles' };
+    const frame = sk.frameArr(), target = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } });
+    const projected = S.addProjected(target, S.projectCurve(frame, S.curve3D(f, c, frame), { preserveSpline: true }), { kind: 'sketch', fid: f.id, cid: c.id });
+    a.doc.features.push(target); S.addLine(f, c.p2, c.p1); sk.changed(); a.exitSketch(true); await a.rebuild();
+    const pc = S.getCurve(target, projected[0]);
+    if (a.result.errors.size || !pc.handles || JSON.stringify(S.splinePieces(target, pc)) !== JSON.stringify(S.splinePieces(f, c))) return { ok: false, detail: 'Linked projection did not preserve tangent handles' };
+    const extrude = M.createFeature(a.doc, 'extrude', { sketch: f.id, depth: 3 }); a.doc.features.push(extrude); await a.rebuild();
+    if (a.result.errors.size || !(a.result.body?.mesh?.triangles?.length || a.result.body?.bodies?.length)) return { ok: false, detail: `Handled spline profile did not extrude: ${JSON.stringify([...a.result.errors])}` };
+    return { ok: true, detail: 'Fit-point drawing, tangent/strength drag, fit-point translation, constraints and DOFs, undo/redo, serialization, copies, blocks, patterns, linked projection and solid extrusion' };
+  },
+
+  async 'expression-parameter-completion'() {
+    const a = window.app, S = await import('/js/sketchmodel.js');
+    const doc = M.newDoc(); doc.equations = [{ name: 'neck_length', expr: '120' }, { name: 'neck_width', expr: '20' }];
+    const f = M.createFeature(doc, 'sketch', { plane: { ref: 'front' } });
+    const p = S.addPoint(f, 100, 0), line = S.addLine(f, 'O', p);
+    S.addRel(f, 'horizontal', [line]);
+    const dim = S.addRel(f, 'dim', ['O', p], { kind: 'hdist', value: 100, s: 1 });
+    doc.features.push(f); await a.setDoc(doc); closeModals(); await a.enterSketch(f, false);
+    const sk = a.sketcher;
+    const key = (input, k) => input.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+    const type = (input, text, caret = text.length) => { input.focus(); input.value = text; input.setSelectionRange(caret, caret); input.dispatchEvent(new Event('input', { bubbles: true })); };
+    sk.openModify(sk.dims.findIndex((d) => d.k.id === dim.id));
+    let input = sk.modifyEl.querySelector('input');
+    type(input, 'neck_');
+    let options = [...document.querySelectorAll('.expr-complete [role="option"]')];
+    if (options.length !== 2 || !options[0].textContent.includes('120')) return { ok: false, detail: 'Missing parameter names or evaluated values' };
+    key(input, 'ArrowDown'); key(input, 'Tab');
+    if (input.value !== 'neck_width' || !sk.modifyEl || document.querySelector('.expr-complete') || S.getPoint(f, p).x !== 100) return { ok: false, detail: 'Tab failed to complete or prematurely applied the dimension' };
+    type(input, 'neck_l'); key(input, 'Escape');
+    if (!sk.modifyEl || document.querySelector('.expr-complete') || input.value !== 'neck_l') return { ok: false, detail: 'Escape cancelled the dimension instead of only the suggestions' };
+    type(input, '(neck_l+4)/2', 7); key(input, 'Enter');
+    if (input.value !== '(neck_length+4)/2' || !sk.modifyEl) return { ok: false, detail: 'Completion damaged the surrounding formula or confirmed the dialog' };
+    key(input, 'Enter');
+    if (sk.modifyEl || Math.abs(S.getPoint(f, p).x - 62) > 1e-6) return { ok: false, detail: 'Completed formula did not drive the dimension' };
+    sk.undo(); if (Math.abs(S.getPoint(f, p).x - 100) > 1e-6) return { ok: false, detail: 'Dimension completion did not undo' };
+    sk.redo();
+    sk.sel = new Set([line]); sk.linearPatternSel();
+    input = document.querySelector('#pm [data-pattern="d1"]');
+    type(input, 'neck_w/2', 6);
+    document.querySelector('.expr-complete [role="option"]').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+    if (input.value !== 'neck_width/2' || sk.patternError || !sk.patternPreview) return { ok: false, detail: 'Mouse completion did not update the pattern preview' };
+    await a.okPM();
+    if (f.patterns[0].d1 !== 'neck_width/2') return { ok: false, detail: 'Pattern lost the completed expression' };
+    sk.linearPatternSel(f.patterns[0].id); input = document.querySelector('#pm [data-pattern="d1"]');
+    type(input, 'neck_'); a.cancelPM(); await wait(0);
+    if (document.querySelector('.expr-complete')) return { ok: false, detail: 'Removed field left an orphan popup' };
+    let stored = null;
+    const wrapper = a.ui.exprInput(10, 'mm', (v) => { stored = v; }); document.body.appendChild(wrapper);
+    input = wrapper.querySelector('input'); type(input, 'Neck_l'); key(input, 'Tab');
+    if (input.value !== 'neck_length' || stored !== 'neck_length') { wrapper.remove(); return { ok: false, detail: 'Feature expression field did not complete case-insensitively' }; }
+    type(input, 'unknown'); if (document.querySelector('.expr-complete')) { wrapper.remove(); return { ok: false, detail: 'Unknown prefix offered unrelated names' }; }
+    type(input, '12'); key(input, 'ArrowUp');
+    const numeric = input.value === '13'; wrapper.remove();
+    const answer = a.ui.promptFields('Expression completion test', 'equations', [{ key: 'value', label: 'Value', type: 'expr', value: 1 }]);
+    await wait(10); input = document.querySelector('.modal-back input');
+    type(input, 'neck_l'); key(input, 'Escape');
+    if (!input.isConnected || document.querySelector('.expr-complete')) return { ok: false, detail: 'Modal capture closed the dialog instead of the suggestions' };
+    type(input, 'neck_l'); key(input, 'Enter');
+    if (!input.isConnected || input.value !== 'neck_length') return { ok: false, detail: 'Modal accepted before completing the name' };
+    key(input, 'Enter'); const result = await answer;
+    return { ok: numeric && result?.value === 'neck_length', detail: 'Dimension, feature and pattern formulas, values, keyboard/mouse, caret replacement, modal Escape/Enter, deferred confirmation, undo/redo, popup cleanup and numeric stepping' };
+  },
+
+  async 'sketch-coincident-midpoints'() {
+    const a = window.app, S = await import('/js/sketchmodel.js'), V = await import('/js/solver.js');
+    await a.newDocument?.(); closeModals();
+    const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } });
+    a.doc.features.push(f); a.commit(); await a.enterSketch(f, true);
+    const sk = a.sketcher;
+    const p = [[10, -20], [10, 20], [35, 3], [35, 11]].map(([x, y]) => S.addPoint(f, x, y));
+    const axis = S.addLine(f, p[0], p[1], true), segment = S.addLine(f, p[2], p[3]);
+    for (const id of p.slice(0, 2)) { const q = S.getPoint(f, id); S.addRel(f, 'fix', [id], { x: q.x, y: q.y }); }
+    S.addRel(f, 'vertical', [segment]);
+    S.addRel(f, 'dim', [p[2], p[3]], { kind: 'vdist', value: 8, s: 1 });
+    sk.changed(); sk.sel = new Set([axis, segment]); a.ui.renderPM();
+    const button = [...document.querySelectorAll('#pm button')].find((b) => b.title === 'Coincident Midpoints');
+    if (!button) return { ok: false, detail: 'Two segments did not offer Coincident Midpoints' };
+    const before = sk.snapshotData(), count = f.points.length;
+    const centred = (data) => {
+      const q = p.map((id) => S.getPoint(data, id));
+      return Math.hypot((q[0].x + q[1].x - q[2].x - q[3].x) / 2, (q[0].y + q[1].y - q[2].y - q[3].y) / 2) < 1e-6;
+    };
+    button.click();
+    if (!sk.solveOk || !centred(f) || f.points.length !== count || V.analyzeSketch(f, sk.ev).dofDefined !== 0) return { ok: false, detail: 'Midpoints failed to coincide without helper points' };
+    sk.undo(); if (sk.snapshotData() !== before) return { ok: false, detail: 'Undo did not restore the sketch' };
+    sk.redo(); if (!centred(f)) return { ok: false, detail: 'Redo lost the midpoint relation' };
+    const saved = JSON.parse(JSON.stringify(f));
+    for (const k of saved.constraints.filter((k) => k.type === 'fix')) { k.x += 15; k.y += 9; }
+    const result = V.solveSketch(saved, sk.ev);
+    if (!result.ok || !centred(saved) || Math.abs(S.getPoint(saved, p[2]).x - 25) > 1e-6) return { ok: false, detail: 'Saved relation did not follow source edits' };
+    const locked = JSON.parse(JSON.stringify(f));
+    locked.constraints = locked.constraints.filter((k) => k.type !== 'midpointCoincident');
+    for (const id of p.slice(2)) { const q = S.getPoint(locked, id); S.addRel(locked, 'fix', [id], { x: q.x + 5, y: q.y }); }
+    sk.restoreData(JSON.stringify(locked));
+    const snapshot = sk.snapshotData();
+    if (sk.tryAddConstraints([['midpointCoincident', [axis, segment]]], { quiet: true }) || sk.snapshotData() !== snapshot) return { ok: false, detail: 'Conflicting midpoint relation was not rejected atomically' };
+    return { ok: true, detail: 'Two-line UI, construction line, no helper points, fully defined, undo/redo, serialization, source edits and conflict rollback' };
+  },
+
+  async 'sketch-equal-control-polygon-batch'() {
+    const a = window.app, S = await import('/js/sketchmodel.js'), V = await import('/js/solver.js');
+    await a.newDocument?.(); closeModals();
+    const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } });
+    a.doc.features.push(f); a.commit(); await a.enterSketch(f, true);
+    const sk = a.sketcher, pts = [[0, 20], [4, 20], [12, 11], [20, 2], [20, -2], [12, -11], [4, -20], [0, -20]].map(([x, y]) => S.addPoint(f, x, y));
+    const spline = S.addCtrlSpline(f, pts, 5);
+    const legs = f.curves.filter((c) => c.ctrlOf === spline).map((c) => c.id), oblique = [legs[1], legs[2], legs[4], legs[5]];
+    for (const i of [0, 1, 3, 4, 6, 7]) { const p = S.getPoint(f, pts[i]); S.addRel(f, 'fix', [p.id], { x: p.x, y: p.y }); }
+    S.addRel(f, 'parallel', [legs[2], legs[1]]); S.addRel(f, 'parallel', [legs[5], legs[4]]);
+    S.addRel(f, 'equal', [legs[1], legs[5]]);
+    sk.changed();
+    const before = sk.snapshotData(), rank = V.sketchRank(f, sk.ev), count = f.constraints.length;
+    sk.sel = new Set(oblique); sk.addRelation('equal');
+    const lengths = oblique.map((id) => S.curveLength(f, S.getCurve(f, id)));
+    if (!sk.solveOk || f.constraints.length !== count + 1 || V.sketchRank(f, sk.ev) !== rank + 1 || Math.max(...lengths) - Math.min(...lengths) > 1e-6) return { ok: false, detail: 'A redundant relation rejected the useful equality in a four-leg batch' };
+    sk.undo(); if (sk.snapshotData() !== before) return { ok: false, detail: 'Undo did not restore the pre-batch sketch' };
+    sk.redo(); if (f.constraints.length !== count + 1) return { ok: false, detail: 'Redo did not restore the accepted subset' };
+    let accepted = 0, redundant = 0;
+    for (let i = 0; i < oblique.length; i++) for (let j = i + 1; j < oblique.length; j++) {
+      sk.restoreData(before);
+      const result = sk.tryAddConstraints([['equal', [oblique[i], oblique[j]]]], { quiet: true });
+      if (result) accepted++; else { redundant++; if (sk.snapshotData() !== before) return { ok: false, detail: 'A redundant pair changed the sketch' }; }
+    }
+    if (accepted !== 4 || redundant !== 2) return { ok: false, detail: `Pair results: ${accepted} useful, ${redundant} already constrained` };
+    sk.restoreData(before);
+    const p = S.addPoint(f, 40, 0), q = S.addPoint(f, 45, 0), fixedLine = S.addLine(f, p, q);
+    for (const id of [p, q]) { const p = S.getPoint(f, id); S.addRel(f, 'fix', [id], { x: p.x, y: p.y }); }
+    sk.changed(); const original = sk.snapshotData();
+    if (sk.tryAddConstraints([['equal', [legs[1], legs[2]]], ['equal', [legs[1], fixedLine]]], { quiet: true }) || sk.snapshotData() !== original) return { ok: false, detail: 'A conflicting batch partially changed the sketch' };
+    for (const id of [pts[2], pts[5]]) { const p = S.getPoint(f, id); S.addRel(f, 'fix', [id], { x: p.x, y: p.y }); }
+    sk.changed(); const fixed = sk.snapshotData();
+    if (sk.tryAddConstraints([['equal', [legs[1], fixedLine]]], { quiet: true }) || sk.snapshotData() !== fixed) return { ok: false, detail: 'A conflicting pair changed the sketch' };
+    return { ok: true, detail: 'Eight-control-point spline: four oblique legs gain one useful equality and skip two implied ones; all six pairs classified; undo/redo works; true conflicts roll back atomically' };
+  },
+
+  async 'sketch-equal-curve-length'() {
+    const S = await import('/js/sketchmodel.js'), V = await import('/js/solver.js');
+    const weighted = S.newSketchData(), control = [[10, 0], [10, 10], [0, 10]].map(([x, y]) => S.addPoint(weighted, x, y));
+    const quarter = S.addCtrlSpline(weighted, control, 2, false, false, [1, Math.SQRT1_2, 1]);
+    if (Math.abs(S.curveLength(weighted, S.getCurve(weighted, quarter)) - 5 * Math.PI) > 1e-8) return { ok: false, detail: 'Weighted spline arc length differs from the exact quarter circle' };
+    const ellipse = S.addEllipse(weighted, S.addPoint(weighted, 30, 0), S.addPoint(weighted, 40, 0), 5);
+    if (Math.abs(S.curveLength(weighted, S.getCurve(weighted, ellipse)) - 48.44224110273838) > 1e-7) return { ok: false, detail: 'Ellipse arc length is inaccurate' };
+    const a = window.app; await a.newDocument?.(); closeModals();
+    const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } });
+    a.doc.features.push(f); a.commit(); await a.enterSketch(f, true);
+    const ids = [[0, 0], [10, 0], [0, 10], [30, 0], [35, 0], [27.5, Math.sqrt(18.75)]].map(([x, y]) => S.addPoint(f, x, y));
+    const one = S.addArc(f, ids[0], ids[1], ids[2]), two = S.addArc(f, ids[3], ids[4], ids[5]);
+    const fixes = ids.slice(0, 5).map((id) => { const p = S.getPoint(f, id); return S.addRel(f, 'fix', [id], { x: p.x, y: p.y }).id; });
+    const sk = a.sketcher; sk.changed(); sk.sel = new Set([one, two]); a.ui.renderPM();
+    const button = [...document.querySelectorAll('#pm .pm-rels button')].find((b) => b.textContent.includes('Equal Curve Length'));
+    if (!button || ![...document.querySelectorAll('#pm .pm-rels button')].some((b) => b.textContent.includes('Equal Radius'))) return { ok: false, detail: 'Length and radius relations are not distinguishable in the panel' };
+    button.click();
+    const length = (id) => S.curveLength(f, S.getCurve(f, id));
+    if (!f.constraints.some((k) => k.type === 'equalLength') || !sk.solveOk || Math.abs(length(one) - length(two)) > 1e-7 || Math.abs(S.radiusOf(f, S.getCurve(f, one)) - 10) > 1e-6 || Math.abs(S.radiusOf(f, S.getCurve(f, two)) - 5) > 1e-6) return { ok: false, detail: 'Equal lengths did not preserve different radii' };
+    sk.undo(); if (f.constraints.some((k) => k.type === 'equalLength')) return { ok: false, detail: 'Undo did not remove Equal Curve Length' };
+    sk.redo();
+    f.constraints.find((k) => k.id === fixes[1]).x = 12;
+    f.constraints.find((k) => k.id === fixes[2]).y = 12;
+    sk.changed();
+    if (!sk.solveOk || Math.abs(length(one) - 6 * Math.PI) > 1e-7 || Math.abs(length(one) - length(two)) > 1e-7) return { ok: false, detail: 'Arc length equality did not follow a source change' };
+    const built = await a.kernel.rebuild(JSON.parse(JSON.stringify(a.doc)), null, null);
+    if (built.errors.length || !built.sketches[f.id].data.constraints.some((k) => k.type === 'equalLength')) return { ok: false, detail: 'Equal Curve Length did not survive serialized rebuild' };
+    const mixed = S.newSketchData(), p = S.addPoint(mixed, 0, 0), q = S.addPoint(mixed, 20, 0), line = S.addLine(mixed, p, q);
+    const fix = (id) => { const p = S.getPoint(mixed, id); S.addRel(mixed, 'fix', [id], { x: p.x, y: p.y }); };
+    fix(p); fix(q);
+    const points = [[0, 40], [3, 40], [7, 40], [10, 40]].map(([x, y]) => S.addPoint(mixed, x, y));
+    const spline = S.addCtrlSpline(mixed, points, 3); points.slice(0, 3).forEach(fix);
+    S.addRel(mixed, 'horizontal', [mixed.curves.find((c) => c.ctrlOf === spline && c.p2 === points[3]).id]);
+    S.addRel(mixed, 'equalLength', [line, spline]);
+    const solved = V.solveSketch(mixed, Number);
+    return { ok: solved.ok && !solved.bad.length && Math.abs(S.curveLength(mixed, S.getCurve(mixed, spline)) - 20) < 1e-7, detail: 'Exact rational quarter-circle and ellipse lengths; distinct UI actions; different-radius arcs stay equal in length after edits, undo/redo and rebuild; mixed line/spline constraint solves' };
+  },
+
+  async 'sketch-dimension-drafting-layout'() {
+    const a = window.app, S = await import('/js/sketchmodel.js');
+    await a.newDocument?.(); closeModals();
+    const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } });
+    a.doc.features.push(f); a.commit(); await a.enterSketch(f, true);
+    const sk = a.sketcher, p = S.addPoint(f, 0, 0), q = S.addPoint(f, 12, 0);
+    S.addLine(f, p, q);
+    const edge = S.addLine(f, S.addPoint(f, 20, 0), S.addPoint(f, 100, -24));
+    const side = S.addLine(f, S.addPoint(f, 4, -20), S.addPoint(f, 4, -40));
+    const L = Math.hypot(80, -24);
+    const point = S.addPoint(f, 0, -20), centre = S.addPoint(f, 20 + 80 * 15 / L - 24 * 13 / L, -24 * 15 / L - 80 * 13 / L);
+    S.getPoint(f, point).keep = true; S.getPoint(f, centre).keep = true;
+    const twelve = S.addRel(f, 'dim', [p, q], { kind: 'hdist', value: 12, off: 10, driven: true });
+    const four = S.addRel(f, 'dim', [point, side], { kind: 'pointLine', value: 4, off: 10, driven: true });
+    const thirteen = S.addRel(f, 'dim', [centre, edge], { kind: 'pointLine', value: 13, off: 10, driven: true });
+    sk.changed();
+    const small = sk.dimGraphics(four, 1), wide = sk.dimGraphics(twelve, 0.1), normal = sk.dimGraphics(thirteen, 0.1);
+    if (!small.segs.some((p) => p[0] < -1 || p[0] > 5)) return { ok: false, detail: 'Short dimension arrows were not placed outside' };
+    if (wide.segs.some((p) => p[0] < -1e-8 || p[0] > 12 + 1e-8)) return { ok: false, detail: 'Wide dimension unnecessarily used outside arrows' };
+    if (Math.abs(normal.textDir[0] * 80 + normal.textDir[1] * -24) > 1e-8) return { ok: false, detail: 'Perpendicular dimension text is not aligned with its dimension line' };
+    const before = JSON.stringify([f.points, f.curves]);
+    sk.moveDimensionLabel(thirteen, { x: 50, y: -25 }); sk.changed();
+    const after = sk.dims.find((d) => d.k.id === thirteen.id);
+    const el = sk.dimPool[sk.dims.indexOf(after)];
+    return { ok: JSON.stringify([f.points, f.curves]) === before && Math.hypot(after.at[0] - 50, after.at[1] + 25) < 1e-6 && !el.style.transform.includes('rotate(0rad)'), detail: '4 mm outside arrows, 12 mm inside arrows, aligned perpendicular text and movable extension-line layout; geometry preserved' };
+  },
+
+  async 'sketch-dimension-confirm-placement'() {
+    const a = window.app, S = await import('/js/sketchmodel.js');
+    await a.newDocument?.(); closeModals();
+    const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } });
+    a.doc.features.push(f); a.commit(); await a.enterSketch(f, true);
+    const sk = a.sketcher, p = S.addPoint(f, 0, 0), q = S.addPoint(f, 40, 0), line = S.addLine(f, p, q);
+    const circle = S.addCircle(f, S.addPoint(f, 60, 0), 5);
+    sk.changed(); sk.normalTo(false); a.viewport.camera.updateMatrixWorld(true);
+    const v = viewEvents(), at = (x, y) => v.toScreen(sk.frame.o.clone().addScaledVector(sk.frame.u, x).addScaledVector(sk.frame.v, y));
+    const count = () => f.constraints.filter((k) => k.type === 'dim').length;
+    const before = sk.snapshotData(), history = sk.hist.length;
+    sk.sel = new Set([line]); sk.setTool('dim');
+    if (!sk.draw?.placing || count()) return { ok: false, detail: 'Preselection did not enter placement mode, or created a dimension immediately' };
+    v.fire('pointermove', ...at(20, 15));
+    if (!sk.dims.some((d) => d.preview) || count() || sk.snapshotData() !== before) return { ok: false, detail: 'Preview altered the sketch' };
+    sk.key({ key: 'Escape' });
+    if (sk.draw || count() || sk.hist.length !== history || sk.snapshotData() !== before) return { ok: false, detail: 'Esc committed a dimension or changed undo history' };
+    sk.sel = new Set([line]); sk.setTool('dim');
+    // Placement is an explicit phase: clicking on another curve must not change the chosen references.
+    v.fire('pointermove', ...at(60, 5)); await v.click(...at(60, 5));
+    const k = f.constraints.find((k) => k.type === 'dim'), dm = sk.dims.find((d) => d.k.id === k?.id);
+    if (count() !== 1 || k.kind !== 'hdist' || k.refs.join() !== [p, q].join() || Math.hypot(dm.at[0] - 60, dm.at[1] - 5) > 1e-5) return { ok: false, detail: 'Confirmation picked different geometry or ignored the clicked label position' };
+    sk.closeModify(); sk.sel = new Set([circle]); sk.setTool('dim');
+    v.fire('pointermove', ...at(75, 20));
+    if (count() !== 1) return { ok: false, detail: 'Circle preselection created a dimension before confirmation' };
+    await v.click(...at(75, 20));
+    const diameter = f.constraints.find((k) => k.type === 'dim' && k.kind === 'diameter');
+    sk.closeModify();
+    return { ok: count() === 2 && diameter?.refs[0] === circle && !sk.draw, detail: 'Preselected line and circle stay in preview until a placement click; Esc cancels without history changes; clicked text position is preserved even over other geometry' };
+  },
+
+  async 'sketch-dimension-placement'() {
+    const a = window.app, S = await import('/js/sketchmodel.js');
+    await a.newDocument?.(); closeModals();
+    const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } });
+    a.doc.features.push(f); a.commit(); await a.enterSketch(f, true);
+    const sk = a.sketcher, p = S.addPoint(f, 0, 0), q = S.addPoint(f, 40, 0), r = S.addPoint(f, 40, 30);
+    const line = S.addLine(f, p, q), other = S.addLine(f, p, r), circle = S.addCircle(f, S.addPoint(f, 70, 0), 6);
+    const arc = S.addArc(f, S.addPoint(f, 100, 0), S.addPoint(f, 106, 0), S.addPoint(f, 100, 6));
+    const dims = [
+      S.addRel(f, 'dim', [p, q], { kind: 'hdist', value: 40 }),
+      S.addRel(f, 'dim', [q, r], { kind: 'vdist', value: 30 }),
+      S.addRel(f, 'dim', [p, r], { kind: 'distance', value: 50, driven: true }),
+      S.addRel(f, 'dim', [circle], { kind: 'radius', value: 6 }),
+      S.addRel(f, 'dim', [circle], { kind: 'diameter', value: 12, driven: true }),
+      S.addRel(f, 'dim', [line, other], { kind: 'angle', value: 36.86989764584402, driven: true }),
+      S.addRel(f, 'dim', [r, line], { kind: 'pointLine', value: 30, driven: true }),
+      S.addRel(f, 'dim', [arc], { kind: 'radius', value: 6, driven: true }),
+    ];
+    sk.changed();
+    const geometry = JSON.stringify([f.points, f.curves]);
+    for (const k of dims) {
+      const dm = sk.dims.find((d) => d.k.id === k.id), target = k.refs[0] === arc ? [80, -20] : [dm.at[0] + 8, dm.at[1] + 6];
+      const value = k.value;
+      sk.moveDimensionLabel(k, { x: target[0], y: target[1] }); sk.changed();
+      const moved = sk.dims.find((d) => d.k.id === k.id);
+      if (Math.hypot(moved.at[0] - target[0], moved.at[1] - target[1]) > 1e-6 || k.value !== value || JSON.stringify([f.points, f.curves]) !== geometry) return { ok: false, detail: `${k.kind}: annotation failed to move independently of geometry/value` };
+      if (k.refs[0] === arc && (k.ang < 0 || k.ang > Math.PI / 2)) return { ok: false, detail: 'Radius leader left the actual arc' };
+    }
+    const last = dims[dims.length - 1].id, pos = () => sk.dims.find((d) => d.k.id === last).at;
+    const end = JSON.stringify(pos()); sk.undo();
+    if (JSON.stringify(pos()) === end) return { ok: false, detail: 'Undo did not restore annotation position' };
+    sk.redo();
+    if (JSON.stringify(pos()) !== end) return { ok: false, detail: 'Redo did not restore annotation position' };
+    const saved = JSON.parse(JSON.stringify(a.doc)), rebuilt = await a.kernel.rebuild(saved, null, null);
+    const after = rebuilt.sketches[f.id]?.data.constraints.find((k) => k.id === last);
+    return { ok: !rebuilt.errors.length && JSON.stringify(after?.labelOffset) === JSON.stringify(f.constraints.find((k) => k.id === last).labelOffset), detail: 'Seven dimension kinds moved without geometry/value changes; undo/redo and serialized kernel rebuild preserve annotation placement' };
+  },
+
+  async 'sketch-rename-underdefined'() {
+    const a = window.app;
+    await a.newDocument?.(); closeModals();
+    const S = await import('/js/sketchmodel.js');
+    const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } });
+    const p = S.addPoint(f, 2, 3), q = S.addPoint(f, 20, 5);
+    S.addLine(f, p, q);
+    a.doc.features.push(f); a.commit(); a.ui.renderTree();
+    const row = document.querySelector(`#tree .tn[data-fid="${f.id}"]`);
+    if (!row?.querySelector('.tl')?.textContent.startsWith('(-)')) return { ok: false, detail: 'Expected an under-defined sketch' };
+    a.ui.renameFeature(f.id);
+    const input = row.querySelector('input.rename');
+    if (!input) return { ok: false, detail: 'Rename did not open' };
+    input.value = 'Neck outline';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    return { ok: f.name === 'Neck outline', detail: 'Renamed a sketch whose tree label includes (-)' };
+  },
+
+  async 'sketch-project-small-arc'() {
+    const a = window.app, S = await import('/js/sketchmodel.js');
+    const doc = M.newDoc(), source = M.createFeature(doc, 'sketch', { plane: { ref: 'front' }, visible: true });
+    const centre = S.addPoint(source, 0, 0), start = S.addPoint(source, 2, 0), end = S.addPoint(source, 0, 2);
+    const arc = S.addArc(source, centre, start, end);
+    const target = M.createFeature(doc, 'sketch', { plane: { ref: 'front' } });
+    doc.features.push(source, target); await a.setDoc(doc); closeModals(); await a.enterSketch(target, false); await wait(300);
+    const sk = a.sketcher, vp = a.viewport;
+    sk.normalTo(false); vp.camera.zoom = 1; vp.camera.updateProjectionMatrix(); vp.camera.updateMatrixWorld(true);
+    const world = sk.frame.o.clone().addScaledVector(sk.frame.u, Math.SQRT2).addScaledVector(sk.frame.v, Math.SQRT2);
+    const v = viewEvents(), screen = v.toScreen(world);
+    const event = { clientX: screen[0], clientY: screen[1] };
+    const hit = sk.externalHit(event, { vertices: false });
+    if (hit?.kind !== 'extCurve' || hit.cid !== arc) return { ok: false, detail: `Project Edges picked ${hit?.kind} instead of the small arc` };
+    sk.setTool('convert'); await v.click(...screen);
+    const projection = target.constraints.find((k) => k.type === 'projected');
+    if (!projection || projection.src.cid !== arc || projection.ref || S.getCurve(target, projection.refs[0])?.type !== 'arc') return { ok: false, detail: 'Click did not create a persistent projected arc' };
+    // A previously selected external entity may already have an automatic reference.
+    // An explicit Project Edges click must promote it, rather than report "already in sketch".
+    projection.ref = true; S.getCurve(target, projection.refs[0]).construction = true;
+    sk.sel.clear(); await v.click(...screen);
+    if (projection.ref || S.getCurve(target, projection.refs[0]).construction || target.constraints.filter((k) => k.type === 'projected').length !== 1) return { ok: false, detail: 'Explicit projection did not promote an automatic reference in place' };
+    sk.setTool('select'); sk.sel.clear(); a.exitSketch(true); await a.rebuild();
+    await a.enterSketch(source, false); a.exitSketch(true); await a.rebuild();
+    if (!S.getCurve(target, projection.refs[0])) return { ok: false, detail: 'Opening and closing the source removed the projection' };
+    S.getPoint(source, centre).x += 5; S.getPoint(source, start).x += 5; S.getPoint(source, end).x += 5; source.rev = M.newRev();
+    await a.rebuild(); await a.enterSketch(target, false);
+    const curve = S.getCurve(target, projection.refs[0]);
+    return { ok: !a.result.errors.size && !!curve && Math.abs(S.getPoint(target, curve.c).x - 5) < 1e-6, detail: 'Small arc selected instead of nearby vertices; persistent projection survives exit, source translation and reopening' };
+  },
+
+  async 'sketch-project-spline'() {
+    const S = await import('/js/sketchmodel.js');
+    const source = S.newSketchData(), dest = S.newSketchData();
+    const pts = [[0, 0], [0, 4], [4, 8], [8, 8], [12, 4], [12, 0]].map(([x, y]) => S.addPoint(source, x, y));
+    const id = S.addCtrlSpline(source, pts, 5), c = S.getCurve(source, id);
+    const fr = { o: [0, 0, 0], u: [1, 0, 0], v: [0, 1, 0], n: [0, 0, 1] };
+    const target = { ...fr, o: [0, 0, 19] };
+    const project = () => S.projectCurve(target, S.curve3D(source, c, fr), { preserveSpline: true });
+    const ids = S.addProjected(dest, project(), { kind: 'sketch', fid: 'source', cid: id });
+    const d = S.getCurve(dest, ids[0]), k = dest.constraints.find((k) => k.type === 'projected');
+    if (ids.length !== 1 || d.type !== 'spline' || d.degree !== 5 || !k.src.spline) return { ok: false, detail: 'Projection did not preserve one linked spline' };
+    const expected = S.curvePoints(source, c), actual = S.curvePoints(dest, d);
+    if (JSON.stringify(expected) !== JSON.stringify(actual)) return { ok: false, detail: 'Projection changed the curve' };
+    S.getPoint(source, pts[2]).y += 3;
+    if (!S.updateProjected(dest, k, project()) || k.pts[d.pts[2]][1] !== 11) return { ok: false, detail: 'Source edit did not update projection targets' };
+    const legacy = S.projectCurve(target, S.curve3D(source, c, fr));
+    return { ok: legacy.length > 1 && legacy.every((g) => g.type === 'line'), detail: 'One degree-5 linked spline, source edits followed, legacy segment projections preserved' };
+  },
+
   // a control-point spline crossing its own control polygon: a click where they cross picks the polygon's leg (the
   // spline can be picked anywhere else), so the leg can be dimensioned; elsewhere along the curve, the spline
   async 'sketch-pick-polygon-leg'() {
@@ -2571,7 +3023,20 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     n?.querySelector('.x').click();
     const gone = !document.getElementById('web-notice') && !root.classList.contains('with-notice');
     try { if (kept === null) localStorage.removeItem('razorcad.webNoticeClosed'); else localStorage.setItem('razorcad.webNoticeClosed', kept); } catch { /* no storage */ }
-    return fits && gone ? { ok: true, detail: 'fits the window; closes' } : { ok: false, detail: `fits ${fits}, gone ${gone}` };
+    // Many open tabs must not widen the app after closing the notice (and move the model off screen on zoom).
+    const bar = document.getElementById('doc-title'), tabs = [];
+    let bounded = false;
+    try {
+      for (let i = 0; i < 40; i++) {
+        const tab = bar.querySelector('.doctab').cloneNode(true);
+        tab.querySelector('span').textContent = `Layout regression part ${i + 1}`;
+        bar.appendChild(tab); tabs.push(tab);
+      }
+      const view = document.getElementById('viewport').getBoundingClientRect();
+      bounded = document.documentElement.scrollWidth <= innerWidth + 1 && view.right <= innerWidth + 1;
+    } finally { tabs.forEach((tab) => tab.remove()); }
+    return fits && gone && bounded ? { ok: true, detail: 'fits the window; closes; many tabs keep the viewport within the window' }
+      : { ok: false, detail: `fits ${fits}, gone ${gone}, viewport bounded with many tabs ${bounded}` };
   },
 
   // no browser right-click menu over RazorCAD (the browser version): a right-click on a panel, the status bar or the
@@ -2608,6 +3073,121 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
   // sketch pattern along a curve: a small circle on an arc of radius 50, four copies 20 apart along it (turned with it):
   // each copy's centre on the arc, 20 further along; past an open curve's end no more copies; along a line: the copies
   // go its way (45°)
+  async 'sketch-pattern-parametric'() {
+    const S = await import('/js/sketchmodel.js'), V = await import('/js/solver.js');
+    const sk = S.newSketchData();
+    const origin = S.addPoint(sk, 0, 0), circle = S.addCircle(sk, origin, 2);
+    const start = S.addPoint(sk, -10, 0), end = S.addPoint(sk, 100, 0), path = S.addLine(sk, start, end, true);
+    const radius = S.addRel(sk, 'dim', [circle], { kind: 'radius', value: 2 });
+    let count = 3;
+    const ev = (x) => x === 'count' ? count : Number(x);
+    const p = S.setSketchPattern(sk, { sources: [circle], path, n1: 'count', d1: '10' }, ev);
+    const first = p.generated.curves[0], centre = () => S.getPoint(sk, S.getCurve(sk, first).c);
+    if (p.made !== 2 || Math.abs(centre().x - 10) > 1e-6) return { ok: false, detail: 'Initial placement' };
+    radius.value = 5;
+    S.getPoint(sk, end).x = -10; S.getPoint(sk, end).y = 100;
+    count = 5; p.d1 = '7';
+    const r = V.solveSketch(sk, ev);
+    if (!r.ok || r.bad.length || p.generated.curves.length !== 4 || p.generated.curves[0] !== first || Math.abs(S.getCurve(sk, first).r - 5) > 1e-6 || Math.abs(centre().y - 7) > 1e-6) return { ok: false, detail: 'Source dimension, path, expression count or spacing did not update' };
+    count = 2; V.solveSketch(sk, ev);
+    count = 5; V.solveSketch(sk, ev);
+    if (p.generated.curves[0] !== first || p.made !== 4) return { ok: false, detail: 'IDs changed after resizing' };
+    const reopened = JSON.parse(JSON.stringify(sk));
+    const rr = V.solveSketch(reopened, ev);
+    const a = window.app, doc = M.newDoc(), f = M.createFeature(doc, 'sketch', { plane: { ref: 'front' } });
+    doc.equations = [{ name: 'count', expr: String(count) }];
+    Object.assign(f, reopened); doc.features.push(f);
+    const built = await a.kernel.rebuild(doc, null, null);
+    const errors = [...built.errors];
+    if (!rr.ok || errors.length) return { ok: false, detail: `Reopen / kernel rebuild: ${JSON.stringify(errors)}` };
+    doc.equations[0].expr = '3';
+    const resized = await a.kernel.rebuild(doc, null, null);
+    if (resized.errors.length || resized.sketches[f.id]?.data.patterns[0].made !== 2) return { ok: false, detail: 'Changing the quantity equation did not rebuild the stored pattern' };
+    S.deleteItems(sk, [circle]);
+    return { ok: !sk.patterns.length && !sk.curves.some((c) => c.id === first), detail: 'Source dimension, path, quantity expression and spacing followed; stable IDs; save/reopen and kernel rebuild; source deletion removes copies' };
+  },
+
+  async 'sketch-pattern-curved-updates'() {
+    const S = await import('/js/sketchmodel.js'), V = await import('/js/solver.js');
+    const sk = S.newSketchData(), o = S.addPoint(sk, 0, 0), a = S.addPoint(sk, 50, 0), b = S.addPoint(sk, 0, 50);
+    const path = S.addArc(sk, o, a, b, true), centre = S.addPoint(sk, 50, 0), circle = S.addCircle(sk, centre, 2);
+    const end = S.addPoint(sk, 54, 0), line = S.addLine(sk, centre, end, true);
+    const p = S.setSketchPattern(sk, { sources: [circle, line], path, n1: '6', d1: '20', turn: true });
+    if (p.made !== 3) return { ok: false, detail: 'Open end did not limit instances' };
+    const first = p.generated.curves[0];
+    S.getPoint(sk, a).x = 100; S.getPoint(sk, b).y = 100;
+    S.getPoint(sk, centre).x = 100; S.getPoint(sk, end).x = 106;
+    const r = V.solveSketch(sk, Number);
+    if (!r.ok || p.made !== 5 || p.generated.curves[0] !== first) return { ok: false, detail: 'Path length edit did not regenerate instances' };
+    for (let i = 0; i < p.made; i++) {
+      const c = S.getCurve(sk, p.generated.curves[i * 2]), l = S.getCurve(sk, p.generated.curves[i * 2 + 1]);
+      const q = S.getPoint(sk, c.c), tip = S.getPoint(sk, l.p2), angle = 20 * (i + 1) / 100;
+      if (!l.construction || Math.hypot(q.x - 100 * Math.cos(angle), q.y - 100 * Math.sin(angle)) > 0.01 || Math.hypot(tip.x - q.x - 6 * Math.cos(angle), tip.y - q.y - 6 * Math.sin(angle)) > 0.03) return { ok: false, detail: 'Circle / construction-line source or tangent rotation did not update' };
+    }
+    p.path = ''; p.a1 = '0'; p.n1 = '2'; p.n2 = '3'; p.d2 = '8'; p.a2 = '90';
+    const two = V.solveSketch(sk, Number);
+    if (!two.ok || p.made !== 5) return { ok: false, detail: 'Second direction failed' };
+    const splineSketch = S.newSketchData(), handles = [[0, 0], [20, 0], [20, 30], [40, 30]].map(([x, y]) => S.addPoint(splineSketch, x, y));
+    const spline = S.addCtrlSpline(splineSketch, handles, 3, true), seed = S.addPoint(splineSketch, 0, 0), seedCircle = S.addCircle(splineSketch, seed, 2);
+    const sp = S.setSketchPattern(splineSketch, { sources: [seedCircle], path: spline, n1: '3', d1: '10', turn: true });
+    const copy = sp.generated.curves[0], before = { ...S.getPoint(splineSketch, S.getCurve(splineSketch, copy).c) };
+    S.getPoint(splineSketch, handles[1]).y = 30;
+    const moved = V.solveSketch(splineSketch, Number), after = S.getPoint(splineSketch, S.getCurve(splineSketch, copy).c);
+    return { ok: moved.ok && sp.generated.curves[0] === copy && Math.hypot(after.x - before.x, after.y - before.y) > 1, detail: 'Arc and spline path edits, source circle / construction line, rotation, open ends and two-direction pattern followed' };
+  },
+
+  async 'sketch-pattern-panel'() {
+    const a = window.app, S = await import('/js/sketchmodel.js');
+    await a.newDocument?.(); closeModals();
+    const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } });
+    a.doc.features.push(f); a.commit(); await a.enterSketch(f, true); await wait(300);
+    const sk = a.sketcher;
+    const origin = S.addPoint(sk.f, 0, 0), circle = S.addCircle(sk.f, origin, 3);
+    const start = S.addPoint(sk.f, 0, -10), end = S.addPoint(sk.f, 100, -10), path = S.addLine(sk.f, start, end, true);
+    sk.changed(); sk.sel = new Set([circle]);
+    const before = sk.snapshotData();
+    sk.linearPatternSel();
+    if (document.querySelector('.modal-back') || !document.querySelector('#pm [data-pattern="d1"]') || !sk.patternPreview) return { ok: false, detail: `Missing docked panel / preview: ${sk.patternError}; sources ${JSON.stringify(sk.patternDraft?.sources)}` };
+    const pathInput = document.querySelector('#pm [data-pattern="path"]');
+    pathInput.value = path; pathInput.dispatchEvent(new Event('change'));
+    const spacing = document.querySelector('#pm [data-pattern="d1"]');
+    spacing.value = '12'; spacing.dispatchEvent(new Event('input'));
+    if (sk.snapshotData() !== before) return { ok: false, detail: 'Preview changed the actual sketch' };
+    a.cancelPM();
+    if (sk.patternDraft || sk.snapshotData() !== before || a.mode !== 'sketch') return { ok: false, detail: 'Cancel modified or exited the sketch' };
+    sk.sel.clear(); sk.linearPatternSel();
+    const v = viewEvents();
+    const onCircle = sk.frame.o.clone().addScaledVector(sk.frame.u, 3);
+    await v.click(...v.toScreen(onCircle));
+    if (!sk.patternDraft.sources.includes(circle)) return { ok: false, detail: 'Source could not be picked after opening the command' };
+    const pick = [...document.querySelectorAll('#pm button')].find((b) => b.textContent === 'Pick a line or curve'); pick.click();
+    const world = sk.frame.o.clone().addScaledVector(sk.frame.u, 50).addScaledVector(sk.frame.v, -10);
+    const pos = v.toScreen(world); await v.click(...pos);
+    if (sk.patternDraft.path !== path) return { ok: false, detail: 'Path could not be picked after opening the command' };
+    await a.okPM();
+    const id = sk.f.patterns?.[0]?.id;
+    if (!id || a.mode !== 'sketch') return { ok: false, detail: 'Accept did not create a persistent pattern' };
+    sk.undo();
+    if (sk.f.patterns?.length) return { ok: false, detail: 'Undo left a pattern behind' };
+    sk.redo();
+    if (sk.f.patterns?.[0]?.id !== id) return { ok: false, detail: 'Redo lost the pattern' };
+    sk.sel.clear(); sk.linearPatternSel(id);
+    const n = document.querySelector('#pm [data-pattern="n1"]'); n.value = '4'; n.dispatchEvent(new Event('input'));
+    for (const expr of ['125/6', '125/(6-1)']) {
+      const spacing = document.querySelector('#pm [data-pattern="d1"]');
+      spacing.value = expr; spacing.dispatchEvent(new Event('input'));
+      if (sk.patternError || !sk.patternPreview) return { ok: false, detail: `Expression preview failed: ${expr}: ${sk.patternError}` };
+    }
+    n.value = '6'; n.dispatchEvent(new Event('input'));
+    await a.okPM();
+    const pattern = sk.f.patterns[0];
+    const centres = pattern.generated.curves.map((id) => S.getPoint(sk.f, S.getCurve(sk.f, id).c));
+    const ok = sk.f.patterns.length === 1 && pattern.made === 5 && pattern.d1 === '125/(6-1)' &&
+      new Set(pattern.generated.points).size === pattern.generated.points.length &&
+      centres.every((q, i) => Math.abs(q.x - 25 * (i + 1)) < 1e-8 && Math.abs(q.y) < 1e-8);
+    return { ok, detail: 'Docked preview, selection, cancel/accept, undo/redo, repeated quantity and arithmetic spacing edits with distinct copies' };
+  },
+
   async 'sketch-pattern-path'() {
     const S = await import('/js/sketchmodel.js');
     const bad = [], out = [];
@@ -2637,6 +3217,122 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
 
   // Sketch Fillet where a line meets an arc, and where two arcs meet: the fillet is tangent to both (its centre r from
   // the line, R ± r from each arc's centre), the curves are cut back to it, and the sketch still solves
+  async 'sketch-projected-fillet-endpoints'() {
+    const a = window.app, S = await import('/js/sketchmodel.js');
+    const doc = M.newDoc(), source = M.createFeature(doc, 'sketch', { plane: { ref: 'front' } });
+    const p = S.addPoint(source, 0, 15), q = S.addPoint(source, 0, 15);
+    const c1 = S.addPoint(source, -20, 0), c2 = S.addPoint(source, 20, 0), e1 = S.addPoint(source, 5, 0), e2 = S.addPoint(source, -5, 0);
+    const first = S.addArc(source, c1, e1, p), second = S.addArc(source, c2, q, e2);
+    S.addRel(source, 'coincident', [p, q]);
+    const target = M.createFeature(doc, 'sketch', { plane: { ref: 'front' } });
+    const frame = { o: [0, 0, 0], u: [1, 0, 0], v: [0, 1, 0], n: [0, 0, 1] };
+    const copied = [first, second].map((cid) => S.addProjected(target, S.projectCurve(frame, S.curve3D(source, S.getCurve(source, cid), frame)), { kind: 'sketch', fid: source.id, cid })[0]);
+    S.mergePoints(target, S.getCurve(target, copied[1]).p1, S.getCurve(target, copied[0]).p2);
+    doc.features.push(source, target);
+    const initial = await a.kernel.rebuild(doc, null, null);
+    if (initial.errors.length) return { ok: false, detail: 'Initial projection failed' };
+    const initialData = initial.sketches[target.id].data;
+    if (S.getCurve(initialData, copied[0]).p2 !== S.getCurve(initialData, copied[1]).p1) return { ok: false, detail: 'Matching projected endpoints were unnecessarily split' };
+    S.blendCorner(source, p, 3); source.rev = M.newRev();
+    const rebuilt = await a.kernel.rebuild(doc, null, null);
+    if (rebuilt.errors.length) return { ok: false, detail: `Filleted source broke its projection: ${JSON.stringify(rebuilt.errors)}` };
+    const data = rebuilt.sketches[target.id].data;
+    const one = S.getCurve(data, copied[0]), two = S.getCurve(data, copied[1]);
+    if (one.p2 === two.p1) return { ok: false, detail: 'Separated source endpoints still share a projected point' };
+    for (const [id, curve, key] of [[first, one, 'p2'], [second, two, 'p1']]) {
+      const expected = S.getPoint(source, S.getCurve(source, id)[key]), actual = S.getPoint(data, curve[key]);
+      if (Math.hypot(expected.x - actual.x, expected.y - actual.y) > 1e-6) return { ok: false, detail: 'Projection did not follow the trimmed endpoint' };
+    }
+    return { ok: true, detail: 'Shared projected arc endpoints stay joined until a source fillet separates them; kernel rebuild preserves both links without conflicting targets' };
+  },
+
+  async 'sketch-hide-dependent-projections'() {
+    const a = window.app, S = await import('/js/sketchmodel.js');
+    await a.newDocument?.(); closeModals();
+    const doc = M.newDoc();
+    const source = M.createFeature(doc, 'sketch', { plane: { ref: 'front' }, visible: true });
+    const p = S.addPoint(source, 0, 0), q = S.addPoint(source, 10, 0), line = S.addLine(source, p, q);
+    const dependent = M.createFeature(doc, 'sketch', { plane: { ref: 'front' }, visible: true });
+    const copied = S.addProjected(dependent, [{ type: 'line', a: [0, 0], b: [10, 0] }], { kind: 'sketch', fid: source.id, cid: line })[0];
+    const indirect = M.createFeature(doc, 'sketch', { plane: { ref: 'front' }, visible: true });
+    S.addProjected(indirect, [{ type: 'line', a: [0, 0], b: [10, 0] }], { kind: 'sketch', fid: dependent.id, cid: copied });
+    const independent = M.createFeature(doc, 'sketch', { plane: { ref: 'front' }, visible: true });
+    S.addLine(independent, S.addPoint(independent, 0, 30), S.addPoint(independent, 10, 30));
+    doc.features.push(source, dependent, indirect, independent);
+    if (!M.referencesOf(doc, { type: 'plane', refs: [{ kind: 'sketch', sketch: source.id, curve: line }] }).has(source.id)) return { ok: false, detail: 'Reference-plane sketch dependency was not recognised' };
+    await a.setDoc(doc); a.vis.sketches = true;
+    const original = a.viewport.setSketches;
+    let displayed = [];
+    a.viewport.setSketches = function (list) { displayed = list; return original.call(this, list); };
+    try {
+      a.updateSketchDisplay();
+      if (displayed.length !== 4) return { ok: false, detail: 'Expected all four sketches before editing' };
+      await a.enterSketch(source, false);
+      if (displayed.length !== 1 || displayed[0].polylines[0].pts[0][1] !== 30) return { ok: false, detail: 'Dependent or transitive projections remained visible, or independent references were hidden' };
+      S.getPoint(source, q).x = 20; a.sketcher.changed();
+      a.exitSketch(true); await a.rebuild(); a.updateSketchDisplay();
+      const result = a.result.sketches.get(indirect.id)?.sketch;
+      const c = result?.curves[0], end = c && S.getPoint(result, c.p2);
+      if (displayed.length !== 4 || Math.abs(end?.x - 20) > 1e-6) return { ok: false, detail: 'Dependent projections did not return with rebuilt geometry' };
+      await a.enterSketch(source, false);
+      S.getPoint(source, q).x = 25; a.sketcher.changed();
+      a.exitSketch(false); await a.rebuild(); a.updateSketchDisplay();
+      return { ok: displayed.length === 4 && S.getPoint(source, q).x === 20, detail: 'Direct and transitive projections hidden while editing; independent references kept; rebuilt projections restored on save and cancel' };
+    } finally { a.viewport.setSketches = original; }
+  },
+
+  async 'sketch-fillet-arcs-click'() {
+    const a = window.app, S = await import('/js/sketchmodel.js');
+    await a.newDocument?.(); closeModals();
+    const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } });
+    a.doc.features.push(f); a.commit(); await a.enterSketch(f, true); await wait(300);
+    const sk = a.sketcher;
+    const p = S.addPoint(sk.f, 0, 15), q = S.addPoint(sk.f, 0, 15);
+    const c1 = S.addPoint(sk.f, -20, 0), c2 = S.addPoint(sk.f, 20, 0), end1 = S.addPoint(sk.f, 5, 0), end2 = S.addPoint(sk.f, -5, 0);
+    S.addArc(sk.f, c1, end1, p); S.addArc(sk.f, c2, q, end2);
+    S.addRel(sk.f, 'coincident', [p, q]); sk.changed();
+    sk.filletR = 3; sk.setTool('sfillet');
+    sk.normalTo(false);
+    a.viewport.camera.updateMatrixWorld(true);
+    const v = viewEvents(), corner = sk.frame.o.clone().addScaledVector(sk.frame.v, 15);
+    await v.click(...v.toScreen(corner));
+    const count = () => sk.f.curves.filter((c) => c.type === 'arc').length;
+    if (count() !== 3 || !sk.solveOk) return { ok: false, detail: `Clicking coincident arc endpoints did not create a valid fillet (${count()} arcs; ${sk.solveMsg || 'no solver error'})` };
+    sk.undo(); if (count() !== 2) return { ok: false, detail: 'Undo did not restore both arcs' };
+    sk.redo(); if (count() !== 3 || !sk.solveOk) return { ok: false, detail: 'Redo did not restore the fillet' };
+    return { ok: true, detail: 'Pointer click creates an R3 arc fillet; undo restores two arcs and redo restores the solved fillet' };
+  },
+
+  async 'sketch-fillet-coincident-arcs'() {
+    const S = await import('/js/sketchmodel.js'), { solveSketch } = await import('/js/solver.js');
+    for (const variant of ['coincident', 'chain', 'origin', 'construction']) {
+      const sk = S.newSketchData(), y = variant === 'origin' ? -15 : 0;
+      const p = variant === 'origin' ? 'O' : S.addPoint(sk, 0, y + 15), q = S.addPoint(sk, 0, y + 15);
+      const c1 = S.addPoint(sk, -20, y), c2 = S.addPoint(sk, 20, y), a = S.addPoint(sk, 5, y), b = S.addPoint(sk, -5, y);
+      const first = S.addArc(sk, c1, a, p), second = S.addArc(sk, c2, q, b);
+      if (variant === 'chain') {
+        const mid = S.addPoint(sk, 0, y + 15);
+        S.addRel(sk, 'coincident', [p, mid]); S.addRel(sk, 'coincident', [mid, q]);
+      } else S.addRel(sk, 'coincident', [p, q]);
+      if (variant === 'construction') S.addLine(sk, p, S.addPoint(sk, 0, 40), true);
+      const before = JSON.stringify(sk);
+      let failed = false;
+      try { S.blendCorner(sk, q, 1000); } catch { failed = true; }
+      if (!failed || JSON.stringify(sk) !== before) return { ok: false, detail: `${variant}: a failed fillet changed the sketch` };
+      const ids = S.blendCorner(sk, q, 3), fillet = S.getCurve(sk, ids[3]);
+      const solution = solveSketch(sk, Number);
+      if (!solution.ok || solution.bad.length || Math.abs(S.radiusOf(sk, fillet) - 3) > 1e-6) return { ok: false, detail: `${variant}: fillet did not solve at R3` };
+      for (const id of [first, second]) {
+        const c = S.getCurve(sk, id), shared = [c.p1, c.p2].find((q) => [fillet.p1, fillet.p2].includes(q));
+        if (!shared) return { ok: false, detail: `${variant}: disconnected fillet` };
+        const p = S.getPoint(sk, shared), a = S.getPoint(sk, c.c), b = S.getPoint(sk, fillet.c);
+        const u = [p.x - a.x, p.y - a.y], v = [p.x - b.x, p.y - b.y];
+        if (Math.abs(u[0] * v[1] - u[1] * v[0]) / (Math.hypot(...u) * Math.hypot(...v)) > 1e-6) return { ok: false, detail: `${variant}: fillet is not tangent` };
+      }
+    }
+    return { ok: true, detail: 'Two arcs joined by Coincident, a coincidence chain, the origin and a construction-line corner; R3, shared ends, tangency and no mutation on failure' };
+  },
+
   async 'sketch-fillet-arcs'() {
     const S = await import('/js/sketchmodel.js'), { solveSketch } = await import('/js/solver.js');
     const out = [], bad = [];
