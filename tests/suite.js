@@ -2851,9 +2851,19 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     if (sk.f.patterns?.[0]?.id !== id) return { ok: false, detail: 'Redo lost the pattern' };
     sk.sel.clear(); sk.linearPatternSel(id);
     const n = document.querySelector('#pm [data-pattern="n1"]'); n.value = '4'; n.dispatchEvent(new Event('input'));
+    for (const expr of ['125/6', '125/(6-1)']) {
+      const spacing = document.querySelector('#pm [data-pattern="d1"]');
+      spacing.value = expr; spacing.dispatchEvent(new Event('input'));
+      if (sk.patternError || !sk.patternPreview) return { ok: false, detail: `Expression preview failed: ${expr}: ${sk.patternError}` };
+    }
+    n.value = '6'; n.dispatchEvent(new Event('input'));
     await a.okPM();
-    const ok = sk.f.patterns.length === 1 && sk.f.patterns[0].made === 3;
-    return { ok, detail: 'Docked preview, preselection and path picking, cancel/accept, undo/redo, edit quantity' };
+    const pattern = sk.f.patterns[0];
+    const centres = pattern.generated.curves.map((id) => S.getPoint(sk.f, S.getCurve(sk.f, id).c));
+    const ok = sk.f.patterns.length === 1 && pattern.made === 5 && pattern.d1 === '125/(6-1)' &&
+      new Set(pattern.generated.points).size === pattern.generated.points.length &&
+      centres.every((q, i) => Math.abs(q.x - 25 * (i + 1)) < 1e-8 && Math.abs(q.y) < 1e-8);
+    return { ok, detail: 'Docked preview, selection, cancel/accept, undo/redo, repeated quantity and arithmetic spacing edits with distinct copies' };
   },
 
   async 'sketch-pattern-path'() {

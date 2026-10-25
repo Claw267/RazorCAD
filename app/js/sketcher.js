@@ -1703,7 +1703,9 @@ export class Sketcher {
     this.patternError = '';
     try {
       const tmp = JSON.parse(JSON.stringify(this.f));
-      const p = S.setSketchPattern(tmp, this.patternDraft, this.ev);
+      // Preview allocation must not extend the draft's ID pools: the next preview
+      // starts from the real sketch's counter and could reuse those temporary IDs.
+      const p = S.setSketchPattern(tmp, JSON.parse(JSON.stringify(this.patternDraft)), this.ev);
       this.patternPreview = { sketch: tmp, pattern: p };
     } catch (e) { this.patternError = e.message; }
     this.redraw();
