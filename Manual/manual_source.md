@@ -456,6 +456,8 @@ Patterns made by earlier versions were independent copies and contain no stored 
 
 Pattern copies use the defined-geometry colour: black in the light theme and light in the dark theme. Purple identifies projected geometry; the pattern preview is orange.
 
+Fillet corners can share one endpoint or have endpoints joined by Coincident relations. If exactly two regular lines/arcs meet at a corner, construction geometry there is ignored when choosing the curves to fillet. An invalid radius leaves the sketch unchanged.
+
 ## Dimension
 
 Click a line, circle or arc (or two entities), then click to place the dimension. {idx:Dimension}

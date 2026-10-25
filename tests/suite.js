@@ -2715,6 +2715,56 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
 
   // Sketch Fillet where a line meets an arc, and where two arcs meet: the fillet is tangent to both (its centre r from
   // the line, R ± r from each arc's centre), the curves are cut back to it, and the sketch still solves
+  async 'sketch-fillet-arcs-click'() {
+    const a = window.app, S = await import('/js/sketchmodel.js');
+    await a.newDocument?.(); closeModals();
+    const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } });
+    a.doc.features.push(f); a.commit(); await a.enterSketch(f, true); await wait(300);
+    const sk = a.sketcher;
+    const p = S.addPoint(sk.f, 0, 15), q = S.addPoint(sk.f, 0, 15);
+    const c1 = S.addPoint(sk.f, -20, 0), c2 = S.addPoint(sk.f, 20, 0), end1 = S.addPoint(sk.f, 5, 0), end2 = S.addPoint(sk.f, -5, 0);
+    S.addArc(sk.f, c1, end1, p); S.addArc(sk.f, c2, q, end2);
+    S.addRel(sk.f, 'coincident', [p, q]); sk.changed();
+    sk.filletR = 3; sk.setTool('sfillet');
+    const v = viewEvents(), corner = sk.frame.o.clone().addScaledVector(sk.frame.v, 15);
+    await v.click(...v.toScreen(corner));
+    const count = () => sk.f.curves.filter((c) => c.type === 'arc').length;
+    if (count() !== 3 || !sk.solveOk) return { ok: false, detail: 'Clicking coincident arc endpoints did not create a valid fillet' };
+    sk.undo(); if (count() !== 2) return { ok: false, detail: 'Undo did not restore both arcs' };
+    sk.redo(); if (count() !== 3 || !sk.solveOk) return { ok: false, detail: 'Redo did not restore the fillet' };
+    return { ok: true, detail: 'Pointer click creates an R3 arc fillet; undo restores two arcs and redo restores the solved fillet' };
+  },
+
+  async 'sketch-fillet-coincident-arcs'() {
+    const S = await import('/js/sketchmodel.js'), { solveSketch } = await import('/js/solver.js');
+    for (const variant of ['coincident', 'chain', 'origin', 'construction']) {
+      const sk = S.newSketchData(), y = variant === 'origin' ? -15 : 0;
+      const p = variant === 'origin' ? 'O' : S.addPoint(sk, 0, y + 15), q = S.addPoint(sk, 0, y + 15);
+      const c1 = S.addPoint(sk, -20, y), c2 = S.addPoint(sk, 20, y), a = S.addPoint(sk, 5, y), b = S.addPoint(sk, -5, y);
+      const first = S.addArc(sk, c1, a, p), second = S.addArc(sk, c2, q, b);
+      if (variant === 'chain') {
+        const mid = S.addPoint(sk, 0, y + 15);
+        S.addRel(sk, 'coincident', [p, mid]); S.addRel(sk, 'coincident', [mid, q]);
+      } else S.addRel(sk, 'coincident', [p, q]);
+      if (variant === 'construction') S.addLine(sk, p, S.addPoint(sk, 0, 40), true);
+      const before = JSON.stringify(sk);
+      let failed = false;
+      try { S.blendCorner(sk, q, 1000); } catch { failed = true; }
+      if (!failed || JSON.stringify(sk) !== before) return { ok: false, detail: `${variant}: a failed fillet changed the sketch` };
+      const ids = S.blendCorner(sk, q, 3), fillet = S.getCurve(sk, ids[3]);
+      const solution = solveSketch(sk, Number);
+      if (!solution.ok || solution.bad.length || Math.abs(S.radiusOf(sk, fillet) - 3) > 1e-6) return { ok: false, detail: `${variant}: fillet did not solve at R3` };
+      for (const id of [first, second]) {
+        const c = S.getCurve(sk, id), shared = [c.p1, c.p2].find((q) => [fillet.p1, fillet.p2].includes(q));
+        if (!shared) return { ok: false, detail: `${variant}: disconnected fillet` };
+        const p = S.getPoint(sk, shared), a = S.getPoint(sk, c.c), b = S.getPoint(sk, fillet.c);
+        const u = [p.x - a.x, p.y - a.y], v = [p.x - b.x, p.y - b.y];
+        if (Math.abs(u[0] * v[1] - u[1] * v[0]) / (Math.hypot(...u) * Math.hypot(...v)) > 1e-6) return { ok: false, detail: `${variant}: fillet is not tangent` };
+      }
+    }
+    return { ok: true, detail: 'Two arcs joined by Coincident, a coincidence chain, the origin and a construction-line corner; R3, shared ends, tangency and no mutation on failure' };
+  },
+
   async 'sketch-fillet-arcs'() {
     const S = await import('/js/sketchmodel.js'), { solveSketch } = await import('/js/solver.js');
     const out = [], bad = [];

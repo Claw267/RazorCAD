@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## Unreleased — Sketch Fillet between coincident arcs
+- Sketch Fillet recognises arc endpoints joined by Coincident relations, including chains of coincidences and the origin. Construction geometry through a corner no longer hides the two regular curves to round.
+- A failed fillet or chamfer leaves the sketch unchanged.
+- Tests: sketch-fillet-coincident-arcs, sketch-fillet-arcs-click, sketch-fillet-arcs.
+
 ## Unreleased — Parametric sketch patterns and a side panel
 - Pattern copies use the defined-geometry colour (black in the light theme, light in the dark theme); purple is reserved for projected geometry.
 - Linear Sketch Pattern and its Along Path option now keep a pattern definition: copies update with source geometry, the path/direction, quantity and spacing (including expressions), and survive save/reopen and rebuild. Copies keep stable identifiers when parameters change; their shape is edited through the originals.

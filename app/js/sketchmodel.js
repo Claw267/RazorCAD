@@ -2270,17 +2270,28 @@ export function cornerLines(sk, P) {
 // stays as a "virtual sharp" (on both lines) when other relations or dimensions use it, and for
 // a chamfer, which is dimensioned from it. Returns the ids of the new entities.
 export function blendCorner(sk, P, r, chamfer = false) {
-  // end points joined by a Coincident relation count as one corner
-  for (const k of [...sk.constraints]) {
-    if (k.type !== 'coincident' || !k.refs.includes(P)) continue;
-    const Q = k.refs[0] === P ? k.refs[1] : k.refs[0];
-    if (Q !== 'O' && sk.curves.some((c) => c.type === 'line' && (c.p1 === Q || c.p2 === Q))) mergePoints(sk, Q, P);
-  }
-  const lines = cornerLines(sk, P);
+  // Joining coincident endpoints and trimming curves must not change the sketch if the blend fails.
+  const trial = JSON.parse(JSON.stringify(sk));
+  const created = blendCornerInPlace(trial, P, r, chamfer);
+  Object.assign(sk, trial);
+  return created;
+}
+
+function blendCornerInPlace(sk, P, r, chamfer) {
   if (!(r > 0)) throw new Error(chamfer ? 'The chamfer distance must be greater than zero' : 'The radius must be greater than zero');
+  // A corner can be shared directly or through a chain of Coincident relations, including the origin.
+  const joined = new Set([P]);
+  for (const id of joined) for (const k of sk.constraints) {
+    if (k.type === 'coincident' && k.refs.includes(id)) for (const q of k.refs) if (getPoint(sk, q)) joined.add(q);
+  }
+  if (joined.has('O')) P = 'O';
+  for (const q of joined) if (q !== P) mergePoints(sk, q, P);
+  let two = sk.curves.filter((c) => (c.type === 'line' || c.type === 'arc') && (c.p1 === P || c.p2 === P));
+  const regular = two.filter((c) => !c.construction);
+  if (regular.length === 2) two = regular;
+  const lines = two.length === 2 && two.every((c) => c.type === 'line') ? two : null;
   if (!lines) {
     // a line and an arc, or two arcs: rounded (not chamfered)
-    const two = sk.curves.filter((c) => (c.type === 'line' || c.type === 'arc') && (c.p1 === P || c.p2 === P));
     if (two.length !== 2 || chamfer) throw new Error(chamfer ? 'Pick a corner where exactly two lines meet' : 'Pick a corner where exactly two lines, a line and an arc, or two arcs meet');
     return filletCurves(sk, P, two[0], two[1], r);
   }
