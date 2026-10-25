@@ -131,6 +131,7 @@ The ribbon shows its buttons in two rows. {idx:toolbars, customising}
 - **Rearrange**: drag a button to a new place; the others slide aside.
 - **Your own toolbars**: click **+** after the tabs (or right-click a tab ▸ **New Toolbar…**). Add tools by dragging a button onto its tab or with right-click ▸ **Add to "…"**. Drag a button off to remove it.
 - Right-click a button on a built-in toolbar to hide it or add a separator after it. **Customize Toolbars…** shows hidden buttons again, and **Reset** puts a toolbar back as it was.
+- In **Customize Toolbars…**, choose **Sketch** and set **Sketch toolbar layout** to **Expanded (all tools)** or **Grouped (flyout menus)**. Grouped mode gathers lines, rectangles, arcs, splines and slots under their family buttons; click a family to select a variant. The preference is saved, and changing it preserves the expanded toolbar order and hidden tools. Use Expanded mode to rearrange individual tools.
 
 The layout is kept in `prefs.json` in RazorCAD's data folder.
 
@@ -417,6 +418,7 @@ In the sketch Property panel, **Rotate 90°** turns the sketch axes about the sk
 | **Select** | [[S]] | Select entities, drag geometry |
 | **Line** | [[L]] | Click a chain of points. Coincident, horizontal and vertical relations are added automatically; snapping to a midpoint or onto a curve adds those relations too. Double-click, [[Enter]] or [[Esc]] ends the chain. |
 | **Centerline** | | Construction line for symmetry, mirroring, gears or as a revolve axis |
+| **Midpoint Line** | | Midpoint, then one endpoint; the opposite endpoint is mirrored and a Midpoint relation preserves the centre |
 | **Corner Rectangle** | [[R]] | Built with horizontal and vertical relations |
 | **Center Rectangle** | | Also adds construction diagonals with a midpoint relation |
 | **Circle** | [[C]] | Centre, then radius |
@@ -424,9 +426,13 @@ In the sketch Property panel, **Rotate 90°** turns the sketch axes about the sk
 | **3 Point Arc** | | Start, end, then a point it runs through |
 | **Tangent Arc** | | From the end of a line or arc, kept tangent by a Tangent relation |
 | **Ellipse** | | Centre, end of the major axis, then the minor radius. Trim it for an elliptical arc. |
-| **Spline** | [[N]] | See below |
+| **Fit Point Spline** | [[N]] | Through fit points, with editable tangent direction and strength handles; see below |
 | **Point** | | Lone sketch points that stay, for example to place holes |
 | **Straight Slot** | | Built with tangent and equal relations |
+| **Center Point Slot** | | Slot midpoint, one end-arc centre, then width |
+| **Overall Slot** | | Two outermost points along the axis define total length; the third click defines width |
+| **Center Point Arc Slot** | | Centre of the path arc, start centre, end direction, then width |
+| **3 Point Arc Slot** | | Start centre, end centre, third point on the centre arc, then width |
 | **Polygon** | [[P]] | Set the number of sides in the Property panel |
 | **Dimension** | [[D]] | See below |
 | **Trim** | [[T]] | See below |
@@ -444,7 +450,7 @@ In the sketch Property panel, **Rotate 90°** turns the sketch axes about the sk
 | **Airfoil** | | See the Airfoils chapter |
 | **Sketch Fillet / Sketch Chamfer** | | Set the radius or distance, then click corners (a fillet: where two lines, a line and an arc, or two arcs meet; a chamfer: two lines). The first one made gets the dimension; the others made before you leave the tool are made Equal to it, so one value changes them all. |
 | **Intersection Curve** | | Projects the outline where the sketch plane cuts the bodies |
-| **Construction Geometry** | [[Q]] | Toggles the selected curves to or from construction (drawn dotted, ignored by features) |
+| **Construction Geometry** | [[Q]] | Toggles selected curves to/from construction; with no curves selected, toggles construction mode for newly drawn geometry. The drawing panel also has **For construction**. Preview and resulting geometry are dashed and ignored by features. |
 | **Display Relations** | | Shows or hides the relation glyphs |
 | **Delete** | [[Del]] | Deletes the selected entities or relations |
 
@@ -499,6 +505,8 @@ Splines projected from another sketch remain linked splines, preserving their co
 Click a model edge, or an entity of an earlier sketch, to project it into this sketch. Or select edges first and then click **Project Edges** (or press [[E]]): they are projected at once. Projected geometry is drawn in **purple**, is linked and updates when the source changes (relation "On Edge ⇲"). The ends of projected lines are joined to each other and to sketch geometry already there, so the edges of a face give a closed outline ready to extrude. While the tool is active, the outline where the sketch plane cuts the bodies is drawn in teal; clicking it converts the whole outline. This works for solids and surfaces. {idx:Project Edges}
 
 ## Spline
+
+New **Fit Point Splines** include a tangent handle at each fit point. Drag a handle to change tangent direction and strength; adjacent pieces keep the same tangent through their shared fit point. Dragging a fit point carries its handle with it. Handle lines are construction geometry and accept ordinary line constraints and dimensions (for example horizontal, parallel, length or angle). Their remaining freedoms count towards sketch definition. Copies, mirrors, blocks, patterns and linked projections preserve the handles. Existing saved splines retain their previous representation.
 
 Click the points the curve runs through (they snap like line points), then double-click, [[Enter]] or [[Esc]] to finish, or click the first point again to close it. Drag a point to reshape the curve, or drag the curve to move it; deleting a point takes it out of the spline. **Convert to Control-Point Spline** (in its panel) makes it a control-point spline that runs through the same points. Splines make profiles on their own or with lines and arcs and are exact curves for extrudes, revolves, cuts, lofts and sweep paths. Lines can be trimmed where they cross a spline. {idx:spline}
 

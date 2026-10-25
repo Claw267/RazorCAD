@@ -1528,6 +1528,7 @@ export class UI {
         tool('select', 'select', 'Select'),
         tool('line', 'line', 'Line'),
         tool('centerline', 'centerline', 'Centerline'),
+        tool('midline', 'line', 'Midpoint Line'),
         tool('rect', 'rect', 'Corner Rectangle'),
         tool('crect', 'crect', 'Center Rectangle'),
         tool('circle', 'circle', 'Circle'),
@@ -1535,10 +1536,14 @@ export class UI {
         tool('arc3', 'arc3', '3 Point Arc'),
         tool('tarc', 'tarc', 'Tangent Arc'),
         tool('ellipse', 'ellipse', 'Ellipse'),
-        tool('spline', 'spline', 'Spline'),
+        tool('spline', 'spline', s3 ? 'Spline' : 'Fit Point Spline'),
         tool('cspline', 'cspline', 'Control-Point Spline'),
         tool('point', 'point', 'Point'),
         tool('slot', 'slot', 'Straight Slot'),
+        tool('cslot', 'slot', 'Center Point Slot'),
+        tool('oslot', 'slot', 'Overall Slot'),
+        tool('arcslot3', 'slot', '3 Point Arc Slot'),
+        tool('arcslot', 'slot', 'Center Point Arc Slot'),
         tool('polygon', 'polygon', 'Polygon'),
         'sep',
         tool('trim', 'trim', 'Trim'),
@@ -1559,7 +1564,7 @@ export class UI {
         tool('schamfer', 'sketchChamfer', 'Sketch Chamfer'),
         only2d({ icon: 'intersectCurve', label: 'Intersection Curve', action: () => (sk ? a.sketcher.intersectionCurve() : a.startSketch()) }),
         s3 ? { icon: 'construction', label: 'Construction Geometry', key: 'Q', action: () => a.sketch3d.toggleConstruction(), disabled: ![...a.sketch3d.sel].some((id) => a.sketch3d.f?.segs.some((x) => x.id === id)) }
-          : { icon: 'construction', label: 'Construction Geometry', key: 'Q', action: () => (sk ? a.sketcher.toggleConstruction() : a.startSketch()) },
+          : { icon: 'construction', label: 'Construction Geometry', key: 'Q', active: sk && a.sketcher.constructionMode, action: () => (sk ? a.sketcher.toggleConstruction() : a.startSketch()) },
         only2d({ icon: 'relations', label: 'Display Relations', action: () => (sk ? a.sketcher.toggleRelations() : a.startSketch()), active: sk && a.sketcher.relsVisible }),
         'sep',
         s3 ? { icon: 'trash', label: 'Delete', key: 'Del', action: () => a.sketch3d.deleteSelected(), disabled: !a.sketch3d.sel?.size }
@@ -1682,11 +1687,20 @@ export class UI {
         this.showContext(e.clientX, e.clientY, [{ label: 'Customize Toolbars…', icon: 'gear', action: () => this.showToolbarCustomize(this.cmTab === 'claude' ? 'features' : this.cmTab) }, 'sep', ...this.iconSizeItems()]);
       });
     }
-    for (const d of this.toolbarItems(this.cmTab, defs)) {
+    const items = this.toolbarItems(this.cmTab, defs);
+    for (const d of this.cmTab === 'sketch' && this.tbPrefs().sketchLayout === 'grouped' ? this.groupSketchTools(items) : items) {
       if (d === 'sep') { const s = el('div', { class: 'cm-sep' }); s.dataset.key = 'sep'; this.toolbarDraggable(s); btns.appendChild(s); continue; }
       const b = el('button', { class: 'cm-btn' + (d.active ? ' active' : ''), title: tr(d.label) + (d.key ? ` (${d.key})` : ''), disabled: d.disabled },
         `<span class="cm-ic">${icon(d.icon)}${d.key ? `<span class="cm-key">${esc(d.key)}</span>` : ''}</span><span>${esc(tr(d.label))}</span>`);
       b.dataset.key = cmdKey(d);
+      if (d.children) {
+        b.classList.add('cm-flyout'); b.dataset.group = d.id;
+        b.setAttribute('aria-haspopup', 'menu');
+        b.lastElementChild.appendChild(document.createTextNode(' ▾'));
+        b.onclick = () => { const r = b.getBoundingClientRect(); this.showContext(r.left, r.bottom, d.children); };
+        b.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showToolbarCustomize('sketch'); });
+        btns.appendChild(b); continue;
+      }
       // (the click that ends a drag is not a press)
       b.addEventListener('click', (e) => { if (this._tbJustDragged) { e.preventDefault(); return; } this.app.macros?.note(d.label); d.action(); });
       b.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showContext(e.clientX, e.clientY, this.toolbarButtonMenu(d)); });
@@ -1717,6 +1731,25 @@ export class UI {
     const t = (this.prefs.toolbars ||= {});
     t.order ||= {}; t.hidden ||= {}; t.custom ||= [];
     return t;
+  }
+
+  groupSketchTools(items) {
+    const groups = [
+      ['line', 'Line', 'line', ['tool-line', 'tool-centerline', 'tool-midline']],
+      ['rectangle', 'Rectangle', 'rect', ['tool-rect', 'tool-crect']],
+      ['arc', 'Arc', 'arc', ['tool-arc', 'tool-arc3', 'tool-tarc']],
+      ['spline', 'Spline', 'spline', ['tool-spline', 'tool-cspline']],
+      ['slot', 'Slot', 'slot', ['tool-slot', 'tool-cslot', 'tool-oslot', 'tool-arcslot3', 'tool-arcslot']],
+    ];
+    const emitted = new Set();
+    return items.flatMap((d) => {
+      const group = groups.find((g) => g[3].includes(d.id));
+      if (!group) return [d];
+      if (emitted.has(group[0])) return [];
+      emitted.add(group[0]);
+      const children = items.filter((q) => group[3].includes(q.id));
+      return [{ id: 'sketch-group-' + group[0], label: group[1], icon: group[2], children, active: children.some((q) => q.active), disabled: children.every((q) => q.disabled) }];
+    });
   }
   // The browser version's notice above the window (closed for good with ✕).
   showWebNotice() {
@@ -1982,6 +2015,13 @@ export class UI {
         btn('Add Separator', () => { this.addToToolbar(target, 'sep'); draw(); });
       } else btn('Reset', () => { this.resetToolbar(target); draw(); });
       box.appendChild(top);
+      if (target === 'sketch') {
+        const layout = el('select', { 'data-sketch-layout': '' });
+        layout.append(el('option', { value: 'expanded' }, 'Expanded (all tools)'), el('option', { value: 'grouped' }, 'Grouped (flyout menus)'));
+        layout.value = this.tbPrefs().sketchLayout || 'expanded';
+        layout.onchange = () => { this.tbPrefs().sketchLayout = layout.value; this.savePrefs(); this.renderCommandManager(); };
+        box.appendChild(this.row('Sketch toolbar layout', layout));
+      }
       box.appendChild(el('div', { class: 'pm-hint' }, custom ? 'Add any command to your toolbar. Drag its buttons on the toolbar to rearrange them, or drag one off the toolbar to remove it.' : 'Built-in toolbar: drag its buttons to rearrange them; hidden buttons can be shown again here. To gather tools from several toolbars, make a toolbar of your own (New…).'));
       const on = new Set(this.currentKeys(target));
       const all = this.allCommands();
@@ -3552,6 +3592,13 @@ export class UI {
       }
     }
     if (sk.tool !== 'select') root.appendChild(el('div', { class: 'pm-msg' }, `<b>${esc(SKETCH_TOOLS[sk.tool].label)}:</b> ${esc(SKETCH_TOOLS[sk.tool].hint)}`));
+    if (['line', 'midline', 'rect', 'crect', 'circle', 'arc', 'arc3', 'tarc', 'ellipse', 'spline', 'cspline', 'polygon', 'slot', 'cslot', 'oslot', 'arcslot', 'arcslot3'].includes(sk.tool)) {
+      const g = this.pmGroup(root, 'Creation Options', 'sk:creation');
+      const cb = el('input', { type: 'checkbox', 'data-construction-mode': '' }); cb.checked = sk.constructionMode;
+      cb.onchange = () => { sk.constructionMode = cb.checked; sk.redraw(); this.refreshCommandStates(); };
+      const label = el('label'); label.append(cb, document.createTextNode(' For construction'));
+      g.appendChild(this.row(null, label, 'check'));
+    }
 
     if (sk.tool === 'offset') {
       const g = this.pmGroup(root, 'Offset Options', 'sk:offset');
@@ -3736,7 +3783,7 @@ export class UI {
             const bar = el('div', { class: 'pm-btns' });
             bar.appendChild(conv);
             g.appendChild(bar);
-            g.appendChild(el('div', { class: 'pm-hint' }, 'Drag the points it runs through to reshape it; drag the curve to move it. Convert it, or draw a Control-Point Spline, for control points, weights and a degree to choose.'));
+            g.appendChild(el('div', { class: 'pm-hint' }, it.c.handles ? 'Drag a fit point to move it with its tangent handle. Drag a handle to change tangent direction and strength. The dashed handle lines accept length, angle, parallel and other line constraints.' : 'Drag the points it runs through to reshape it; drag the curve to move it. Convert it, or draw a Control-Point Spline, for control points, weights and a degree to choose.'));
           }
         } else if (it.kind === 'ellipse' || it.kind === 'earc') {
           const eg = SM.ellipseGeom(f, it.c);

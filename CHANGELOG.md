@@ -6,6 +6,13 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## Unreleased — Sketch tool families, slot variants and fit spline tangent handles
+- Customize Toolbars now offers Expanded or Grouped Sketch layouts, saved as a preference. Grouped mode gathers line, rectangle, arc, spline and slot variants into flyouts while preserving the expanded toolbar's ordering and hidden tools.
+- Midpoint Line creates a line symmetrically about the first click and retains a Midpoint constraint. For construction can be enabled before drawing, through the drawing panel or Construction Geometry with no curves selected; previews and created geometry follow the mode. Existing selection-based construction toggling remains available.
+- Slots include centre-to-centre, centre-point, overall-length, centre-point arc and three-point arc variants. Shared layouts drive previews and creation; outlines keep tangent/equal relations, have no unused helper freedoms, survive undo/redo and form extrudable profiles. Invalid widths, collinear arc inputs and overlapping major-arc caps are rejected.
+- New Fit Point Splines have cubic tangent direction/strength handles at every fit point. Handles are ordinary constraint-aware points with construction lines; their freedoms are included in definition status. Fit-point dragging carries its handle, and copies, mirrors, blocks, patterns, projections and serialization preserve the shape. Existing stored splines and the 3D sketch spline tool keep their representation.
+- Tests: sketch-grouped-tools, sketch-new-drawing-tools, sketch-fit-spline-handles, plus 15 existing expression, constraint, projection, pattern and solid regression tests. Native mouse dragging and the user's existing neck model also verified.
+
 ## Unreleased — Parameter name completion in expressions
 - Sketch dimension editing, linear/path and circular sketch patterns, and feature expression fields suggest matching Equations parameters with their evaluated values while typing. Completion replaces only the identifier at the caret, preserving surrounding arithmetic.
 - Choose with Up/Down and Tab or Enter, or click an entry. Escape dismisses suggestions first; completing a name does not confirm a dimension or dialog. Numeric arrow stepping remains available when no suggestions are open.

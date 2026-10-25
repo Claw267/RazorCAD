@@ -46,7 +46,8 @@ export const SKETCH_TOOLS = {
   select: { label: 'Select', hint: 'Click to select, Ctrl+click to add to the selection, drag points or lines to move them. Model edges and vertices can be selected too (e.g. a hole edge and a circle for Concentric or Equal). Selected entities show Add Relations in the Property panel.' },
   dim: { label: 'Dimension', hint: 'Click a line, circle, arc, or two entities, then click where to place the dimension. Move the mouse to switch between horizontal, vertical and aligned. Model edges/vertices and other sketches can be used as references too.' },
   line: { label: 'Line', hint: 'Click to place points. Horizontal/vertical and coincident relations are added automatically. Double-click, Enter or Esc ends the chain.' },
-  spline: { label: 'Spline', hint: 'Click to place the points the curve runs through (they snap to other points, like the line). Double-click, Enter or Esc ends it; click the first point again to close it into a loop. Drag its points afterwards to reshape it.' },
+  midline: { label: 'Midpoint Line', hint: 'Click the midpoint, then an endpoint. The other endpoint is mirrored about the midpoint and a Midpoint constraint keeps it centred.' },
+  spline: { label: 'Fit Point Spline', hint: 'Click the points the spline passes through; Enter or double-click ends it. Drag its tangent handles to change direction and strength. Their construction lines can be dimensioned or constrained. Click the first point to close the spline.' },
   cspline: { label: 'Control-Point Spline', hint: 'Click to place control points: the curve is drawn by them (it starts and ends on the first and last, and passes near the others). Double-click, Enter or Esc ends it; click the first point again to close it (smoothly, with no join). Afterwards drag the control points, constrain and dimension the dashed control polygon, and set the degree, the weights and the control points in the panel.' },
   centerline: { label: 'Centerline', hint: 'Click two points to draw a construction centerline (use it as a symmetry line or revolve axis).' },
   rect: { label: 'Corner Rectangle', hint: 'Click or drag from one corner to the opposite corner.' },
@@ -58,6 +59,10 @@ export const SKETCH_TOOLS = {
   ellipse: { label: 'Ellipse', hint: 'Click the centre, then the end of the major axis, then set the minor radius. Trim it for an elliptical arc. Dimension on it sets the minor radius (or, nearer the major axis, the major radius).' },
   point: { label: 'Point', hint: 'Click to place a sketch point (e.g. for hole positions or as a reference). It snaps like the line tool.' },
   slot: { label: 'Straight Slot', hint: 'Click the first arc center, the second arc center, then set the width.' },
+  cslot: { label: 'Center Point Slot', hint: 'Click the slot midpoint, one end arc centre, then set the width.' },
+  oslot: { label: 'Overall Slot', hint: 'Click the two outermost ends along the slot axis, then set the width. The total length must exceed the width.' },
+  arcslot: { label: 'Center Point Arc Slot', hint: 'Click the arc centre, the start centre, the end direction, then set the width. Move around the centre to choose the arc direction.' },
+  arcslot3: { label: '3 Point Arc Slot', hint: 'Click the start and end centres, a third point on the centre arc, then set the width.' },
   polygon: { label: 'Polygon', hint: 'Click the center, then a vertex. Set the number of sides in the Property panel.' },
   trim: { label: 'Trim', hint: 'Power trim: hover over a segment (it turns red) and click to remove it up to the nearest intersections.' },
   extend: { label: 'Extend', hint: 'Click a line or arc near the end to extend: it runs on to the first entity in its way (and stays on it).' },
@@ -78,6 +83,7 @@ export class Sketcher {
     this.dimsVisible = true;
     this.relsVisible = true;
     this.autoRelations = true;
+    this.constructionMode = false;
     this.polySides = 6;
     this.splineDegree = 3;   // the degree a Control-Point Spline is drawn with (chosen in the panel before drawing)
     this.offsetLinked = true; // offsets stay linked to their source (off: plain geometry)
@@ -106,6 +112,7 @@ export class Sketcher {
     this.patternDraft = null; this.patternPreview = null;
     this.active = true;
     this.tool = 'select';
+    this.constructionMode = false;
     this.gearPick = false;
     this.airfoilPick = false;
     this.sel = new Set();
@@ -1008,8 +1015,8 @@ export class Sketcher {
       if (pid === d.pts[d.pts.length - 1]) return;
       if (pid === d.pts[0] && d.pts.length >= 3) {
         // back on the first point: a closed loop (a control-point spline runs round smoothly)
-        if (t === 'cspline') S.addCtrlSpline(this.f, d.pts, Math.min(this.splineDegree, d.pts.length - 1), false, true);
-        else S.addSpline(this.f, d.pts, true);
+        if (t === 'cspline') S.addCtrlSpline(this.f, d.pts, Math.min(this.splineDegree, d.pts.length - 1), this.constructionMode, true);
+        else S.addFitSpline(this.f, d.pts, true, this.constructionMode);
         this.draw = null;
         this.solve();
         this.changed();
@@ -1029,7 +1036,7 @@ export class Sketcher {
       } else {
         const pid = this.resolve(s);
         if (pid === d.last) return;
-        const lid = S.addLine(this.f, d.last, pid, t === 'centerline');
+        const lid = S.addLine(this.f, d.last, pid, t === 'centerline' || this.constructionMode);
         if (s.infer) S.addRel(this.f, s.infer, [lid]);
         d.count++;
         const closed = s.kind === 'point' && s.id === d.start;
@@ -1044,7 +1051,17 @@ export class Sketcher {
 
     const s = this.snap(raw, { prev: this.draw?.p0 || null });
     const screen = this.vp.screenPos(ev);
-    if (t === 'arc' || t === 'slot' || t === 'arc3' || t === 'ellipse') {
+    if (['arcslot', 'arcslot3'].includes(t)) {
+      const d = this.draw;
+      if (!d) this.draw = { tool: t, stage: 1, s0: s, p0: s, p1: s, p2: s, p3: s, sweep: 0, screen };
+      else if (d.stage === 1) {
+        if (Math.hypot(s.x - d.p0.x, s.y - d.p0.y) < 1e-6) return;
+        Object.assign(d, { s1: s, p1: s, p2: s, stage: 2, lastAng: null });
+      } else if (d.stage === 2) Object.assign(d, { s2: s, p2: s, p3: s, stage: 3 });
+      else { d.s3 = s; d.p3 = s; this.commit(); }
+      this.redraw(); return;
+    }
+    if (['arc', 'slot', 'cslot', 'oslot', 'arc3', 'ellipse'].includes(t)) {
       if (!this.draw) this.draw = { tool: t, stage: 1, s0: s, p0: s, p1: s, p2: s, sweep: 0, screen };
       else if (this.draw.stage === 1) {
         if (Math.hypot(s.x - this.draw.p0.x, s.y - this.draw.p0.y) < 1e-9) return;
@@ -1094,14 +1111,17 @@ export class Sketcher {
     if (hit.kind === 'gear' || hit.kind === 'airfoil') return; // (generated geometry: moved with its lines)
     if (hit.kind === 'text') { const t = this.textById(hit.id); if (t) this.drag = { type: 'text', t, start: raw, x0: t.x, y0: t.y, moved: false }; return; }
     if (hit.kind === 'point') {
-      if (hit.id !== 'O') this.drag = { type: 'point', id: hit.id, moved: false };
+      if (hit.id !== 'O') this.drag = {
+        type: 'point', id: hit.id, p0: { ...S.getPoint(sk, hit.id) }, moved: false,
+        handles: sk.curves.filter((c) => c.handles && c.pts.includes(hit.id)).map((c) => ({ ...S.getPoint(sk, c.handles[c.pts.indexOf(hit.id)]) })),
+      };
     } else if (hit.kind === 'line') {
       const c = S.getCurve(sk, hit.id);
       const a = S.getPoint(sk, c.p1), b = S.getPoint(sk, c.p2);
       this.drag = { type: 'line', c, start: raw, a: { ...a }, b: { ...b }, moved: false };
     } else if (hit.kind === 'spline') {
       const c = S.getCurve(sk, hit.id);
-      this.drag = { type: 'spline', c, start: raw, p0: c.pts.map((id) => ({ id, ...S.getPoint(sk, id) })), moved: false };
+      this.drag = { type: 'spline', c, start: raw, p0: [...c.pts, ...(c.handles || [])].map((id) => ({ id, ...S.getPoint(sk, id) })), moved: false };
     } else if (hit.kind === 'circle') {
       this.drag = { type: 'radius', c: S.getCurve(sk, hit.id), moved: false };
     } else if (hit.kind === 'arc' || hit.kind === 'ellipse' || hit.kind === 'earc') {
@@ -1202,11 +1222,12 @@ export class Sketcher {
     // show the model edge (or circle) being snapped to
     this.extHover = s.kind === 'model' && s.as !== 'point' ? { prims: this.externalPrims(s.ext) } : null;
     if (d) {
-      if (d.tool === 'arc' || d.tool === 'slot' || d.tool === 'arc3' || d.tool === 'ellipse') {
+      if (['arc', 'slot', 'cslot', 'oslot', 'arcslot', 'arcslot3', 'arc3', 'ellipse'].includes(d.tool)) {
         if (d.stage === 1) d.p1 = s;
+        else if (d.stage === 3) d.p3 = s;
         else {
           d.p2 = s;
-          if (d.tool === 'arc') {
+          if (d.tool === 'arc' || d.tool === 'arcslot') {
             const a = Math.atan2(s.y - d.p0.y, s.x - d.p0.x);
             if (d.lastAng === null) d.lastAng = Math.atan2(d.p1.y - d.p0.y, d.p1.x - d.p0.x);
             let da = a - d.lastAng;
@@ -1237,7 +1258,8 @@ export class Sketcher {
     let r;
     if (d.type === 'point') {
       const s = this.snap(raw, { exclude: new Set([d.id]) });
-      r = this.solve({ pin: [{ id: d.id, x: s.kind === 'grid' ? raw.x : s.x, y: s.kind === 'grid' ? raw.y : s.y }] });
+      const x = s.kind === 'grid' ? raw.x : s.x, y = s.kind === 'grid' ? raw.y : s.y;
+      r = this.solve({ pin: [{ id: d.id, x, y }, ...(d.handles || []).map((q) => ({ id: q.id, x: q.x + x - d.p0.x, y: q.y + y - d.p0.y }))] });
     } else if (d.type === 'line') {
       const dx = raw.x - d.start.x, dy = raw.y - d.start.y;
       const pin = [];
@@ -1347,8 +1369,8 @@ export class Sketcher {
     if (this.draw?.tool === 'spline' || this.draw?.tool === 'cspline') {
       const pts = this.draw.pts.filter((id, i, a) => !i || id !== a[i - 1]);
       if (pts.length >= 2) {
-        if (this.draw.tool === 'cspline') S.addCtrlSpline(this.f, pts, Math.min(this.splineDegree, pts.length - 1));
-        else S.addSpline(this.f, pts);
+        if (this.draw.tool === 'cspline') S.addCtrlSpline(this.f, pts, Math.min(this.splineDegree, pts.length - 1), this.constructionMode);
+        else S.addFitSpline(this.f, pts, false, this.constructionMode);
         this.solve(); changed = true;
       }
     }
@@ -1420,8 +1442,10 @@ export class Sketcher {
 
   deleteSelected() {
     if (!this.sel.size) return;
-    const ids = [...this.sel].filter((id) => id !== 'O');
     const sk = this.f;
+    const handles = new Set(sk.curves.filter((c) => c.handles && !this.sel.has(c.id)).flatMap((c) => [...c.handles, ...sk.curves.filter((q) => q.fitHandle && q.ctrlOf === c.id).map((q) => q.id)]));
+    const ids = [...this.sel].filter((id) => id !== 'O' && !handles.has(id));
+    if (!ids.length) { this.app.status('Tangent handles belong to their spline; drag or constrain them, or delete the spline.'); return; }
     if (sk.texts?.length) sk.texts = sk.texts.filter((t) => !ids.includes(t.id));
     for (const id of ids) if (String(id).startsWith('gear:')) { const tr = this.trainById(String(id).split(':')[1]); if (tr) this.deleteTrain(tr); }
     for (const id of ids) if (String(id).startsWith('airfoil:')) { const af = S.airfoilById(sk, String(id).slice(8)); if (af) this.deleteAirfoil(af); }
@@ -1431,6 +1455,7 @@ export class Sketcher {
     for (const c of sk.curves) {
       if (c.type !== 'spline' || !c.pts.some((id) => ids.includes(id))) continue;
       if (c.weights) c.weights = c.weights.filter((_, i) => !ids.includes(c.pts[i]));
+      if (c.handles) c.handles = c.handles.filter((_, i) => !ids.includes(c.pts[i]));
       c.pts = c.pts.filter((id) => !ids.includes(id));
       if (c.pts.length >= (c.closed ? 3 : 2)) { c.p1 = c.pts[0]; c.p2 = c.closed ? c.pts[0] : c.pts[c.pts.length - 1]; } else gone.push(c.id);
     }
@@ -1439,13 +1464,19 @@ export class Sketcher {
     S.deleteItems(sk, [...ids, ...extra]);
     // control polygons made whole again (a deleted leg comes back; a deleted control point's legs are joined up)
     for (const c of sk.curves) if (c.ctrl) S.syncCtrlPolygon(sk, c);
+    for (const c of sk.curves) if (c.handles) S.syncFitHandles(sk, c);
     this.sel.clear();
     this.changed();
   }
 
   toggleConstruction() {
     const curves = [...this.sel].map((id) => S.getCurve(this.f, id)).filter(Boolean);
-    if (!curves.length) { this.app.toast('Select lines, arcs or circles to toggle construction geometry'); return; }
+    if (!curves.length) {
+      this.constructionMode = !this.constructionMode;
+      this.redraw(); this.app.ui.renderPM(); this.app.ui.refreshCommandStates();
+      this.app.status(this.constructionMode ? 'New geometry will be construction geometry.' : 'New geometry will be profile geometry.');
+      return;
+    }
     const to = !curves.every((c) => c.construction);
     curves.forEach((c) => (c.construction = to));
     this.changed();
@@ -1611,8 +1642,17 @@ export class Sketcher {
     if (!d) return;
     this.draw = null;
     const sk = this.f;
+    const oldCurves = new Set(sk.curves.map((c) => c.id));
     const near = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) < 1e-9;
-    if (d.tool === 'rect') {
+    if (d.tool === 'midline') {
+      if (near(d.p0, d.p1)) return this.redraw();
+      const m = this.resolve(d.s0), end = this.resolve(d.s1);
+      if (m !== 'O') S.getPoint(sk, m).keep = true;
+      const a = S.addPoint(sk, 2 * d.p0.x - d.p1.x, 2 * d.p0.y - d.p1.y);
+      const line = S.addLine(sk, a, end);
+      S.addRel(sk, 'midpoint', [m, line]);
+      if (d.s1.infer) S.addRel(sk, d.s1.infer, [line]);
+    } else if (d.tool === 'rect') {
       if (Math.abs(d.p1.x - d.p0.x) < 1e-6 || Math.abs(d.p1.y - d.p0.y) < 1e-6) return this.redraw();
       const A = this.resolve(d.s0), C = this.resolve(d.s1);
       S.buildRect(sk, A, C);
@@ -1669,15 +1709,38 @@ export class Sketcher {
       if (rb < 1e-6) return this.redraw();
       const c = this.resolve(d.s0), a = this.resolve(d.s1);
       S.addEllipse(sk, c, a, r4(rb));
-    } else if (d.tool === 'slot') {
-      const len = Math.hypot(d.p1.x - d.p0.x, d.p1.y - d.p0.y);
-      if (len < 1e-6) return this.redraw();
-      const a = Math.atan2(d.p1.y - d.p0.y, d.p1.x - d.p0.x);
-      const w = Math.max(0.1, Math.abs(-(d.p2.x - d.p0.x) * Math.sin(a) + (d.p2.y - d.p0.y) * Math.cos(a)));
-      const c1 = this.resolve(d.s0), c2 = this.resolve(d.s1);
-      const sl = S.buildSlot(sk, c1, c2, r4(w));
-      if (d.s1.infer) S.addRel(sk, d.s1.infer, [sl.centerline]);
+    } else if (['slot', 'cslot', 'oslot', 'arcslot', 'arcslot3'].includes(d.tool)) {
+      const g = S.slotLayout(d.tool, [d.p0, d.p1, d.p2, d.p3], d.sweep);
+      if (!g) { this.app.toast('Invalid slot: use a positive width smaller than the overall length or centre-arc diameter, without overlapping ends', true); return this.redraw(); }
+      const point = (p) => S.addPoint(sk, p.x, p.y);
+      if (g.type === 'line') {
+        const c1 = d.tool === 'slot' ? this.resolve(d.s0) : point(g.a);
+        const c2 = d.tool === 'oslot' ? point(g.b) : this.resolve(d.s1);
+        const sl = S.buildSlot(sk, c1, c2, g.r);
+        if (d.tool === 'cslot') {
+          const m = this.resolve(d.s0); if (m !== 'O') S.getPoint(sk, m).keep = true;
+          S.addRel(sk, 'midpoint', [m, sl.centerline]);
+        }
+        if (d.tool === 'oslot') {
+          const a = this.resolve(d.s0), b = this.resolve(d.s1), axis = S.addLine(sk, a, b, true);
+          S.addRel(sk, 'collinear', [axis, sl.centerline]);
+          S.addRel(sk, 'onCurve', [a, sl.arcs[0]]); S.addRel(sk, 'onCurve', [b, sl.arcs[1]]);
+          if (d.s1.infer) S.addRel(sk, d.s1.infer, [axis]);
+        } else if (d.s1.infer) S.addRel(sk, d.s1.infer, [sl.centerline]);
+      } else {
+        const centre = d.tool === 'arcslot' ? this.resolve(d.s0) : point(g.c);
+        const match = (p, s) => s && Math.hypot(p.x - s.x, p.y - s.y) < 1e-6;
+        const endPoint = (p) => {
+          const s = [d.s0, d.s1, d.s2].find((s) => s && (d.tool !== 'arcslot' || s !== d.s0) && match(p, s));
+          return s ? this.resolve(s) : point(p);
+        };
+        const sl = S.buildArcSlot(sk, centre, endPoint(g.a), endPoint(g.b), g.r);
+        // Like a three-point arc, the third click defines curvature without leaving
+        // a free helper point. Preserve a reference only when snapped to geometry.
+        if (d.tool === 'arcslot3' && ['point', 'model'].includes(d.s2.kind)) S.addRel(sk, 'onCurve', [this.resolve(d.s2), sl.centerline]);
+      }
     }
+    if (this.constructionMode) for (const c of sk.curves) if (!oldCurves.has(c.id)) c.construction = true;
     this.changed();
   }
 
@@ -2629,7 +2692,7 @@ export class Sketcher {
 
     // preview geometry
     const d = this.draw;
-    if (d && d.tool !== 'dim' && d.tool !== 'offset') for (const pl of this.previewPolylines(d)) addSegs(COL.preview, d.tool === 'centerline', pl);
+    if (d && d.tool !== 'dim' && d.tool !== 'offset') for (const pl of this.previewPolylines(d)) addSegs(COL.preview, d.tool === 'centerline' || this.constructionMode, pl);
     if (this.tool === 'block') for (const pl of this.blockPreview()) addSegs(COL.preview, false, pl);
     if (this.trimHover?.pts) addSegs(COL.trim, false, this.trimHover.pts);
     if (this.tool === 'offset') {
@@ -2749,7 +2812,7 @@ export class Sketcher {
       const Q = P.filter((q, i, a) => !i || Math.hypot(q[0] - a[i - 1][0], q[1] - a[i - 1][1]) > 1e-9);
       // (a control-point spline: its control polygon too)
       if (d.tool === 'cspline' && Q.length >= 2) out.push(Q);
-      const pcs = d.tool === 'cspline' ? S.ctrlSplineBeziers(Q, Math.min(this.splineDegree, Q.length - 1)) : S.splineBeziers(Q);
+      const pcs = d.tool === 'cspline' ? S.ctrlSplineBeziers(Q, Math.min(this.splineDegree, Q.length - 1)) : S.splineBeziers(Q, false, Q.length >= 2 ? S.fitSplineHandles(Q) : null);
       if (pcs.length) out.push(pcs.flatMap((g, k) => Array.from({ length: 25 - (k ? 1 : 0) }, (_, i) => S.bezierAt(g, (i + (k ? 1 : 0)) / 24))));
       return out;
     }
@@ -2760,6 +2823,7 @@ export class Sketcher {
     }
     const { p0, p1, p2 } = d;
     if (!p0) return out;
+    if (d.tool === 'midline') return [[[2 * p0.x - p1.x, 2 * p0.y - p1.y], [p1.x, p1.y]]];
     const circ = (cx, cy, r, a0 = 0, span = Math.PI * 2) => {
       const pts = [], n = Math.max(8, Math.ceil((Math.abs(span) / (Math.PI * 2)) * 96));
       for (let i = 0; i <= n; i++) { const t = a0 + (span * i) / n; pts.push([cx + r * Math.cos(t), cy + r * Math.sin(t)]); }
@@ -2817,16 +2881,20 @@ export class Sketcher {
         out.push(pts, [[p0.x - ra * u[0], p0.y - ra * u[1]], [p1.x, p1.y]]);
       }
     }
-    if (d.tool === 'slot') {
+    if (['slot', 'cslot', 'oslot', 'arcslot', 'arcslot3'].includes(d.tool)) {
       if (d.stage === 1) out.push([[p0.x, p0.y], [p1.x, p1.y]]);
       else {
-        const a = Math.atan2(p1.y - p0.y, p1.x - p0.x);
-        const w = Math.max(0.1, Math.abs(-(p2.x - p0.x) * Math.sin(a) + (p2.y - p0.y) * Math.cos(a)));
-        const nx = -Math.sin(a), ny = Math.cos(a);
-        out.push([[p1.x + w * nx, p1.y + w * ny], [p0.x + w * nx, p0.y + w * ny]]);
-        out.push([[p0.x - w * nx, p0.y - w * ny], [p1.x - w * nx, p1.y - w * ny]]);
-        out.push(circ(p1.x, p1.y, w, a - Math.PI / 2, Math.PI));
-        out.push(circ(p0.x, p0.y, w, a + Math.PI / 2, Math.PI));
+        const g = S.slotLayout(d.tool, [p0, p1, p2, d.stage === 3 ? d.p3 : null], d.sweep);
+        if (!g) return out;
+        if (g.type === 'line') {
+          const { a: A, b: B, r } = g, angle = Math.atan2(B.y - A.y, B.x - A.x), nx = -Math.sin(angle), ny = Math.cos(angle);
+          out.push([[B.x + r * nx, B.y + r * ny], [A.x + r * nx, A.y + r * ny]], [[A.x - r * nx, A.y - r * ny], [B.x - r * nx, B.y - r * ny]]);
+          out.push(circ(B.x, B.y, r, angle - Math.PI / 2, Math.PI), circ(A.x, A.y, r, angle + Math.PI / 2, Math.PI));
+        } else {
+          const a = Math.atan2(g.a.y - g.c.y, g.a.x - g.c.x), b = Math.atan2(g.b.y - g.c.y, g.b.x - g.c.x), span = (b - a + Math.PI * 2) % (Math.PI * 2);
+          if (d.stage === 2) out.push(circ(g.c.x, g.c.y, g.radius, a, span));
+          else out.push(circ(g.c.x, g.c.y, g.radius + g.r, a, span), circ(g.c.x, g.c.y, g.radius - g.r, a, span), circ(g.b.x, g.b.y, g.r, b, Math.PI), circ(g.a.x, g.a.y, g.r, a + Math.PI, Math.PI));
+        }
       }
     }
     return out;

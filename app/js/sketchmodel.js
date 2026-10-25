@@ -143,7 +143,7 @@ export function copyItems(sk, ids, M, { rotates = false } = {}) {
     if (c.type === 'line') out.push(addLine(sk, mp(c.p1), mp(c.p2), c.construction));
     else if (c.type === 'circle') out.push(addCircle(sk, mp(c.c), c.r, c.construction));
     else if (c.type === 'arc') out.push(addArc(sk, mp(c.c), mp(c.p1), mp(c.p2), c.construction));
-    else if (c.type === 'spline') out.push(c.ctrl ? addCtrlSpline(sk, c.pts.map(mp), c.degree, c.construction, c.closed, c.weights) : addSpline(sk, c.pts.map(mp), c.closed, c.construction));
+    else if (c.type === 'spline') out.push(c.ctrl ? addCtrlSpline(sk, c.pts.map(mp), c.degree, c.construction, c.closed, c.weights) : c.handles ? addFitSpline(sk, c.pts.map(mp), c.closed, c.construction, c.handles.map(mp)) : addSpline(sk, c.pts.map(mp), c.closed, c.construction));
     else if (c.type === 'ellipse' || c.type === 'earc') {
       const e = addEllipse(sk, mp(c.c), mp(c.a), c.r2, c.construction);
       if (c.type === 'earc') Object.assign(getCurve(sk, e), { type: 'earc', p1: mp(c.p1), p2: mp(c.p2) });
@@ -167,7 +167,7 @@ export function copyItems(sk, ids, M, { rotates = false } = {}) {
 // and returns the new curve ids.
 export function blockData(sk, ids) {
   const curves = ids.map((id) => getCurve(sk, id)).filter(Boolean);
-  const pids = new Set(curves.flatMap((c) => [c.p1, c.p2, c.c, c.a, ...(c.pts || [])].filter(Boolean)));
+  const pids = new Set(curves.flatMap((c) => [c.p1, c.p2, c.c, c.a, ...(c.pts || []), ...(c.handles || [])].filter(Boolean)));
   for (const id of ids) if (!getCurve(sk, id) && sk.points.some((q) => q.id === id)) pids.add(id);
   if (!curves.length) return null;
   const P = [...pids].map((id) => ({ id: id === 'O' ? '__O' : id, ...(({ x, y, keep }) => ({ x, y, keep }))(getPoint(sk, id)) }));
@@ -179,6 +179,7 @@ export function blockData(sk, ids) {
     const o = JSON.parse(JSON.stringify(c));
     for (const k of ['p1', 'p2', 'c', 'a']) if (o[k]) o[k] = fixO(o[k]);
     if (o.pts) o.pts = o.pts.map(fixO);
+    if (o.handles) o.handles = o.handles.map(fixO);
     return o;
   });
   const ks = sk.constraints.filter((k) => k.type !== 'fix' && k.type !== 'projected' && k.type !== 'offset' && k.type !== 'sketchPattern' && !k.driven && k.refs.every((r) => all.has(fixO(r))))
@@ -193,10 +194,19 @@ export function pasteItems(sk, data, x, y) {
     o.id = nid(sk, 'c');
     for (const k of ['p1', 'p2', 'c', 'a']) if (o[k]) o[k] = map.get(o[k]);
     if (o.pts) o.pts = o.pts.map((id) => map.get(id));
+    if (o.handles) o.handles = o.handles.map((id) => map.get(id));
     map.set(c.id, o.id);
     sk.curves.push(o);
     out.push(o.id);
   }
+  for (const id of out) {
+    const c = getCurve(sk, id);
+    if (c.ctrlOf) {
+      if (map.has(c.ctrlOf)) c.ctrlOf = map.get(c.ctrlOf);
+      else { delete c.ctrlOf; delete c.fitHandle; }
+    }
+  }
+  for (const id of out) { const c = getCurve(sk, id); if (c.handles) syncFitHandles(sk, c); }
   for (const k of data.constraints || []) {
     if (!k.refs.every((r) => map.has(r))) continue;
     const { id: _id, refs, type, ...rest } = k;
@@ -306,6 +316,7 @@ export function updateSketchPatterns(sk, ev = Number) {
       c.id = map.get(c.id);
       for (const k of ['p1', 'p2', 'c', 'a', 'ctrlOf']) if (c[k]) c[k] = map.get(c[k]) || c[k];
       if (c.pts) c.pts = c.pts.map((id) => map.get(id));
+      if (c.handles) c.handles = c.handles.map((id) => map.get(id));
     });
     sk.points = sk.points.filter((q) => !owned.has(q.id)).concat(points);
     sk.curves = sk.curves.filter((c) => !owned.has(c.id)).concat(curves);
@@ -347,7 +358,7 @@ export function extendAt(sk, curveId, x, y) {
   const end = Math.hypot(x - P1.x, y - P1.y) < Math.hypot(x - P2.x, y - P2.y) ? 'p1' : 'p2';
   const E = getPoint(sk, c[end]);
   // (an end joined to something else stays put)
-  if (c[end] === 'O' || sk.curves.some((o) => o !== c && [o.p1, o.p2, o.c, o.a, ...(o.pts || [])].includes(c[end]))) return null;
+  if (c[end] === 'O' || sk.curves.some((o) => o !== c && [o.p1, o.p2, o.c, o.a, ...(o.pts || []), ...(o.handles || [])].includes(c[end]))) return null;
   let best = null;
   if (c.type === 'line') {
     const O = end === 'p2' ? P1 : P2, d = [E.x - O.x, E.y - O.y], L = Math.hypot(d[0], d[1]) || 1;
@@ -395,9 +406,13 @@ export function splitAt(sk, curveId, x, y) {
 // A spline as cubic Bézier pieces through its points, joined smoothly (tangent continuous): at each point
 // the tangent runs along the chord of its neighbours, each piece's handles a third of its length; at
 // an open end the tangent makes the end piece as straight as it can be. P: [[x, y]], closed or not.
-export function splineBeziers(P, closed = false) {
+export function splineBeziers(P, closed = false, handles = null) {
   const n = P.length;
   if (n < 2) return [];
+  if (handles?.length === n) return Array.from({ length: closed ? n : n - 1 }, (_, i) => {
+    const j = (i + 1) % n;
+    return { a: P[i], c1: handles[i], c2: [2 * P[j][0] - handles[j][0], 2 * P[j][1] - handles[j][1]], b: P[j] };
+  });
   const sub2 = (a, b) => [a[0] - b[0], a[1] - b[1]], len2 = (v) => Math.hypot(v[0], v[1]);
   const unit2 = (v) => { const l = len2(v) || 1; return [v[0] / l, v[1] / l]; };
   if (n === 2 && !closed) {
@@ -423,7 +438,38 @@ export function splineBeziers(P, closed = false) {
 }
 export function splinePieces(sk, c) {
   const P = c.pts.map((id) => { const q = getPoint(sk, id); return [q.x, q.y]; });
-  return c.ctrl ? ctrlSplineBeziers(P, c.degree ?? 3, !!c.closed, c.weights) : splineBeziers(P, !!c.closed);
+  const H = c.handles?.map((id) => { const q = getPoint(sk, id); return [q.x, q.y]; });
+  return c.ctrl ? ctrlSplineBeziers(P, c.degree ?? 3, !!c.closed, c.weights) : splineBeziers(P, !!c.closed, H);
+}
+
+export function fitSplineHandles(P, closed = false) {
+  const pieces = splineBeziers(P, closed);
+  return P.map((p, i) => {
+    const next = pieces[i]?.c1, prev = pieces[(i - 1 + pieces.length) % pieces.length]?.c2;
+    if (!closed && i === 0) return next;
+    if (!closed && i === P.length - 1) return [2 * p[0] - prev[0], 2 * p[1] - prev[1]];
+    return [(next[0] + 2 * p[0] - prev[0]) / 2, (next[1] + 2 * p[1] - prev[1]) / 2];
+  });
+}
+
+export function syncFitHandles(sk, c) {
+  const old = sk.curves.filter((q) => q.ctrlOf === c.id && q.fitHandle), kept = new Set();
+  c.handles?.forEach((id, i) => {
+    const existing = old.find((q) => q.p1 === c.pts[i] && q.p2 === id);
+    if (existing) kept.add(existing.id);
+    else {
+      const line = addLine(sk, c.pts[i], id, true);
+      Object.assign(getCurve(sk, line), { ctrlOf: c.id, fitHandle: true }); kept.add(line);
+    }
+  });
+  sk.curves = sk.curves.filter((q) => !(q.ctrlOf === c.id && q.fitHandle) || kept.has(q.id));
+}
+
+export function addFitSpline(sk, pts, closed = false, construction = false, handles = null) {
+  const id = addSpline(sk, pts, closed, construction), c = getCurve(sk, id);
+  c.handles = handles || fitSplineHandles(pts.map((id) => { const p = getPoint(sk, id); return [p.x, p.y]; }), closed).map((p) => addPoint(sk, ...p));
+  syncFitHandles(sk, c);
+  return id;
 }
 
 // Arc length independent of display tessellation. Weighted B-splines use their exact homogeneous pieces.
@@ -450,7 +496,7 @@ export function curveLength(sk, c) {
   }
   if (c.type === 'spline') {
     const points = c.pts.map((id) => { const p = getPoint(sk, id); return [p.x, p.y]; });
-    const pieces = c.ctrl ? bsplineBeziers(points, c.degree ?? 3, !!c.closed, c.weights) : splineBeziers(points, !!c.closed).map((p) => [p.a, p.c1, p.c2, p.b]);
+    const pieces = c.ctrl ? bsplineBeziers(points, c.degree ?? 3, !!c.closed, c.weights) : splinePieces(sk, c).map((p) => [p.a, p.c1, p.c2, p.b]);
     return pieces.reduce((length, q) => length + integrateLength((t) => {
       const d = bezD(q, t);
       if (q[0].length !== 3) return Math.hypot(...d);
@@ -547,6 +593,10 @@ export function convertToCtrlSpline(sk, c) {
   const old = c.pts;
   const pts = P.map((q, i) => (!closed && (i === 0 || i === n - 1) ? old[i] : addPoint(sk, q[0], q[1])));
   Object.assign(c, { ctrl: true, degree: p, pts, closed });
+  if (c.handles) {
+    sk.curves = sk.curves.filter((q) => !(q.ctrlOf === c.id && q.fitHandle));
+    delete c.handles;
+  }
   delete c.weights;
   syncCtrlPolygon(sk, c);
   cleanup(sk);
@@ -740,6 +790,60 @@ export function buildCenterRect(sk, M, cx, cy, hw, hh) {
   addLine(sk, B, D, true);
   addRel(sk, 'midpoint', [M, d1]);
   return { corners: [A, B, C, D], lines: [l1, l2, l3, l4] };
+}
+
+// Drawing layouts shared by slot previews and committed geometry. r is the half-width.
+export function slotLayout(tool, p, sweep = 0) {
+  const [P, Q, T, W] = p;
+  if (!P || !Q) return null;
+  const dist = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
+  if (['slot', 'cslot', 'oslot'].includes(tool)) {
+    if (!T) return null;
+    const L = dist(P, Q); if (L < 1e-6) return null;
+    const ux = (Q.x - P.x) / L, uy = (Q.y - P.y) / L;
+    const r = Math.abs(-(T.x - P.x) * uy + (T.y - P.y) * ux);
+    if (r < 1e-6 || (tool === 'oslot' && 2 * r >= L - 1e-6)) return null;
+    const a = tool === 'cslot' ? { x: 2 * P.x - Q.x, y: 2 * P.y - Q.y } : tool === 'oslot' ? { x: P.x + r * ux, y: P.y + r * uy } : P;
+    const b = tool === 'oslot' ? { x: Q.x - r * ux, y: Q.y - r * uy } : Q;
+    return { type: 'line', a, b, r };
+  }
+  if (!T) return null;
+  let c, a, b, radius;
+  if (tool === 'arcslot') {
+    radius = dist(P, Q); if (radius < 1e-6) return null;
+    c = P; a = Q;
+    const endRadius = dist(P, T); if (endRadius < 1e-6) return null;
+    b = { x: P.x + radius * (T.x - P.x) / endRadius, y: P.y + radius * (T.y - P.y) / endRadius };
+    if (sweep < 0) [a, b] = [b, a];
+  } else {
+    const g = circleThrough([P.x, P.y], [Q.x, Q.y], [T.x, T.y]);
+    if (!g || g.r > 1e6) return null;
+    c = { x: g.cx, y: g.cy }; radius = g.r; a = P; b = Q;
+    const angle = (v) => Math.atan2(v.y - c.y, v.x - c.x);
+    const norm = (v) => (v % TAU + TAU) % TAU;
+    if (norm(angle(T) - angle(P)) > norm(angle(Q) - angle(P))) [a, b] = [b, a];
+  }
+  const r = W ? Math.abs(dist(c, W) - radius) : radius * 0.1;
+  if (r < 1e-6 || r >= radius - 1e-6 || dist(a, b) < 1e-6) return null;
+  // A major arc with wide caps can overlap itself even when the inner radius is positive.
+  const span = (Math.atan2(b.y - c.y, b.x - c.x) - Math.atan2(a.y - c.y, a.x - c.x) + TAU) % TAU;
+  if (span > Math.PI && dist(a, b) <= 2 * r + 1e-6) return null;
+  return { type: 'arc', c, a, b, radius, r };
+}
+
+// Four tangent arcs and a construction centre arc form a curved slot.
+export function buildArcSlot(sk, centre, start, end, r) {
+  const O = getPoint(sk, centre), A = getPoint(sk, start), B = getPoint(sk, end);
+  const R = Math.hypot(A.x - O.x, A.y - O.y);
+  if (!(r > 0 && r < R) || Math.abs(Math.hypot(B.x - O.x, B.y - O.y) - R) > 1e-5) throw new Error('Invalid arc slot width or centre arc');
+  const radial = (P, radius) => addPoint(sk, O.x + (P.x - O.x) * radius / R, O.y + (P.y - O.y) * radius / R);
+  const ao = radial(A, R + r), bo = radial(B, R + r), ai = radial(A, R - r), bi = radial(B, R - r);
+  const outer = addArc(sk, centre, ao, bo), capB = addArc(sk, end, bo, bi);
+  const inner = addArc(sk, centre, ai, bi), capA = addArc(sk, start, ai, ao);
+  const centerline = addArc(sk, centre, start, end, true);
+  for (const boundary of [outer, inner]) for (const cap of [capA, capB]) addRel(sk, 'tangent', [boundary, cap]);
+  addRel(sk, 'equal', [capA, capB]);
+  return { arcs: [outer, capB, inner, capA], centerline };
 }
 
 // Straight slot between two arc-center points with radius r.
@@ -1216,7 +1320,7 @@ export function classifyPolyline3(pts) {
 // Project a classified 3D curve onto a sketch frame -> list of 2D primitives.
 export function projectCurve(fr, g, { preserveSpline = false } = {}) {
   if (!g) return [];
-  if (preserveSpline && g.spline) return [{ type: 'spline', ...g.spline, pts: g.spline.pts.map((p) => toFrame2D(fr, p)) }];
+  if (preserveSpline && g.spline) return [{ type: 'spline', ...g.spline, pts: g.spline.pts.map((p) => toFrame2D(fr, p)), handles: g.spline.handles?.map((p) => toFrame2D(fr, p)) }];
   if (g.type === 'line') {
     const a = toFrame2D(fr, g.a), b = toFrame2D(fr, g.b);
     if (Math.hypot(b[0] - a[0], b[1] - a[1]) < 1e-7) return [{ type: 'point', p: a }];
@@ -1260,7 +1364,7 @@ export function curve3D(sk, c, fr) {
   const P = (id) => { const p = getPoint(sk, id); return fromFrame2D(fr, p.x, p.y); };
   if (c.type === 'spline' || isEll(c)) {
     const g = { type: 'poly', pts: curvePoints(sk, c).map(([x, y]) => fromFrame2D(fr, x, y)) };
-    if (c.type === 'spline') g.spline = { pts: c.pts.map(P), ctrl: !!c.ctrl, degree: c.degree, closed: !!c.closed, weights: c.weights ? [...c.weights] : undefined };
+    if (c.type === 'spline') g.spline = { pts: c.pts.map(P), handles: c.handles?.map(P), ctrl: !!c.ctrl, degree: c.degree, closed: !!c.closed, weights: c.weights ? [...c.weights] : undefined };
     return g;
   }
   if (c.type === 'line') return { type: 'line', a: P(c.p1), b: P(c.p2) };
@@ -1279,8 +1383,9 @@ export function addProjected(sk, prims, src, construction = false) {
     const s = src.idx != null && src.of != null && prims.length === 1 ? { ...src } : { ...src, idx, of: prims.length };
     if (g.type === 'spline') {
       const pts = g.pts.map((p) => addPoint(sk, p[0], p[1]));
-      const id = g.ctrl ? addCtrlSpline(sk, pts, g.degree, construction, g.closed, g.weights) : addSpline(sk, pts, g.closed, construction);
-      addRel(sk, 'projected', [id], { src: { ...s, spline: true }, pts: Object.fromEntries(pts.map((p, i) => [p, g.pts[i]])) });
+      const handles = g.handles?.map((p) => addPoint(sk, ...p));
+      const id = g.ctrl ? addCtrlSpline(sk, pts, g.degree, construction, g.closed, g.weights) : handles ? addFitSpline(sk, pts, g.closed, construction, handles) : addSpline(sk, pts, g.closed, construction);
+      addRel(sk, 'projected', [id], { src: { ...s, spline: true }, pts: Object.fromEntries([...pts.map((p, i) => [p, g.pts[i]]), ...(handles || []).map((p, i) => [p, g.handles[i]])]) });
       out.push(id);
     } else if (g.type === 'point') {
       const p = addPoint(sk, g.p[0], g.p[1]);
@@ -1316,8 +1421,9 @@ export function updateProjected(sk, k, prims) {
   if (!c) { if (g.type === 'point') { k.pts = { [target]: g.p }; return true; } return false; }
   if (c.type === 'spline' && g.type === 'spline') {
     if (c.pts.length !== g.pts.length || !!c.ctrl !== !!g.ctrl || !!c.closed !== !!g.closed) return false;
+    if ((c.handles?.length || 0) !== (g.handles?.length || 0)) return false;
     if (c.ctrl) { c.degree = g.degree; if (g.weights) c.weights = [...g.weights]; else delete c.weights; }
-    k.pts = Object.fromEntries(c.pts.map((p, i) => [p, g.pts[i]]));
+    k.pts = Object.fromEntries([...c.pts.map((p, i) => [p, g.pts[i]]), ...(c.handles || []).map((p, i) => [p, g.handles[i]])]);
   }
   else if (c.type === 'line' && g.type === 'line') k.pts = { [c.p1]: g.a, [c.p2]: g.b };
   else if (c.type === 'circle' && g.type === 'circle') { k.pts = { [c.c]: g.c }; k.r = g.r; }
@@ -1355,6 +1461,7 @@ export function splitProjectedPoints(sk) {
           for (const curve of sk.curves.filter((q) => q === c || q.ctrlOf === c.id)) {
             for (const key of ['p1', 'p2', 'c', 'a']) if (curve[key] === id) curve[key] = next;
             if (curve.pts) curve.pts = curve.pts.map((p) => p === id ? next : p);
+            if (curve.handles) curve.handles = curve.handles.map((p) => p === id ? next : p);
           }
         } else if (k.refs[0] === id) k.refs[0] = next;
         delete k.pts[id]; k.pts[next] = xy;
@@ -2320,7 +2427,7 @@ export function mirrorItems(sk, ids, axisId) {
     if (c.ctrlOf && ids.includes(c.ctrlOf)) continue;
     n++;
     if (c.type === 'line') created.push(addLine(sk, mp(c.p1), mp(c.p2), c.construction));
-    else if (c.type === 'spline') created.push(c.ctrl ? addCtrlSpline(sk, c.pts.map(mp), c.degree, c.construction, c.closed, c.weights) : addSpline(sk, c.pts.map(mp), c.closed, c.construction));
+    else if (c.type === 'spline') created.push(c.ctrl ? addCtrlSpline(sk, c.pts.map(mp), c.degree, c.construction, c.closed, c.weights) : c.handles ? addFitSpline(sk, c.pts.map(mp), c.closed, c.construction, c.handles.map(mp)) : addSpline(sk, c.pts.map(mp), c.closed, c.construction));
     else if (isEll(c)) {
       // (a reflection reverses an elliptical arc's direction, as an arc's)
       const e = addEllipse(sk, mp(c.c), mp(c.a), c.r2, c.construction);
@@ -2531,7 +2638,7 @@ export function cleanup(sk) {
   for (let pass = 0; pass < 5; pass++) {
     const used = new Set(['O']);
     for (const c of sk.curves) for (const k of ['p1', 'p2', 'c', 'a']) if (c[k]) used.add(c[k]);
-    for (const c of sk.curves) if (c.pts) for (const id of c.pts) used.add(id);
+    for (const c of sk.curves) for (const id of [...(c.pts || []), ...(c.handles || [])]) used.add(id);
     for (const p of sk.points) if (p.keep) used.add(p.id);
     const before = sk.points.length + sk.constraints.length;
     sk.points = sk.points.filter((p) => used.has(p.id));
@@ -2555,10 +2662,10 @@ export function pruneRefs(sk, keep = new Set()) {
       const target = k.refs[0];
       if (keep.has(target)) continue;
       const c = getCurve(sk, target);
-      const ids = new Set([target, ...(c ? [c.p1, c.p2, c.c, c.a, ...(c.pts || [])].filter(Boolean) : [])]);
+      const ids = new Set([target, ...(c ? [c.p1, c.p2, c.c, c.a, ...(c.pts || []), ...(c.handles || [])].filter(Boolean) : [])]);
       if ([...ids].some((id) => keep.has(id))) continue;
       const used = sk.constraints.some((x) => x !== k && x.refs.some((r) => ids.has(r)))
-        || sk.curves.some((x) => x.id !== target && [x.p1, x.p2, x.c, x.a, ...(x.pts || [])].some((p) => p && ids.has(p)));
+        || sk.curves.some((x) => x.id !== target && [x.p1, x.p2, x.c, x.a, ...(x.pts || []), ...(x.handles || [])].some((p) => p && ids.has(p)));
       if (used) continue;
       sk.constraints = sk.constraints.filter((x) => x !== k);
       if (c) sk.curves = sk.curves.filter((x) => x !== c);
@@ -2574,7 +2681,10 @@ export function pruneRefs(sk, keep = new Set()) {
 export function mergePoints(sk, from, to) {
   if (from === to || from === 'O') return;
   for (const c of sk.curves) for (const k of ['p1', 'p2', 'c', 'a']) if (c[k] === from) c[k] = to;
-  for (const c of sk.curves) if (c.pts) c.pts = c.pts.map((id) => (id === from ? to : id)).filter((id, i, a) => !i || id !== a[i - 1]);
+  for (const c of sk.curves) {
+    if (c.pts) c.pts = c.pts.map((id) => (id === from ? to : id)).filter((id, i, a) => !i || id !== a[i - 1]);
+    if (c.handles) c.handles = c.handles.map((id) => id === from ? to : id);
+  }
   for (const k of sk.constraints) {
     k.refs = k.refs.map((r) => (r === from ? to : r));
     if (k.pts && from in k.pts) { k.pts[to] = k.pts[from]; delete k.pts[from]; }

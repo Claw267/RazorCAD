@@ -512,6 +512,131 @@ const UI = {
     return { ok: true, detail: `${notes.length} parts restored without rebuilding (${(bytes / 1048576).toFixed(1)} MB of BRep; meshing ${mesh1} ms → ${mesh2} ms)` };
   },
 
+  async 'sketch-grouped-tools'() {
+    const a = window.app, prefs = a.ui.tbPrefs(), previous = prefs.sketchLayout;
+    try {
+      await a.newDocument?.(); closeModals();
+      const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } }); a.doc.features.push(f); a.commit(); await a.enterSketch(f, true);
+      a.ui.showToolbarCustomize('sketch');
+      const select = document.querySelector('[data-sketch-layout]');
+      if (!select) return { ok: false, detail: 'Missing layout option' };
+      const keys = a.ui.currentKeys('sketch').join(',');
+      select.value = 'grouped'; select.dispatchEvent(new Event('change'));
+      document.querySelector('.modal-back .modal-h .x').click();
+      if (document.querySelectorAll('#cm-buttons [data-group]').length !== 5 || document.querySelector('#cm-buttons [data-key="tool-midline"]')) return { ok: false, detail: 'Tools were not grouped' };
+      document.querySelector('[data-group="sketch-group-slot"]').click();
+      if (document.querySelectorAll('#ctxmenu .mi').length !== 5) return { ok: false, detail: 'Slot flyout did not expose five variants' };
+      document.querySelector('[data-group="sketch-group-line"]').click();
+      [...document.querySelectorAll('#ctxmenu .mi')].find((q) => q.textContent.includes('Midpoint Line')).click();
+      if (a.sketcher.tool !== 'midline' || !document.querySelector('[data-group="sketch-group-line"]').classList.contains('active')) return { ok: false, detail: 'Flyout did not activate the variant' };
+      prefs.sketchLayout = 'expanded'; a.ui.renderCommandManager();
+      if (!document.querySelector('#cm-buttons [data-key="tool-midline"]') || a.ui.currentKeys('sketch').join(',') !== keys) return { ok: false, detail: 'Switching layout changed toolbar customization' };
+      return { ok: true, detail: 'Layout option, five flyouts, variant selection, active state and preserved expanded ordering' };
+    } finally { prefs.sketchLayout = previous; a.ui.savePrefs(); a.ui.renderCommandManager(); }
+  },
+
+  async 'sketch-new-drawing-tools'() {
+    const a = window.app, S = await import('/js/sketchmodel.js'), V = await import('/js/solver.js');
+    const draw = async (tool, points, construction = false) => {
+      await a.newDocument?.(); closeModals();
+      const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } }); a.doc.features.push(f); a.commit(); await a.enterSketch(f, true); await wait(100);
+      const sk = a.sketcher; sk.autoRelations = false; sk.normalTo(false);
+      a.viewport.camera.zoom = 3; a.viewport.camera.updateProjectionMatrix(); a.viewport.camera.updateMatrixWorld(true);
+      sk.setTool(tool);
+      if (construction) { const cb = document.querySelector('[data-construction-mode]'); cb.checked = true; cb.dispatchEvent(new Event('change')); }
+      const v = viewEvents();
+      for (const [x, y] of points) { const w = sk.frame.o.clone().addScaledVector(sk.frame.u, x).addScaledVector(sk.frame.v, y); const xy = v.toScreen(w); v.fire('pointermove', ...xy); await v.click(...xy); }
+      return { f, sk };
+    };
+    let { f, sk } = await draw('midline', [[10, 10], [40, 10]], true);
+    const line = f.curves.find((c) => c.type === 'line'), mid = f.constraints.find((k) => k.type === 'midpoint');
+    if (!line?.construction || !mid || Math.abs(S.getPoint(f, line.p1).x + 20) > 1e-5 || !sk.solveOk) return { ok: false, detail: `Midpoint line or preconstruction failed: ${JSON.stringify({ line, mid, points: f.points, tool: sk.tool, draw: sk.draw, ok: sk.solveOk })}` };
+    sk.sel = new Set([line.id]); sk.toggleConstruction();
+    if (line.construction) return { ok: false, detail: 'Postcreation construction toggle regressed' };
+    sk.undo(); if (!f.curves[0].construction) return { ok: false, detail: 'Construction toggle did not undo' };
+    const cases = [
+      ['slot', [[10, 10], [50, 10], [30, 18]]],
+      ['cslot', [[10, 10], [50, 10], [30, 18]]],
+      ['oslot', [[10, 10], [70, 10], [30, 18]]],
+      ['arcslot', [[10, 10], [50, 10], [10, 50], [10, 58]]],
+      ['arcslot', [[10, 10], [50, 10], [10, -30], [10, -38]]],
+      ['arcslot3', [[50, 10], [10, 50], [38, 38], [10, 58]]],
+      ['arcslot3', [[50, 10], [10, 50], [-30, 10], [10, 58]]],
+    ];
+    for (const [tool, points] of cases) {
+      ({ f, sk } = await draw(tool, points));
+      const outline = f.curves.filter((c) => !c.construction);
+      if (!sk.solveOk || outline.length !== 4 || S.profileLoops(f).length !== 1) return { ok: false, detail: `${tool}: solve=${sk.solveOk}, outline=${outline.length}, loops=${S.profileLoops(f).length}` };
+      const dof = V.analyzeSketch(f, sk.ev).dofDefined, expected = tool.startsWith('arcslot') ? 6 : 5;
+      if (dof !== expected) return { ok: false, detail: `${tool}: ${dof} freedoms instead of ${expected}; unexpected helper freedoms` };
+      const before = sk.snapshotData(); sk.undo(); if (f.curves.length) return { ok: false, detail: `${tool}: undo left geometry` }; sk.redo();
+      if (sk.snapshotData() !== before) return { ok: false, detail: `${tool}: redo changed geometry` };
+      a.exitSketch(true); await a.rebuild();
+      if (a.result.errors.size) return { ok: false, detail: `${tool}: kernel rebuild failed` };
+      const extrude = M.createFeature(a.doc, 'extrude', { sketch: f.id, depth: 3 }); a.doc.features.push(extrude); await a.rebuild();
+      if (a.result.errors.size || !a.result.body) return { ok: false, detail: `${tool}: closed slot did not produce a solid: ${JSON.stringify([...a.result.errors])}` };
+    }
+    ({ f, sk } = await draw('arcslot', [[10, 10], [50, 10], [10, 50], [10, 58]], true));
+    if (f.curves.some((c) => !c.construction) || S.profileLoops(f).length) return { ok: false, detail: 'Construction arc slot contributed a profile' };
+    if (S.slotLayout('oslot', [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 5, y: 6 }]) || S.slotLayout('arcslot3', [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 2 }])) return { ok: false, detail: 'Invalid slot accepted' };
+    if (S.slotLayout('arcslot', [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 9.99, y: 0.1 }, { x: 12, y: 0 }], -6.27)) return { ok: false, detail: 'Overlapping major-arc caps accepted' };
+    return { ok: true, detail: 'Midpoint line, pre/post construction, five closed tangent slot variants, undo/redo, kernel rebuild and degenerate-input rejection' };
+  },
+
+  async 'sketch-fit-spline-handles'() {
+    const a = window.app, S = await import('/js/sketchmodel.js'), V = await import('/js/solver.js');
+    await a.newDocument?.(); closeModals();
+    const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } }); a.doc.features.push(f); a.commit(); await a.enterSketch(f, true); await wait(100);
+    const sk = a.sketcher; sk.autoRelations = false; sk.normalTo(false);
+    a.viewport.camera.zoom = 3; a.viewport.camera.updateProjectionMatrix(); a.viewport.camera.updateMatrixWorld(true);
+    sk.setTool('spline'); const v = viewEvents();
+    for (const [x, y] of [[10, 10], [40, 40], [70, 10]]) {
+      const w = sk.frame.o.clone().addScaledVector(sk.frame.u, x).addScaledVector(sk.frame.v, y); const xy = v.toScreen(w); v.fire('pointermove', ...xy); await v.click(...xy);
+    }
+    sk.endDraw(true); sk.setTool('select');
+    const c = f.curves.find((c) => c.type === 'spline');
+    if (!c?.handles || c.handles.length !== 3 || f.curves.filter((q) => q.fitHandle).length !== 3) return { ok: false, detail: 'Drawing did not create fit points and tangent handles' };
+    const H = S.getPoint(f, c.handles[0]), before = sk.snapshotData();
+    sk.startDrag({ kind: 'point', id: H.id }, { x: H.x, y: H.y }); sk.dragMove({ x: 23, y: 29 }, { x: 0, y: 0 }); sk.pointerUp({});
+    let pcs = S.splinePieces(f, c);
+    if (Math.hypot(pcs[0].c1[0] - 23, pcs[0].c1[1] - 29) > 1e-6 || Math.hypot(pcs[0].b[0] - 40, pcs[0].b[1] - 40) > 1e-6 || Math.hypot(pcs[0].b[0] - pcs[0].c2[0] - (pcs[1].c1[0] - pcs[1].a[0]), pcs[0].b[1] - pcs[0].c2[1] - (pcs[1].c1[1] - pcs[1].a[1])) > 1e-6) return { ok: false, detail: 'Handle drag failed to preserve interpolation or tangent continuity' };
+    sk.undo(); if (sk.snapshotData() !== before) return { ok: false, detail: 'Handle drag did not undo' }; sk.redo();
+    const point = S.getPoint(f, c.pts[1]), handle = S.getPoint(f, c.handles[1]), oldVector = [handle.x - point.x, handle.y - point.y];
+    sk.startDrag({ kind: 'point', id: point.id }, { ...point }); sk.dragMove({ x: 40, y: 45 }, { x: 0, y: 0 }); sk.pointerUp({});
+    if (Math.hypot(handle.x - point.x - oldVector[0], handle.y - point.y - oldVector[1]) > 1e-6) return { ok: false, detail: 'Fit-point drag left its handle behind' };
+    for (const id of c.pts) { const q = S.getPoint(f, id); S.addRel(f, 'fix', [id], { x: q.x, y: q.y }); }
+    if (V.analyzeSketch(f, sk.ev).dofDefined !== 6) return { ok: false, detail: 'Free handle directions/strengths were incorrectly ignored as construction-line slides' };
+    for (const id of c.handles.slice(1)) { const q = S.getPoint(f, id); S.addRel(f, 'fix', [id], { x: q.x, y: q.y }); }
+    sk.changed(); const leg = f.curves.find((q) => q.fitHandle && q.p2 === c.handles[0]);
+    if (!sk.tryAddConstraints([['horizontal', [leg.id]], ['dim', [c.pts[0], c.handles[0]], { kind: 'distance', value: 12 }]], { quiet: true }) || V.analyzeSketch(f, sk.ev).dofDefined !== 0) return { ok: false, detail: 'Tangent handles could not be dimensioned and fully constrained' };
+    const saved = JSON.parse(JSON.stringify(f)); pcs = S.splinePieces(saved, S.getCurve(saved, c.id));
+    if (Math.abs(pcs[0].c1[0] - 22) > 1e-6 || Math.abs(pcs[0].c1[1] - 10) > 1e-6) return { ok: false, detail: 'Handle length/direction or serialization failed' };
+    const copy = JSON.parse(JSON.stringify(f)), copied = S.copyItems(copy, [c.id], (x, y) => [x + 100, y]);
+    const copySpline = S.getCurve(copy, copied[0]);
+    if (!copySpline.handles || Math.abs(S.splinePieces(copy, copySpline)[0].c1[0] - 122) > 1e-6) return { ok: false, detail: 'Copy lost tangent handles' };
+    const mirror = JSON.parse(JSON.stringify(f)), axis = S.addLine(mirror, S.addPoint(mirror, 0, -100), S.addPoint(mirror, 0, 100), true);
+    S.mirrorItems(mirror, [c.id], axis);
+    const mirrored = mirror.curves.find((q) => q.type === 'spline' && q.id !== c.id);
+    if (!mirrored?.handles || Math.abs(S.splinePieces(mirror, mirrored)[0].c1[0] + 22) > 1e-6 || !V.solveSketch(mirror, sk.ev).ok) return { ok: false, detail: 'Mirror lost tangent handles' };
+    const block = S.blockData(f, [c.id]), pasted = S.pasteItems(copy, block, 0, 0);
+    if (!S.getCurve(copy, pasted[0]).handles || !V.solveSketch(copy, sk.ev).ok) return { ok: false, detail: 'Block insertion lost spline handle geometry' };
+    const fullBlock = S.blockData(f, [c.id, ...f.curves.filter((q) => q.ctrlOf === c.id).map((q) => q.id)]), allPasted = S.pasteItems(copy, fullBlock, 200, 0);
+    const blockSpline = S.getCurve(copy, allPasted[0]);
+    if (copy.curves.filter((q) => q.ctrlOf === blockSpline.id && q.fitHandle).length !== 3 || !V.solveSketch(copy, sk.ev).ok) return { ok: false, detail: 'Block with selected handle lines duplicated helpers or lost their constraints' };
+    const pattern = JSON.parse(JSON.stringify(f));
+    S.setSketchPattern(pattern, { sources: [c.id], path: '', n1: '3', d1: '100', a1: '0', n2: '1', d2: '20', a2: '90' }, sk.ev);
+    const splines = pattern.curves.filter((q) => q.type === 'spline');
+    if (splines.length !== 3 || splines.some((q) => !q.handles) || !V.solveSketch(pattern, sk.ev).ok) return { ok: false, detail: 'Pattern failed to preserve fit spline handles' };
+    const frame = sk.frameArr(), target = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } });
+    const projected = S.addProjected(target, S.projectCurve(frame, S.curve3D(f, c, frame), { preserveSpline: true }), { kind: 'sketch', fid: f.id, cid: c.id });
+    a.doc.features.push(target); S.addLine(f, c.p2, c.p1); sk.changed(); a.exitSketch(true); await a.rebuild();
+    const pc = S.getCurve(target, projected[0]);
+    if (a.result.errors.size || !pc.handles || JSON.stringify(S.splinePieces(target, pc)) !== JSON.stringify(S.splinePieces(f, c))) return { ok: false, detail: 'Linked projection did not preserve tangent handles' };
+    const extrude = M.createFeature(a.doc, 'extrude', { sketch: f.id, depth: 3 }); a.doc.features.push(extrude); await a.rebuild();
+    if (a.result.errors.size || !(a.result.body?.mesh?.triangles?.length || a.result.body?.bodies?.length)) return { ok: false, detail: `Handled spline profile did not extrude: ${JSON.stringify([...a.result.errors])}` };
+    return { ok: true, detail: 'Fit-point drawing, tangent/strength drag, fit-point translation, constraints and DOFs, undo/redo, serialization, copies, blocks, patterns, linked projection and solid extrusion' };
+  },
+
   async 'expression-parameter-completion'() {
     const a = window.app, S = await import('/js/sketchmodel.js');
     const doc = M.newDoc(); doc.equations = [{ name: 'neck_length', expr: '120' }, { name: 'neck_width', expr: '20' }];

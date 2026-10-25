@@ -86,7 +86,7 @@ export function makeSystem(sk, ev) {
   const lengthOf = (id) => {
     const c = curves.get(id);
     if (!c || !['line', 'arc', 'circle', 'ellipse', 'earc', 'spline'].includes(c.type)) throw new Error('Select curves for Equal Curve Length');
-    const points = [...new Set([c.p1, c.p2, c.c, c.a, ...(c.pts || [])].filter(Boolean))].map((id) => ({ id, ...pt(id) }));
+    const points = [...new Set([c.p1, c.p2, c.c, c.a, ...(c.pts || []), ...(c.handles || [])].filter(Boolean))].map((id) => ({ id, ...pt(id) }));
     const size = c.type === 'circle' ? idx.get('r:' + id) : (c.type === 'ellipse' || c.type === 'earc') ? idx.get('b:' + id) : null;
     return {
       deps: [...points.flatMap((p) => p.deps), ...(size != null ? [size] : [])],
@@ -536,7 +536,7 @@ export function solveSketch(sk, ev, opts = {}) {
       const c = getCurve(sk, id);
       if (!c) sourcePoints.add(id);
       else {
-        for (const q of [c.p1, c.p2, c.c, c.a, ...(c.pts || [])].filter(Boolean)) sourcePoints.add(q);
+        for (const q of [c.p1, c.p2, c.c, c.a, ...(c.pts || []), ...(c.handles || [])].filter(Boolean)) sourcePoints.add(q);
         if (c.type === 'circle') sourceCircles.add(id);
       }
     }
@@ -614,7 +614,7 @@ function constructionSlideRows(sk, sys) {
   for (const k of sk.constraints) for (const r of k.refs) inRelation.add(r);
   const rows = [];
   for (const c of sk.curves) {
-    if (c.type !== 'line' || !c.construction) continue;
+    if (c.type !== 'line' || !c.construction || c.fitHandle) continue;
     const a = sk.points.find((p) => p.id === c.p1) || (c.p1 === 'O' ? { x: 0, y: 0 } : null);
     const b = sk.points.find((p) => p.id === c.p2) || (c.p2 === 'O' ? { x: 0, y: 0 } : null);
     if (!a || !b) continue;
@@ -657,7 +657,7 @@ export function analyzeSketch(sk, ev) {
   for (const c of sk.curves) {
     let ok;
     if (c.type === 'line') ok = pointDefined.get(c.p1) && pointDefined.get(c.p2);
-    else if (c.type === 'spline') ok = c.pts.every((id) => pointDefined.get(id));
+    else if (c.type === 'spline') ok = [...c.pts, ...(c.handles || [])].every((id) => pointDefined.get(id));
     else if (c.type === 'circle') ok = pointDefined.get(c.c) && determined[sys.idx.get('r:' + c.id)];
     else if (c.type === 'ellipse') ok = pointDefined.get(c.c) && pointDefined.get(c.a) && determined[sys.idx.get('b:' + c.id)];
     else if (c.type === 'earc') ok = pointDefined.get(c.c) && pointDefined.get(c.a) && determined[sys.idx.get('b:' + c.id)] && pointDefined.get(c.p1) && pointDefined.get(c.p2);
