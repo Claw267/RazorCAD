@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## Unreleased — Clearer sketch dimensions and Equal Curve Length
+- Linear and perpendicular dimensions use aligned, upright text, extension-line gaps and overruns, and outside arrows when space is tight. Moving a perpendicular dimension now moves its dimension line along the reference edge instead of leaving a floating label and a diagonal leader. Preview placement and later dragging still keep the text at the chosen position.
+- Equal Curve Length constrains the actual length of arcs, splines, circles, ellipses and mixed curve selections. Lines retain their existing Equal relation. Circular-curve Equal is labelled Equal Radius to distinguish it from equal arc length. Spline lengths use the curve definition (including rational weights), not the displayed polyline.
+- Tests: sketch-dimension-drafting-layout, sketch-equal-curve-length, dimension placement/creation and serialized rebuilds.
+
 ## Unreleased — Confirm dimension placement, including preselection
 - Dimension accepts a preselected curve or pair of entities and waits for a placement click. An orange preview and cursor hint show the pending dimension; no constraint is created until confirmation and Esc cancels it.
 - The label stays at the chosen click position, including radius, diameter and point-to-line annotations. Existing dimension dragging remains available for later adjustment.

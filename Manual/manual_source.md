@@ -466,6 +466,8 @@ You can also select a curve or two entities before starting **Dimension**. Move 
 
 With **Select** or **Dimension** active, drag a dimension's number to reposition its annotation without changing the measured geometry or value. A plain click still opens the value editor. This also works for driven/reference dimensions; placement is saved with the sketch and follows undo/redo. Press **Esc** during a drag to cancel the move.
 
+Linear dimension text follows the dimension line and stays upright. Extension lines leave a small gap at the geometry and run slightly beyond the dimension line; short dimensions use outside arrows. For a point-to-line distance, dragging the text also moves the perpendicular dimension line along the reference edge. This lets a short horizontal offset such as 4 mm and an inclined perpendicular offset such as 13 mm use conventional drafting layouts without changing what they measure.
+
 - Moving the mouse switches between horizontal, vertical and aligned.
 - Two lines give an angle; a point and a line give a perpendicular distance.
 - Values accept equations, such as `width/2`.
@@ -527,11 +529,14 @@ Select entities ([[Ctrl]]+click for several, or drag a box from empty space: lef
 | Point + arc | Coincident (on curve), Midpoint (half way round the arc) |
 | Point + circle | Coincident (on curve) |
 | Line + circle/arc | Tangent |
-| Circles/arcs | Equal, Concentric, Tangent |
+| Circles/arcs | Equal Radius, Equal Curve Length, Concentric, Tangent |
+| 2 or more curves (including splines, ellipses or mixed line/curve selections) | Equal Curve Length; for lines only, use Equal |
 | 2 points + line | Symmetric (about the line) |
 | 3 lines | Symmetric (two lines about a centerline) |
 
 Relations are shown as small green glyphs next to the geometry. Click a glyph to select it, then press [[Del]] to remove it. Hovering a glyph highlights the entities it ties together. Redundant or conflicting relations are refused with a message.
+
+**Equal Curve Length (≋)** constrains the length measured along each selected curve, not its chord or control polygon. Two arcs may have different radii and sweeps while keeping equal lengths; a spline can also match a line or another curve. Select the curves with Ctrl and choose **Equal Curve Length** in **Add Relations**. With more than two curves, each is matched to the first. Circular curves' **Equal Radius (=)** keeps their radii equal and remains a separate relation. Length links survive source edits, undo/redo, save/reopen and rebuild. Ellipse and spline lengths are integrated numerically from their definitions.
 
 ## How profiles are found
 

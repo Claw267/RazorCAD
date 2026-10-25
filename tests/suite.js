@@ -512,6 +512,71 @@ const UI = {
     return { ok: true, detail: `${notes.length} parts restored without rebuilding (${(bytes / 1048576).toFixed(1)} MB of BRep; meshing ${mesh1} ms → ${mesh2} ms)` };
   },
 
+  async 'sketch-equal-curve-length'() {
+    const S = await import('/js/sketchmodel.js'), V = await import('/js/solver.js');
+    const weighted = S.newSketchData(), control = [[10, 0], [10, 10], [0, 10]].map(([x, y]) => S.addPoint(weighted, x, y));
+    const quarter = S.addCtrlSpline(weighted, control, 2, false, false, [1, Math.SQRT1_2, 1]);
+    if (Math.abs(S.curveLength(weighted, S.getCurve(weighted, quarter)) - 5 * Math.PI) > 1e-8) return { ok: false, detail: 'Weighted spline arc length differs from the exact quarter circle' };
+    const ellipse = S.addEllipse(weighted, S.addPoint(weighted, 30, 0), S.addPoint(weighted, 40, 0), 5);
+    if (Math.abs(S.curveLength(weighted, S.getCurve(weighted, ellipse)) - 48.44224110273838) > 1e-7) return { ok: false, detail: 'Ellipse arc length is inaccurate' };
+    const a = window.app; await a.newDocument?.(); closeModals();
+    const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } });
+    a.doc.features.push(f); a.commit(); await a.enterSketch(f, true);
+    const ids = [[0, 0], [10, 0], [0, 10], [30, 0], [35, 0], [27.5, Math.sqrt(18.75)]].map(([x, y]) => S.addPoint(f, x, y));
+    const one = S.addArc(f, ids[0], ids[1], ids[2]), two = S.addArc(f, ids[3], ids[4], ids[5]);
+    const fixes = ids.slice(0, 5).map((id) => { const p = S.getPoint(f, id); return S.addRel(f, 'fix', [id], { x: p.x, y: p.y }).id; });
+    const sk = a.sketcher; sk.changed(); sk.sel = new Set([one, two]); a.ui.renderPM();
+    const button = [...document.querySelectorAll('#pm .pm-rels button')].find((b) => b.textContent.includes('Equal Curve Length'));
+    if (!button || ![...document.querySelectorAll('#pm .pm-rels button')].some((b) => b.textContent.includes('Equal Radius'))) return { ok: false, detail: 'Length and radius relations are not distinguishable in the panel' };
+    button.click();
+    const length = (id) => S.curveLength(f, S.getCurve(f, id));
+    if (!f.constraints.some((k) => k.type === 'equalLength') || !sk.solveOk || Math.abs(length(one) - length(two)) > 1e-7 || Math.abs(S.radiusOf(f, S.getCurve(f, one)) - 10) > 1e-6 || Math.abs(S.radiusOf(f, S.getCurve(f, two)) - 5) > 1e-6) return { ok: false, detail: 'Equal lengths did not preserve different radii' };
+    sk.undo(); if (f.constraints.some((k) => k.type === 'equalLength')) return { ok: false, detail: 'Undo did not remove Equal Curve Length' };
+    sk.redo();
+    f.constraints.find((k) => k.id === fixes[1]).x = 12;
+    f.constraints.find((k) => k.id === fixes[2]).y = 12;
+    sk.changed();
+    if (!sk.solveOk || Math.abs(length(one) - 6 * Math.PI) > 1e-7 || Math.abs(length(one) - length(two)) > 1e-7) return { ok: false, detail: 'Arc length equality did not follow a source change' };
+    const built = await a.kernel.rebuild(JSON.parse(JSON.stringify(a.doc)), null, null);
+    if (built.errors.length || !built.sketches[f.id].data.constraints.some((k) => k.type === 'equalLength')) return { ok: false, detail: 'Equal Curve Length did not survive serialized rebuild' };
+    const mixed = S.newSketchData(), p = S.addPoint(mixed, 0, 0), q = S.addPoint(mixed, 20, 0), line = S.addLine(mixed, p, q);
+    const fix = (id) => { const p = S.getPoint(mixed, id); S.addRel(mixed, 'fix', [id], { x: p.x, y: p.y }); };
+    fix(p); fix(q);
+    const points = [[0, 40], [3, 40], [7, 40], [10, 40]].map(([x, y]) => S.addPoint(mixed, x, y));
+    const spline = S.addCtrlSpline(mixed, points, 3); points.slice(0, 3).forEach(fix);
+    S.addRel(mixed, 'horizontal', [mixed.curves.find((c) => c.ctrlOf === spline && c.p2 === points[3]).id]);
+    S.addRel(mixed, 'equalLength', [line, spline]);
+    const solved = V.solveSketch(mixed, Number);
+    return { ok: solved.ok && !solved.bad.length && Math.abs(S.curveLength(mixed, S.getCurve(mixed, spline)) - 20) < 1e-7, detail: 'Exact rational quarter-circle and ellipse lengths; distinct UI actions; different-radius arcs stay equal in length after edits, undo/redo and rebuild; mixed line/spline constraint solves' };
+  },
+
+  async 'sketch-dimension-drafting-layout'() {
+    const a = window.app, S = await import('/js/sketchmodel.js');
+    await a.newDocument?.(); closeModals();
+    const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } });
+    a.doc.features.push(f); a.commit(); await a.enterSketch(f, true);
+    const sk = a.sketcher, p = S.addPoint(f, 0, 0), q = S.addPoint(f, 12, 0);
+    S.addLine(f, p, q);
+    const edge = S.addLine(f, S.addPoint(f, 20, 0), S.addPoint(f, 100, -24));
+    const side = S.addLine(f, S.addPoint(f, 4, -20), S.addPoint(f, 4, -40));
+    const L = Math.hypot(80, -24);
+    const point = S.addPoint(f, 0, -20), centre = S.addPoint(f, 20 + 80 * 15 / L - 24 * 13 / L, -24 * 15 / L - 80 * 13 / L);
+    S.getPoint(f, point).keep = true; S.getPoint(f, centre).keep = true;
+    const twelve = S.addRel(f, 'dim', [p, q], { kind: 'hdist', value: 12, off: 10, driven: true });
+    const four = S.addRel(f, 'dim', [point, side], { kind: 'pointLine', value: 4, off: 10, driven: true });
+    const thirteen = S.addRel(f, 'dim', [centre, edge], { kind: 'pointLine', value: 13, off: 10, driven: true });
+    sk.changed();
+    const small = sk.dimGraphics(four, 1), wide = sk.dimGraphics(twelve, 0.1), normal = sk.dimGraphics(thirteen, 0.1);
+    if (!small.segs.some((p) => p[0] < -1 || p[0] > 5)) return { ok: false, detail: 'Short dimension arrows were not placed outside' };
+    if (wide.segs.some((p) => p[0] < -1e-8 || p[0] > 12 + 1e-8)) return { ok: false, detail: 'Wide dimension unnecessarily used outside arrows' };
+    if (Math.abs(normal.textDir[0] * 80 + normal.textDir[1] * -24) > 1e-8) return { ok: false, detail: 'Perpendicular dimension text is not aligned with its dimension line' };
+    const before = JSON.stringify([f.points, f.curves]);
+    sk.moveDimensionLabel(thirteen, { x: 50, y: -25 }); sk.changed();
+    const after = sk.dims.find((d) => d.k.id === thirteen.id);
+    const el = sk.dimPool[sk.dims.indexOf(after)];
+    return { ok: JSON.stringify([f.points, f.curves]) === before && Math.hypot(after.at[0] - 50, after.at[1] + 25) < 1e-6 && !el.style.transform.includes('rotate(0rad)'), detail: '4 mm outside arrows, 12 mm inside arrows, aligned perpendicular text and movable extension-line layout; geometry preserved' };
+  },
+
   async 'sketch-dimension-confirm-placement'() {
     const a = window.app, S = await import('/js/sketchmodel.js');
     await a.newDocument?.(); closeModals();

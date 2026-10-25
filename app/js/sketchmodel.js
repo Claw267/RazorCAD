@@ -122,7 +122,7 @@ export function endTangent(sk, c, id) {
   return null;
 }
 // Copies of items (curve / point ids) moved by M(x, y) → [x, y]; returns the new ids.
-const ROT_KEEPS = new Set(['coincident', 'tangent', 'equal', 'parallel', 'perpendicular', 'concentric', 'midpoint', 'onCurve', 'collinear', 'symmetric']);
+const ROT_KEEPS = new Set(['coincident', 'tangent', 'equal', 'equalLength', 'parallel', 'perpendicular', 'concentric', 'midpoint', 'onCurve', 'collinear', 'symmetric']);
 const ROT_DIMS = new Set(['distance', 'radius', 'diameter', 'angle', 'pointLine', 'arcDist']);
 export function copyItems(sk, ids, M, { rotates = false } = {}) {
   const map = new Map(), out = [];
@@ -424,6 +424,42 @@ export function splineBeziers(P, closed = false) {
 export function splinePieces(sk, c) {
   const P = c.pts.map((id) => { const q = getPoint(sk, id); return [q.x, q.y]; });
   return c.ctrl ? ctrlSplineBeziers(P, c.degree ?? 3, !!c.closed, c.weights) : splineBeziers(P, !!c.closed);
+}
+
+// Arc length independent of display tessellation. Weighted B-splines use their exact homogeneous pieces.
+function integrateLength(f, a, b, tolerance = 1e-9) {
+  const simpson = (a, b, fa, fm, fb) => (b - a) * (fa + 4 * fm + fb) / 6;
+  const recurse = (a, b, fa, fm, fb, whole, tol, depth) => {
+    const m = (a + b) / 2, fl = f((a + m) / 2), fr = f((m + b) / 2);
+    const left = simpson(a, m, fa, fl, fm), right = simpson(m, b, fm, fr, fb), error = left + right - whole;
+    if (!depth || Math.abs(error) <= 15 * tol) return left + right + error / 15;
+    return recurse(a, m, fa, fl, fm, left, tol / 2, depth - 1) + recurse(m, b, fm, fr, fb, right, tol / 2, depth - 1);
+  };
+  const fa = f(a), fm = f((a + b) / 2), fb = f(b);
+  return recurse(a, b, fa, fm, fb, simpson(a, b, fa, fm, fb), tolerance, 18);
+}
+
+export function curveLength(sk, c) {
+  if (!c) throw new Error('The curve is missing');
+  if (c.type === 'line') { const a = getPoint(sk, c.p1), b = getPoint(sk, c.p2); return Math.hypot(b.x - a.x, b.y - a.y); }
+  if (c.type === 'circle') return TAU * Math.abs(c.r);
+  if (c.type === 'arc') { const a = arcAngles(sk, c); return a.r * a.span; }
+  if (isEll(c)) {
+    const { g, t0, span } = ellipseRange(sk, c);
+    return integrateLength((t) => Math.hypot(g.ra * Math.sin(t), g.rb * Math.cos(t)), t0, t0 + span);
+  }
+  if (c.type === 'spline') {
+    const points = c.pts.map((id) => { const p = getPoint(sk, id); return [p.x, p.y]; });
+    const pieces = c.ctrl ? bsplineBeziers(points, c.degree ?? 3, !!c.closed, c.weights) : splineBeziers(points, !!c.closed).map((p) => [p.a, p.c1, p.c2, p.b]);
+    return pieces.reduce((length, q) => length + integrateLength((t) => {
+      const d = bezD(q, t);
+      if (q[0].length !== 3) return Math.hypot(...d);
+      const p = bezPt(q, t), w2 = p[2] * p[2];
+      if (!(w2 > 0)) throw new Error('The spline has invalid weights');
+      return Math.hypot((d[0] * p[2] - p[0] * d[2]) / w2, (d[1] * p[2] - p[1] * d[2]) / w2);
+    }, 0, 1, 1e-9 / Math.max(1, pieces.length)), 0);
+  }
+  throw new Error('Equal Curve Length needs lines, arcs, circles, ellipses or splines');
 }
 
 // A control-point spline (ctrl: true): a B-spline of `degree` (1–7) on its points, knots evenly spaced. Open, it is

@@ -3615,7 +3615,9 @@ export class UI {
         const g = this.pmGroup(root, 'Add Relations', 'sk:add');
         const grid = el('div', { class: 'pm-rels' });
         for (const r of rels) {
-          const b = el('button', { title: RELATION_INFO[r].label }, `<span class="g">${esc(RELATION_INFO[r].glyph)}</span>${esc(RELATION_INFO[r].label.replace(' (on curve)', ''))}`);
+          const label = sk.relationLabel(r);
+          const b = el('button', { title: label }, `<span class="g">${esc(RELATION_INFO[r].glyph)}</span>${esc(label.replace(' (on curve)', ''))}`);
+          if (r === 'equalLength') b.style.gridColumn = '1 / -1';
           b.onclick = () => sk.addRelation(r);
           grid.appendChild(b);
         }
@@ -3630,7 +3632,7 @@ export class UI {
         const g = this.pmGroup(root, `Existing Relations (${existing.length})`, 'sk:exist');
         const ul2 = el('div', { class: 'pm-list' });
         for (const k of existing) {
-          const label = k.type === 'dim' ? `Dimension ${SM.itemName(f, k.id)} (${k.kind})` : `${RELATION_INFO[k.type]?.label || k.type}: ${k.refs.map((r) => SM.itemName(f, r)).join(', ')}`;
+          const label = k.type === 'dim' ? `Dimension ${SM.itemName(f, k.id)} (${k.kind})` : `${sk.relationLabel(k)}: ${k.refs.map((r) => SM.itemName(f, r)).join(', ')}`;
           const glyph = k.type === 'dim' ? '↔' : RELATION_INFO[k.type]?.glyph || '?';
           const li = el('div', { class: 'li' + (sk.sel.has(k.id) ? ' sel' : '') }, `<span class="g">${esc(glyph)}</span><span>${esc(label)}</span><span class="x" title="Delete">✕</span>`);
           li.onpointerenter = () => { sk.relHover = new Set(k.refs); sk.redraw(); };

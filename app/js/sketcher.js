@@ -1433,6 +1433,13 @@ export class Sketcher {
   }
 
   // Relations that can be added for the current selection.
+  relationLabel(relation) {
+    const type = typeof relation === 'string' ? relation : relation.type;
+    const refs = typeof relation === 'string' ? this.selectedItems().map((i) => i.id) : relation.refs;
+    if (type === 'equal' && refs.length && refs.every((id) => ['circle', 'arc'].includes(S.getCurve(this.f, id)?.type))) return 'Equal Radius';
+    return RELATION_INFO[type]?.label || type;
+  }
+
   applicableRelations() {
     const items = this.selectedItems().filter((i) => i.kind !== 'dim' && i.kind !== 'relation' && i.kind !== 'text' && i.kind !== 'gear' && i.kind !== 'airfoil');
     const pts = items.filter((i) => i.kind === 'point');
@@ -1450,6 +1457,7 @@ export class Sketcher {
     if (lines.length === n) out.push('horizontal', 'vertical', 'parallel', 'equal');
     if (lines.length === 2 && n === 2) out.push('perpendicular', 'collinear');
     if (rounds.length === n) out.push('equal', 'concentric');
+    if (n >= 2 && items.every((i) => ['line', 'arc', 'circle', 'ellipse', 'earc', 'spline'].includes(i.kind)) && lines.length !== n) out.push('equalLength');
     if (n === 2 && rounds.length === 2) out.push('tangent');
     if (n === 2 && pts.length === 1 && (lines.length === 1 || rounds.length === 1)) out.push('onCurve');
     if (n === 2 && pts.length === 1 && (lines.length === 1 || (rounds.length === 1 && rounds[0].kind === 'arc'))) out.push('midpoint');
@@ -1479,6 +1487,7 @@ export class Sketcher {
       case 'perpendicular': list.push(['perpendicular', lines]); break;
       case 'collinear': list.push(['collinear', lines]); break;
       case 'equal': chain('equal', lines.length ? lines : rounds); break;
+      case 'equalLength': chain('equalLength', ids); break;
       case 'concentric': chain('concentric', rounds); break;
       case 'onCurve': list.push(['onCurve', [pts[0], lines[0] || rounds[0]]]); break;
       case 'midpoint': list.push(['midpoint', [pts[0], lines[0] || rounds[0]]]); break;
@@ -1522,7 +1531,7 @@ export class Sketcher {
     }
     if (!list.length) return;
     if (this.tryAddConstraints(list)) {
-      this.app.status(`${RELATION_INFO[type].label} relation added`);
+      this.app.status(`${this.relationLabel(type)} relation added`);
       this.changed();
     }
   }
@@ -1911,8 +1920,7 @@ export class Sketcher {
   // ------------------------------------------------------------ Dimension
   dimensionPreview(picks, raw) {
     const spec = this.dimSpec(picks, raw);
-    const gfx = spec && this.dimGraphics(spec, this.wpp());
-    if (gfx) spec.labelOffset = [raw.x - gfx.at[0], raw.y - gfx.at[1]];
+    if (spec) this.positionDimension(spec, raw);
     return spec;
   }
 
@@ -2311,57 +2319,56 @@ export class Sketcher {
         push(to, [to[0] - s * (ux * c - uy * sn), to[1] - s * (uy * c + ux * sn)]);
       }
     };
-    const ext = 4 * wpp;
+    const ext = 5 * wpp;
+    let layout = null;
     let at, value, prefix = '';
+    const linear = (a, b, extensions, offsetDir, offsetValue) => {
+      const L = Math.hypot(b[0] - a[0], b[1] - a[1]), u = L > 1e-12 ? [(b[0] - a[0]) / L, (b[1] - a[1]) / L] : [1, 0];
+      const flip = u[0] < -1e-9 || (Math.abs(u[0]) <= 1e-9 && u[1] < 0), textDir = u.map((x) => flip ? -x : x);
+      const normal = [-textDir[1], textDir[0]];
+      at = [(a[0] + b[0]) / 2 + normal[0] * 9 * wpp, (a[1] + b[1]) / 2 + normal[1] * 9 * wpp];
+      layout = { a, b, u, L, textDir, normal, offsetDir, offsetValue };
+      for (const [from, to] of extensions) {
+        const dx = to[0] - from[0], dy = to[1] - from[1], length = Math.hypot(dx, dy);
+        if (length <= 3 * wpp) continue;
+        const nx = dx / length, ny = dy / length;
+        push([from[0] + nx * 3 * wpp, from[1] + ny * 3 * wpp], [to[0] + nx * ext, to[1] + ny * ext]);
+      }
+    };
     try {
       switch (k.kind) {
         case 'distance': {
           const A = P(k.refs[0]), B = P(k.refs[1]);
           const dx = B.x - A.x, dy = B.y - A.y, L = Math.hypot(dx, dy) || 1;
           const nx = -dy / L, ny = dx / L, off = k.off ?? 12 * wpp;
-          const sg = Math.sign(off) || 1;
           const a2 = [A.x + nx * off, A.y + ny * off], b2 = [B.x + nx * off, B.y + ny * off];
-          push([A.x, A.y], [a2[0] + nx * ext * sg, a2[1] + ny * ext * sg]);
-          push([B.x, B.y], [b2[0] + nx * ext * sg, b2[1] + ny * ext * sg]);
-          push(a2, b2); arrow(a2, b2); arrow(b2, a2);
-          at = [(a2[0] + b2[0]) / 2, (a2[1] + b2[1]) / 2];
+          linear(a2, b2, [[[A.x, A.y], a2], [[B.x, B.y], b2]], [nx, ny], off);
           value = L;
           break;
         }
         case 'hdist':
         case 'vdist': {
-          const A = P(k.refs[0]), B = P(k.refs[1]);
-          const h = k.kind === 'hdist';
-          const off = k.off ?? 12 * wpp;
-          if (h) {
-            const y = (A.y + B.y) / 2 + off;
-            const a2 = [A.x, y], b2 = [B.x, y];
-            push([A.x, A.y], [A.x, y + Math.sign(y - A.y) * ext]);
-            push([B.x, B.y], [B.x, y + Math.sign(y - B.y) * ext]);
-            push(a2, b2); arrow(a2, b2); arrow(b2, a2);
-            at = [(A.x + B.x) / 2, y];
+          const A = P(k.refs[0]), B = P(k.refs[1]), off = k.off ?? 12 * wpp;
+          if (k.kind === 'hdist') {
+            const y = (A.y + B.y) / 2 + off, a2 = [A.x, y], b2 = [B.x, y];
+            linear(a2, b2, [[[A.x, A.y], a2], [[B.x, B.y], b2]], [0, 1], off);
             value = Math.abs(B.x - A.x);
           } else {
-            const x = (A.x + B.x) / 2 + off;
-            const a2 = [x, A.y], b2 = [x, B.y];
-            push([A.x, A.y], [x + Math.sign(x - A.x) * ext, A.y]);
-            push([B.x, B.y], [x + Math.sign(x - B.x) * ext, B.y]);
-            push(a2, b2); arrow(a2, b2); arrow(b2, a2);
-            at = [x, (A.y + B.y) / 2];
+            const x = (A.x + B.x) / 2 + off, a2 = [x, A.y], b2 = [x, B.y];
+            linear(a2, b2, [[[A.x, A.y], a2], [[B.x, B.y], b2]], [1, 0], off);
             value = Math.abs(B.y - A.y);
           }
           break;
         }
         case 'pointLine': {
           const Q = P(k.refs[0]), c = S.getCurve(sk, k.refs[1]), A = P(c.p1), B = P(c.p2);
-          const dx = B.x - A.x, dy = B.y - A.y, L2 = dx * dx + dy * dy || 1;
+          const dx = B.x - A.x, dy = B.y - A.y, L2 = dx * dx + dy * dy || 1, L = Math.sqrt(L2);
           const t = ((Q.x - A.x) * dx + (Q.y - A.y) * dy) / L2;
-          const F = [A.x + t * dx, A.y + t * dy];
-          push([Q.x, Q.y], F); arrow([Q.x, Q.y], F); arrow(F, [Q.x, Q.y]);
-          if (t < 0) push([A.x, A.y], F);
-          if (t > 1) push([B.x, B.y], F);
-          const L = Math.sqrt(L2);
-          at = [(Q.x + F[0]) / 2 + (dx / L) * 10 * wpp, (Q.y + F[1]) / 2 + (dy / L) * 10 * wpp];
+          const F = [A.x + t * dx, A.y + t * dy], u = [dx / L, dy / L], off = k.off ?? 12 * wpp;
+          const a2 = [Q.x + u[0] * off, Q.y + u[1] * off], b2 = [F[0] + u[0] * off, F[1] + u[1] * off];
+          const movedT = t + off / L;
+          const reference = movedT < 0 ? [A.x, A.y] : movedT > 1 ? [B.x, B.y] : b2;
+          linear(a2, b2, [[[Q.x, Q.y], a2], [reference, b2]], u, off);
           value = Math.hypot(Q.x - F[0], Q.y - F[1]);
           break;
         }
@@ -2422,14 +2429,7 @@ export class Sketcher {
           const dx = pB[0] - pA[0], dy = pB[1] - pA[1], L = Math.hypot(dx, dy);
           const nx = L > 1e-9 ? -dy / L : 0, ny = L > 1e-9 ? dx / L : 1, off = k.off ?? 0;
           const a2 = [pA[0] + nx * off, pA[1] + ny * off], b2 = [pB[0] + nx * off, pB[1] + ny * off];
-          if (Math.abs(off) > 1e-9) {
-            const sg = Math.sign(off);
-            push(pA, [a2[0] + nx * ext * sg, a2[1] + ny * ext * sg]);
-            push(pB, [b2[0] + nx * ext * sg, b2[1] + ny * ext * sg]);
-          }
-          push(a2, b2);
-          if (L > 1e-9) { arrow(a2, b2); arrow(b2, a2); }
-          at = [(a2[0] + b2[0]) / 2 + nx * 9 * wpp * (Math.sign(off) || 1), (a2[1] + b2[1]) / 2 + ny * 9 * wpp * (Math.sign(off) || 1)];
+          linear(a2, b2, [[pA, a2], [pB, b2]], [nx, ny], off);
           if (k.kind === 'arcDist' && k.cond && k.cond !== 'center') prefix = k.cond === 'min' ? '↧ ' : '↥ ';
           break;
         }
@@ -2462,20 +2462,39 @@ export class Sketcher {
     if (!at) return null;
     if (Array.isArray(k.labelOffset)) {
       const moved = [at[0] + k.labelOffset[0], at[1] + k.labelOffset[1]];
-      if (Math.hypot(...k.labelOffset) > 1e-6) push(at, moved);
+      if (!layout && Math.hypot(...k.labelOffset) > 1e-6) push(at, moved);
       at = moved;
     }
-    return { segs, at, value, prefix, suffix: k.kind === 'angle' ? '°' : '' };
+    if (layout) {
+      const { a, b, u, L, normal } = layout;
+      this._dimMeasure ||= document.createElement('canvas').getContext('2d');
+      this._dimMeasure.font = '12px Segoe UI, sans-serif';
+      const text = (k.driven ? '(' : '') + (prefix || '') + this.L(value) + (k.driven ? ')' : '');
+      const width = (this._dimMeasure.measureText(text).width + 10) * wpp;
+      const along = (at[0] - a[0]) * u[0] + (at[1] - a[1]) * u[1];
+      const height = (at[0] - a[0]) * normal[0] + (at[1] - a[1]) * normal[1];
+      const atLength = (t) => [a[0] + u[0] * t, a[1] + u[1] * t];
+      const outside = L < width + 18 * wpp;
+      const lo = Math.min(outside ? -14 * wpp : 0, along < 0 ? along - width / 2 : 0);
+      const hi = Math.max(outside ? L + 14 * wpp : L, along > L ? along + width / 2 : L);
+      if (Math.abs(height) < 8 * wpp) {
+        const left = Math.max(lo, Math.min(hi, along - width / 2 - 2 * wpp)), right = Math.max(lo, Math.min(hi, along + width / 2 + 2 * wpp));
+        if (left > lo) push(atLength(lo), atLength(left));
+        if (right < hi) push(atLength(right), atLength(hi));
+      } else push(atLength(lo), atLength(hi));
+      if (outside) { arrow(atLength(-14 * wpp), a); arrow(atLength(L + 14 * wpp), b); }
+      else { arrow(b, a); arrow(a, b); }
+      if (Math.abs(height) > 18 * wpp) push(atLength(along), [at[0] - normal[0] * Math.sign(height) * 7 * wpp, at[1] - normal[1] * Math.sign(height) * 7 * wpp]);
+    }
+    return { segs, at, value, prefix, suffix: k.kind === 'angle' ? '°' : '', textDir: layout?.textDir, offsetDir: layout?.offsetDir, offsetValue: layout?.offsetValue };
   }
 
-  moveDimensionLabel(k, target) {
+  positionDimension(k, target) {
     const P = (id) => S.getPoint(this.f, id);
     delete k.labelOffset;
-    if (['distance', 'hdist', 'vdist'].includes(k.kind)) {
-      const a = P(k.refs[0]), b = P(k.refs[1]), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-      if (k.kind === 'hdist') k.off = target.y - my;
-      else if (k.kind === 'vdist') k.off = target.x - mx;
-      else { const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1; k.off = ((target.x - mx) * -dy + (target.y - my) * dx) / len; }
+    const current = this.dimGraphics(k, this.wpp());
+    if (current?.offsetDir) {
+      k.off = current.offsetValue + (target.x - current.at[0]) * current.offsetDir[0] + (target.y - current.at[1]) * current.offsetDir[1];
     } else if (k.kind === 'radius' || k.kind === 'diameter') {
       const c = S.getCurve(this.f, k.refs[0]), p = P(c.c);
       let angle = Math.atan2(target.y - p.y, target.x - p.x);
@@ -2495,6 +2514,10 @@ export class Sketcher {
     }
     const graphics = this.dimGraphics(k, this.wpp());
     if (graphics) k.labelOffset = [target.x - graphics.at[0], target.y - graphics.at[1]];
+  }
+
+  moveDimensionLabel(k, target) {
+    this.positionDimension(k, target);
     this.redraw();
   }
 
@@ -2914,7 +2937,7 @@ export class Sketcher {
       el.textContent = r.glyph;
       el.className = 'rel' + (this.sel.has(r.k.id) ? ' selected' : '');
       el.style.pointerEvents = this.tool === 'select' ? 'auto' : 'none';
-      el.title = RELATION_INFO[r.k.type]?.label || r.k.type;
+      el.title = this.relationLabel(r.k);
     });
     this._placeLabels();
   }
@@ -2926,6 +2949,14 @@ export class Sketcher {
       const p = this.vp.project(G.toWorld(this.frame, dm.at[0], dm.at[1]));
       el.style.left = p.x + 'px';
       el.style.top = p.y + 'px';
+      let angle = 0;
+      if (dm.textDir) {
+        const q = this.vp.project(G.toWorld(this.frame, dm.at[0] + dm.textDir[0], dm.at[1] + dm.textDir[1]));
+        angle = Math.atan2(q.y - p.y, q.x - p.x);
+        if (angle > Math.PI / 2) angle -= Math.PI;
+        if (angle < -Math.PI / 2) angle += Math.PI;
+      }
+      el.style.transform = `translate(-50%, -50%) rotate(${angle}rad)`;
     });
     (this.gearLabels || []).forEach((gl, i) => {
       const el = this.gearPool[i];

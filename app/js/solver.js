@@ -4,7 +4,7 @@
 // drives them to zero while moving geometry as little as possible.
 // The same Jacobian gives degrees of freedom and fully-defined status.
 
-import { patternEntities, updateSketchPatterns, getCurve, getPoint } from './sketchmodel.js';
+import { patternEntities, updateSketchPatterns, getCurve, getPoint, curveLength } from './sketchmodel.js';
 
 const H = 1e-6;
 
@@ -19,6 +19,7 @@ export const RELATION_INFO = {
   perpendicular: { label: 'Perpendicular', glyph: '⊥' },
   collinear: { label: 'Collinear', glyph: '≡' },
   equal: { label: 'Equal', glyph: '=' },
+  equalLength: { label: 'Equal Curve Length', glyph: '≋' },
   equalDist: { label: 'Equal Distance', glyph: '=' },
   concentric: { label: 'Concentric', glyph: '◎' },
   tangent: { label: 'Tangent', glyph: 'T' },
@@ -81,6 +82,21 @@ export function makeSystem(sk, ev) {
     return { off, ra, rb: (Xa) => Math.abs(Xa[ib]), deps: [...C.deps, ...A.deps, ib] };
   };
   const kindOf = (id) => (curves.has(id) ? curves.get(id).type : 'point');
+  const lengthOf = (id) => {
+    const c = curves.get(id);
+    if (!c || !['line', 'arc', 'circle', 'ellipse', 'earc', 'spline'].includes(c.type)) throw new Error('Select curves for Equal Curve Length');
+    const points = [...new Set([c.p1, c.p2, c.c, c.a, ...(c.pts || [])].filter(Boolean))].map((id) => ({ id, ...pt(id) }));
+    const size = c.type === 'circle' ? idx.get('r:' + id) : (c.type === 'ellipse' || c.type === 'earc') ? idx.get('b:' + id) : null;
+    return {
+      deps: [...points.flatMap((p) => p.deps), ...(size != null ? [size] : [])],
+      value: (Xa) => {
+        const shape = { ...c };
+        if (c.type === 'circle') shape.r = Xa[size];
+        if (c.type === 'ellipse' || c.type === 'earc') shape.r2 = Math.abs(Xa[size]);
+        return curveLength({ points: points.map((p) => { const q = p.get(Xa); return { id: p.id, x: q[0], y: q[1] }; }) }, shape);
+      },
+    };
+  };
 
   const eqs = [];
   const bad = [];
@@ -183,6 +199,11 @@ export function makeSystem(sk, ev) {
             if (k.type === 'parallel') return [cr];
             return [cr, lineDist(L2.a(Xa), L1.a(Xa), L1.b(Xa))];
           }, [...L1.deps, ...L2.deps], k);
+          break;
+        }
+        case 'equalLength': {
+          const a = lengthOf(R[0]), b = lengthOf(R[1]);
+          push((Xa) => [a.value(Xa) - b.value(Xa)], [...a.deps, ...b.deps], k);
           break;
         }
         case 'equal': {
