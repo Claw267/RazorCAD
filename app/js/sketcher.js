@@ -2452,6 +2452,7 @@ export class Sketcher {
     if (!this.solveOk) return COL.error;
     // projected (linked) geometry: purple, so it shows on the model edges it was taken from
     if (this._linked?.has(c.id)) return COL.linked;
+    if (this._patterned?.has(c.id)) return COL.defined;
     return this.analysis?.curveDefined.get(c.id) ? COL.defined : COL.under;
   }
 
@@ -2474,7 +2475,8 @@ export class Sketcher {
         cum += L;
       }
     };
-    this._linked = new Set([...sk.constraints.filter((k) => k.type === 'projected').map((k) => k.refs[0]), ...S.patternEntities(sk)]);
+    this._linked = new Set(sk.constraints.filter((k) => k.type === 'projected').map((k) => k.refs[0]));
+    this._patterned = S.patternEntities(sk);
     const editingPattern = this.patternDraft?.id && sk.patterns?.find((p) => p.id === this.patternDraft.id);
     const hiddenPattern = new Set(editingPattern?.generated?.curves || []);
     for (const c of sk.curves) if (!hiddenPattern.has(c.id)) addSegs(this.curveColor(c), c.construction, S.curvePoints(sk, c));

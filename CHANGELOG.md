@@ -7,6 +7,7 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 ---
 
 ## Unreleased — Parametric sketch patterns and a side panel
+- Pattern copies use the defined-geometry colour (black in the light theme, light in the dark theme); purple is reserved for projected geometry.
 - Linear Sketch Pattern and its Along Path option now keep a pattern definition: copies update with source geometry, the path/direction, quantity and spacing (including expressions), and survive save/reopen and rebuild. Copies keep stable identifiers when parameters change; their shape is edited through the originals.
 - The command opens in the Property panel with a live preview, source and path selection before or after launch, two straight directions where applicable, path rotation and accept/cancel. Existing patterns can be edited from Sketch Patterns in the panel; preview changes can be cancelled without modifying the sketch.
 - Earlier patterns remain independent copies; recreate them to gain parametric links.

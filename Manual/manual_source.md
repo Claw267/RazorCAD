@@ -454,6 +454,8 @@ In the sketch Property panel, **Rotate 90°** turns the sketch axes about the sk
 
 Patterns made by earlier versions were independent copies and contain no stored pattern definition. Recreate them with the updated command to obtain a parametric pattern.
 
+Pattern copies use the defined-geometry colour: black in the light theme and light in the dark theme. Purple identifies projected geometry; the pattern preview is orange.
+
 ## Dimension
 
 Click a line, circle or arc (or two entities), then click to place the dimension. {idx:Dimension}
