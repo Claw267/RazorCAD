@@ -3566,6 +3566,7 @@ class App {
   }
 
   async okPM() {
+    if (this.mode === 'sketch' && this.sketcher.patternDraft) { this.sketcher.finishPattern(true); return; }
     const pm = this.pm;
     if (!pm) return;
     if (pm.kind === 'sketch') return this.exitSketch(true);
@@ -3599,6 +3600,7 @@ class App {
   }
 
   cancelPM() {
+    if (this.mode === 'sketch' && this.sketcher.patternDraft) { this.sketcher.finishPattern(false); return; }
     const pm = this.pm;
     if (!pm) return;
     breadcrumb(`Cancel: ${pm.kind}${pm.feature ? ' ' + pm.feature.name : ''}`);

@@ -4,6 +4,8 @@
 // drives them to zero while moving geometry as little as possible.
 // The same Jacobian gives degrees of freedom and fully-defined status.
 
+import { patternEntities, updateSketchPatterns, getCurve, getPoint } from './sketchmodel.js';
+
 const H = 1e-6;
 
 export const RELATION_INFO = {
@@ -22,6 +24,7 @@ export const RELATION_INFO = {
   tangent: { label: 'Tangent', glyph: 'T' },
   fix: { label: 'Fixed', glyph: '⚓' },
   projected: { label: 'On Edge (projected)', glyph: '⇲' },
+  sketchPattern: { label: 'Sketch Pattern', glyph: '⋮' },
   offset: { label: 'Offset', glyph: '⇉' },
   dim: { label: 'Dimension', glyph: '↔' },
 };
@@ -238,6 +241,7 @@ export function makeSystem(sk, ev) {
           }
           break;
         }
+        case 'sketchPattern':
         case 'projected': {
           // linked geometry: points (and radius) follow their source
           const deps = [];
@@ -250,10 +254,13 @@ export function makeSystem(sk, ev) {
           let rIdx = -1;
           const c = curves.get(R[0]);
           if (c?.type === 'circle' && k.r != null) { rIdx = idx.get('r:' + c.id); deps.push(rIdx); }
+          const sizes = [...Object.entries(k.radii || {}).map(([id, v]) => [idx.get('r:' + id), v]), ...Object.entries(k.minors || {}).map(([id, v]) => [idx.get('b:' + id), v])].filter(([i]) => i !== undefined);
+          deps.push(...sizes.map(([i]) => i));
           push((Xa) => {
             const out = [];
             for (const [get, t] of getters) { const q = get(Xa); out.push(q[0] - t[0], q[1] - t[1]); }
             if (rIdx >= 0) out.push(Xa[rIdx] - k.r);
+            for (const [i, v] of sizes) out.push(Xa[i] - v);
             return out;
           }, deps, k);
           break;
@@ -482,7 +489,32 @@ function applyX(sk, sys, X) {
 }
 
 // Solve the sketch in place. `pin` holds points at given positions (dragging).
-export function solveSketch(sk, ev, { pin = [], pinR = [] } = {}) {
+export function solveSketch(sk, ev, opts = {}) {
+  if (!sk.patterns?.length) return solveSketchBase(sk, ev, opts);
+  try {
+    const generated = patternEntities(sk);
+    const primary = { ...sk, points: sk.points.filter((p) => !generated.has(p.id)), curves: sk.curves.filter((c) => !generated.has(c.id)), constraints: sk.constraints.filter((k) => k.type !== 'sketchPattern' && !k.refs.some((r) => generated.has(r))) };
+    const r = solveSketchBase(primary, ev, opts);
+    if (!r.ok || r.bad.length) return r;
+    updateSketchPatterns(sk, ev);
+    // Copies follow their sources; relations to copies can position other geometry, but cannot drive the sources.
+    const updated = patternEntities(sk);
+    const attached = sk.constraints.some((k) => k.type !== 'sketchPattern' && k.refs.some((id) => updated.has(id)));
+    if (!attached) return r;
+    const sourcePoints = new Set(), sourceCircles = new Set();
+    for (const p of sk.patterns) for (const id of [...p.sources, p.path].filter(Boolean)) {
+      const c = getCurve(sk, id);
+      if (!c) sourcePoints.add(id);
+      else {
+        for (const q of [c.p1, c.p2, c.c, c.a, ...(c.pts || [])].filter(Boolean)) sourcePoints.add(q);
+        if (c.type === 'circle') sourceCircles.add(id);
+      }
+    }
+    return solveSketchBase(sk, ev, { pin: [...(opts.pin || []), ...[...sourcePoints].filter((id) => id !== 'O').map((id) => ({ ...getPoint(sk, id) }))], pinR: [...(opts.pinR || []), ...[...sourceCircles].map((id) => ({ id, r: getCurve(sk, id).r }))] });
+  } catch (e) { return { ok: false, err: Infinity, bad: [e.message] }; }
+}
+
+function solveSketchBase(sk, ev, { pin = [], pinR = [] } = {}) {
   const sys = makeSystem(sk, ev);
   const X = Float64Array.from(sys.X);
   const fixed = new Set();

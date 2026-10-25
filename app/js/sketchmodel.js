@@ -153,7 +153,7 @@ export function copyItems(sk, ids, M, { rotates = false } = {}) {
   }
   // relations and dimensions among the copied entities come along
   for (const k of [...sk.constraints]) {
-    if (k.type === 'fix' || k.type === 'projected' || k.type === 'offset' || k.driven) continue;
+    if (k.type === 'fix' || k.type === 'projected' || k.type === 'offset' || k.type === 'sketchPattern' || k.driven) continue;
     if (rotates && !(k.type === 'dim' ? ROT_DIMS.has(k.kind) : ROT_KEEPS.has(k.type))) continue;
     if (!k.refs.every((r) => map.has(r))) continue;
     const { id: _id, refs, ...rest } = k;
@@ -181,7 +181,7 @@ export function blockData(sk, ids) {
     if (o.pts) o.pts = o.pts.map(fixO);
     return o;
   });
-  const ks = sk.constraints.filter((k) => k.type !== 'fix' && k.type !== 'projected' && k.type !== 'offset' && !k.driven && k.refs.every((r) => all.has(fixO(r))))
+  const ks = sk.constraints.filter((k) => k.type !== 'fix' && k.type !== 'projected' && k.type !== 'offset' && k.type !== 'sketchPattern' && !k.driven && k.refs.every((r) => all.has(fixO(r))))
     .map((k) => ({ ...JSON.parse(JSON.stringify(k)), refs: k.refs.map(fixO) }));
   return { points: P.map((q) => ({ ...q, x: +(q.x - cx).toFixed(6), y: +(q.y - cy).toFixed(6) })), curves: cs, constraints: ks };
 }
@@ -261,6 +261,74 @@ export function patternAlongCurve(sk, ids, pathId, { n = 3, d = 10, turn = false
   }
   return { ids: out, made };
 }
+// Persistent sketch patterns own their generated geometry. Sources and paths remain ordinary sketch
+// entities; rebuilding reuses output ids so dimensions and later features keep their references.
+export function patternEntities(sk) {
+  return new Set((sk.patterns || []).flatMap((p) => [...(p.generated?.points || []), ...(p.generated?.curves || [])]));
+}
+
+export function removeSketchPattern(sk, id) {
+  const p = sk.patterns?.find((p) => p.id === id);
+  if (!p) return;
+  const gone = new Set([...(p.generated?.points || []), ...(p.generated?.curves || [])]);
+  sk.points = sk.points.filter((q) => !gone.has(q.id));
+  sk.curves = sk.curves.filter((c) => !gone.has(c.id));
+  sk.constraints = sk.constraints.filter((k) => k.pattern !== id && !k.refs.some((r) => gone.has(r)));
+  sk.patterns = sk.patterns.filter((q) => q !== p);
+}
+
+export function updateSketchPatterns(sk, ev = Number) {
+  for (const p of sk.patterns || []) {
+    if (!p.sources.length || p.sources.some((id) => !getCurve(sk, id) && !getPoint(sk, id))) throw new Error('A sketch pattern source is missing');
+    const path = p.path ? getCurve(sk, p.path) : null;
+    if (p.path && !path) throw new Error('The sketch pattern path is missing');
+    const o = Object.fromEntries(['n1', 'd1', 'a1', 'n2', 'd2', 'a2'].map((k) => [k, ev(String(p[k] ?? ({ n1: 3, d1: 20, a1: 0, n2: 1, d2: 20, a2: 90 })[k]))]));
+    o.n1 = Math.round(o.n1); o.n2 = Math.round(o.n2);
+    const curved = path && path.type !== 'line';
+    if (curved) o.n2 = 1;
+    if (!Object.values(o).every(Number.isFinite) || o.n1 < 1 || o.n2 < 1 || o.n1 * o.n2 < 2 || o.n1 * o.n2 > 500 || !(o.d1 > 0) || (o.n2 > 1 && !(o.d2 > 0))) throw new Error('Use 2 to 500 instances and positive spacing');
+    if (path?.type === 'line') {
+      const a = getPoint(sk, path.p1), b = getPoint(sk, path.p2);
+      if (Math.hypot(b.x - a.x, b.y - a.y) < 1e-9) throw new Error('The pattern direction has no length');
+      o.a1 = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
+    }
+    const owned = new Set([...(p.generated?.points || []), ...(p.generated?.curves || [])]);
+    const tmp = { ...sk, points: sk.points.filter((q) => !owned.has(q.id)).map((q) => ({ ...q })), curves: sk.curves.filter((c) => !owned.has(c.id)).map((c) => JSON.parse(JSON.stringify(c))), constraints: [] };
+    const np = tmp.points.length, nc = tmp.curves.length;
+    const result = curved ? patternAlongCurve(tmp, p.sources, path.id, { n: o.n1, d: o.d1, turn: !!p.turn }) : { ids: linearPattern(tmp, p.sources, o), made: o.n1 * o.n2 - 1 };
+    const points = tmp.points.slice(np), curves = tmp.curves.slice(nc);
+    p.pointIds ||= []; p.curveIds ||= [];
+    const map = new Map();
+    points.forEach((q, i) => { p.pointIds[i] ||= nid(sk, 'p'); map.set(q.id, p.pointIds[i]); });
+    curves.forEach((c, i) => { p.curveIds[i] ||= nid(sk, 'c'); map.set(c.id, p.curveIds[i]); });
+    points.forEach((q) => { q.id = map.get(q.id); });
+    curves.forEach((c) => {
+      c.id = map.get(c.id);
+      for (const k of ['p1', 'p2', 'c', 'a', 'ctrlOf']) if (c[k]) c[k] = map.get(c[k]) || c[k];
+      if (c.pts) c.pts = c.pts.map((id) => map.get(id));
+    });
+    sk.points = sk.points.filter((q) => !owned.has(q.id)).concat(points);
+    sk.curves = sk.curves.filter((c) => !owned.has(c.id)).concat(curves);
+    sk.constraints = sk.constraints.filter((k) => k.pattern !== p.id);
+    p.constraintId ||= nid(sk, 'k');
+    if (points.length) sk.constraints.push({ id: p.constraintId, type: 'sketchPattern', pattern: p.id, refs: curves.map((c) => c.id), pts: Object.fromEntries(points.map((q) => [q.id, [q.x, q.y]])), radii: Object.fromEntries(curves.filter((c) => c.type === 'circle').map((c) => [c.id, c.r])), minors: Object.fromEntries(curves.filter(isEll).map((c) => [c.id, c.r2])) });
+    p.generated = { points: points.map((q) => q.id), curves: curves.map((c) => c.id) };
+    p.made = result.made;
+  }
+}
+
+export function setSketchPattern(sk, spec, ev = Number) {
+  sk.patterns ||= [];
+  let p = spec.id && sk.patterns.find((p) => p.id === spec.id);
+  if (p) Object.assign(p, spec);
+  else { p = { ...spec, id: nid(sk, 'pat') }; sk.patterns.push(p); }
+  if (p.sources.includes(p.path)) p.sources = p.sources.filter((id) => id !== p.path);
+  const own = new Set([...(p.generated?.points || []), ...(p.generated?.curves || [])]);
+  if ([...p.sources, p.path].some((id) => own.has(id))) throw new Error('A pattern cannot use its own copies as a source or path');
+  updateSketchPatterns(sk, ev);
+  return p;
+}
+
 // Circular pattern: n copies round centre (cx, cy) spread over `total` degrees (360: evenly round).
 export function circularPattern(sk, ids, { n = 4, total = 360, cx = 0, cy = 0 }) {
   const out = [], step = (total >= 360 - 1e-9 ? total / n : total / Math.max(1, n - 1)) * (Math.PI / 180);
@@ -2344,6 +2412,7 @@ function filletCurves(sk, P, A, B, r) {
 // stays where it is in the model: coordinates are rotated the other way, and horizontal /
 // vertical relations and dimensions swap.
 export function rotateSketchAxes(sk, dir) {
+  for (const p of sk.patterns || []) for (const k of ['a1', 'a2']) p[k] = `(${p[k] ?? (k === 'a1' ? 0 : 90)})${dir > 0 ? '-90' : '+90'}`;
   const T = dir > 0 ? (x, y) => [y, -x] : (x, y) => [-y, x];
   for (const p of sk.points) [p.x, p.y] = T(p.x, p.y);
   for (const k of sk.constraints) {
@@ -2362,6 +2431,7 @@ export function rotateSketchAxes(sk, dir) {
 // ------------------------------------------------------------ deletion & cleanup
 export function deleteItems(sk, ids) {
   const set = new Set(ids);
+  for (const p of [...(sk.patterns || [])]) if ([p.id, p.path, ...p.sources, ...(p.generated?.points || []), ...(p.generated?.curves || [])].some((id) => set.has(id))) removeSketchPattern(sk, p.id);
   // (a control-point spline's polygon goes with it)
   for (const c of sk.curves) if (c.ctrlOf && set.has(c.ctrlOf)) set.add(c.id);
   sk.curves = sk.curves.filter((c) => !set.has(c.id));
@@ -2390,6 +2460,7 @@ export function cleanup(sk) {
 // edge or vertex directly; their 'projected' relation has ref: true) are removed once no other
 // relation, dimension or curve uses them. `keep`: ids that stay (e.g. the current selection).
 export function pruneRefs(sk, keep = new Set()) {
+  keep = new Set([...keep, ...(sk.patterns || []).flatMap((p) => [...p.sources, p.path].filter(Boolean))]);
   for (let pass = 0; pass < 3; pass++) {
     let changed = false;
     for (const k of [...sk.constraints]) {

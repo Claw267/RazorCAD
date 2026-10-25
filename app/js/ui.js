@@ -3474,11 +3474,72 @@ export class UI {
     void info;
   }
 
+  renderSketchPatternPM(root) {
+    const sk = this.app.sketcher, d = sk.patternDraft;
+    this.pmHeader(root, 'skLinPattern', d.id ? 'Edit Sketch Pattern' : 'Sketch Pattern');
+    const source = this.pmGroup(root, 'Entities to pattern', 'sk:patternSources');
+    const pickSources = el('button', { class: d.pick === 'sources' ? 'active' : '', onclick: () => { d.pick = 'sources'; this.renderPM(); } }, 'Select entities in the sketch');
+    source.appendChild(pickSources);
+    source.appendChild(el('div', { class: 'pm-hint' }, 'Click entities to add or remove them. Copies stay linked; edit the original geometry to change their shape.'));
+    const list = el('div', { class: 'pm-list' });
+    for (const id of d.sources) {
+      const li = el('div', { class: 'li sel' }, `<span>${esc(SM.itemName(sk.f, id))}</span><span class="x" title="Remove">✕</span>`);
+      li.querySelector('.x').onclick = () => { d.sources = d.sources.filter((q) => q !== id); sk.updatePatternPreview(); this.renderPM(); };
+      list.appendChild(li);
+    }
+    source.appendChild(list);
+    const direction = this.pmGroup(root, 'Direction / path', 'sk:patternDirection');
+    const sel = el('select', { 'data-pattern': 'path' });
+    sel.appendChild(el('option', { value: '' }, 'By angle'));
+    const generated = SM.patternEntities(sk.f);
+    for (const c of sk.f.curves) if (!generated.has(c.id) && !c.ctrlOf) sel.appendChild(el('option', { value: c.id }, SM.itemName(sk.f, c.id)));
+    sel.value = d.path || '';
+    sel.onchange = () => { d.path = sel.value; d.sources = d.sources.filter((id) => id !== d.path); sk.updatePatternPreview(); this.renderPM(); };
+    direction.appendChild(this.row('Direction 1', sel));
+    direction.appendChild(el('button', { class: d.pick === 'path' ? 'active' : '', onclick: () => { d.pick = 'path'; this.renderPM(); } }, 'Pick a line or curve'));
+    const curved = d.path && SM.getCurve(sk.f, d.path)?.type !== 'line';
+    const parameters = this.pmGroup(root, 'Parameters', 'sk:patternParameters');
+    const message = el('div', { class: 'pm-msg' });
+    const updateMessage = () => {
+      message.className = 'pm-msg' + (sk.patternError ? ' err' : '');
+      message.textContent = sk.patternError || `${(sk.patternPreview?.pattern.made || 0) + 1} instances including the original${curved ? '; spacing measured along the path (copies stop at an open end)' : ''}.`;
+    };
+    const field = (key, label, unit = '') => {
+      const wrap = el('div', { class: 'pm-input' });
+      const inp = el('input', { type: 'text', value: String(d[key]), 'data-pattern': key });
+      inp.oninput = () => { d[key] = inp.value; sk.updatePatternPreview(); updateMessage(); };
+      wrap.appendChild(inp); if (unit) wrap.appendChild(el('span', { class: 'unit' }, unit));
+      parameters.appendChild(this.row(label, wrap));
+    };
+    field('n1', 'Instances 1 (includes original)');
+    field('d1', 'Spacing 1', 'mm');
+    if (!d.path) field('a1', 'Angle 1', '°');
+    if (curved) {
+      const check = el('input', { type: 'checkbox', 'data-pattern': 'turn' }); check.checked = !!d.turn;
+      check.onchange = () => { d.turn = check.checked; sk.updatePatternPreview(); updateMessage(); };
+      const label = el('label'); label.append(check, document.createTextNode(' Rotate instances with the path'));
+      parameters.appendChild(this.row(null, label, 'check'));
+    } else {
+      field('n2', 'Instances 2 (1 disables)'); field('d2', 'Spacing 2', 'mm'); field('a2', 'Angle 2', '°');
+    }
+    parameters.appendChild(message); updateMessage();
+  }
+
   renderSketchPM(root) {
     const a = this.app, sk = a.sketcher, f = sk.f;
+    if (sk.patternDraft) { this.renderSketchPatternPM(root); return; }
     this.pmHeader(root, 'sketch', f.name);
     const st = sk.statusText();
     if (st.text) root.appendChild(el('div', { class: 'pm-msg ' + st.cls }, esc(st.text)));
+    if (f.patterns?.length) {
+      const g = this.pmGroup(root, 'Sketch Patterns', 'sk:patterns');
+      for (const [i, p] of f.patterns.entries()) {
+        const row = el('div', { class: 'pm-row' });
+        row.appendChild(el('button', { onclick: () => sk.linearPatternSel(p.id) }, `Edit Pattern ${i + 1}`));
+        row.appendChild(el('button', { onclick: () => { SM.removeSketchPattern(f, p.id); sk.sel.clear(); sk.changed(); } }, 'Delete'));
+        g.appendChild(row);
+      }
+    }
     if (sk.tool !== 'select') root.appendChild(el('div', { class: 'pm-msg' }, `<b>${esc(SKETCH_TOOLS[sk.tool].label)}:</b> ${esc(SKETCH_TOOLS[sk.tool].hint)}`));
 
     if (sk.tool === 'offset') {
@@ -3534,7 +3595,9 @@ export class UI {
       g.appendChild(this.row('Sides', w));
     }
 
-    const items = sk.selectedItems().filter((i) => i.kind !== 'text' && i.kind !== 'gear' && i.kind !== 'airfoil'); // they have their own groups above
+    const generated = SM.patternEntities(f);
+    if ([...sk.sel].some((id) => generated.has(id))) root.appendChild(el('div', { class: 'pm-hint' }, 'Linked pattern copies: edit the original geometry or choose Edit Pattern above.'));
+    const items = sk.selectedItems().filter((i) => i.kind !== 'text' && i.kind !== 'gear' && i.kind !== 'airfoil' && !generated.has(i.id) && i.k?.type !== 'sketchPattern'); // they have their own groups above
     if (items.length) {
       const selG = this.pmGroup(root, `Selected Entities (${items.length})`, 'sk:sel');
       const ul = el('div', { class: 'pm-list' });

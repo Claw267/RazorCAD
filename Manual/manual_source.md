@@ -436,7 +436,8 @@ In the sketch Property panel, **Rotate 90°** turns the sketch axes about the sk
 | **Offset** | [[O]] | See below |
 | **Mirror** | | Select the entities plus a centerline, then click Mirror |
 | **Import DXF** | | See below |
-| **Linear / Circular Sketch Pattern** | | Copies the selected entities with the relations and dimensions among them. A selected point is the circular pattern's centre. For a linear pattern, select a line or curve with them too and choose it as direction 1: the copies go the line's way, or follow the curve at the spacing measured along it (optionally turned with it). |
+| **Linear Sketch Pattern** | | Opens a side panel with an orange preview. Select source entities before or after opening it, then choose an angle, line or curve as direction/path. Copies stay linked to their sources, path, quantity and spacing. Along a curve, spacing is measured along it and copies can rotate with it; open paths stop at their end. A straight direction also supports a second direction. |
+| **Circular Sketch Pattern** | | Copies the selected entities with the relations and dimensions among them. A selected point is the pattern's centre. |
 | **Make Block / Insert Block** | | Make Block saves the selection (with its relations) under a name in your settings. Insert Block places copies with a click, in any sketch, and can delete blocks from the library. |
 | **Text** | | See below |
 | **Gears** | | See the Gears chapter |
@@ -448,6 +449,10 @@ In the sketch Property panel, **Rotate 90°** turns the sketch axes about the sk
 | **Delete** | [[Del]] | Deletes the selected entities or relations |
 
 {idx:sketch tools}{idx:Line tool}{idx:rectangle}{idx:circle}{idx:arc}{idx:ellipse}{idx:slot}{idx:polygon}{idx:Extend}{idx:Split, sketch}{idx:sketch pattern}{idx:blocks}{idx:construction geometry}{idx:Mirror}{idx:sketch fillet}
+
+**Linear patterns and patterns along a path**: confirm with the checkmark, or cancel with the cross (Enter / Esc also work outside input fields). The preview does not change the sketch until confirmed. Use **Sketch Patterns ▸ Edit Pattern** in the sketch Property panel to change sources, path, count, spacing or rotation later; count and spacing accept expressions. Edit original geometry to change the copies' shapes. Copies are linked and cannot be independently dragged; deleting a source, path or generated entity removes that pattern's copies. Parameters and links are kept with the part and follow undo/redo and rebuilds.
+
+Patterns made by earlier versions were independent copies and contain no stored pattern definition. Recreate them with the updated command to obtain a parametric pattern.
 
 ## Dimension
 

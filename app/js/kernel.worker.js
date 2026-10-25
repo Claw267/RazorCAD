@@ -2818,7 +2818,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
           const lost = updateProjections(f, frame, dense ? null : body, sketches, surfaces.map((x) => x.shape));
           const sol = solveSketch(f, ev);
           sketches.set(f.id, { frame, sk: f });
-          res.sketches[f.id] = { frame, rev: f.rev, data: { points: f.points, curves: f.curves, constraints: f.constraints, nextSid: f.nextSid } };
+          res.sketches[f.id] = { frame, rev: f.rev, data: { points: f.points, curves: f.curves, constraints: f.constraints, nextSid: f.nextSid, patterns: f.patterns || [] } };
           if (f.texts?.length) res.sketches[f.id].textPolys = textOutlines(f.texts);
           for (const tr of f.gearTrains || []) {
             for (const mm of S.trainMeshes(f, tr)) {

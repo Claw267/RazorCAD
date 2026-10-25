@@ -2581,6 +2581,111 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
   // sketch pattern along a curve: a small circle on an arc of radius 50, four copies 20 apart along it (turned with it):
   // each copy's centre on the arc, 20 further along; past an open curve's end no more copies; along a line: the copies
   // go its way (45°)
+  async 'sketch-pattern-parametric'() {
+    const S = await import('/js/sketchmodel.js'), V = await import('/js/solver.js');
+    const sk = S.newSketchData();
+    const origin = S.addPoint(sk, 0, 0), circle = S.addCircle(sk, origin, 2);
+    const start = S.addPoint(sk, -10, 0), end = S.addPoint(sk, 100, 0), path = S.addLine(sk, start, end, true);
+    const radius = S.addRel(sk, 'dim', [circle], { kind: 'radius', value: 2 });
+    let count = 3;
+    const ev = (x) => x === 'count' ? count : Number(x);
+    const p = S.setSketchPattern(sk, { sources: [circle], path, n1: 'count', d1: '10' }, ev);
+    const first = p.generated.curves[0], centre = () => S.getPoint(sk, S.getCurve(sk, first).c);
+    if (p.made !== 2 || Math.abs(centre().x - 10) > 1e-6) return { ok: false, detail: 'Initial placement' };
+    radius.value = 5;
+    S.getPoint(sk, end).x = -10; S.getPoint(sk, end).y = 100;
+    count = 5; p.d1 = '7';
+    const r = V.solveSketch(sk, ev);
+    if (!r.ok || r.bad.length || p.generated.curves.length !== 4 || p.generated.curves[0] !== first || Math.abs(S.getCurve(sk, first).r - 5) > 1e-6 || Math.abs(centre().y - 7) > 1e-6) return { ok: false, detail: 'Source dimension, path, expression count or spacing did not update' };
+    count = 2; V.solveSketch(sk, ev);
+    count = 5; V.solveSketch(sk, ev);
+    if (p.generated.curves[0] !== first || p.made !== 4) return { ok: false, detail: 'IDs changed after resizing' };
+    const reopened = JSON.parse(JSON.stringify(sk));
+    const rr = V.solveSketch(reopened, ev);
+    const a = window.app, doc = M.newDoc(), f = M.createFeature(doc, 'sketch', { plane: { ref: 'front' } });
+    doc.equations = [{ name: 'count', expr: String(count) }];
+    Object.assign(f, reopened); doc.features.push(f);
+    const built = await a.kernel.rebuild(doc, null, null);
+    const errors = [...built.errors];
+    if (!rr.ok || errors.length) return { ok: false, detail: `Reopen / kernel rebuild: ${JSON.stringify(errors)}` };
+    doc.equations[0].expr = '3';
+    const resized = await a.kernel.rebuild(doc, null, null);
+    if (resized.errors.length || resized.sketches[f.id]?.data.patterns[0].made !== 2) return { ok: false, detail: 'Changing the quantity equation did not rebuild the stored pattern' };
+    S.deleteItems(sk, [circle]);
+    return { ok: !sk.patterns.length && !sk.curves.some((c) => c.id === first), detail: 'Source dimension, path, quantity expression and spacing followed; stable IDs; save/reopen and kernel rebuild; source deletion removes copies' };
+  },
+
+  async 'sketch-pattern-curved-updates'() {
+    const S = await import('/js/sketchmodel.js'), V = await import('/js/solver.js');
+    const sk = S.newSketchData(), o = S.addPoint(sk, 0, 0), a = S.addPoint(sk, 50, 0), b = S.addPoint(sk, 0, 50);
+    const path = S.addArc(sk, o, a, b, true), centre = S.addPoint(sk, 50, 0), circle = S.addCircle(sk, centre, 2);
+    const end = S.addPoint(sk, 54, 0), line = S.addLine(sk, centre, end, true);
+    const p = S.setSketchPattern(sk, { sources: [circle, line], path, n1: '6', d1: '20', turn: true });
+    if (p.made !== 3) return { ok: false, detail: 'Open end did not limit instances' };
+    const first = p.generated.curves[0];
+    S.getPoint(sk, a).x = 100; S.getPoint(sk, b).y = 100;
+    S.getPoint(sk, centre).x = 100; S.getPoint(sk, end).x = 106;
+    const r = V.solveSketch(sk, Number);
+    if (!r.ok || p.made !== 5 || p.generated.curves[0] !== first) return { ok: false, detail: 'Path length edit did not regenerate instances' };
+    for (let i = 0; i < p.made; i++) {
+      const c = S.getCurve(sk, p.generated.curves[i * 2]), l = S.getCurve(sk, p.generated.curves[i * 2 + 1]);
+      const q = S.getPoint(sk, c.c), tip = S.getPoint(sk, l.p2), angle = 20 * (i + 1) / 100;
+      if (!l.construction || Math.hypot(q.x - 100 * Math.cos(angle), q.y - 100 * Math.sin(angle)) > 0.01 || Math.hypot(tip.x - q.x - 6 * Math.cos(angle), tip.y - q.y - 6 * Math.sin(angle)) > 0.03) return { ok: false, detail: 'Circle / construction-line source or tangent rotation did not update' };
+    }
+    p.path = ''; p.a1 = '0'; p.n1 = '2'; p.n2 = '3'; p.d2 = '8'; p.a2 = '90';
+    const two = V.solveSketch(sk, Number);
+    if (!two.ok || p.made !== 5) return { ok: false, detail: 'Second direction failed' };
+    const splineSketch = S.newSketchData(), handles = [[0, 0], [20, 0], [20, 30], [40, 30]].map(([x, y]) => S.addPoint(splineSketch, x, y));
+    const spline = S.addCtrlSpline(splineSketch, handles, 3, true), seed = S.addPoint(splineSketch, 0, 0), seedCircle = S.addCircle(splineSketch, seed, 2);
+    const sp = S.setSketchPattern(splineSketch, { sources: [seedCircle], path: spline, n1: '3', d1: '10', turn: true });
+    const copy = sp.generated.curves[0], before = { ...S.getPoint(splineSketch, S.getCurve(splineSketch, copy).c) };
+    S.getPoint(splineSketch, handles[1]).y = 30;
+    const moved = V.solveSketch(splineSketch, Number), after = S.getPoint(splineSketch, S.getCurve(splineSketch, copy).c);
+    return { ok: moved.ok && sp.generated.curves[0] === copy && Math.hypot(after.x - before.x, after.y - before.y) > 1, detail: 'Arc and spline path edits, source circle / construction line, rotation, open ends and two-direction pattern followed' };
+  },
+
+  async 'sketch-pattern-panel'() {
+    const a = window.app, S = await import('/js/sketchmodel.js');
+    await a.newDocument?.(); closeModals();
+    const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } });
+    a.doc.features.push(f); a.commit(); await a.enterSketch(f, true); await wait(300);
+    const sk = a.sketcher;
+    const origin = S.addPoint(sk.f, 0, 0), circle = S.addCircle(sk.f, origin, 3);
+    const start = S.addPoint(sk.f, 0, -10), end = S.addPoint(sk.f, 100, -10), path = S.addLine(sk.f, start, end, true);
+    sk.changed(); sk.sel = new Set([circle]);
+    const before = sk.snapshotData();
+    sk.linearPatternSel();
+    if (document.querySelector('.modal-back') || !document.querySelector('#pm [data-pattern="d1"]') || !sk.patternPreview) return { ok: false, detail: `Missing docked panel / preview: ${sk.patternError}; sources ${JSON.stringify(sk.patternDraft?.sources)}` };
+    const pathInput = document.querySelector('#pm [data-pattern="path"]');
+    pathInput.value = path; pathInput.dispatchEvent(new Event('change'));
+    const spacing = document.querySelector('#pm [data-pattern="d1"]');
+    spacing.value = '12'; spacing.dispatchEvent(new Event('input'));
+    if (sk.snapshotData() !== before) return { ok: false, detail: 'Preview changed the actual sketch' };
+    a.cancelPM();
+    if (sk.patternDraft || sk.snapshotData() !== before || a.mode !== 'sketch') return { ok: false, detail: 'Cancel modified or exited the sketch' };
+    sk.sel.clear(); sk.linearPatternSel();
+    const v = viewEvents();
+    const onCircle = sk.frame.o.clone().addScaledVector(sk.frame.u, 3);
+    await v.click(...v.toScreen(onCircle));
+    if (!sk.patternDraft.sources.includes(circle)) return { ok: false, detail: 'Source could not be picked after opening the command' };
+    const pick = [...document.querySelectorAll('#pm button')].find((b) => b.textContent === 'Pick a line or curve'); pick.click();
+    const world = sk.frame.o.clone().addScaledVector(sk.frame.u, 50).addScaledVector(sk.frame.v, -10);
+    const pos = v.toScreen(world); await v.click(...pos);
+    if (sk.patternDraft.path !== path) return { ok: false, detail: 'Path could not be picked after opening the command' };
+    await a.okPM();
+    const id = sk.f.patterns?.[0]?.id;
+    if (!id || a.mode !== 'sketch') return { ok: false, detail: 'Accept did not create a persistent pattern' };
+    sk.undo();
+    if (sk.f.patterns?.length) return { ok: false, detail: 'Undo left a pattern behind' };
+    sk.redo();
+    if (sk.f.patterns?.[0]?.id !== id) return { ok: false, detail: 'Redo lost the pattern' };
+    sk.sel.clear(); sk.linearPatternSel(id);
+    const n = document.querySelector('#pm [data-pattern="n1"]'); n.value = '4'; n.dispatchEvent(new Event('input'));
+    await a.okPM();
+    const ok = sk.f.patterns.length === 1 && sk.f.patterns[0].made === 3;
+    return { ok, detail: 'Docked preview, preselection and path picking, cancel/accept, undo/redo, edit quantity' };
+  },
+
   async 'sketch-pattern-path'() {
     const S = await import('/js/sketchmodel.js');
     const bad = [], out = [];

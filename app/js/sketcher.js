@@ -102,7 +102,8 @@ export class Sketcher {
     this.f = feature;
     this.frame = frame;
     this.isNew = isNew;
-    this.snapshot = JSON.stringify({ points: feature.points, curves: feature.curves, constraints: feature.constraints, nextSid: feature.nextSid, plane: feature.plane, texts: feature.texts || [], gearTrains: feature.gearTrains || [], airfoils: feature.airfoils || [] });
+    this.snapshot = JSON.stringify({ points: feature.points, curves: feature.curves, constraints: feature.constraints, nextSid: feature.nextSid, plane: feature.plane, texts: feature.texts || [], gearTrains: feature.gearTrains || [], airfoils: feature.airfoils || [], patterns: feature.patterns || [] });
+    this.patternDraft = null; this.patternPreview = null;
     this.active = true;
     this.tool = 'select';
     this.gearPick = false;
@@ -151,6 +152,7 @@ export class Sketcher {
 
   exit() {
     if (!this.active) return;
+    this.patternDraft = null; this.patternPreview = null;
     this.endGearPick();
     this.clearSection();
     this.closeModify();
@@ -208,6 +210,7 @@ export class Sketcher {
   }
 
   setTool(t) {
+    if (this.patternDraft) this.finishPattern(false);
     // Project Edges with model edges (or another sketch's entities) selected: those become sketch
     // geometry at once (the tool itself waits for clicks when nothing is selected)
     if (t === 'convert' && this.convertSelection()) return;
@@ -559,17 +562,19 @@ export class Sketcher {
   }
 
   snapshotData() {
-    const { points, curves, constraints, nextSid, plane, texts, gearTrains, airfoils } = this.f;
-    return JSON.stringify({ points, curves, constraints, nextSid, plane, texts: texts || [], gearTrains: gearTrains || [], airfoils: airfoils || [] });
+    const { points, curves, constraints, nextSid, plane, texts, gearTrains, airfoils, patterns } = this.f;
+    return JSON.stringify({ points, curves, constraints, nextSid, plane, texts: texts || [], gearTrains: gearTrains || [], airfoils: airfoils || [], patterns: patterns || [] });
   }
 
   undo() {
+    if (this.patternDraft) { this.finishPattern(false); return; }
     if (this.hist.length < 2) { this.app.toast('Nothing to undo in this sketch'); return; }
     this.redoStack.push(this.hist.pop());
     this.restoreData(this.hist[this.hist.length - 1]);
   }
 
   redo() {
+    if (this.patternDraft) { this.finishPattern(false); return; }
     const s = this.redoStack.pop();
     if (!s) return;
     this.hist.push(s);
@@ -809,6 +814,15 @@ export class Sketcher {
     const t = this.tool;
     const multi = ev.ctrlKey || ev.shiftKey || ev.metaKey || this.gearPick; // picking gear lines: clicks add to the selection
 
+    if (this.patternDraft) {
+      const d = this.patternDraft, hit = this.hitTest(raw, { points: d.pick !== 'path' });
+      if (hit && !S.patternEntities(this.f).has(hit.id)) {
+        if (d.pick === 'path' && S.getCurve(this.f, hit.id)) { d.path = hit.id; d.sources = d.sources.filter((id) => id !== hit.id); }
+        else if (d.pick === 'sources' && hit.id !== d.path) d.sources = d.sources.includes(hit.id) ? d.sources.filter((id) => id !== hit.id) : [...d.sources, hit.id];
+        this.updatePatternPreview(); this.app.ui.renderPM();
+      }
+      return;
+    }
     if (t === 'select') {
       let hit = this.hitTest(raw);
       let external = false;
@@ -821,7 +835,10 @@ export class Sketcher {
       if (hit) {
         if (multi) { this.sel.has(hit.id) ? this.sel.delete(hit.id) : this.sel.add(hit.id); }
         else if (!this.sel.has(hit.id)) { this.sel.clear(); this.sel.add(hit.id); }
-        if (!multi && !external) this.startDrag(hit, raw);
+        if (!multi && !external) {
+          if (S.patternEntities(this.f).has(hit.id)) this.app.status('Linked pattern copy: edit the original geometry or use Edit Pattern in the Property panel.');
+          else this.startDrag(hit, raw);
+        }
       } else {
         if (!multi) this.sel.clear();
         // a drag from empty space: a selection box (see boxMove / boxEnd)
@@ -1297,6 +1314,8 @@ export class Sketcher {
   key(e) {
     if (this.airfoilPick && e.key === 'Escape') { this.endAirfoilPick(true); return true; }
     if (this.gearPick && e.key === 'Enter') { this.makeGears(); return true; }
+    if (this.patternDraft && (e.key === 'Escape' || e.key === 'Enter')) { this.finishPattern(e.key === 'Enter'); return true; }
+    if (this.patternDraft && (e.key === 'Delete' || e.key === 'Backspace')) { this.app.status('Remove pattern sources with the × buttons in the Property panel, or click them again in the sketch.'); return true; }
     if (this.gearPick && e.key === 'Escape') { this.endGearPick(); this.sel.clear(); this.redraw(); this.app.ui.renderPM(); this.app.status('Gears cancelled.'); return true; }
     if (e.key === 'Escape') {
       if (this.modifyEl) { this.closeModify(); return true; }
@@ -1621,44 +1640,41 @@ export class Sketcher {
     return [...this.sel].filter((id) => id !== 'O' && (S.getCurve(this.f, id) || this.f.points.some((q) => q.id === id)));
   }
 
-  async linearPatternSel() {
-    const all = this.patternSource();
-    if (!all.length) { this.app.toast('Select the entities to pattern first (Ctrl+click to select several)', true); return; }
-    // direction 1: an angle, or a line or curve selected with the entities (Ctrl+click it too): along it
-    const paths = all.map((id) => S.getCurve(this.f, id)).filter(Boolean);
-    const v = await this.app.ui.promptFields('Linear Sketch Pattern', 'skLinPattern', [
-      { key: 'n1', label: 'Copies along direction 1 (including the original)', value: 3 },
-      { key: 'd1', label: 'Spacing 1 (mm; along a curve: measured along it)', value: 20 },
-      ...(paths.length > 1 ? [{ key: 'along', type: 'select', label: 'Direction 1', value: '', options: [['', 'The angle below'], ...paths.map((c) => [c.id, `Along ${S.itemName(this.f, c.id)} (not copied)`])] },
-        { key: 'turn', type: 'check', label: 'Along a curve: turn the copies with it', value: false }] : []),
-      { key: 'a1', label: 'Angle of direction 1 (°)', value: 0 },
-      { key: 'n2', label: 'Copies along direction 2', value: 1 },
-      { key: 'd2', label: 'Spacing 2 (mm)', value: 20 },
-      { key: 'a2', label: 'Angle of direction 2 (°)', value: 90 },
-    ], `Copies of the selected entities, with the relations and dimensions among them.${paths.length > 1 ? ' Direction 1 can follow a line or curve you selected with them.' : ' Select a line or curve with them (Ctrl+click) to have the copies follow it.'}`);
-    if (!v || !this.active) return;
-    const n = (x) => this.ev(String(x));
-    const path = v.along ? S.getCurve(this.f, v.along) : null;
-    const ids = path ? all.filter((id) => id !== path.id) : all;
-    if (path && path.type !== 'line') {
-      // along a curve (one direction)
-      const n1 = Math.round(n(v.n1)), d1 = n(v.d1);
-      if (!Number.isFinite(n1) || !Number.isFinite(d1) || n1 < 2 || n1 > 500 || !(d1 > 0)) { this.app.toast('Enter numbers: at least two copies (500 at most) and a spacing above 0', true); return; }
-      let r;
-      try { r = S.patternAlongCurve(this.f, ids, path.id, { n: n1, d: d1, turn: !!v.turn }); } catch (e) { this.app.toast(e.message, true); return; }
-      this.sel = new Set(r.ids);
-      this.changed();
-      this.app.status(`Sketch pattern along ${S.itemName(this.f, path.id)}: ${r.made} cop${r.made === 1 ? 'y' : 'ies'} made${r.made < n1 - 1 ? ' (the curve ends before the rest)' : ''}.`);
-      return;
+  linearPatternSel(id = null) {
+    const selected = S.patternEntities(this.f);
+    const p = this.f.patterns?.find((p) => p.id === id || [...this.sel].some((q) => p.generated?.curves.includes(q) || p.generated?.points.includes(q)));
+    this.setTool('select');
+    this.patternDraft = p ? JSON.parse(JSON.stringify(p)) : { sources: this.patternSource().filter((id) => !selected.has(id)), path: '', n1: '3', d1: '20', a1: '0', n2: '1', d2: '20', a2: '90', turn: false };
+    this.patternDraft.pick = 'sources';
+    this.updatePatternPreview();
+    this.app.ui.renderPM();
+  }
+
+  updatePatternPreview() {
+    if (!this.patternDraft) return;
+    this.sel = new Set([...this.patternDraft.sources, this.patternDraft.path].filter(Boolean));
+    this.patternPreview = null;
+    this.patternError = '';
+    try {
+      const tmp = JSON.parse(JSON.stringify(this.f));
+      const p = S.setSketchPattern(tmp, this.patternDraft, this.ev);
+      this.patternPreview = { sketch: tmp, pattern: p };
+    } catch (e) { this.patternError = e.message; }
+    this.redraw();
+  }
+
+  finishPattern(ok) {
+    if (!this.patternDraft) return;
+    if (ok) {
+      this.updatePatternPreview();
+      if (!this.patternPreview) { this.app.toast(this.patternError, true); return; }
+      const { sketch, pattern } = this.patternPreview;
+      for (const k of ['points', 'curves', 'constraints', 'patterns', 'nextSid']) this.f[k] = sketch[k];
+      this.sel = new Set(pattern.generated.curves);
     }
-    // (along a line: its direction, from its first end to its second)
-    if (path) { const A = S.getPoint(this.f, path.p1), B = S.getPoint(this.f, path.p2); v.a1 = String((Math.atan2(B.y - A.y, B.x - A.x) * 180) / Math.PI); }
-    const o = { n1: Math.round(n(v.n1)), d1: n(v.d1), a1: n(v.a1), n2: Math.round(n(v.n2)), d2: n(v.d2), a2: n(v.a2) };
-    if (![o.n1, o.d1, o.a1, o.n2, o.d2, o.a2].every(Number.isFinite) || o.n1 < 1 || o.n2 < 1 || o.n1 * o.n2 < 2 || o.n1 * o.n2 > 500) { this.app.toast('Enter numbers: at least two copies in all (500 at most)', true); return; }
-    const made = S.linearPattern(this.f, ids, o);
-    this.sel = new Set(made);
-    this.changed();
-    this.app.status(`Linear sketch pattern: ${o.n1 * o.n2 - 1} cop${o.n1 * o.n2 === 2 ? 'y' : 'ies'} made.`);
+    this.patternDraft = null; this.patternPreview = null; this.patternError = '';
+    if (ok) this.changed();
+    else { this.redraw(); this.app.ui.renderPM(); }
   }
 
   async circularPatternSel() {
@@ -2458,8 +2474,14 @@ export class Sketcher {
         cum += L;
       }
     };
-    this._linked = new Set(sk.constraints.filter((k) => k.type === 'projected').map((k) => k.refs[0]));
-    for (const c of sk.curves) addSegs(this.curveColor(c), c.construction, S.curvePoints(sk, c));
+    this._linked = new Set([...sk.constraints.filter((k) => k.type === 'projected').map((k) => k.refs[0]), ...S.patternEntities(sk)]);
+    const editingPattern = this.patternDraft?.id && sk.patterns?.find((p) => p.id === this.patternDraft.id);
+    const hiddenPattern = new Set(editingPattern?.generated?.curves || []);
+    for (const c of sk.curves) if (!hiddenPattern.has(c.id)) addSegs(this.curveColor(c), c.construction, S.curvePoints(sk, c));
+    if (this.patternPreview) {
+      const { sketch, pattern } = this.patternPreview;
+      for (const id of pattern.generated.curves) { const c = S.getCurve(sketch, id); if (c) addSegs(COL.preview, c.construction, S.curvePoints(sketch, c)); }
+    }
     // gears: outline, pitch circle (construction) and bore
     for (const tr of sk.gearTrains || []) {
       const selTr = [...this.sel].some((id) => String(id).startsWith('gear:' + tr.id + ':'));
@@ -2749,7 +2771,7 @@ export class Sketcher {
       return [C.x + (r + 10 * wpp) * Math.cos(2.4), C.y + (r + 10 * wpp) * Math.sin(2.4)];
     };
     for (const k of sk.constraints) {
-      if (k.type === 'dim') continue;
+      if (k.type === 'dim' || k.type === 'sketchPattern') continue;
       const glyph = RELATION_INFO[k.type]?.glyph || '?';
       if (k.type === 'equalDist') {
         const a = S.getPoint(sk, k.refs[0]), b = S.getPoint(sk, k.refs[1]);
