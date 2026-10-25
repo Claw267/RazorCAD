@@ -6,6 +6,10 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## Unreleased — Coincident sketch midpoints
+- Select two line segments and choose Coincident Midpoints to keep their centres together without creating helper points. Works with construction lines and spline control-polygon segments, preserves lengths and directions set by other constraints, and survives save/reopen and rotated copies.
+- Test: sketch-coincident-midpoints (selection UI, source edits, no extra points, undo/redo, serialization and conflict rollback).
+
 ## Unreleased — Equal on several control-polygon segments
 - Adding relations to several selected entities now keeps the useful relations and skips ones already implied by existing constraints. Equal on all four oblique legs of an eight-control-point spline no longer fails because one pair is already Equal.
 - Already-constrained pairs get an informational message; true conflicts still reject the entire request without changing geometry or constraints. A failed single relation refreshes annotation references after restoring the sketch.

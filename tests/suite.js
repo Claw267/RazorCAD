@@ -512,6 +512,42 @@ const UI = {
     return { ok: true, detail: `${notes.length} parts restored without rebuilding (${(bytes / 1048576).toFixed(1)} MB of BRep; meshing ${mesh1} ms → ${mesh2} ms)` };
   },
 
+  async 'sketch-coincident-midpoints'() {
+    const a = window.app, S = await import('/js/sketchmodel.js'), V = await import('/js/solver.js');
+    await a.newDocument?.(); closeModals();
+    const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } });
+    a.doc.features.push(f); a.commit(); await a.enterSketch(f, true);
+    const sk = a.sketcher;
+    const p = [[10, -20], [10, 20], [35, 3], [35, 11]].map(([x, y]) => S.addPoint(f, x, y));
+    const axis = S.addLine(f, p[0], p[1], true), segment = S.addLine(f, p[2], p[3]);
+    for (const id of p.slice(0, 2)) { const q = S.getPoint(f, id); S.addRel(f, 'fix', [id], { x: q.x, y: q.y }); }
+    S.addRel(f, 'vertical', [segment]);
+    S.addRel(f, 'dim', [p[2], p[3]], { kind: 'vdist', value: 8, s: 1 });
+    sk.changed(); sk.sel = new Set([axis, segment]); a.ui.renderPM();
+    const button = [...document.querySelectorAll('#pm button')].find((b) => b.title === 'Coincident Midpoints');
+    if (!button) return { ok: false, detail: 'Two segments did not offer Coincident Midpoints' };
+    const before = sk.snapshotData(), count = f.points.length;
+    const centred = (data) => {
+      const q = p.map((id) => S.getPoint(data, id));
+      return Math.hypot((q[0].x + q[1].x - q[2].x - q[3].x) / 2, (q[0].y + q[1].y - q[2].y - q[3].y) / 2) < 1e-6;
+    };
+    button.click();
+    if (!sk.solveOk || !centred(f) || f.points.length !== count || V.analyzeSketch(f, sk.ev).dofDefined !== 0) return { ok: false, detail: 'Midpoints failed to coincide without helper points' };
+    sk.undo(); if (sk.snapshotData() !== before) return { ok: false, detail: 'Undo did not restore the sketch' };
+    sk.redo(); if (!centred(f)) return { ok: false, detail: 'Redo lost the midpoint relation' };
+    const saved = JSON.parse(JSON.stringify(f));
+    for (const k of saved.constraints.filter((k) => k.type === 'fix')) { k.x += 15; k.y += 9; }
+    const result = V.solveSketch(saved, sk.ev);
+    if (!result.ok || !centred(saved) || Math.abs(S.getPoint(saved, p[2]).x - 25) > 1e-6) return { ok: false, detail: 'Saved relation did not follow source edits' };
+    const locked = JSON.parse(JSON.stringify(f));
+    locked.constraints = locked.constraints.filter((k) => k.type !== 'midpointCoincident');
+    for (const id of p.slice(2)) { const q = S.getPoint(locked, id); S.addRel(locked, 'fix', [id], { x: q.x + 5, y: q.y }); }
+    sk.restoreData(JSON.stringify(locked));
+    const snapshot = sk.snapshotData();
+    if (sk.tryAddConstraints([['midpointCoincident', [axis, segment]]], { quiet: true }) || sk.snapshotData() !== snapshot) return { ok: false, detail: 'Conflicting midpoint relation was not rejected atomically' };
+    return { ok: true, detail: 'Two-line UI, construction line, no helper points, fully defined, undo/redo, serialization, source edits and conflict rollback' };
+  },
+
   async 'sketch-equal-control-polygon-batch'() {
     const a = window.app, S = await import('/js/sketchmodel.js'), V = await import('/js/solver.js');
     await a.newDocument?.(); closeModals();

@@ -14,6 +14,7 @@ export const RELATION_INFO = {
   vertical: { label: 'Vertical', glyph: 'V' },
   onCurve: { label: 'Coincident (on curve)', glyph: '◦' },
   midpoint: { label: 'Midpoint', glyph: 'M' },
+  midpointCoincident: { label: 'Coincident Midpoints', glyph: 'M≡' },
   symmetric: { label: 'Symmetric', glyph: '⇋' },
   parallel: { label: 'Parallel', glyph: '∥' },
   perpendicular: { label: 'Perpendicular', glyph: '⊥' },
@@ -156,6 +157,14 @@ export function makeSystem(sk, ev) {
             const C = round(R[1]);
             push((Xa) => [dist(p.get(Xa), C.c(Xa)) - C.r(Xa)], [...p.deps, ...C.deps], k);
           }
+          break;
+        }
+        case 'midpointCoincident': {
+          const A = line(R[0]), B = line(R[1]);
+          push((Xa) => {
+            const a = A.a(Xa), b = A.b(Xa), c = B.a(Xa), d = B.b(Xa);
+            return [(a[0] + b[0] - c[0] - d[0]) / 2, (a[1] + b[1] - c[1] - d[1]) / 2];
+          }, [...A.deps, ...B.deps], k);
           break;
         }
         case 'midpoint': {

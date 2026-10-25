@@ -122,7 +122,7 @@ export function endTangent(sk, c, id) {
   return null;
 }
 // Copies of items (curve / point ids) moved by M(x, y) → [x, y]; returns the new ids.
-const ROT_KEEPS = new Set(['coincident', 'tangent', 'equal', 'equalLength', 'parallel', 'perpendicular', 'concentric', 'midpoint', 'onCurve', 'collinear', 'symmetric']);
+const ROT_KEEPS = new Set(['coincident', 'tangent', 'equal', 'equalLength', 'parallel', 'perpendicular', 'concentric', 'midpoint', 'midpointCoincident', 'onCurve', 'collinear', 'symmetric']);
 const ROT_DIMS = new Set(['distance', 'radius', 'diameter', 'angle', 'pointLine', 'arcDist']);
 export function copyItems(sk, ids, M, { rotates = false } = {}) {
   const map = new Map(), out = [];
