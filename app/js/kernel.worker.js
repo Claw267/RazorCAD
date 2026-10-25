@@ -2551,7 +2551,10 @@ async function rebuild(doc, previewId = null, opts = {}) {
       return true;
     }
     if (f.type === 'hole') return f.holeType !== 'tapped'; // (a tapped hole finds its thread's length in the body)
-    if (['lpattern', 'cpattern', 'mirror', 'spattern'].includes(f.type)) { const t = tools.get(f.feature); return !!t && t.op === 'cut' && !t.scope; }
+    if (['lpattern', 'cpattern', 'mirror', 'spattern'].includes(f.type)) {
+      if (f.features?.length || f.faces?.length || f.bodies?.length) return false;
+      const t = tools.get(f.feature); return !!t && t.op === 'cut' && !t.scope;
+    }
     return false;
   };
   // The waiting cuts made: in one boolean (if that fails, one by one, so the feature that fails is named). Made in
@@ -2809,6 +2812,51 @@ async function rebuild(doc, previewId = null, opts = {}) {
         }
         if (flatLost) res.notes[pf.id] = `${flatLost} mirrored lofted bend${flatLost > 1 ? 's are' : ' is a'} plain solid${flatLost > 1 ? 's' : ''} (no flat pattern)`;
       };
+      // What a pattern copies: its feature, more features, the features that made the faces picked, and bodies
+      // (copied whole, as new bodies). A picked face brings the latest feature whose tool has that face on it.
+      const faceFeature = (r, i) => {
+        let found = null;
+        const tol = Math.max(1e-4, (body ? bbox(body).diag : 1) * 1e-6), q = new R.DistanceQuery(R.makeVertex(r.p));
+        for (const [id, t] of tools) {
+          const x = doc.features.find((y) => y.id === id);
+          if (!x) continue;
+          if (t.shape.faces.some((fc) => q.distanceTo(fc) < tol)) found = id;
+        }
+        if (!found) throw new Error(`Face ${i + 1} was not made by a feature that can be patterned: pick the feature in the list instead`);
+        return found;
+      };
+      const patternSources = (pf) => {
+        const ids = [pf.feature, ...(pf.features || [])].filter(Boolean);
+        (pf.faces || []).forEach((r, i) => { const id = faceFeature(r, i); if (!ids.includes(id)) ids.push(id); });
+        const bodyRecs = (pf.bodies || []).map((id) => needBody(id));
+        if (!ids.length && !bodyRecs.length) throw new Error('Select the features, faces or bodies to pattern');
+        return { ids, bodyRecs };
+      };
+      // (where the copies are placed from: the first feature's place, or the first body's middle)
+      const patternCentre = (pf) => {
+        const { ids, bodyRecs } = patternSources(pf);
+        if (ids.length) return sourceCentre(ids[0]);
+        const b = bbox(bodyRecs[0].shape);
+        return mul(add(b.min, b.max), 0.5);
+      };
+      const patternAll = async (pf, xs) => {
+        const { ids, bodyRecs } = patternSources(pf);
+        for (const id of ids) await instances(pf, id, xs);
+        let flatLost = 0;
+        for (const rec of bodyRecs) {
+          for (const X of xs) {
+            const shape = X.shape(rec.shape.clone());
+            const nr = bodyRec(newId(pf.id), shape, pf.id, []);
+            if (rec.sheet) { nr.sheet = SM.transformSheet(rec.sheet, xMatrix(X)); if (!nr.sheet) flatLost++; }
+            if (surfaces.includes(rec)) surfaces.push(nr); else solids.push(nr);
+            applied.push({ op: 'add', tool: shape });
+          }
+        }
+        if (bodyRecs.length) body = compoundOf(solids);
+        const n = ids.length + bodyRecs.length;
+        if (n > 1) res.notes[pf.id] = `${ids.length ? `${ids.length} feature${ids.length > 1 ? 's' : ''}` : ''}${ids.length && bodyRecs.length ? ' and ' : ''}${bodyRecs.length ? `${bodyRecs.length} bod${bodyRecs.length > 1 ? 'ies' : 'y'}` : ''} patterned`;
+        if (flatLost) res.notes[pf.id] = `${flatLost} mirrored lofted bend${flatLost > 1 ? 's are' : ' is a'} plain solid${flatLost > 1 ? 's' : ''} (no flat pattern)`;
+      };
       switch (f.type) {
         case 'sketch': {
           const frame = orientFrame(resolveFrame(f.plane.ref, f.plane), f.plane.rot);
@@ -3015,7 +3063,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
           if (c1 * c2 > 400) throw new Error('Too many instances (max 400)');
           const xs = [];
           for (let i = 0; i < c1; i++) for (let j = 0; j < c2; j++) if (i || j) xs.push(xMove(add(mul(d1, i), mul(d2, j))));
-          await instances(f, f.feature, xs);
+          await patternAll(f, xs);
           break;
         }
         case 'cpattern': {
@@ -3026,12 +3074,12 @@ async function rebuild(doc, previewId = null, opts = {}) {
           const ax = resolveAxis(f.axis);
           const xs = [];
           for (let i = 1; i < n; i++) xs.push(xTurn(step * i, ax.o, ax.d));
-          await instances(f, f.feature, xs);
+          await patternAll(f, xs);
           break;
         }
         case 'mirror': {
           const fr = resolveFrame(f.plane);
-          await instances(f, f.feature, [xMirror(fr.o, fr.n)]);
+          await patternAll(f, [xMirror(fr.o, fr.n)]);
           break;
         }
         case 'spattern': {
@@ -3043,9 +3091,9 @@ async function rebuild(doc, previewId = null, opts = {}) {
           const centres = new Set(s2.sk.curves.filter((c) => c.type === 'circle' || c.type === 'arc').map((c) => c.c));
           const pts = s2.sk.points.filter((q) => q.id !== 'O' && (centres.has(q.id) || !used.has(q.id))).map((q) => S.fromFrame2D(s2.frame, q.x, q.y));
           if (pts.length < 2) throw new Error('The sketch needs at least two points (one at the feature, one for each copy)');
-          const c0 = sourceCentre(f.feature);
+          const c0 = patternCentre(f);
           const base = pts.reduce((b, q) => (len(sub(q, c0)) - dot(sub(q, c0), s2.frame.n) * 0 < len(sub(b, c0)) ? q : b), pts[0]);
-          await instances(f, f.feature, pts.filter((q) => q !== base).map((q) => xMove(sub(q, base))));
+          await patternAll(f, pts.filter((q) => q !== base).map((q) => xMove(sub(q, base))));
           res.notes[f.id] = `${pts.length - 1} cop${pts.length === 2 ? 'y' : 'ies'} at the sketch points`;
           break;
         }
@@ -3055,7 +3103,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
           if (!path) throw new Error('Select the curve to pattern along (a sketch, 3D sketch or helix)');
           const n = Math.max(2, Math.round(ev(f.count)));
           if (n > 400) throw new Error('Too many instances (max 400)');
-          const c0 = sourceCentre(f.feature);
+          const c0 = patternCentre(f);
           const at = polyAt(path), s0 = at.nearest(c0);
           const total = at.length, closed = len(sub(path[0], path[path.length - 1])) < 1e-6 * (total || 1);
           const step = f.spacing === 'equal' ? (closed ? total / n : (total - s0) / (n - 1)) : ev(f.distance) * (f.reverse ? -1 : 1);
@@ -3072,7 +3120,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
             } else xs.push(xMove(sub(P, P0)));
           }
           if (!xs.length) throw new Error('No copies fit on the curve with that spacing');
-          await instances(f, f.feature, xs);
+          await patternAll(f, xs);
           res.notes[f.id] = `${xs.length} cop${xs.length === 1 ? 'y' : 'ies'} along the curve`;
           break;
         }
@@ -3083,7 +3131,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
           if (!hit) throw new Error('The face to fill could not be found');
           const sp = ev(f.spacing), margin = ev(f.margin || 0);
           if (!(sp > 0)) throw new Error('The spacing must be greater than zero');
-          const n = unit(f.face.n), c0 = sourceCentre(f.feature);
+          const n = unit(f.face.n), c0 = patternCentre(f);
           const o = sub(c0, mul(n, dot(sub(c0, f.face.p), n)));
           const fr0 = frameOnPlane(f.face.p, n), a = ((ev(f.angle || 0)) * Math.PI) / 180;
           const u = add(mul(fr0.u, Math.cos(a)), mul(fr0.v, Math.sin(a))), v = cross(n, u);
@@ -3105,7 +3153,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
             }
           }
           if (!xs.length) throw new Error('No copies fit on the face with that spacing and margin');
-          await instances(f, f.feature, xs);
+          await patternAll(f, xs);
           res.notes[f.id] = `${xs.length} cop${xs.length === 1 ? 'y' : 'ies'} over the face`;
           break;
         }
@@ -3415,8 +3463,14 @@ async function rebuild(doc, previewId = null, opts = {}) {
             if (ws.length !== 1) throw new Error(`${sk.sk.name} must be one connected chain of curves (it has ${ws.length})`);
             return ws[0];
           });
-          const closed = wires.map((w) => len(sub(vec(w.startPoint), vec(w.endPoint))) < 1e-6);
-          if (closed.some((c) => c !== closed[0])) throw new Error('The profiles must all be open, or all closed');
+          // (a sketch's chain says itself whether it is closed; a curve is when its ends meet, to a thousandth of a mm)
+          const ends = wires.map((w) => len(sub(vec(w.startPoint), vec(w.endPoint))));
+          const closed = ids.map((id, i) => (sketches.has(id) && !curves.has(id) ? S.curveChains(sketches.get(id).sk).some((c) => c.closed) : ends[i] < 1e-3));
+          if (closed.some((c) => c !== closed[0])) {
+            const nm = (i) => doc.features.find((x) => x.id === ids[i])?.name || `Profile ${i + 1}`;
+            const io = closed.indexOf(false), ic = closed.indexOf(true);
+            throw new Error(`The profiles must all be open, or all closed: ${nm(ic)} is closed but ${nm(io)} is open (its ends are ${ends[io] < 0.01 ? ends[io].toExponential(1) : ends[io].toFixed(2)} mm apart)`);
+          }
           let list = wires;
           if (closed[0]) {
             // closed profiles: matched like a solid loft (same start points, same way round)
@@ -6699,7 +6753,8 @@ function matchLoftSections(secs, names) {
     }
     let segs = s.segs;
     const pts = segs.map((g) => g.a);
-    if (dot(newell(pts), refN) < 0) segs = segs.slice().reverse().map((g) => ({ ...g, a: g.b, b: g.a }));
+    // (turned round: each segment's ends swap, and a Bézier's two control points too)
+    if (dot(newell(pts), refN) < 0) segs = segs.slice().reverse().map((g) => ({ ...g, a: g.b, b: g.a, ...(g.type === 'bezier' ? { c1: g.c2, c2: g.c1 } : {}) }));
     const d = dirs(segs.map((g) => g.a), centroid(segs.map((g) => g.a)));
     let best = 0, bd = Infinity;
     for (let m = 0; m < N; m++) {
@@ -6724,7 +6779,9 @@ function matchLoftSections(secs, names) {
 // that offset from the guide. open: the sections are open (a surface's: from one end to the other, not round);
 // profileWires: the wires lofted through at the profiles (else made from the sections). Returns { outer, holes }:
 // the wires to loft.
-const GUIDE_STATIONS = 6, GUIDE_SAMPLES = 16;
+// (16 sections between each two profiles: with 6, a loft drifted 0.28 mm from an S-shaped guide 100 long between
+// them; with 12 or more it stays within 0.05 mm, at about the same cost)
+const GUIDE_STATIONS = 16, GUIDE_SAMPLES = 16;
 function guidedLoftWires(matched, guides, names, holeSets = [], slack = 0, { open = false, profileWires = null } = {}) {
   // (a loft of circles: each made four arcs, to have points to follow the guides with)
   const asSegs = (s) => {

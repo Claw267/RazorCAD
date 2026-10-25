@@ -1261,19 +1261,33 @@ class App {
     if (this.mode === 'sketch') this.exitSketch(true);
     if (this.mode === 'sketch3d') this.exitSketch3D(true);
     if (this.pm) this.cancelPM();
-    this.pm = { kind: 'measure', picks: [], result: null, error: null };
+    // (snap points and chaining kept from the last time Measure was used)
+    const o = this._measureOpts ||= { snap: { sketch: true, mids: true, centres: true }, keepFirst: false };
+    this.pm = { kind: 'measure', picks: [], result: null, error: null, snap: o.snap, keepFirst: o.keepFirst, history: [] };
     this.select(null);
     this.ui.renderPM();
     this.ui.refreshCommandStates();
-    this.status('Measure: click vertices, edges, faces, planes or sketch lines (two items: the distance between them). Use the body filter (B) to pick whole bodies.');
+    this.status('Measure: click vertices, snap points (midpoints, centres, sketch points), edges, faces, planes or sketch lines (two items: the distance between them). Use the body filter (B) to pick whole bodies.');
   }
 
-  // The measure pick under the cursor: sketch line, vertex, edge, face (or body), plane.
+  // The measure pick under the cursor: a sketch point, sketch line, vertex, snap point (an edge's middle, a circle's
+  // centre), edge, face (or body), plane. (snap: which snap points are on, Measure's ticks)
   measurePickAt(e) {
-    const vp = this.viewport;
+    const vp = this.viewport, snap = this.pm?.snap || {};
+    if (snap.sketch !== false) {
+      const sp = this.sketchPointAt(e);
+      if (sp) {
+        const s = this.result.sketches.get(sp.sketch), q = s && S.getPoint(s.sketch, sp.point);
+        if (q) return { kind: 'vertex', p: G.toWorld(s.frame, q.x, q.y).toArray(), label: 'Sketch point' };
+      }
+    }
     const sl = this.sketchSegmentAt(e);
     if (sl) return { kind: 'seg', a: sl.a, b: sl.b, label: 'Sketch line' };
     if (this.allows('vertex')) { const v = vp.pickVertex(e, 7); if (v) return { kind: 'vertex', p: v.point.toArray(), label: 'Vertex' }; }
+    if (this.allows('vertex') || this.allows('edge')) {
+      const sn = vp.pickSnap(e, { mids: snap.mids !== false, centres: snap.centres !== false }, 7);
+      if (sn) return { kind: 'vertex', p: sn.point.toArray(), label: sn.kind === 'mid' ? 'Midpoint' : 'Centre' };
+    }
     if (this.allows('edge')) { const ed = vp.pickEdge(e, 5); if (ed) return { kind: 'edge', p: ed.edge.mid, label: 'Edge' }; }
     const fh = this.faceAt(e);
     if (fh && this.allows('body') && !this.allows('face')) { const b = this.result.bodies[vp.faceBody[fh.hit.face]]; if (b) return { kind: 'body', id: b.id, label: b.name }; }
@@ -1351,8 +1365,18 @@ class App {
     const same = (x, y) => x.kind === y.kind && JSON.stringify(x.p || x.id || x.a || x.o) === JSON.stringify(y.p || y.id || y.a || y.o);
     const i = pm.picks.findIndex((x) => same(x, pick));
     if (i >= 0) pm.picks.splice(i, 1);
-    else { pm.picks.push(pick); if (pm.picks.length > 2) pm.picks.shift(); }
+    // (a third item: in place of the first, or, keeping the first, of the second: from one item to each next one)
+    else { pm.picks.push(pick); if (pm.picks.length > 2) pm.picks.splice(pm.keepFirst ? 1 : 0, 1); }
     await this.runMeasure();
+  }
+
+  // Measure's marks: the items picked, numbered; the point a click would pick (hover)
+  measureMarks(hover) {
+    const vp = this.viewport, pm = this.pm;
+    if (pm?.kind !== 'measure') { vp.setPointMarks('measure-picks', null); vp.setPointMarks('measure-hover', null); return; }
+    if (hover !== undefined) vp.setPointMarks('measure-hover', hover?.kind === 'vertex' && !pm.picks.some((x) => x.kind === 'vertex' && String(x.p) === String(hover.p)) ? [{ p: hover.p, text: hover.label }] : null);
+    const at = (r) => r.p || (r.a && r.b ? r.a.map((x, k) => (x + r.b[k]) / 2) : r.o);
+    vp.setPointMarks('measure-picks', pm.picks.map((r, i) => ({ p: at(r), text: String(i + 1), cls: 'pick' })).filter((x) => x.p));
   }
 
   async runMeasure() {
@@ -1366,7 +1390,13 @@ class App {
       if (this.pm !== pm) return;
       const r = pm.result;
       if (r?.a && r.distance > 1e-9) this.viewport.setMeasure({ a: r.a, b: r.b, text: `${r.distance.toFixed(3)} mm` });
+      // (the distances measured, most recent first: the panel lists them)
+      if (r?.distance != null && pm.picks.length === 2) {
+        pm.history.unshift({ text: `${pm.picks[0].label} → ${pm.picks[1].label}`, distance: r.distance });
+        if (pm.history.length > 8) pm.history.length = 8;
+      }
     }
+    this.measureMarks();
     this.ui.renderPM();
   }
 
@@ -1959,6 +1989,9 @@ class App {
     if (f.type === 'axis' && f.axisType === 'edge') return 'edge';
     if (f.type === 'point' && f.pointType === 'vertex') return 'vertex';
     if (f.type === 'point' && (f.pointType === 'arcCenter' || f.pointType === 'edgeMid')) return 'edge';
+    // (a pattern: faces of the features to copy, or bodies to copy whole)
+    if (['lpattern', 'cpattern', 'spattern', 'curvePattern'].includes(f.type)) return f.pick === 'bodies' ? 'body' : 'faces';
+    if (f.type === 'mirror') return 'body';
     return null;
   }
 
@@ -2135,6 +2168,9 @@ class App {
     } else if (['smCornerRelief', 'smClosedCorner', 'smFold'].includes(f.type)) {
       if (!b?.sheet) { this.toast('Select a sheet metal body'); return true; }
       f.body = f.body === id ? null : id;
+    } else if (['lpattern', 'cpattern', 'mirror', 'spattern', 'curvePattern'].includes(f.type)) {
+      f.bodies = Array.isArray(f.bodies) ? f.bodies : [];
+      toggle(f.bodies);
     } else if (f.type === 'moveBody' || f.type === 'split') {
       if (f.type === 'split' && b?.kind === 'surface') { f.tool = id; f.toolFace = null; }
       else toggle(f.bodies);
@@ -2788,7 +2824,12 @@ class App {
     }
     if (mode === 'faces') {
       const fh = this.faceAt(e);
-      if (!fh) return;
+      if (!fh) {
+        // (a pattern: a plane clicked goes to the panel as before, e.g. for a direction)
+        const p = ['lpattern', 'cpattern', 'spattern', 'curvePattern'].includes(this.pm.feature?.type) ? this.pickAt(e) : null;
+        if (p?.kind === 'plane') G.STD_PLANES[p.id] ? this.treePickPlane(p.id) : this.treePickFeature(p.id);
+        return;
+      }
       const f = this.pm.feature, vp = this.viewport, gi = fh.hit.face;
       const face = vp.faceInfo(gi);
       f.faces ||= [];
@@ -2861,6 +2902,7 @@ class App {
         return;
       }
     }
+    if (mode === 'measure') this.measureMarks(this.measurePickAt(e));
     if (mode === 'ref' || mode === 'entity' || mode === 'measure') {
       const v = vp.pickVertex(e, 7);
       const ed = v ? null : vp.pickEdge(e, 5);
@@ -2894,6 +2936,7 @@ class App {
 
     if (!this.pm) return this.hoverAt(e);
     if (mode === 'measure' && this.sketchSegmentAt(e)) { vp.canvas.style.cursor = 'pointer'; return; }
+    if (mode === 'measure' && vp.pickSnap(e, { mids: this.pm.snap?.mids !== false, centres: this.pm.snap?.centres !== false }, 7)) { vp.canvas.style.cursor = 'pointer'; return; }
     const p = this.pickAt(e);
     if (p?.kind === 'face') {
       const key = p.hit.face;
@@ -3618,7 +3661,7 @@ class App {
       }
     }
     if (pm.kind === 'section') this.clearSection();
-    if (pm.kind === 'measure') this.viewport.setMeasure(null);
+    if (pm.kind === 'measure') { this.viewport.setMeasure(null); this.viewport.setPointMarks('measure-picks', null); this.viewport.setPointMarks('measure-hover', null); }
     if (pm.kind === 'selectPlane') { this.pendingTool = null; this.pendingFeature = null; this.pendingGears = false; this.pendingAirfoil = false; this.showBanner(null); }
     this.hoverEdge = null;
     this.hoverVertex = null;

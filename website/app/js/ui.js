@@ -225,6 +225,17 @@ const GAUGE_TABLES = (() => {
 const SM_GAUGE = { key: 'gauge', type: 'gauge' };
 
 const SM_BODY = { title: 'Sheet Metal Body', fields: [{ key: 'body', type: 'bodySel', label: 'Body', kinds: ['sheet'] }] };
+// What a pattern copies: its feature and more features; model: 'pick' (faces or bodies clicked on the model, or
+// ticked), 'list' (bodies ticked in the list or clicked), 'none' (features only)
+const patternSources = (title, model = 'pick') => ({ title, fields: [
+  { key: 'feature', type: 'feature', label: 'Feature' },
+  { key: 'features', type: 'featureList', label: 'More features' },
+  ...(model === 'pick' ? [
+    { key: 'pick', type: 'select', label: 'Clicking the model picks', options: [['faces', 'Faces (each brings the feature that made it)'], ['bodies', 'Bodies (copied whole)']] },
+    { key: 'faces', type: 'faceList', show: (f) => f.pick !== 'bodies', hint: 'Click faces of the features to pattern (a hole\'s wall, a boss\'s top…): each brings the feature that made it.', empty: 'No faces picked' },
+  ] : []),
+  ...(model !== 'none' ? [{ key: 'bodies', type: 'bodyList', kinds: ['solid', 'surface'], show: (f) => model === 'list' || f.pick === 'bodies', hint: 'Bodies copied whole to every place, as new bodies. Click them on the model or tick them here.' }] : []),
+] });
 const SM_PARAMS = [
   { key: 'radius', type: 'expr', label: 'Bend radius (inside)', unit: 'mm' },
   { key: 'kFactor', type: 'expr', label: 'K-factor', unit: '' },
@@ -780,7 +791,7 @@ const PM_SCHEMAS = {
     },
   ],
   lpattern: [
-    { title: 'Features to Pattern', fields: [{ key: 'feature', type: 'feature', label: 'Feature' }] },
+    patternSources('Features to Pattern'),
     {
       title: 'Direction 1', fields: [
         { key: 'dir1', type: 'direction', label: 'Direction' },
@@ -799,7 +810,7 @@ const PM_SCHEMAS = {
     },
   ],
   cpattern: [
-    { title: 'Features to Pattern', fields: [{ key: 'feature', type: 'feature', label: 'Feature' }] },
+    patternSources('Features to Pattern'),
     {
       title: 'Parameters', fields: [
         { key: 'axis', type: 'direction', label: 'Axis' },
@@ -811,17 +822,17 @@ const PM_SCHEMAS = {
   ],
   mirror: [
     { title: 'Mirror Face/Plane', fields: [{ key: 'plane', type: 'plane', label: 'Plane' }] },
-    { title: 'Features to Mirror', fields: [{ key: 'feature', type: 'feature', label: 'Feature' }] },
+    patternSources('Features to Mirror', 'list'),
   ],
   spattern: [
-    { title: 'Features to Pattern', fields: [{ key: 'feature', type: 'feature', label: 'Feature' }] },
+    patternSources('Features to Pattern'),
     { title: 'Selections', fields: [
       { key: 'sketch', type: 'sketch', label: 'Reference sketch' },
       { key: 'spHint', type: 'hint', text: 'A copy goes at every point of the sketch (lone points and circle centres). The point nearest the feature is the feature itself.' },
     ] },
   ],
   curvePattern: [
-    { title: 'Features to Pattern', fields: [{ key: 'feature', type: 'feature', label: 'Feature' }] },
+    patternSources('Features to Pattern'),
     { title: 'Direction', fields: [
       { key: 'path', type: 'pathSel', label: 'Curve' },
       { key: 'count', type: 'expr', label: 'Instances (including the feature)', unit: '#' },
@@ -833,7 +844,7 @@ const PM_SCHEMAS = {
     ] },
   ],
   fillPattern: [
-    { title: 'Features to Pattern', fields: [{ key: 'feature', type: 'feature', label: 'Feature' }] },
+    patternSources('Features to Pattern', 'none'),
     { title: 'Fill Boundary', fields: [{ key: 'face', type: 'pick', label: 'Face', what: 'flatface' }] },
     { title: 'Pattern Layout', fields: [
       { key: 'layout', type: 'select', label: 'Layout', options: [['square', 'Square'], ['staggered', 'Staggered (perforation)']] },
@@ -3331,6 +3342,26 @@ export class UI {
           this.renderBodyList(body, f, fd);
         } else if (fd.type === 'bodySel') {
           this.renderBodySel(body, f, fd);
+        } else if (fd.type === 'featureList') {
+          // more features (a pattern's): listed, each removable, added from the features before this one
+          if (!Array.isArray(f[fd.key])) f[fd.key] = [];
+          const L = f[fd.key];
+          if (L.length) {
+            const ul = el('div', { class: 'pm-list' });
+            L.forEach((id, i) => {
+              const x = before.find((y) => y.id === id);
+              const li = el('div', { class: 'li sel' }, `${icon(x ? iconFor(x) : 'feature')}<span>${esc(x?.name || '(missing)')}</span><span class="x" title="Remove">✕</span>`);
+              li.querySelector('.x').onclick = () => { L.splice(i, 1); this.renderPM(); a.preview(true); };
+              ul.appendChild(li);
+            });
+            body.appendChild(ul);
+          }
+          const sel = el('select');
+          sel.appendChild(el('option', { value: '' }, '+ Add a feature…'));
+          for (const x of before.filter((y) => !PATTERN_SKIP.has(y.type) && !y.suppressed && y.id !== f.feature && !L.includes(y.id))) sel.appendChild(el('option', { value: x.id }, esc(x.name)));
+          sel.onchange = () => { if (sel.value) { L.push(sel.value); this.renderPM(); a.preview(true); } };
+          const w = el('div', { class: 'pm-input' }); w.appendChild(sel);
+          body.appendChild(this.row(fd.label, w));
         } else if (fd.type === 'curveList') {
           // an ordered list of curves (sketches, 3D sketches, composite / projected curves, helices)
           if (!Array.isArray(f[fd.key])) f[fd.key] = [];
@@ -4110,7 +4141,22 @@ export class UI {
   renderMeasurePM(root) {
     const a = this.app, pm = a.pm;
     this.pmHeader(root, 'measure', 'Measure', { ok: false });
-    root.appendChild(el('div', { class: 'pm-msg' }, 'Click up to two items: vertices, edges, faces, planes or sketch lines (turn on the body filter, B, to pick whole bodies). Click an item again to remove it.'));
+    root.appendChild(el('div', { class: 'pm-msg' }, 'Click up to two items: vertices, snap points, edges, faces, planes, sketch points or lines (turn on the body filter, B, to pick whole bodies). The point a click would pick is marked as you move. Click an item again to remove it.'));
+    const sg = this.pmGroup(root, 'Snap To', 'ms:snap');
+    for (const [k, label] of [['sketch', 'Sketch points'], ['mids', 'Midpoints of edges'], ['centres', 'Centres of circles and arcs']]) {
+      const cb = el('input', { type: 'checkbox' });
+      cb.checked = pm.snap[k] !== false;
+      cb.onchange = () => { pm.snap[k] = cb.checked; };
+      const lab = el('label', { class: 'pm-check' }); lab.append(cb, ` ${label}`);
+      sg.appendChild(this.row(null, lab, 'check'));
+    }
+    {
+      const cb = el('input', { type: 'checkbox' });
+      cb.checked = !!pm.keepFirst;
+      cb.onchange = () => { pm.keepFirst = cb.checked; a._measureOpts.keepFirst = cb.checked; };
+      const lab = el('label', { class: 'pm-check' }); lab.append(cb, ' Keep the first item (from it to each next click)');
+      sg.appendChild(this.row(null, lab, 'check'));
+    }
     const g = this.pmGroup(root, 'Selections', 'ms:sel');
     const ul = el('div', { class: 'pm-list' });
     if (!pm.picks.length) ul.appendChild(el('div', { class: 'li pm-hint' }, 'Nothing selected'));
@@ -4123,6 +4169,13 @@ export class UI {
     g.appendChild(ul);
     if (pm.picks.length) g.appendChild(el('button', { class: 'pm-btn', onclick: () => { pm.picks.length = 0; a.runMeasure(); } }, 'Clear'));
     if (pm.error) root.appendChild(el('div', { class: 'pm-msg err' }, esc(pm.error)));
+    // (the distances measured so far)
+    if (pm.history.length > 1) {
+      const hg = this.pmGroup(root, 'Measured', 'ms:hist');
+      const ol = el('ol', { class: 'measure-history' });
+      for (const h of pm.history) ol.appendChild(el('li', {}, `${esc(h.text)}: <b>${esc(lenWithUnit(h.distance, a.units, a.units === 'in' ? 4 : 3))}</b>`));
+      hg.appendChild(ol);
+    }
     const r = pm.result;
     if (!r) return;
     const res = this.pmGroup(root, 'Results', 'ms:res');

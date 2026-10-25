@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import * as G from './geometry.js';
 import * as S from './sketchmodel.js';
-import { solveSketch, analyzeSketch, sketchRank, RELATION_INFO } from './solver.js';
+import { solveSketch, analyzeSketch, sketchRank, RELATION_INFO, relationDiagnosis } from './solver.js';
 import { evaluate, fmt, isNumeric, normalizeValue } from './expr.js';
 import { fmtLen, lenText, lenValue } from './units.js';
 import { parseDXF, dxfShapes, addShapes } from './dxfimport.js';
@@ -633,6 +633,9 @@ export class Sketcher {
     let problem = null;
     if (r1 - r0 < added.length) problem = 'redundant';
     else if (!this.solve().ok) problem = 'conflict';
+    // (why: already satisfied, or in conflict, and with which relations already there)
+    let why = null;
+    if (problem === 'redundant' && !quiet) { try { why = relationDiagnosis(sk, added, this.ev); } catch { why = null; } }
     if (problem) {
       // put the geometry back; the gear trains and texts keep their objects (callers hold on to them)
       const { gearTrains, texts, airfoils, ...rest } = JSON.parse(before);
@@ -645,7 +648,18 @@ export class Sketcher {
         return { kept: k, driven: true };
       }
       this.solve();
-      if (!quiet) this.app.toast(problem === 'redundant' ? 'That relation is redundant — the geometry is already defined that way.' : 'That relation conflicts with existing relations or dimensions.', true);
+      if (!quiet) {
+        const what = added.length === 1 ? `${RELATION_INFO[added[0].type]?.label || 'That relation'}` : 'Those relations';
+        const name = (k) => (k.type === 'dim' ? (k.value != null && k.value !== '' ? `the ${k.value} dimension` : 'a dimension') : `${RELATION_INFO[k.type]?.label || k.type}`);
+        const by = why?.blockers.length ? why.blockers.slice(0, 3).map(name).join(', ') + (why.blockers.length > 3 ? '…' : '') : '';
+        let msg;
+        if (problem === 'conflict') msg = 'That relation conflicts with existing relations or dimensions.';
+        else if (why?.kind === 'conflict') msg = `${what} would over-define the sketch${by ? `: it conflicts with ${by} (highlighted). Delete ${why.blockers.length > 1 ? 'one of those' : 'that'} first to use it instead` : ' (it conflicts with relations or dimensions already there)'}.`;
+        else msg = `${what} is already satisfied${by ? `: ${by} (highlighted) already ${why.blockers.length > 1 ? 'define' : 'defines'} the geometry that way` : ' — the geometry is already defined that way'}.`;
+        // (the relations in the way shown selected)
+        if (why?.blockers.length) { const ids = new Set(why.blockers.map((k) => k.id).filter((id) => sk.constraints.some((x) => x.id === id))); if (ids.size) { this.sel = ids; this.redraw(); } }
+        this.app.toast(msg, true);
+      }
       return null;
     }
     return { kept: added[added.length - 1] };

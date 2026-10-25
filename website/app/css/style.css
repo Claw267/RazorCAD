@@ -588,6 +588,14 @@ svg.ref-arrows { position: absolute; left: 0; top: 0; pointer-events: none; z-in
 /* measure */
 .measure-label { position: absolute; transform: translate(-50%, -130%); background: #d97706; color: #fff; font-size: 12px; font-weight: 600; padding: 2px 7px; border-radius: 4px; pointer-events: none; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
 .measure-kv b { color: #92400e; }
+/* Measure: the snap point under the cursor, and the items picked (numbered) */
+.point-mark { position: absolute; pointer-events: none; z-index: 3; }
+.point-mark i { position: absolute; left: -4px; top: -4px; width: 8px; height: 8px; border-radius: 50%; background: #d97706; border: 1.5px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
+.point-mark span { position: absolute; left: 9px; top: -9px; background: rgba(29, 36, 48, 0.9); color: #fff; font-size: 11px; padding: 1px 6px; border-radius: 3px; white-space: nowrap; }
+.point-mark.pick i { left: -8px; top: -8px; width: 16px; height: 16px; background: #1d4ed8; }
+.point-mark.pick span { left: -8px; top: -8px; width: 16px; height: 16px; padding: 0; background: none; text-align: center; line-height: 16px; font-weight: 700; }
+.measure-history { font-size: 12px; color: var(--muted, #555); margin: 2px 0 0; padding-left: 18px; }
+.measure-history li { margin: 2px 0; }
 /* quick readout of the selected edges' / sketch curves' size */
 .dim-tag { position: absolute; transform: translate(14px, -50%); background: rgba(29, 36, 48, 0.92); color: #fff; font-size: 11.5px; line-height: 1.35; padding: 3px 8px; border-radius: 4px; pointer-events: none; white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,.3); z-index: 3; }
 .dim-tag b { font-weight: 600; }

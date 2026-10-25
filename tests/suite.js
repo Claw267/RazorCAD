@@ -566,6 +566,83 @@ const UI = {
   // the sketch's selection box, with the pointer: a rectangle and a circle beside it. Dragged left to right round the
   // rectangle (a window): its four lines and four corners, not the circle; dragged right to left over part of the
   // circle (crossing): the circle and its centre, not the rectangle; Ctrl adds to what is selected
+  // A relation refused says why: two horizontal lines, their starts 10 apart (dimension): made parallel, it is already
+  // satisfied by the Horizontal relations (named); made collinear, it would over-define the sketch, and the message
+  // names relations in the way, shown selected
+  async 'relation-diagnosis'() {
+    const a = window.app;
+    await a.newDocument?.();
+    closeModals();
+    const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'top' } });
+    a.doc.features.push(f); a.commit();
+    await a.enterSketch(f, true);
+    await wait(300);
+    const sk = a.sketcher, S = await import('/js/sketchmodel.js');
+    const ends = [], line = (y) => { const p = S.addPoint(sk.f, 0, y); ends.push(p); return S.addLine(sk.f, p, S.addPoint(sk.f, 40, y)); };
+    const id = (x) => x?.id ?? x;
+    const l1 = line(0), l2 = line(10);
+    sk.changed();
+    const msgs = [], toast = a.toast;
+    a.toast = (m) => msgs.push(m);
+    try {
+      const set = [['horizontal', [id(l1)]], ['horizontal', [id(l2)]], ['dim', [id(ends[0]), id(ends[1])], { kind: 'vdist', value: 10 }]].map((c) => sk.tryAddConstraints([c]));
+      const n0 = sk.f.constraints.length;
+      const par = sk.tryAddConstraints([['parallel', [id(l1), id(l2)]]]);
+      const parMsg = msgs.at(-1) || '';
+      const col = sk.tryAddConstraints([['collinear', [id(l1), id(l2)]]]);
+      const colMsg = msgs.at(-1) || '', colSel = [...sk.sel];
+      const known = sk.f.constraints.filter((k) => k.type === 'horizontal' || k.type === 'dim').map((k) => k.id);
+      const ok = set.every(Boolean) && !par && !col && sk.f.constraints.length === n0
+        && /Parallel is already satisfied: Horizontal, Horizontal \(highlighted\) already define the geometry/.test(parMsg)
+        && /Collinear would over-define the sketch: it conflicts with .*(Horizontal|dimension)/.test(colMsg) && colSel.length && colSel.every((x) => known.includes(x));
+      return { ok, detail: `parallel: "${parMsg}"; collinear: "${colMsg}" (${colSel.length} selected)` };
+    } finally { a.toast = toast; await a.exitSketch?.(false); }
+  },
+
+  // Measure snaps: a 100 × 60 × 10 block with a Ø10 hole at x = −30, seen from the top. Hovering at the hole's centre
+  // marks "Centre"; clicked, then the middle of the block's long edge ("Midpoint"): the distance between them, both
+  // numbered on the model. With "Keep the first item" a third click (the middle of a short edge) replaces the second,
+  // and the panel lists both distances measured
+  async 'measure-snaps'() {
+    const a = window.app;
+    if (a.mode === 'drawing') { const i = a.tabs.findIndex((t) => t.kind !== 'drawing'); if (i >= 0) await a.activateTab(i); }
+    await a.newDocument?.();
+    closeModals();
+    const d = a.doc, S = await import('/js/sketchmodel.js');
+    const s0 = M.createFeature(d, 'sketch', { plane: { ref: 'top' } });
+    S.buildCenterRect(s0, 'O', 0, 0, 50, 30);
+    const s1 = M.createFeature(d, 'sketch', { plane: { ref: 'top' } });
+    S.addCircle(s1, S.addPoint(s1, -30, 0), 5);
+    for (const x of [s0, M.createFeature(d, 'extrude', { sketch: s0.id, depth: 10 }), s1, M.createFeature(d, 'extrude', { sketch: s1.id, op: 'cut', end: 'through2', depth: 10 })]) M.insertFeature(d, x);
+    a.commit();
+    await a.rebuild();
+    await wait(300);
+    const { vp, fire, toScreen, click } = viewEvents();
+    vp.setStandardView('top', false); vp.zoomToFit(null, false); await wait(300);
+    a.startMeasure();
+    const V = (x, y, z) => vp.camera.position.clone().set(x, y, z);
+    const marks = (cls) => [...document.querySelectorAll('.point-mark' + (cls ? '.' + cls : ''))].map((x) => x.textContent);
+    try {
+      const c = toScreen(V(-30, 10, 0));
+      fire('pointermove', c[0] + 2, c[1] + 1); await wait(80);
+      const hover = marks().join('|');
+      await click(...c);
+      const m1 = toScreen(V(0, 10, 30)), m2 = toScreen(V(50, 10, 0));
+      await click(...m1);
+      await wait(200);
+      const pm = a.pm, labels1 = pm.picks.map((x) => x.label).join(','), dist1 = pm.result?.distance, picked = marks('pick').join(',');
+      pm.keepFirst = true;
+      await click(...m2);
+      await wait(200);
+      const labels2 = pm.picks.map((x) => x.label).join(','), dist2 = pm.result?.distance, hist = pm.history.length;
+      const near = (v, w) => Math.abs(v - w) < 1e-3;
+      // (the centre of the top or the bottom of the hole: they are one point in this view)
+      const ok = /Centre/.test(hover) && labels1 === 'Centre,Midpoint' && (near(dist1, Math.hypot(30, 30)) || near(dist1, Math.hypot(30, 30, 10))) && picked === '1,2'
+        && labels2 === 'Centre,Midpoint' && (near(dist2, 80) || near(dist2, Math.hypot(80, 10))) && hist === 2;
+      return { ok, detail: `hover "${hover}"; picked ${labels1} (${picked}): ${dist1?.toFixed(3)} mm; keeping the first: ${labels2}: ${dist2?.toFixed(3)} mm; ${hist} measured` };
+    } finally { a.cancelPM(); }
+  },
+
   async 'sketch-box-select'() {
     const a = window.app;
     await a.newDocument?.();
@@ -3199,6 +3276,155 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
         && tube.x1 > 39.5 && tube.x1 < 40.5 && tube.x0 > -20.5 && tube.x0 < -19.5 && /untick/.test(JSON.stringify(ruled.errors || []));
       const f = (o) => (o.errors?.length && o.x1 == null ? JSON.stringify(o.errors) : `x ${o.x0?.toFixed(2)} to ${o.x1?.toFixed(2)}, area ${o.area?.toFixed(1)}`);
       return { ok, detail: `no guide: ${f(plain)}; two guides: ${f(two)} (bounded by them: ${want.toFixed(1)}); closed with one guide: ${f(tube)}; ruled with guides: ${JSON.stringify(ruled.errors || [])}` };
+    } finally { k.dispose(); }
+  },
+
+  // A loft profile with a spline (Bézier pieces) that runs the other way round from the other profile (the same shape
+  // drawn on a plane facing the other way): turned round to match, its pieces' control points swap too, so the loft
+  // is the same as with both running the same way
+  async 'loft-bezier-reversed'() {
+    const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient({ threads: threadsPerKernel() });
+    try {
+      // (a 40 × 40 square whose far side is a spline through (0, 30); mirror: drawn with y the other way, for a plane
+      // whose normal is reversed, so that it is the same shape in the model, running the other way round)
+      const prof = (d, plane, mirror) => {
+        const s = M.createFeature(d, 'sketch', { plane });
+        const P = [[-20, -20], [20, -20], [20, 20], [0, 30], [-20, 20]];
+        const L = (id, p1, p2) => ({ id, type: 'line', p1, p2, construction: false });
+        Object.assign(s, { points: P.map(([x, y], i) => ({ id: 'p' + i, x, y: mirror ? -y : y })), curves: [L('c0', 'p0', 'p1'), L('c1', 'p1', 'p2'), { id: 'sp', type: 'spline', pts: ['p2', 'p3', 'p4'], construction: false }, L('c3', 'p4', 'p0')], constraints: [] });
+        d.features.push(s);
+        return s.id;
+      };
+      const build = async (rev) => {
+        const d = M.newDoc();
+        const pl = M.createFeature(d, 'plane', { refs: [{ kind: 'plane', id: 'top' }], offset: 60, reverse: rev }); d.features.push(pl);
+        const a = prof(d, { ref: 'top' }, false), b = prof(d, { ref: pl.id }, rev);
+        d.features.push(M.createFeature(d, 'loft', { profiles: [a, b], name: rev ? 'Rev' : 'Same' }));
+        const r = await k.rebuild(d, null, null);
+        const bb = r.body?.bodies?.[0];
+        if (!bb) return { errors: r.errors };
+        return { vol: ((await k.request('measure', { refs: [{ kind: 'body', id: bb.id }] })).items?.[0] || {}).volume, errors: r.errors };
+      };
+      const same = await build(false), rev = await build(true);
+      const ok = !same.errors?.length && !rev.errors?.length && same.vol > 60 * 1600 && Math.abs(rev.vol - same.vol) < 1e-6 * same.vol;
+      return { ok, detail: `both running the same way ${same.vol?.toFixed(3)} mm³, the second the other way round ${rev.vol?.toFixed(3)} mm³${rev.errors?.length ? ' ' + JSON.stringify(rev.errors) : ''}` };
+    } finally { k.dispose(); }
+  },
+
+  // A guided loft follows its guide closely: two 40 × 40 squares 100 apart and an S-shaped guide (two arcs bulging
+  // 12 out and 12 in) through a corner of each: every point of the guide lies within 0.15 mm of the loft's surface, as meshed
+  // (it drifted 0.28 mm with 6 sections between the profiles)
+  async 'loft-guide-accuracy'() {
+    const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient({ threads: threadsPerKernel() });
+    try {
+      const square = (d, plane) => { const s = M.createFeature(d, 'sketch', { plane }); const P = [[-20, -20], [20, -20], [20, 20], [-20, 20]]; Object.assign(s, { points: P.map(([x, y], i) => ({ id: 'p' + i, x, y })), curves: P.map((_, i) => ({ id: 'c' + i, type: 'line', p1: 'p' + i, p2: 'p' + ((i + 1) % 4), construction: false })), constraints: [] }); d.features.push(s); return s.id; };
+      const R = (25 * 25 + 12 * 12) / 24, c = R - 12;
+      const d = M.newDoc();
+      const pl = M.createFeature(d, 'plane', { refs: [{ kind: 'plane', id: 'top' }], offset: 100 }); d.features.push(pl);
+      const a = square(d, { ref: 'top' }), b = square(d, { ref: pl.id });
+      const gs = M.createFeature(d, 'sketch', { plane: { ref: 'front' } });
+      Object.assign(gs, { points: [{ id: 'q0', x: 20, y: 0 }, { id: 'q1', x: 20, y: 50 }, { id: 'q2', x: 20, y: 100 }, { id: 'o1', x: 20 - c, y: 25 }, { id: 'o2', x: 20 + c, y: 75 }],
+        curves: [{ id: 'a1', type: 'arc', c: 'o1', p1: 'q0', p2: 'q1', construction: false }, { id: 'a2', type: 'arc', c: 'o2', p1: 'q2', p2: 'q1', construction: false }], constraints: [] });
+      d.features.push(gs, M.createFeature(d, 'loft', { profiles: [a, b], guides: [gs.id] }));
+      const r = await k.rebuild(d, null, null);
+      if (r.errors.length) return { ok: false, detail: JSON.stringify(r.errors) };
+      const V = r.body.vertices, T = r.body.triangles, P3 = (i) => [V[3 * i], V[3 * i + 1], V[3 * i + 2]];
+      const sub = (u, v) => [u[0] - v[0], u[1] - v[1], u[2] - v[2]], dot = (u, v) => u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+      // (a point's distance to a triangle: the nearest point of it)
+      const near = (p, A, B, C) => {
+        const ab = sub(B, A), ac = sub(C, A), ap = sub(p, A), d1 = dot(ab, ap), d2 = dot(ac, ap);
+        if (d1 <= 0 && d2 <= 0) return A;
+        const bp = sub(p, B), d3 = dot(ab, bp), d4 = dot(ac, bp);
+        if (d3 >= 0 && d4 <= d3) return B;
+        const vc = d1 * d4 - d3 * d2;
+        if (vc <= 0 && d1 >= 0 && d3 <= 0) { const v = d1 / (d1 - d3); return [A[0] + ab[0] * v, A[1] + ab[1] * v, A[2] + ab[2] * v]; }
+        const cp = sub(p, C), d5 = dot(ab, cp), d6 = dot(ac, cp);
+        if (d6 >= 0 && d5 <= d6) return C;
+        const vb = d5 * d2 - d1 * d6;
+        if (vb <= 0 && d2 >= 0 && d6 <= 0) { const w = d2 / (d2 - d6); return [A[0] + ac[0] * w, A[1] + ac[1] * w, A[2] + ac[2] * w]; }
+        const va = d3 * d6 - d5 * d4;
+        if (va <= 0 && d4 - d3 >= 0 && d5 - d6 >= 0) { const w = (d4 - d3) / ((d4 - d3) + (d5 - d6)); return [B[0] + (C[0] - B[0]) * w, B[1] + (C[1] - B[1]) * w, B[2] + (C[2] - B[2]) * w]; }
+        const den = 1 / (va + vb + vc), v = vb * den, w = vc * den;
+        return [A[0] + ab[0] * v + ac[0] * w, A[1] + ab[1] * v + ac[1] * w, A[2] + ab[2] * v + ac[2] * w];
+      };
+      let worst = 0;
+      for (let y = 1; y < 100; y++) {
+        const p = [y <= 50 ? 20 - c + Math.sqrt(R * R - (y - 25) ** 2) : 20 + c - Math.sqrt(R * R - (y - 75) ** 2), y, 0];
+        let best = Infinity;
+        for (let q = 0; q < T.length; q += 3) best = Math.min(best, Math.hypot(...sub(near(p, P3(T[q]), P3(T[q + 1]), P3(T[q + 2])), p)));
+        worst = Math.max(worst, best);
+      }
+      return { ok: worst < 0.15, detail: `the S-shaped guide lies within ${worst.toFixed(3)} mm of the loft's surface (as meshed)` };
+    } finally { k.dispose(); }
+  },
+
+  // Lofted Surface: a closed sketch profile is closed whatever its curves (a closed spline lofted to a circle); open and
+  // closed profiles together: the message names the closed one and the open one, with how far apart its ends are
+  async 'surface-loft-closed-check'() {
+    const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient({ threads: threadsPerKernel() });
+    try {
+      const run = async (shapeA) => {
+        const d = M.newDoc();
+        const pl = M.createFeature(d, 'plane', { refs: [{ kind: 'plane', id: 'top' }], offset: 50 }); d.features.push(pl);
+        const a = M.createFeature(d, 'sketch', { plane: { ref: 'top' }, name: 'Outline' });
+        if (shapeA === 'spline') Object.assign(a, { points: [[20, 0], [0, 25], [-20, 0], [0, -25]].map(([x, y], i) => ({ id: 'p' + i, x, y })), curves: [{ id: 's', type: 'spline', pts: ['p0', 'p1', 'p2', 'p3'], closed: true, construction: false }], constraints: [] });
+        else Object.assign(a, { points: [{ id: 'p0', x: -20, y: 0 }, { id: 'p1', x: 0, y: 25 }, { id: 'p2', x: 20, y: 0 }], curves: [{ id: 'l0', type: 'line', p1: 'p0', p2: 'p1', construction: false }, { id: 'l1', type: 'line', p1: 'p1', p2: 'p2', construction: false }], constraints: [] });
+        const b = M.createFeature(d, 'sketch', { plane: { ref: pl.id }, name: 'Ring' });
+        Object.assign(b, { points: [], curves: [{ id: 'c', type: 'circle', c: 'O', r: 18, construction: false }], constraints: [] });
+        d.features.push(a, b, M.createFeature(d, 'surfLoft', { profiles: [a.id, b.id] }));
+        const r = await k.rebuild(d, null, null);
+        return { bodies: r.body?.bodies?.length || 0, errors: r.errors.map((e) => e[1]).join(' ') };
+      };
+      const closed = await run('spline'), mixed = await run('open');
+      const ok = closed.bodies === 1 && !closed.errors && /Ring is closed but Outline is open \(its ends are 40\.00 mm apart\)/.test(mixed.errors);
+      return { ok, detail: `closed spline to a circle: ${closed.bodies} surface${closed.errors ? ' ' + closed.errors : ''}; open with closed: "${mixed.errors}"` };
+    } finally { k.dispose(); }
+  },
+
+  // Patterns of more than one feature, of faces and of bodies: a 100 × 60 × 10 block with hole A (Ø10) and hole B (Ø8);
+  // a Linear Pattern (2 along X, 12 apart) of hole A with hole B as a further feature copies both; of hole B's wall
+  // picked as a face, hole B (the feature that made it); of a separate pin body, the pin copied whole as a new body
+  async 'pattern-sources'() {
+    const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient({ threads: threadsPerKernel() });
+    try {
+      const sketch = (d, curves, points) => { const s = M.createFeature(d, 'sketch', { plane: { ref: 'top' } }); Object.assign(s, { points, curves, constraints: [] }); d.features.push(s); return s.id; };
+      const circle = (d, x, r) => sketch(d, [{ id: 'c', type: 'circle', c: 'o', r, construction: false }], [{ id: 'o', x, y: 0 }]);
+      const base = () => {
+        const d = M.newDoc();
+        const P = [[-50, -30], [50, -30], [50, 30], [-50, 30]];
+        const s0 = sketch(d, P.map((_, i) => ({ id: 'c' + i, type: 'line', p1: 'p' + i, p2: 'p' + ((i + 1) % 4), construction: false })), P.map(([x, y], i) => ({ id: 'p' + i, x, y })));
+        d.features.push(M.createFeature(d, 'extrude', { sketch: s0, depth: 10 }));
+        const A = M.createFeature(d, 'extrude', { sketch: circle(d, -30, 5), op: 'cut', end: 'through2', depth: 10 });
+        const B = M.createFeature(d, 'extrude', { sketch: circle(d, 30, 4), op: 'cut', end: 'through2', depth: 10 });
+        d.features.push(A, B);
+        return { d, A, B };
+      };
+      const vol = async (r) => { let v = 0; for (const b of r.body.bodies) v += ((await k.request('measure', { refs: [{ kind: 'body', id: b.id }] })).items?.[0] || {}).volume || 0; return v; };
+      const pat = (d, props) => { const f = M.createFeature(d, 'lpattern', { dir1: 'x', dist1: 12, count1: 2, ...props }); d.features.push(f); return f; };
+      const block = 100 * 60 * 10, hA = Math.PI * 25 * 10, hB = Math.PI * 16 * 10;
+      // 1. hole A and, as a further feature, hole B
+      let { d, A, B } = base();
+      let f = pat(d, { feature: A.id, features: [B.id] });
+      let r = await k.rebuild(d, null, null);
+      const v1 = await vol(r), n1 = r.notes?.[f.id];
+      // 2. hole B's wall picked as a face (no feature chosen)
+      ({ d, A, B } = base());
+      pat(d, { feature: null, faces: [{ p: [34, 5, 0] }] });
+      r = await k.rebuild(d, null, null);
+      const v2 = await vol(r), e2 = r.errors;
+      // 3. a separate pin (Ø6, 20 high) copied whole
+      ({ d } = base());
+      const pin = M.createFeature(d, 'extrude', { sketch: circle(d, 0, 3), depth: 20, merge: false });
+      d.features.push(pin);
+      r = await k.rebuild(d, null, null);
+      const pinBody = r.body.bodies.find((b) => String(b.id).startsWith(pin.id))?.id;
+      pat(d, { feature: null, bodies: [pinBody] });
+      r = await k.rebuild(d, null, null);
+      const n3 = r.body.bodies.length, v3 = await vol(r);
+      const near = (v, w) => Math.abs(v - w) < 1e-3 * w;
+      const ok = near(v1, block - 2 * hA - 2 * hB) && n1 === '2 features patterned' && !e2.length && near(v2, block - hA - 2 * hB)
+        && n3 === 3 && near(v3, block - hA - hB + 2 * Math.PI * 9 * 20);
+      return { ok, detail: `two features: ${v1.toFixed(1)} mm³ (${n1}); a face's feature: ${v2.toFixed(1)} mm³${e2.length ? ' ' + JSON.stringify(e2) : ''}; a body: ${n3} bodies, ${v3.toFixed(1)} mm³` };
     } finally { k.dispose(); }
   },
 

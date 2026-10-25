@@ -512,7 +512,7 @@ Select entities ([[Ctrl]]+click for several, or drag a box from empty space: lef
 | 2 points + line | Symmetric (about the line) |
 | 3 lines | Symmetric (two lines about a centerline) |
 
-Relations are shown as small green glyphs next to the geometry. Click a glyph to select it, then press [[Del]] to remove it. Hovering a glyph highlights the entities it ties together. Redundant or conflicting relations are refused with a message.
+Relations are shown as small green glyphs next to the geometry. Click a glyph to select it, then press [[Del]] to remove it. Hovering a glyph highlights the entities it ties together. Redundant or conflicting relations are refused with a message that says which: one that is **already satisfied** names the relations that already define the geometry that way; one that **would over-define** the sketch names the relations or dimensions in its way. Either way those relations are selected, so you can delete one and add the new relation instead.
 
 ## How profiles are found
 
@@ -776,6 +776,8 @@ Patterns and mirrors copy features or bodies. Any feature that changes the bodie
 | **Fill Pattern** | On a square or staggered grid over a flat face, kept a margin from its edges (for example a perforated panel) |
 
 {idx:Sketch Driven Pattern}{idx:Curve Driven Pattern}{idx:Fill Pattern}
+
+**What to copy.** Choose the **Feature**, and add any number of **More features**: each is copied the same way. In a Linear, Circular, Sketch Driven or Curve Driven Pattern, **Clicking the model picks** either **Faces**, where each face brings the feature that made it (click a hole's wall to copy the hole), or **Bodies**, which are copied whole to every place as new bodies. Mirror takes bodies too (tick them, or click them on the model). Fill Pattern copies features only. {idx:pattern, of bodies}{idx:pattern, of faces}
 
 Patterns of cuts are cut out in one operation, and patterns of added features (bosses, pins, ribs) are fused into the body in one operation, so large patterns rebuild quickly. A plate with 200 bosses builds in about 2 seconds.
 
@@ -1568,6 +1570,11 @@ DWG import and export: DWG is a closed format with no free reader or writer that
 ## Measure
 
 **Evaluate ▸ Measure**, **Tools ▸ Measure…** or the view's right-click menu. Click vertices, edges, faces, planes or sketch lines; with two items picked it shows the distance between them plus dX, dY and dZ. Use the body filter ([[B]]) to pick whole bodies. Sizes are in the document's units. {idx:measure}
+
+- **Snap To**: besides vertices, a click picks **sketch points**, the **midpoints of edges** and the **centres of circles and arcs** (a hole's centre too); each can be turned off. As you move, the point a click would pick is marked on the model with its name.
+- The items picked are numbered **1** and **2** on the model.
+- **Keep the first item** measures from the first item to each next click (a third click replaces the second, not the first).
+- **Measured** lists the distances measured so far, most recent first.
 
 ## Mass Properties
 

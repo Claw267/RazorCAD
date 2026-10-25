@@ -229,7 +229,7 @@ export class Viewport {
       for (let i = 0; i < e.pts.length; i += 3) pts.push(new THREE.Vector3(e.pts[i], e.pts[i + 1], e.pts[i + 2]));
       const hiddenEdge = this.hiddenBodies.has(this.edgeBody[ei]);
       if (!hiddenEdge) for (let i = 0; i < pts.length - 1; i++) linePts.push(pts[i], pts[i + 1]);
-      this.edgeList.push({ pts, mid: e.mid, type: e.type, hidden: hiddenEdge });
+      this.edgeList.push({ pts, mid: e.mid, type: e.type, circ: e.circ, hidden: hiddenEdge });
     });
     this.edges = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(linePts), this.edgeMat);
     this.bodyGroup.add(this.body, this.edges);
@@ -404,6 +404,48 @@ export class Viewport {
       }
     }
     return best;
+  }
+
+  // A snap point under the cursor: an edge's middle (mids) or a circular edge's centre (centres), not hidden behind
+  // the model: { point, kind: 'mid' | 'centre' }.
+  pickSnap(ev, { mids = true, centres = true } = {}, tolPx = 8) {
+    if (!this.edgeList?.length || (!mids && !centres)) return null;
+    const m = this.screenPos(ev), hit = this.pickBody(ev), viewDir = new THREE.Vector3();
+    this.camera.getWorldDirection(viewDir);
+    const depth = (p) => p.clone().sub(this.camera.position).dot(viewDir);
+    const slack = (this.bodyGeo?.boundingSphere?.radius || 50) * 0.02 + 0.5, hitDepth = hit ? depth(hit.point) : Infinity;
+    let best = null, bd = tolPx;
+    const consider = (w, kind, behindOk) => {
+      const s = this.project(w), d = Math.hypot(s.x - m.x, s.y - m.y);
+      if (d < bd && (behindOk || depth(w) <= hitDepth + slack)) { bd = d; best = { point: w.clone(), kind }; }
+    };
+    for (const e of this.edgeList) {
+      if (e.hidden) continue;
+      const closed = e.pts[0].distanceTo(e.pts[e.pts.length - 1]) < 1e-6;
+      if (mids && !closed && e.mid) consider(new THREE.Vector3(...e.mid), 'mid', false);
+      // (a hole's centre lies in the air over its bottom: shown when its edge is)
+      if (centres && e.circ) consider(new THREE.Vector3(...e.circ.c), 'centre', true);
+    }
+    return best;
+  }
+
+  // Small marks at points, following the view: key names the set (replaced as a whole); list: [{ p, text, cls }].
+  setPointMarks(key, list) {
+    this._marks ||= new Map();
+    const old = this._marks.get(key);
+    if (old) { for (const x of old.els) x.remove(); this.frameCallbacks.delete(old.place); this._marks.delete(key); }
+    if (!list?.length) return;
+    const items = list.map((q) => {
+      const el = document.createElement('div');
+      el.className = `point-mark ${q.cls || ''}`;
+      el.innerHTML = `<i></i>${q.text ? `<span>${q.text.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c])}</span>` : ''}`;
+      this.labelsEl.appendChild(el);
+      return { el, w: new THREE.Vector3(...q.p) };
+    });
+    const place = () => { for (const it of items) { const s = this.project(it.w); it.el.style.left = s.x + 'px'; it.el.style.top = s.y + 'px'; } };
+    this.frameCallbacks.add(place);
+    place();
+    this._marks.set(key, { els: items.map((x) => x.el), place });
   }
 
   // Index of the edge whose stored reference point p lies on it.

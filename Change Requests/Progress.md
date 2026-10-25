@@ -726,3 +726,11 @@ Skipped for now (from the list of 2026-10-21):
 
 ## Lofted Surface guide curves (user 2026-10-25: "add the guide curves to the lofted surface"; asked for on issue #1)
 - [x] surfLoft guides (curveList, as the loft's); guidedLoftWires open mode (no wrap round: ends clamped, pulls between the guides either side), profileWires (the profiles lofted as they are), touch points between samples (segments against points, both ways); wireSections: wires as runs of points (per edge when the counts match, else 8 equal pieces), oriented by each wire's start. referencesOf counts guides. Test surface-loft-guides.
+
+## Discussion #4 (Feature Suggestion & Bugs) items not in PR #5 (user 2026-10-26: "implement what was mentioned in the discussion")
+- [x] Pattern features, faces, bodies: features[] (featureList field), faces (faceFeature: the latest feature whose tool has that face), bodies (copied as new bodies); patternAll / patternCentre; pickMode faces | body; the waiting-cut shortcut only for one feature. Test pattern-sources.
+- [x] Measure: snaps (sketch points, edge midpoints, circle centres: viewport.pickSnap, edgeList circ), hover mark and numbered picks (setPointMarks), keep the first item, history. Test measure-snaps.
+- [x] Redundant vs conflicting relations: solver.relationDiagnosis (satisfied or not; the relations in the way, tried one at a time), named in the message and selected. Test relation-diagnosis.
+- [x] Guided loft accuracy (report on the board): GUIDE_STATIONS 6 -> 16. Test loft-guide-accuracy. Bezier reversal in matchLoftSections (control points swapped). Test loft-bezier-reversed.
+- [x] Lofted Surface open/closed: sketch chains' own closed flag, curves to 0.001 mm, the message names the open profile. Test surface-loft-closed-check (Claw's part not downloaded: not confirmed on it).
+- [ ] STEP import: no failing case posted. Split buttons, pattern side panel, dimension dragging, sketch rename, projected splines, midpoint relation, ViewCube colours: in PR #5.

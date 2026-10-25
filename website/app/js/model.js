@@ -220,15 +220,17 @@ export function createFeature(doc, type, props = {}) {
     plane: { refs: [], offset: 20, flip: false, angle: 90, flipAngle: false, position: 'mid', bisector: false, through: false, along: 0, around: 0, moveBy: 0, turn: 0, reverse: false },
     axis: { axisType: 'twoPlanes', planeA: 'front', planeB: 'top', pointA: null, pointB: null, edge: null, face: null, sketchLine: null },
     point: { pointType: 'coords', x: 0, y: 0, z: 0, vertex: null, edge: null },
-    lpattern: { feature: null, dir1: 'x', rev1: false, dist1: 20, count1: 3, dir2: 'none', rev2: false, dist2: 20, count2: 2 },
-    cpattern: { feature: null, axis: 'y', angle: 360, count: 6, equal: true },
-    mirror: { feature: null, plane: 'right' },
+    // (patterns: feature, plus features, faces (each brings the feature that made it) and bodies (copied whole);
+    // pick: what a click on the model picks, 'faces' | 'bodies')
+    lpattern: { feature: null, features: [], faces: [], bodies: [], pick: 'faces', dir1: 'x', rev1: false, dist1: 20, count1: 3, dir2: 'none', rev2: false, dist2: 20, count2: 2 },
+    cpattern: { feature: null, features: [], faces: [], bodies: [], pick: 'faces', axis: 'y', angle: 360, count: 6, equal: true },
+    mirror: { feature: null, features: [], bodies: [], plane: 'right' },
     // Sketch driven: a copy at each point of `sketch` (the point nearest the feature is the feature)
-    spattern: { feature: null, sketch: null },
+    spattern: { feature: null, features: [], faces: [], bodies: [], pick: 'faces', sketch: null },
     // Curve driven: count copies along `path`, spacing 'equal' | 'distance'; align 'translate' | 'tangent'
-    curvePattern: { feature: null, path: null, count: 4, spacing: 'equal', distance: 20, reverse: false, align: 'translate' },
+    curvePattern: { feature: null, features: [], faces: [], bodies: [], pick: 'faces', path: null, count: 4, spacing: 'equal', distance: 20, reverse: false, align: 'translate' },
     // Fill: copies on a 'square' | 'staggered' grid over a flat face, margin from its edges
-    fillPattern: { feature: null, face: null, spacing: 15, layout: 'square', angle: 0, margin: 3 },
+    fillPattern: { feature: null, features: [], face: null, spacing: 15, layout: 'square', angle: 0, margin: 3 },
     // filletType 'constant' | 'variable' (radius at the start → radius2 at the end of each edge) | 'face'
     // (the edges where the picked faces meet)
     // radiusMode (variable): 'ends' (start → end of each edge) | 'vertices' (vertexRadii: [{ p, r }], the others: radius);
@@ -419,7 +421,7 @@ export function referencesOf(doc, f) {
   const addId = (v) => { if (typeof v === 'string' && ids.has(v)) out.add(v); };
   const addBody = (v) => { if (typeof v === 'string' && v) addId(bodyOwner(v)); };
   for (const k of ['sketch', 'feature', 'base', 'toPoint', 'toPlane', 'planeA', 'planeB', 'pointA', 'pointB', 'axis', 'dir1', 'dir2', 'rotAxis', 'parent', 'profile', 'path']) addId(f[k]);
-  for (const id of [...(f.profiles || []), ...(f.guides || [])]) addId(id);
+  for (const id of [...(f.profiles || []), ...(f.guides || []), ...(f.features || [])]) addId(id);
   if (f.type !== 'sketch' && typeof f.plane === 'string') addId(f.plane);
   if (f.plane?.ref) addId(f.plane.ref);
   if (f.type === 'split') { addId(f.tool); addBody(f.tool); }

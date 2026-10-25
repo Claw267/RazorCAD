@@ -542,6 +542,30 @@ export function sketchRank(sk, ev) {
   return rref(fullJacobian(sys), sys.n).rank;
 }
 
+// Why relations just added to a sketch (in sk.constraints) take away fewer degrees of freedom than they should:
+// kind 'redundant' when the geometry already satisfies them (another relation defines it that way), 'conflict' when
+// it doesn't (they would over-define it); blockers: the relations already there that are in the way (without any one
+// of them, the new relations would take away their full share). Only relations on the same points are tried.
+export function relationDiagnosis(sk, added, ev) {
+  const sys = makeSystem(sk, ev), X = Float64Array.from(sys.X);
+  const mine = sys.eqs.filter((e) => added.includes(e.k));
+  if (!mine.length) return null; // (a relation kept by other means, e.g. Fixed: points pinned while solving)
+  let worst = 0, scale = 1;
+  for (const v of X) scale = Math.max(scale, Math.abs(v));
+  for (const e of mine) for (const v of e.f(X)) worst = Math.max(worst, Math.abs(v));
+  const kind = worst <= 1e-7 * scale ? 'redundant' : 'conflict';
+  const deps = new Set(mine.flatMap((e) => e.deps));
+  const others = sk.constraints.filter((k) => !added.includes(k));
+  const touching = others.filter((k) => sys.eqs.some((e) => e.k === k && e.deps.some((d) => deps.has(d)))).slice(-40);
+  const blockers = [];
+  for (const k of touching) {
+    const without = { ...sk, constraints: sk.constraints.filter((x) => x !== k) };
+    const r1 = sketchRank(without, ev), r0 = sketchRank({ ...without, constraints: without.constraints.filter((x) => !added.includes(x)) }, ev);
+    if (r1 - r0 >= added.length) blockers.push(k);
+  }
+  return { kind, blockers };
+}
+
 // Free ends of construction lines: an end point used only by construction lines and by no
 // relation or dimension may slide along its line without the sketch counting as under defined
 // (a centerline only has to be positioned). One extra equation per such end pins that slide.

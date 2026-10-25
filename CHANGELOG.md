@@ -6,6 +6,15 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-26 12:27 — Feature suggestions and bugs from the discussion board
+- **Patterns copy more than one thing**: Linear, Circular, Sketch Driven, Curve Driven and Fill Patterns and Mirror take **More features** besides their Feature, each copied the same way. The Linear, Circular, Sketch Driven and Curve Driven Patterns also take **faces** clicked on the model (each brings the feature that made it: click a hole's wall to copy the hole) or **bodies** (copied whole to every place as new bodies, flat patterns too); Mirror takes bodies.
+- **Measure**: snaps to sketch points, the midpoints of edges and the centres of circles and arcs (each can be turned off), marks the point a click would pick as you move, numbers the items picked on the model, can **keep the first item** to measure from it to each next click, and lists the distances measured.
+- **Relations refused say why**: already satisfied (naming the relations that define the geometry that way) or would over-define the sketch (naming the relations or dimensions in the way, e.g. two horizontal lines a dimension apart made collinear); those relations are selected.
+- **Guided Loft follows its guides more closely**: 16 sections between each two profiles instead of 6. An S-shaped guide that the loft drifted 0.28 mm from is now followed to within about 0.05 mm (a report on the board measured up to 1.1 mm on another S guide).
+- **Fixed**: a loft profile with a spline that had to be turned round to match the other profiles had its Bézier pieces' control points left the wrong way (a different shape; caught by a report on the board).
+- **Fixed**: Lofted Surface said "The profiles must all be open, or all closed" for closed profiles whose ends missed by a little; a sketch profile is now closed when its sketch says so, a curve when its ends meet to 0.001 mm, and the message names the profile that is open and how far apart its ends are.
+- Tests: pattern-sources, measure-snaps, relation-diagnosis, loft-guide-accuracy, loft-bezier-reversed, surface-loft-closed-check.
+
 ## 2026-10-25 11:47 — Guide curves (rails) for the Lofted Surface
 - **Lofted Surface** has **Guide Curves**, as the solid Loft has: sketches (one chain of curves) or curves (3D sketches, composite and projected curves, helices) the surface follows between the profiles, each running from the first profile to the last through every profile. One guide pulls the surface along it; two or more shape it across, each where it touches the profiles. Open and closed profiles both, sketches or 3D sketches; not with straight (ruled) sides.
 - A guide may now cross a profile anywhere along it (the solid Loft too): where the two meet is found between the points they are measured at, not only at them.
