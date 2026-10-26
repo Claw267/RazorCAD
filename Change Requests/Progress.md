@@ -740,3 +740,4 @@ Skipped for now (from the list of 2026-10-21):
 - [x] CI: the two long runs were within the 30-minute limit (a run on GitHub's machines has taken 16 min); logs of the PR's failed runs are no longer available.
 - [x] Sketch -> assembly rebuild race: checked, not real (the part kept its sketch and rebuilt; the test failure was the camera).
 - [x] Variable fillet points dragged along their edges (main.filletPoints / filletPointDown / Move / Up; markers from the panel's places). Test fillet-point-drag.
+- [x] Assemblies: their own upAxis (main.applyUpAxis / setUpAxis for an assembly tab, undoable: snapshot / restore), tree planes' axes and the Origin's menu (assembly.js), new assemblies from prefs, assembly STEP export turned +90 about X (location(c, turn)). Test up-axis-assembly. (Assemblies have no numeric XYZ placement fields or Measure of their own to rename.)

@@ -933,7 +933,7 @@ const UI = {
     const a = window.app, S = await import('/js/sketchmodel.js');
     await a.newDocument?.(); closeModals();
     const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } });
-    a.doc.features.push(f); a.commit(); await a.enterSketch(f, true);
+    a.doc.features.push(f); a.commit(); await a.enterSketch(f, true); await wait(100);
     const sk = a.sketcher, p = S.addPoint(f, 0, 0), q = S.addPoint(f, 12, 0);
     S.addLine(f, p, q);
     const edge = S.addLine(f, S.addPoint(f, 20, 0), S.addPoint(f, 100, -24));
@@ -951,6 +951,7 @@ const UI = {
     if (Math.abs(normal.textDir[0] * 80 + normal.textDir[1] * -24) > 1e-8) return { ok: false, detail: 'Perpendicular dimension text is not aligned with its dimension line' };
     const before = JSON.stringify([f.points, f.curves]);
     sk.moveDimensionLabel(thirteen, { x: 50, y: -25 }); sk.changed();
+    await wait(60); // (the labels placed on the next frame: under load that can be a moment later)
     const after = sk.dims.find((d) => d.k.id === thirteen.id);
     const el = sk.dimPool[sk.dims.indexOf(after)];
     return { ok: JSON.stringify([f.points, f.curves]) === before && Math.hypot(after.at[0] - 50, after.at[1] + 25) < 1e-6 && !el.style.transform.includes('rotate(0rad)'), detail: '4 mm outside arrows, 12 mm inside arrows, aligned perpendicular text and movable extension-line layout; geometry preserved' };
@@ -1285,6 +1286,53 @@ const UI = {
     const v1 = ((await a.kernel.request('measure', { refs: [{ kind: 'body', id: a.result.bodies[0].id }] })).items?.[0] || {}).volume;
     const ok = Math.abs(t1 - 25) < 1.5 && moved < 1 && !a.result.errors?.length && Math.abs(v1 - v0) > 1e-3;
     return { ok, detail: `dragged from 50 % to ${t1} % (the mark ${moved.toFixed(2)} mm from the quarter point while dragging); volume ${v0?.toFixed(2)} → ${v1?.toFixed(2)} mm³${a.result.errors?.length ? ' ' + JSON.stringify(a.result.errors) : ''}` };
+  },
+
+  // An assembly's own up axis: chosen Z up from its Origin's right-click menu, it is kept with the assembly (undo
+  // takes it back), the tree shows the Top plane as XY and the status bar "Z up"; its STEP file is written Z up (a
+  // 100 × 60 × 10 plate lying on RazorCAD's Top plane is 10 along Z in the file, as a part's export would be)
+  async 'up-axis-assembly'() {
+    const a = window.app;
+    const p = M.newDoc(); p.name = 'Plate';
+    const s = M.createFeature(p, 'sketch', { plane: { ref: 'top' } });
+    const P = [[-50, -30], [50, -30], [50, 30], [-50, 30]];
+    Object.assign(s, { points: P.map(([x, y], i) => ({ id: 'p' + i, x, y })), curves: P.map((_, i) => ({ id: 'c' + i, type: 'line', p1: 'p' + i, p2: 'p' + ((i + 1) % 4), construction: false })), constraints: [] });
+    p.features.push(s, M.createFeature(p, 'extrude', { sketch: s.id, depth: 10 }));
+    a.newAssembly(); await wait(300); closeModals();
+    const asm = a.drawing;
+    await asm.addComponent(asm.addPart(p, null, null));
+    await until(() => asm.geo(asm.doc.components[0])?.mesh, 30000);
+    try {
+      const origin = [...document.querySelectorAll('#tree .tn')].find((n) => n.querySelector('.tl')?.textContent === 'Origin');
+      origin?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 60, clientY: 200 }));
+      await wait(150);
+      const item = [...document.querySelectorAll('#ctxmenu .mi')].find((x) => /Z up \(Top plane XY/.test(x.textContent));
+      item?.click();
+      await wait(200);
+      const up = asm.doc.upAxis, status = document.querySelector('#status-up')?.textContent;
+      const topSub = [...document.querySelectorAll('#tree .tn')].find((n) => /Top Plane/.test(n.textContent))?.textContent || '';
+      const step = new TextDecoder().decode((await a.kernel.request('exportAssemblySTEP', { doc: JSON.stringify(asm.doc) })).bytes);
+      const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient({ threads: threadsPerKernel() });
+      let box;
+      try {
+        const d = M.newDoc(); d.features.push(M.createFeature(d, 'import', { format: 'step', fileName: 'asm.step', data: step }));
+        const r = await k.rebuild(d, null, null);
+        const V = r.body.vertices, lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+        for (let i = 0; i < V.length; i += 3) for (let c = 0; c < 3; c++) { lo[c] = Math.min(lo[c], V[i + c]); hi[c] = Math.max(hi[c], V[i + c]); }
+        box = hi.map((x, c) => +(x - lo[c]).toFixed(3));
+      } finally { k.dispose(); }
+      asm.undo?.(); await wait(150);
+      const undone = asm.doc.upAxis ?? 'y';
+      // (read back into a part shown Y up, the file's Z is RazorCAD's −Z: 10 thick along Z)
+      const ok = !!item && up === 'z' && status === 'Z up' && /XY/.test(topSub) && box?.join() === '100,60,10' && undone === 'y';
+      return { ok, detail: `menu item ${item ? 'found' : 'missing'}; up ${up}, status "${status}", tree "${topSub.trim()}"; STEP box ${box}; after undo ${undone}` };
+    } finally {
+      if (a.drawing?.doc) delete a.drawing.doc.upAxis;
+      // (back to a part, as the next test expects)
+      const i = a.tabs.findIndex((t) => t.kind !== 'drawing');
+      if (i >= 0) await a.activateTab(i); else { await a.newDocument?.(); closeModals(); }
+      a.applyUpAxis();
+    }
   },
 
   async 'sketch-box-select'() {

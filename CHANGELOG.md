@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-26 13:23 — Assemblies keep their own up axis
+- An assembly has its own **Y up / Z up**, kept with it like a part's: View ▸ Up Axis, the status bar, or right-click its **Origin** in the tree (Undo takes it back). The tree shows the standard planes' axes (Top Plane XY with Z up) and the Origin which is up; the triad follows. A new assembly starts with the up axis used for new parts.
+- A STEP file exported from an assembly shown Z up is written Z up (its top-level components turned with it, as a part's export is).
+- Test: up-axis-assembly (Z up from the Origin's menu, the tree and status bar, the STEP file Z up, undone).
+
 ## 2026-10-26 13:18 — Variable fillet points dragged along their edges
 - While a variable fillet (radii at the vertices) is edited, each point along an edge is marked on the model: press on a mark and drag it along its edge. The point's place (% or mm) follows the cursor, the mark moves with it, and the fillet rebuilds when you let go. The cursor shows a hand over a mark.
 - Test: fillet-point-drag (a point dragged from 50 % to the quarter point: 25 %, the fillet rebuilt).

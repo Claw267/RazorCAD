@@ -322,10 +322,11 @@ class App {
     ]);
   }
 
-  // The up axis of the part shown (doc.upAxis; assemblies and drawings: the one for new parts) applied: the
-  // triad, the 3D sketch's names and the status bar.
+  // The up axis of the part or assembly shown (its doc.upAxis; drawings: the one for new parts) applied: the triad,
+  // the 3D sketch's names and the status bar.
   applyUpAxis() {
-    const u = this.mode === 'part' || this.mode === 'sketch' || this.mode === 'sketch3d' ? this.doc?.upAxis : this.ui.prefs?.upAxis;
+    const asm = this.mode === 'drawing' && this.drawing?.doc?.kind === 'assembly' ? this.drawing : null;
+    const u = this.mode === 'part' || this.mode === 'sketch' || this.mode === 'sketch3d' ? this.doc?.upAxis : asm ? asm.doc.upAxis : this.ui.prefs?.upAxis;
     const was = W.getUp();
     W.setUp(u);
     if (W.getUp() !== was) { this.viewport.setUpAxis(); relabelAxes3D(); }
@@ -351,8 +352,16 @@ class App {
         this.commit();
       }
     }
+    // (an assembly keeps its own, as a part does: an undoable change)
+    const asm = this.mode === 'drawing' && this.drawing?.doc?.kind === 'assembly' ? this.drawing : null;
+    if (asm && (asm.doc.upAxis === 'z' ? 'z' : 'y') !== u) {
+      asm.begin();
+      if (u === 'z') asm.doc.upAxis = 'z'; else delete asm.doc.upAxis;
+      asm.change();
+    }
     this.applyUpAxis();
-    this.ui.renderPM(); this.ui.renderTree(); this.updateEdgeHighlights();
+    if (asm) asm.renderAll?.();
+    else { this.ui.renderPM(); this.ui.renderTree(); this.updateEdgeHighlights(); }
     this.status(`World axes: ${u.toUpperCase()} up. The Top plane is ${W.stdPlaneAxes('top')}, the Front plane ${W.stdPlaneAxes('front')} and the Right plane ${W.stdPlaneAxes('right')}; the model stays where it is (only the axes' names change). New parts start ${u.toUpperCase()} up.`);
   }
 
@@ -1632,7 +1641,9 @@ class App {
     const names = new Set(this.tabs.filter((t) => t.kind === 'drawing').map((t) => t.drawing.name));
     let n = 1;
     while (names.has('Assembly' + n)) n++;
-    const ed = this.openAssemblyTab(newAssembly('Assembly' + n), null);
+    const doc = newAssembly('Assembly' + n);
+    if (this.ui.prefs?.upAxis === 'z') doc.upAxis = 'z';
+    const ed = this.openAssemblyTab(doc, null);
     this.status('New assembly: Insert Components (the parts open in tabs, or part files), then Mate them.');
     setTimeout(() => ed.insertComponents(), 50);
     return ed;

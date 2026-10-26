@@ -6383,12 +6383,16 @@ async function exportAssemblySTEP(docJson) {
     const o = (d.activeConfig ? (d.configs || []).find((x) => x.id === d.activeConfig) : null)?.comps?.[c.id] || {};
     return { config: 'config' in o ? o.config : (c.config ?? null), suppressed: 'suppressed' in o ? o.suppressed : !!c.suppressed };
   };
-  const location = (c) => {
+  // (turn: the assembly shown Z up, written in its axes: each top-level component turned +90° about X with it, so
+  // RazorCAD's (x, y, z) is the file's (x, −z, y), as a part's export does)
+  const location = (c, turn = false) => {
     const [x, y, z, w] = c.rot || [0, 0, 0, 1], l = Math.hypot(x, y, z, w) || 1, [qx, qy, qz, qw] = [x / l, y / l, z / l, w / l], p = c.pos || [0, 0, 0];
     const t = new oc.gp_Trsf();
-    t.SetValues(1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw), p[0],
-      2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw), p[1],
-      2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy), p[2]);
+    const rows = [[1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw), p[0]],
+      [2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw), p[1]],
+      [2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy), p[2]]];
+    const [r0, r1, r2] = turn ? [rows[0], rows[2].map((v) => -v), rows[1]] : rows;
+    t.SetValues(...r0, ...r1, ...r2);
     keep.push(t);
     const loc = new oc.TopLoc_Location(t);
     keep.push(loc);
@@ -6434,7 +6438,7 @@ async function exportAssemblySTEP(docJson) {
         ? (depth < 16 ? await asmLabel({ ...p.doc, activeConfig: cfg, parts: (p.doc.parts || []).map((q) => ({ ...q, exportColor: q.exportColor })) }, p.name || p.doc.name, depth + 1) : null)
         : await partLabel(p, cfg);
       if (!child) continue;
-      const cl = tool.AddComponent(label, child, location(c));
+      const cl = tool.AddComponent(label, child, location(c, depth === 0 && asm.upAxis === 'z'));
       oc.TDataStd_Name.Set(cl, str(c.name || p.name));
       stats.components++;
       any = true;

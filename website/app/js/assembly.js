@@ -34,6 +34,7 @@ import { HoleTool, asmPartFeatures, fastenerLength, holeDiameter } from './asmfe
 import { t as tr } from './i18n.js';
 import { volWithUnit, lenWithUnit, unitOf } from './units.js';
 import * as G from './geometry.js';
+import * as W from './wcs.js';
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -714,7 +715,7 @@ export class AssemblyEditor {
 
   // ---------------------------------------------------------------- undo / changes
   // (a part copy goes in by reference: it can hold megabytes of imported geometry, and copies are replaced, never changed)
-  snapshot() { return JSON.stringify({ components: this.doc.components, mates: this.doc.mates, parts: this.doc.parts.map((p) => ({ ...p, doc: this.docRef(p.doc) })), name: this.doc.name, nextId: this.doc.nextId, configs: this.doc.configs, activeConfig: this.doc.activeConfig || null, explodes: this.doc.explodes, exploded: this.doc.exploded || null, motions: this.doc.motions || [], customProps: this.doc.customProps || null, bomCols: this.doc.bomCols || null, equations: this.doc.equations || [], asmFeatures: this.doc.asmFeatures || [] }); }
+  snapshot() { return JSON.stringify({ components: this.doc.components, mates: this.doc.mates, parts: this.doc.parts.map((p) => ({ ...p, doc: this.docRef(p.doc) })), name: this.doc.name, nextId: this.doc.nextId, configs: this.doc.configs, activeConfig: this.doc.activeConfig || null, explodes: this.doc.explodes, exploded: this.doc.exploded || null, motions: this.doc.motions || [], customProps: this.doc.customProps || null, bomCols: this.doc.bomCols || null, equations: this.doc.equations || [], asmFeatures: this.doc.asmFeatures || [], upAxis: this.doc.upAxis || null }); }
   docRef(doc) {
     this._docKeys ||= new WeakMap(); this._docs ||= new Map();
     let k = this._docKeys.get(doc);
@@ -737,7 +738,8 @@ export class AssemblyEditor {
     const s = JSON.parse(json);
     s.parts = s.parts.map((p) => ({ ...p, doc: this._docs.get(p.doc) }));
     if (!s.equations) s.equations = [];
-    if (!s.asmFeatures) s.asmFeatures = []; Object.assign(this.doc, s); if (!s.customProps) delete this.doc.customProps; if (!s.bomCols) delete this.doc.bomCols;
+    if (!s.asmFeatures) s.asmFeatures = []; Object.assign(this.doc, s); if (!s.customProps) delete this.doc.customProps; if (!s.bomCols) delete this.doc.bomCols; if (!s.upAxis) delete this.doc.upAxis;
+    this.app.applyUpAxis?.(); // (the up axis undone or redone with the rest)
     this.dirty = true; this.loadParts(); this.updateGeometry(); this.renderAll(); this.app.macros?.syncEditor(this); }
   undo() { const s = this.undoStack.pop(); if (!s) return; this.redoStack.push(this.snapshot()); this.restore(s); }
   redo() { const s = this.redoStack.pop(); if (!s) return; this.undoStack.push(this.snapshot()); this.restore(s); }
@@ -2408,12 +2410,15 @@ export class AssemblyEditor {
       const plane = key !== 'origin', shown = plane && this.planeShown(key);
       row({
         ic: plane ? 'plane' : 'origin', label: plane ? G.STD_PLANES[key].name : 'Origin', depth: 1, cls: plane && !shown ? 'hidden-item' : '',
+        // (the planes' axes in the assembly's up axis; the Origin: which, changed from its menu)
+        sub: plane ? W.stdPlaneAxes(key) : W.getUp() === 'z' ? 'Z up' : 'Y up',
         selected: selRef(key),
         onClick: () => this.pickRef({ ...originRef(key), gi: 'plane:' + key }),
         onHover: plane ? (on) => { this.hoverPlane = on ? key : null; this.updatePlanes(); } : null,
         vis: plane ? { on: shown, toggle: () => this.setPlaneShown(key, !shown) } : null,
         menu: () => [
           { label: 'Mate…', icon: 'mate', key: 'M', action: () => this.startMate() },
+          ...(!plane ? [['y', 'Y up (Top plane XZ, Front XY)'], ['z', 'Z up (Top plane XY, Front XZ)']].map(([v, l]) => ({ label: `${W.getUp() === v ? '● ' : '　'}${l}`, icon: 'axis', action: () => this.app.setUpAxis(v) })) : []),
           ...(plane ? [{ label: 'Normal To', icon: 'normalTo', action: () => this.vp.normalTo(G.stdFrame(key)) },
             shown ? { label: 'Hide', icon: 'hide', action: () => this.setPlaneShown(key, false) } : { label: 'Show', icon: 'show', action: () => this.setPlaneShown(key, true) }] : []),
         ],

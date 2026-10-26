@@ -316,6 +316,8 @@ A part can be shown **Y up** (the default) or **Z up**: **View ▸ Up Axis**, ri
 
 Only the names of the axes change: the model stays where it is and no feature moves. The triad, X / Y / Z directions, Move / Copy Bodies, reference point coordinates, Measure, Mass Properties and 3D sketch coordinates all use the part's axes, and so do exported STEP, STL, OBJ and 3MF files: a part shown Z up is written Z up, and a file imported into it is read Z up. The origin and corner triad always show X in red, Y in green and Z in blue: the vertical axis is green with Y up and blue with Z up.
 
+An **assembly** keeps its own up axis in the same way (View ▸ Up Axis, the status bar, or right-click its **Origin** in the tree; Undo takes it back). Its tree shows the standard planes' axes, and a STEP file exported from an assembly shown Z up is written Z up. A new assembly starts with the up axis used for new parts.
+
 ## Display styles
 
 **View** menu or the heads-up toolbar: **Shaded With Edges**, **Shaded**, **Hidden Lines Removed** and **Wireframe**. {idx:display styles}
