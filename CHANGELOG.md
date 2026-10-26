@@ -6,6 +6,12 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-27 05:51 — Tests: the variable-fillet point drag waits for the edges on slow machines
+
+- The fillet-point-drag test (failing on GitHub's Windows runner, which runs the suite far slower than a desktop) now
+  waits until the model shown for editing has its edges before it drags the point, and until the rebuild after the
+  drag is done; it reports a failure in words instead of stopping with an error when the point is not found.
+
 ## 2026-10-26 21:14 — Version 0.17.4-beta
 - Installer, user manual (85 pages) and website for 0.17.4-beta.
 
