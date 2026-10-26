@@ -6,6 +6,9 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-26 13:01 — Version 0.17.3-beta
+- Installer, user manual (85 pages) and website for 0.17.3-beta. The manual's section on picking source sketches for Project and Intersection moved under Project Edges (it had landed after the revision history, which stopped the PDF building).
+
 ## 2026-10-26 12:40 — Contributions from Claw267 merged (pull request #5)
 - Merged: parametric sketch patterns with a docked panel and live preview, draggable dimension labels with explicit placement, Equal Curve Length and Coincident Midpoints relations, Sketch Fillet between arcs whose ends meet, projected splines kept as splines and small arcs easier to pick, rename of underdefined sketches, grouped sketch tools and slot variants, spline tangent handles, parameter autocomplete and the parameter manager in the Sketch toolbar, origin axes coloured as the user's X / Y / Z, a test fix, loft profiles and guides picked directly on the model (contours or regions of a sketch), and earlier sketch curves picked for plane intersections and projection (entries above, by Claw267).
 - The Lofted Surface's guide curves take the same picks as its profiles: whole sketches, contours of them, or curves.
