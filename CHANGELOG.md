@@ -6,6 +6,12 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-27 06:32 — Tests: the sheet-metal tray's measure time limit fits GitHub's runner
+
+- convert-sheet-corners checks that the tray's exact measure stays quick: 0.15 s on a desktop, 16 s before it was
+  integrated span by span. GitHub's runner took 4.5 s (over the old 3 s limit) while everything else passed; the
+  limit is now 10 s, which still catches the slow measure.
+
 ## 2026-10-27 05:51 — Tests: the variable-fillet point drag waits for the edges on slow machines
 
 - The fillet-point-drag test (failing on GitHub's Windows runner, which runs the suite far slower than a desktop) now
