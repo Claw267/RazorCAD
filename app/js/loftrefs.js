@@ -56,3 +56,10 @@ export function describeRef(doc, ref) {
   const sk = doc.features.find((f) => f.id === sourceId(ref));
   return typeof ref === 'string' ? sk?.name || '(missing)' : `${sk?.name || '(missing)'} · ${ref.region ? 'region' : 'contour'} (${ref.curves?.length || 0} curves)`;
 }
+
+// Frames may be kernel arrays or viewport vectors. Opposite normals are coplanar too.
+export function coplanarFrames(a, b) {
+  const arr = (v) => v.toArray ? v.toArray() : v;
+  const an = arr(a.n), bn = arr(b.n), ao = arr(a.o), bo = arr(b.o);
+  return Math.abs(an.reduce((v, x, i) => v + x * bn[i], 0)) > 1 - 1e-8 && Math.abs(an.reduce((v, x, i) => v + x * (bo[i] - ao[i]), 0)) < 1e-6;
+}

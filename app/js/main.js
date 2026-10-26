@@ -1919,7 +1919,7 @@ class App {
   }
 
   // What the open Property panel wants picked on the model: 'edge', 'vertex' or 'face'.
-  loftPicking() { return this.pm?.kind === 'feature' && ['loft', 'surfLoft'].includes(this.pm.feature.type); }
+  loftPicking() { return this.pm?.kind === 'feature' && (['loft', 'surfLoft'].includes(this.pm.feature.type) || (this.pm.feature.type === 'extrude' && this.pm.extrudePick !== 'target')); }
 
   loftCandidates() {
     if (!this.loftPicking()) return [];
@@ -1977,15 +1977,21 @@ class App {
     const f = this.pm.feature, key = this.pm.loftSlot || 'profiles', guide = key === 'guides';
     const source = this.result.sketches.get(LR.sourceId(ref));
     if (!source) throw new Error('The source sketch is unavailable');
-    const result = LR.resolveContour(source.sketch, ref, guide);
+    if (f.type === 'extrude') {
+      const first = this.result.sketches.get(LR.sourceId(f.profiles?.[0]));
+      if (first && !LR.coplanarFrames(first.frame, source.frame)) throw new Error('Extrude profiles must lie in the same plane');
+    }
+    const result = typeof ref === 'string' ? { sketch: source.sketch } : LR.resolveContour(source.sketch, ref, guide);
+    if (f.type === 'extrude' && !f.thin && result.chain && !result.chain.closed) throw new Error('Select a closed profile or enable Thin Feature');
     if (!guide && f.type === 'loft' && !f.thin && !result.region && !result.chain.closed) throw new Error('A solid loft needs a closed profile. Use Surface Loft for open sections');
     f[key] ||= [];
     if (f[key].some((q) => LR.refKey(q) === LR.refKey(ref))) {
       this.pm.loftDraft = null; this.pm.loftHover = null;
       this.ui.renderPM(); this.updateSketchDisplay();
+      if (f.type === 'extrude') { f[key] = f[key].filter(q => LR.refKey(q) !== LR.refKey(ref)); f.sketch = LR.sourceId(f[key][0]) || null; this.preview(true); this.updateSketchDisplay(); this.status('Profile removed.'); return; }
       this.status('That contour is already selected.'); return;
     }
-    f[key].push(ref); this.pm.loftDraft = null; this.pm.loftHover = null;
+    f[key].push(ref); if (f.type === 'extrude') f.sketch = LR.sourceId(f[key][0]) || null; this.pm.loftDraft = null; this.pm.loftHover = null;
     this.preview(true); this.updateSketchDisplay();
     this.status(`${guide ? 'Guide' : 'Profile'} ${f[key].length} selected.`);
   }
@@ -2680,6 +2686,7 @@ class App {
     const before = this.doc.features.indexOf(f);
     const target = M.findFeature(this.doc, id);
     if (target && before >= 0 && this.doc.features.indexOf(target) > before) return false; // only earlier references
+    if (f.type === 'extrude' && kind === 'sketch') { try { this.addLoftContour(id); } catch(e) { this.toast(e.message, true); } return true; }
     if (this.loftPicking() && kind === 'sketch') {
       this.hoverSketchId = id; this.updateSketchDisplay();
       this.status('Select the desired contour in the canvas; a sketch can contain several profiles or guides.');
@@ -3540,7 +3547,23 @@ class App {
       }
       props.sketch = sk.id;
     }
-    if (M.SKETCH_FEATURES.has(type)) {
+    if (type === 'extrude') {
+      const chosen = preSketch || (selF?.type === 'sketch' ? selF : null);
+      const candidates = doc.features.slice(0, M.rollbackIndex(doc)).filter(f => f.type === 'sketch' && !f.suppressed);
+      if (!candidates.length) {
+        this.pendingFeature = { type, op, opts }; this.startSketch(); return;
+      }
+      props.profiles = chosen ? [chosen.id] : [];
+      if (!chosen) {
+        const visible = candidates.filter(sk => this.sketchShown(sk));
+        const regions = visible.flatMap(sk => LR.selectableRegions(sk).map(r => LR.regionRef(sk.id, r)));
+        if (regions.length === 1) props.profiles = regions;
+      }
+      props.sketch = LR.sourceId(props.profiles[0]) || null;
+      if (op === 'cut' && this.result.body) props.end = 'through2';
+      if (chosen && S.isOpenSketch(chosen)) props.thin = true;
+    }
+    if (M.SKETCH_FEATURES.has(type) && type !== 'extrude') {
       let sk = preSketch || (selF?.type === 'sketch' ? selF : null);
       if (!sk) {
         const used = new Set(doc.features.map((f) => f.sketch).filter(Boolean));

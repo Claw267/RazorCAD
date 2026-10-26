@@ -1,0 +1,216 @@
+{
+  "version": 1,
+  "name": "Outward shell on guided loft \u2014 known issue",
+  "features": [
+    {
+      "id": "f1",
+      "type": "sketch",
+      "name": "Square section",
+      "plane": {
+        "ref": "top"
+      },
+      "suppressed": false,
+      "points": [
+        {
+          "id": "p1",
+          "x": -20,
+          "y": -20
+        },
+        {
+          "id": "p2",
+          "x": 20,
+          "y": -20
+        },
+        {
+          "id": "p3",
+          "x": 20,
+          "y": 20
+        },
+        {
+          "id": "p4",
+          "x": -20,
+          "y": 20
+        }
+      ],
+      "curves": [
+        {
+          "id": "c1",
+          "type": "line",
+          "p1": "p1",
+          "p2": "p2",
+          "construction": false
+        },
+        {
+          "id": "c2",
+          "type": "line",
+          "p1": "p2",
+          "p2": "p3",
+          "construction": false
+        },
+        {
+          "id": "c3",
+          "type": "line",
+          "p1": "p3",
+          "p2": "p4",
+          "construction": false
+        },
+        {
+          "id": "c4",
+          "type": "line",
+          "p1": "p4",
+          "p2": "p1",
+          "construction": false
+        }
+      ],
+      "constraints": [],
+      "nextSid": 10
+    },
+    {
+      "id": "f2",
+      "type": "plane",
+      "name": "Section plane",
+      "refs": [
+        {
+          "kind": "plane",
+          "id": "top"
+        }
+      ],
+      "offset": 40,
+      "suppressed": false
+    },
+    {
+      "id": "f3",
+      "type": "sketch",
+      "name": "Circular section",
+      "plane": {
+        "ref": "f2"
+      },
+      "points": [],
+      "curves": [
+        {
+          "id": "c1",
+          "type": "circle",
+          "c": "O",
+          "r": 40
+        }
+      ],
+      "constraints": [],
+      "nextSid": 3,
+      "suppressed": false
+    },
+    {
+      "id": "f4",
+      "type": "sketch",
+      "name": "Two arc guides",
+      "plane": {
+        "ref": "front"
+      },
+      "points": [
+        {
+          "id": "p1",
+          "x": -40,
+          "y": 40
+        },
+        {
+          "id": "p2",
+          "x": -20,
+          "y": 0
+        },
+        {
+          "id": "p3",
+          "x": 60,
+          "y": 65
+        },
+        {
+          "id": "p4",
+          "x": 20,
+          "y": 0
+        },
+        {
+          "id": "p5",
+          "x": 40,
+          "y": 40
+        },
+        {
+          "id": "p6",
+          "x": -60,
+          "y": 65
+        }
+      ],
+      "curves": [
+        {
+          "id": "c1",
+          "type": "arc",
+          "c": "p3",
+          "p1": "p1",
+          "p2": "p2"
+        },
+        {
+          "id": "c2",
+          "type": "arc",
+          "c": "p6",
+          "p1": "p4",
+          "p2": "p5"
+        }
+      ],
+      "constraints": [],
+      "nextSid": 10,
+      "suppressed": false
+    },
+    {
+      "id": "f5",
+      "type": "loft",
+      "name": "Guided loft",
+      "profiles": [
+        "f1",
+        "f3"
+      ],
+      "guides": [
+        {
+          "kind": "sketchContour",
+          "sketch": "f4",
+          "curves": [
+            "c1"
+          ]
+        },
+        {
+          "kind": "sketchContour",
+          "sketch": "f4",
+          "curves": [
+            "c2"
+          ]
+        }
+      ],
+      "op": "add",
+      "merge": true,
+      "continuity": "C2",
+      "ruled": false,
+      "smoothing": false,
+      "suppressed": false
+    },
+    {
+      "id": "f6",
+      "type": "shell",
+      "name": "Outward shell \u2014 known failure",
+      "faces": [
+        {
+          "p": [
+            0,
+            40,
+            0
+          ],
+          "n": [
+            0,
+            1,
+            0
+          ]
+        }
+      ],
+      "thickness": 1,
+      "outward": true,
+      "suppressed": false
+    }
+  ],
+  "equations": [],
+  "nextId": 7
+}

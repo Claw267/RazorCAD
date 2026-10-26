@@ -712,7 +712,13 @@ Every value field accepts numbers or equations (see Equations in the Evaluate ch
 
 ## Extrude and Extrude Cut
 
-Extrudes a sketch profile into a solid, or cuts it out. {idx:extrude}{idx:Extrude Cut}
+Extrudes selected sketch profiles into solids, or cuts them out. {idx:extrude}{idx:Extrude Cut}
+
+Use **Select profiles in canvas** and click inside closed regions or on a contour. Click a selected region again to remove it, or use its list's remove button. Several profiles may be selected from one sketch or from different **coplanar** sketches; non-coplanar selections are rejected. The same profile references follow source edits, renaming and save/reopen, with missing curves reported explicitly. Selecting an annulus keeps its hole; also selecting the inner disk fills that hole.
+
+Select a sketch in the tree, or expand **Select a whole sketch**, to use all of its profiles and text. A preselected sketch retains this whole-sketch behavior. Without preselection, the command automatically picks a region only when there is exactly one visible profile. Earlier source sketches are temporarily displayed while picking, preserving their saved visibility.
+
+For **Thin Feature**, select open or closed contours. Chain selection gathers connected curves; turn it off to collect segments, then choose **Add selected contour**. For model end references or a cut's body scope, switch to **Select end reference / affected bodies**; use **Select profiles in canvas** to return to profiles. Existing stored whole-sketch extrusions remain supported.
 
 End conditions:
 

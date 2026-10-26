@@ -2274,9 +2274,43 @@ async function rebuild(doc, previewId = null, opts = {}) {
     if (!regions.length && !text && !gears.length) throw new Error(s.sk.curves.some((c) => !c.construction) ? 'The sketch has no closed profile — tick Thin Feature to use open curves' : 'The sketch has no closed profile');
     return { ...s, regions, drawing: regions.length ? regionsDrawing(regions) : null, text, gears };
   };
+  const getExtrudeProfiles = (f) => {
+    const thin = f.thin ? { t: ev(f.thinT), dir: f.thinDir || 'one' } : null;
+    if (!Array.isArray(f.profiles)) return getSketch(f.sketch, thin); // stored whole-sketch features
+    if (!f.profiles.length) throw new Error('Select one or more coplanar profiles');
+    const sections = [], regions = [];
+    let frame;
+    for (const ref of f.profiles) {
+      const source = sketches.get(LR.sourceId(ref));
+      if (!source) throw new Error('A selected profile sketch is missing, suppressed or has errors');
+      frame ||= source.frame;
+      if (!LR.coplanarFrames(frame, source.frame)) throw new Error('Extrude profiles must lie in the same plane');
+      let part;
+      if (typeof ref === 'string') part = getSketch(ref, thin);
+      else {
+        const resolved = LR.resolveContour(source.sk, ref);
+        const selected = thin ? S.thinRegions(resolved.sketch, thin.t, thin.dir) : resolved.region ? [resolved.region] : S.profileRegions(resolved.sketch);
+        if (!selected.length || (!thin && resolved.chain && !resolved.chain.closed)) throw new Error('Select a closed profile or enable Thin Feature for open contours');
+        part = { ...source, regions: selected, drawing: regionsDrawing(selected), text: null, gears: [] };
+      }
+      const point = (p) => S.toFrame2D(frame, S.fromFrame2D(source.frame, p[0], p[1]));
+      const angle = Math.atan2(dot(source.frame.u, frame.v), dot(source.frame.u, frame.u)) * 180 / Math.PI;
+      const shift = point([0, 0]), flipped = dot(source.frame.n, frame.n) < 0;
+      const drawing = (d) => {
+        if (!d) return d;
+        if (flipped) d = d.mirror([1, 0], [0, 0], 'plane');
+        return d.rotate(angle).translate(shift);
+      };
+      // Bounds used by angled up-to-face ends must be expressed in the common frame.
+      regions.push(...part.regions.map(r => ({ outer: { poly: r.outer.poly.map(point) } })));
+      sections.push({ ...part, drawing: drawing(part.drawing), text: drawing(part.text), gears: part.gears?.map(g => ({ ...g, outline: drawing(g.outline), bore: drawing(g.bore) })) });
+    }
+    return { frame, regions, sections };
+  };
   // The solid a feature makes from a sketch profile: make(drawing) for the outlines and for the text,
   // combined so text inside an outline is cut out of it (and text outside it is added).
   const profileSolid = (sk, make) => {
+    if (sk.sections) return sk.sections.map(s => profileSolid(s, make)).reduce((a, b) => a ? a.fuse(b) : b, null);
     const a = sk.drawing ? make(sk.drawing) : null;
     let t = sk.text ? make(sk.text) : null;
     // gears: each made on its own (one 2D boolean over hundreds of tooth edges would be slow), bores cut in 3D
@@ -2927,7 +2961,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
           break;
         }
         case 'extrude': {
-          const sk = getSketch(f.sketch, f.thin ? { t: ev(f.thinT), dir: f.thinDir || 'one' } : null);
+          const sk = getExtrudeProfiles(f);
           let z0 = 0, z1 = 0;
           if (f.end === 'blind' || f.end === 'midplane') {
             const d = ev(f.depth);

@@ -198,7 +198,7 @@ function stdPlaneRefs(f) {
 
 // Thin-feature directions read differently for closed profiles and open curves.
 function thinDirOptions(f) {
-  const ref = f.sketch || f.profile || f.profiles?.[0];
+  const ref = f.profiles?.[0] || f.sketch || f.profile;
   let sk = window.app?.doc && findFeature(window.app.doc, LR.sourceId(ref));
   if (sk && ref?.kind === 'sketchContour') { try { sk = LR.contourSketch(sk, ref); } catch { /* invalid reference is reported by the feature */ } }
   return SM.isOpenSketch(sk)
@@ -720,7 +720,7 @@ const PM_SCHEMAS = {
     },
   ],
   extrude: [
-    { title: 'From', fields: [{ key: 'sketch', type: 'sketch', label: 'Sketch' }] },
+    { title: 'Profiles', fields: [{ key: 'profiles', type: 'loftSelection' }] },
     {
       title: 'Direction 1', fields: [
         { key: 'end', type: 'select', label: 'End condition', options: ENDS_REF },
@@ -3342,8 +3342,8 @@ export class UI {
     const err = a.result?.errors.get(f.id);
     if (f.type === 'loft' && f.ruled && pm.loftSlot === 'guides') { pm.loftSlot = 'profiles'; pm.loftDraft = null; pm.loftHover = null; }
     const waitingForRefs = f.type === 'plane' && !inferPlaneType(planeRefs(f), f.through); // the References box explains this
-    const waitingForProfiles = ['loft', 'surfLoft'].includes(f.type) && (f.profiles || []).length < 2;
-    if (waitingForProfiles) root.appendChild(el('div', { class: 'pm-msg' }, 'Select two or more section profiles in the canvas.'));
+    const waitingForProfiles = ['loft', 'surfLoft'].includes(f.type) ? (f.profiles || []).length < 2 : f.type === 'extrude' && Array.isArray(f.profiles) && !f.profiles.length;
+    if (waitingForProfiles) root.appendChild(el('div', { class: 'pm-msg' }, f.type === 'extrude' ? 'Select one or more coplanar profiles in the canvas.' : 'Select two or more section profiles in the canvas.'));
     else if (err && !waitingForRefs) root.appendChild(el('div', { class: 'pm-msg pm-status err' }, esc(err)));
     else if (pm.isNew && !waitingForRefs) root.appendChild(el('div', { class: 'pm-msg pm-status' }, 'Set the parameters. The model previews live. Click ✔ to accept.'));
 
@@ -4833,28 +4833,33 @@ export class UI {
     if (f.faces.length) body.appendChild(el('button', { class: 'pm-btn', onclick: () => { f.faces.length = 0; this.renderPM(); a.updateEdgeHighlights(); a.preview(); } }, 'Clear'));
   }
 
-  // Loft profiles: sketches in order (the loft goes through them from first to last).
+  // Shared contour picker: ordered loft sections/rails, or coplanar extrusion regions.
   renderLoftSelection(body, f, before, fd) {
     const a = this.app, pm = a.pm, key = fd.key, guide = key === 'guides';
+    const extrude = f.type === 'extrude';
+    if (extrude) { if (!Array.isArray(f.profiles)) f.profiles = f.sketch ? [f.sketch] : []; f.sketch = LR.sourceId(f.profiles[0]) || null; if (!f.thin) { pm.loftChain = true; pm.loftDraft = null; } }
     pm.loftSlot ||= 'profiles'; f[key] ||= [];
-    const active = pm.loftSlot === key;
+    const active = pm.loftSlot === key && (!extrude || pm.extrudePick !== 'target');
     body.appendChild(el('button', { class: 'pm-btn' + (active ? ' on' : ''), 'aria-pressed': String(active), disabled: guide && f.ruled, 'data-loft-slot': key, onclick: () => {
-      pm.loftSlot = key; pm.loftDraft = null; pm.loftHover = null;
+      pm.loftSlot = key; if (extrude) pm.extrudePick = 'profiles'; pm.loftDraft = null; pm.loftHover = null;
       this.renderPM(); a.updateSketchDisplay(); a.status(guide ? 'Click the guide curves in the canvas.' : 'Click the section contours or inside closed profiles in the canvas.');
     } }, guide ? 'Select guides in canvas' : 'Select profiles in canvas'));
-    if (!guide) {
+    if (extrude && (['upToVertex', 'upToSurface', 'offsetSurface'].includes(f.end) || (f.op === 'cut' && f.scopeAll === false))) {
+      body.appendChild(el('button', { class: 'pm-btn' + (pm.extrudePick === 'target' ? ' on' : ''), 'data-extrude-target': '', onclick: () => { pm.extrudePick = 'target'; pm.loftDraft = null; pm.loftHover = null; this.renderPM(); a.updateSketchDisplay(); } }, 'Select end reference / affected bodies'));
+    }
+    if (!guide && (!extrude || f.thin)) {
       const cb = el('input', { type: 'checkbox', 'data-loft-chain': '' }); cb.checked = pm.loftChain !== false;
       cb.onchange = () => { pm.loftChain = cb.checked; pm.loftDraft = null; pm.loftHover = null; this.renderPM(); a.updateSketchDisplay(); };
       const label = el('label'); label.append(cb, document.createTextNode(' Chain selection'));
       body.appendChild(this.row(null, label, 'check'));
     }
-    body.appendChild(el('div', { class: 'pm-hint' }, guide ? f.ruled ? 'Guide curves require a smooth loft. Remove the guides or untick straight (ruled) sides.' : 'Pick guide curves or connected chains, including construction curves. Guides must meet every section.' : f.type === 'loft' ? 'Pick closed contours or click inside regions. Each selection adds one section.' : 'Pick open or closed contours. All sections must be open, or all closed.'));
+    body.appendChild(el('div', { class: 'pm-hint' }, guide ? f.ruled ? 'Guide curves require a smooth loft. Remove the guides or untick straight (ruled) sides.' : 'Pick guide curves or connected chains, including construction curves. Guides must meet every section.' : extrude ? f.thin ? 'Pick open or closed contours. Use Chain selection or select segments manually, then add the contour.' : 'Click closed regions to add/remove them. Profiles from different sketches must be coplanar. Select a sketch in the tree to use all its profiles. Enable Thin Feature for open contours.' : f.type === 'loft' ? 'Pick closed contours or click inside regions. Each selection adds one section.' : 'Pick open or closed contours. All sections must be open, or all closed.'));
     const ul = el('div', { class: 'pm-list', 'data-loft-list': key });
     if (!f[key].length) ul.appendChild(el('div', { class: 'li pm-hint' }, guide ? 'No guides selected' : 'No profiles selected'));
     f[key].forEach((ref, i) => {
       const li = el('div', { class: 'li sel' });
       li.appendChild(el('span', {}, `${i + 1}. ${LR.describeRef(a.doc, ref)}`));
-      for (const [label, action] of [['▲', 'up'], ['▼', 'down'], ['✕', 'remove']]) {
+      for (const [label, action] of (extrude ? [['✕', 'remove']] : [['▲', 'up'], ['▼', 'down'], ['✕', 'remove']])) {
         const b = el('button', { class: 'pm-btn', title: action === 'up' ? 'Move up' : action === 'down' ? 'Move down' : 'Remove', 'data-loft-action': action, disabled: action === 'up' ? i === 0 : action === 'down' ? i === f[key].length - 1 : false }, label);
         b.onclick = () => {
           if (action === 'remove') f[key].splice(i, 1);
@@ -4874,11 +4879,11 @@ export class UI {
       body.appendChild(el('button', { class: 'pm-btn', 'data-loft-finish': '', disabled: !count, onclick: () => a.finishLoftSelection() }, 'Add selected contour'));
       if (count) body.appendChild(el('button', { class: 'pm-btn', onclick: () => { pm.loftDraft = null; this.renderPM(); a.updateSketchDisplay(); } }, 'Clear current selection'));
     }
-    const details = el('details'), summary = el('summary', {}, 'Other sources (whole sketch / curve)'); details.appendChild(summary);
+    const details = el('details'), summary = el('summary', {}, extrude ? 'Select a whole sketch' : 'Other sources (whole sketch / curve)'); details.appendChild(summary);
     const select = el('select', { 'data-loft-legacy': key }); select.appendChild(el('option', { value: '' }, '+ Add source…'));
     const kinds = guide ? ['sketch', 'sketch3d', 'compCurve', 'projCurve', 'helix'] : fd.with3d ? ['sketch', 'sketch3d', 'compCurve', 'projCurve'] : ['sketch'];
     for (const source of before.filter((s) => kinds.includes(s.type) && !s.suppressed && !f[key].includes(s.id))) select.appendChild(el('option', { value: source.id }, esc(source.name)));
-    select.onchange = () => { if (select.value) { f[key].push(select.value); a.preview(true); a.updateSketchDisplay(); } };
+    select.onchange = () => { if (select.value) { if (extrude) { try { a.addLoftContour(select.value); } catch(e) { a.toast(e.message, true); } } else { f[key].push(select.value); a.preview(true); a.updateSketchDisplay(); } } };
     details.appendChild(select); body.appendChild(details);
   }
 

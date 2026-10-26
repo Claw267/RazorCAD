@@ -595,6 +595,97 @@ const UI = {
     return { ok: true, detail: 'Two rails in one multi-curve sketch, construction rail selection, unrelated geometry excluded, dependencies and measured deformation' };
   },
 
+  async 'extrude-selected-profiles'() {
+    const a = window.app, S = await import('/js/sketchmodel.js'), LR = await import('/js/loftrefs.js'), d = M.newDoc();
+    const first = M.createFeature(d, 'sketch', { plane: { ref: 'top' } });
+    const rect = S.buildRect(first, S.addPoint(first, 0, 0), S.addPoint(first, 20, 10));
+    const outer = S.addCircle(first, S.addPoint(first, 40, 0), 5), inner = S.addCircle(first, S.addPoint(first, 40, 0), 2);
+    const second = M.createFeature(d, 'sketch', { plane: { ref: 'top', rot: 90 } });
+    S.addCircle(second, S.addPoint(second, 0, 60), 3); S.addCircle(second, S.addPoint(second, 100, 100), 7);
+    d.features.push(first, second);
+    const region = (sk, cid) => LR.regionRef(sk.id, LR.selectableRegions(sk).find(r => r.outer.segs.some(g => g.sourceCurve === cid)));
+    const refs = [region(first, rect.lines[0]), region(first, outer), region(second, second.curves[0].id)];
+    const f = M.createFeature(d, 'extrude', { profiles: refs, depth: 10, merge: false }); d.features.push(f);
+    const volume = async (r) => {
+      if (r.errors.length) throw Error(JSON.stringify(r.errors));
+      let sum = 0; for (const b of r.body.bodies) { const m = await a.kernel.request('measure', { refs: [{ kind: 'body', id: b.id }] }); sum += m.items[0].volume; } return sum;
+    };
+    const near = (x, y) => Math.abs(x - y) < 1e-5 * Math.max(1, y);
+    let r = await a.kernel.rebuild(d, null, null), v = await volume(r);
+    if (!near(v, 2000 + 300 * Math.PI) || !M.referencesOf(d, f).has(second.id)) return { ok: false, detail: `Selected volumes or dependencies wrong: ${v}` };
+    // The rotated second sketch must be placed at world x=-60, not at its local x=0.
+    const V = r.body.vertices; let minX = Infinity; for (let i = 0; i < V.length; i += 3) minX = Math.min(minX, V[i]);
+    if (Math.abs(minX + 63) > .1) return { ok: false, detail: `Coplanar frame rotation ignored: min X ${minX}` };
+    f.profiles.push(region(first, inner)); r = await a.kernel.rebuild(d, null, null); v = await volume(r);
+    if (!near(v, 2000 + 340 * Math.PI)) return { ok: false, detail: 'Selecting an inner disk did not fill the annulus hole' };
+    S.getCurve(first, outer).r = 6; first.rev = M.newRev();
+    r = await a.kernel.rebuild(JSON.parse(JSON.stringify(d)), null, null); v = await volume(r);
+    if (!near(v, 2000 + 450 * Math.PI)) return { ok: false, detail: 'Source edit or reopen lost region references' };
+    f.profiles = [refs[0]]; f.end = 'midplane'; f.depth = 8;
+    r = await a.kernel.rebuild(d, null, null); if (!near(await volume(r), 1600)) return { ok: false, detail: 'Midplane selected extrusion failed' };
+    const plane = M.createFeature(d, 'plane', { refs: [{ kind: 'plane', id: 'top' }], offset: 10 });
+    const above = M.createFeature(d, 'sketch', { plane: { ref: plane.id } }); S.addCircle(above, 'O', 2); d.features.splice(2, 0, plane, above);
+    f.end = 'upToSurface'; f.toPlane = plane.id;
+    r = await a.kernel.rebuild(d, null, null); if (!near(await volume(r), 2000)) return { ok: false, detail: 'Selected extrusion up to a plane failed' };
+    f.end = 'midplane';
+    f.profiles.push(region(above, above.curves[0].id)); r = await a.kernel.rebuild(d, null, null);
+    if (!r.errors.some(([id, msg]) => id === f.id && msg.includes('same plane'))) return { ok: false, detail: 'Non-coplanar profiles were accepted' };
+    f.profiles = [refs[0]]; first.curves = first.curves.filter(c => c.id !== rect.lines[0]); first.rev = M.newRev(); r = await a.kernel.rebuild(d, null, null);
+    if (!r.errors.some(([id, msg]) => id === f.id && msg.includes('deleted'))) return { ok: false, detail: 'Missing contour silently replaced' };
+    // Thin open selection excludes an unrelated line, and the result can be used as a cut.
+    const td = M.newDoc(), sk = M.createFeature(td, 'sketch', { plane: { ref: 'top' } });
+    const line = S.addLine(sk, S.addPoint(sk, 0, 0), S.addPoint(sk, 20, 0)); S.addLine(sk, S.addPoint(sk, 100, 0), S.addPoint(sk, 120, 0));
+    const thin = M.createFeature(td, 'extrude', { profiles: [LR.chainRef(sk, sk.id, line)], thin: true, thinT: 2, thinDir: 'mid', depth: 10 }); td.features.push(sk, thin);
+    r = await a.kernel.rebuild(td, null, null); if (!near(await volume(r), 400)) return { ok: false, detail: 'Thin selection included unrelated geometry' };
+    const cd = M.newDoc(), block = M.createFeature(cd, 'sketch', { plane: { ref: 'top' } });
+    S.buildRect(block, S.addPoint(block, -20, -20), S.addPoint(block, 20, 20));
+    const solid = M.createFeature(cd, 'extrude', { sketch: block.id, depth: 20 });
+    const holes = M.createFeature(cd, 'sketch', { plane: { ref: 'top' } });
+    const h1 = S.addCircle(holes, S.addPoint(holes, -10, 0), 3), h2 = S.addCircle(holes, S.addPoint(holes, 10, 0), 3); S.addCircle(holes, 'O', 2);
+    const cut = M.createFeature(cd, 'extrude', { op: 'cut', profiles: [region(holes, h1), region(holes, h2)], end: 'through2' }); cd.features.push(block, solid, holes, cut);
+    r = await a.kernel.rebuild(cd, null, null); if (!near(await volume(r), 32000 - 360 * Math.PI)) return { ok: false, detail: 'Selected cut included an unselected hole or ignored selected holes' };
+    const fd = M.newDoc(), normal = M.createFeature(fd, 'sketch', { plane: { ref: 'top' } }); S.addCircle(normal, 'O', 4);
+    const flipped = M.createFeature(fd, 'sketch', { plane: { ref: 'face', frame: { o: [100, 0, 0], u: [1, 0, 0], v: [0, 0, 1], n: [0, -1, 0] } } }); S.addCircle(flipped, S.addPoint(flipped, 0, 20), 4);
+    fd.features.push(normal, flipped, M.createFeature(fd, 'extrude', { profiles: [region(normal, normal.curves[0].id), region(flipped, flipped.curves[0].id)], depth: 10 }));
+    r = await a.kernel.rebuild(fd, null, null); if (!near(await volume(r), 320 * Math.PI)) return { ok: false, detail: 'Opposite coplanar frame normals failed' };
+    let maxZ = -Infinity, minY = Infinity; for (let i = 0; i < r.body.vertices.length; i += 3) { maxZ = Math.max(maxZ, r.body.vertices[i + 2]); minY = Math.min(minY, r.body.vertices[i + 1]); }
+    if (Math.abs(maxZ - 24) > .1 || minY < -.01) return { ok: false, detail: `Mirrored coordinates or extrusion direction wrong: ${maxZ}, ${minY}` };
+    return { ok: true, detail: 'Exact add/cut volumes, selected regions/sketches, rotated/opposite/translated frames, holes/unions, source edits/reopen, midplane/up-to-plane, invalid planes/deletions, legacy extrude and thin open contours' };
+  },
+
+  async 'extrude-canvas-profiles'() {
+    const a = window.app, S = await import('/js/sketchmodel.js'), d = M.newDoc();
+    const sk = M.createFeature(d, 'sketch', { plane: { ref: 'top' }, visible: false });
+    S.addCircle(sk, S.addPoint(sk, -20, 0), 5); S.addCircle(sk, S.addPoint(sk, 20, 0), 5); d.features.push(sk);
+    await a.setDoc(d); closeModals(); a.startFeature('extrude'); await a.rebuild();
+    const f = a.pm.feature;
+    if (f.profiles.length) return { ok: false, detail: 'Extrude silently selected hidden profiles' };
+    a.viewport.setStandardView('top', false); a.viewport.zoomToFit(null, false); a.viewport.camera.updateMatrixWorld(true);
+    const frame = a.result.sketches.get(sk.id).frame, v = viewEvents(), at = x => v.toScreen(frame.o.clone().addScaledVector(frame.u, x));
+    await v.click(...at(-20)); await v.click(...at(20)); await a.rebuild();
+    if (f.profiles.length !== 2 || a.result.errors.size || !a.result.preview) return { ok: false, detail: 'Canvas profile selection did not preview both regions' };
+    await v.click(...at(-20)); if (f.profiles.length !== 1) return { ok: false, detail: 'Click did not toggle a selected region off' };
+    await v.click(...at(-20));
+    f.end = 'upToSurface'; a.ui.renderPM(); document.querySelector('[data-extrude-target]').click();
+    if (a.pickMode() !== 'face') return { ok: false, detail: 'Profile picking blocks the end face selector' };
+    document.querySelector('[data-loft-slot="profiles"]').click(); if (a.pickMode() !== 'loftContour') return { ok: false, detail: 'Cannot return to profile picking' };
+    f.end = 'blind'; f.op = 'cut'; f.scopeAll = false; a.ui.renderPM(); document.querySelector('[data-extrude-target]').click();
+    if (a.pickMode() !== 'body') return { ok: false, detail: 'Profile picking blocks cut body scope' };
+    f.op = 'add'; f.scopeAll = true; await a.okPM();
+    if (sk.visible !== false || a.pm || document.querySelector('[data-loft-label]')) return { ok: false, detail: 'Selection changed visibility or left labels after accept' };
+    a.undo(); await a.rebuild(); if (a.doc.features.some(q => q.id === f.id)) return { ok: false, detail: 'Extrude undo failed' };
+    a.redo(); await a.rebuild(); a.editFeature(f.id); await a.rebuild(); a.pm.feature.profiles.pop(); a.cancelPM(); await a.rebuild();
+    if (a.doc.features.find(q => q.id === f.id).profiles.length !== 2) return { ok: false, detail: 'Edit cancel lost references' };
+    a.select({ kind: 'feature', id: sk.id }); a.startFeature('extrude');
+    if (a.pm.feature.profiles[0] !== sk.id) return { ok: false, detail: 'Explicit sketch preselection did not retain whole-sketch behavior' };
+    a.cancelPM();
+    const single = M.newDoc(), one = M.createFeature(single, 'sketch', { plane: { ref: 'top' }, visible: true }); S.addCircle(one, 'O', 5); single.features.push(one);
+    await a.setDoc(single); a.startFeature('extrude');
+    if (a.pm.feature.profiles.length !== 1 || a.pm.feature.profiles[0].kind !== 'sketchContour') return { ok: false, detail: 'Single visible profile not auto-selected' };
+    a.cancelPM();
+    return { ok: true, detail: 'Hidden canvas selection/toggle, preview, face/body slots, visibility, accept/undo/redo/cancel, explicit sketch selection and sole-visible-profile auto-selection' };
+  },
+
   async 'loft-canvas-selection'() {
     const a = window.app, S = await import('/js/sketchmodel.js');
     document.querySelectorAll('.modal-back .modal-h .x').forEach((b) => b.click());

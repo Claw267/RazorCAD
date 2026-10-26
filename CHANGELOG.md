@@ -6,6 +6,13 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## Unreleased — Direct profile selection for Extrude and Extrude Cut
+- Select/toggle individual sketch regions in the canvas, or select a whole sketch from the tree/list. Multiple sources must be coplanar; their coordinate frames are transformed into the extrusion plane. Regions retain holes, selected inner disks fill them, and overlapping selected material is united.
+- Thin Feature accepts selected open/closed chains and manual segment groups. Separate profile/end-reference/body-scope selection modes preserve existing extrusion limits and scoped cuts. Earlier source sketches are temporarily shown without changing saved visibility.
+- Persistent contour references follow source edits and serialization. Existing whole-sketch extrusions remain supported; explicit sketch preselection selects the whole sketch, while automatic selection requires a sole visible region.
+- Validation: 24 browser tests passed, including exact extrusion/cut volumes, rotated/opposite/translated coplanar frames, holes, limits, thin contours, reference edits, UI selection and existing sketch/loft regressions.
+- Added a synthetic known-issue reproduction for Shell outward on guided lofts under tests/known-issues. Shell remains unresolved; no experimental offset or repair algorithm is included.
+
 ## Unreleased — Sketch source selection and plane intersections
 - Project Edges and Intersection Curve temporarily display earlier source sketches, including hidden/absorbed ones, without altering saved visibility. Spline helper lines are excluded from external curve picking.
 - Intersection Curve now selects individual sketch curves or model section chains. Lines, circles and arcs produce linked plane intersections; coplanar geometry is retained. Source edits refresh intersections independently of ordinary projections. Non-coplanar spline intersections are explicitly unsupported.
