@@ -1365,6 +1365,37 @@ const UI = {
     }
   },
 
+  // Sketch Fillet where a spline meets a line or an arc: R5 at the corner of a line along −X and a spline through
+  // (20, 10), (40, 0), (60, −10) from it; the fillet is 5 from the line (tangent) and touches the spline square to its
+  // radius (the spline's end handle along it), the spline is cut back to it and keeps its fit points further on, and
+  // the sketch solves; the same with an arc in place of the line
+  async 'sketch-fillet-spline'() {
+    const S = await import('/js/sketchmodel.js'), V = await import('/js/solver.js');
+    const run = (withArc) => {
+      const sk = S.newSketchData(), P = S.addPoint(sk, 0, 0);
+      if (withArc) { const c = S.addPoint(sk, -20, 0), e = S.addPoint(sk, -40, 0); S.addArc(sk, c, P, e); } else S.addLine(sk, P, S.addPoint(sk, -40, 0));
+      const sp = S.addFitSpline(sk, [P, ...[[20, 10], [40, 0], [60, -10]].map(([x, y]) => S.addPoint(sk, x, y))]);
+      const before = S.getCurve(sk, sp).pts.slice(1).map((id) => { const q = S.getPoint(sk, id); return [q.x, q.y]; });
+      const made = S.blendCorner(sk, P, 5);
+      const sol = V.solveSketch(sk, (x) => Number(x));
+      const arc = S.getCurve(sk, made[3]), C = S.getPoint(sk, arc.c), spl = S.getCurve(sk, sp);
+      const T = S.getPoint(sk, spl.p1), H = S.getPoint(sk, spl.handles[0]);
+      const rad = Math.hypot(T.x - C.x, T.y - C.y), square = ((H.x - T.x) * (T.x - C.x) + (H.y - T.y) * (T.y - C.y)) / (Math.hypot(H.x - T.x, H.y - T.y) * rad);
+      // (the other curve: a line's distance, or the arc's circle: |centre to its centre| − its radius)
+      const B = sk.curves.find((c) => c.type === (withArc ? 'arc' : 'line') && c.id !== arc.id && !c.ctrlOf);
+      const toOther = withArc
+        ? (() => { const bc = S.getPoint(sk, B.c), bp = S.getPoint(sk, B.p1); return Math.abs(Math.hypot(C.x - bc.x, C.y - bc.y) - Math.hypot(bp.x - bc.x, bp.y - bc.y)); })()
+        : (() => { const a1 = S.getPoint(sk, B.p1), a2 = S.getPoint(sk, B.p2); return Math.abs((C.x - a1.x) * (a2.y - a1.y) - (C.y - a1.y) * (a2.x - a1.x)) / Math.hypot(a2.x - a1.x, a2.y - a1.y); })();
+      const kept = spl.pts.slice(1).map((id) => { const q = S.getPoint(sk, id); return [q.x, q.y]; });
+      const keptFar = before.slice(-2).every((q) => kept.some((k) => Math.hypot(k[0] - q[0], k[1] - q[1]) < 1e-9));
+      const rels = sk.constraints.map((k) => k.type);
+      return { rad, square, toOther, keptFar, solved: sol.ok && !sol.bad.length, rels: rels.includes('splineTangent') && rels.includes('tangent') };
+    };
+    const L = run(false), A = run(true);
+    const good = (x) => Math.abs(x.rad - 5) < 1e-6 && Math.abs(x.square) < 1e-6 && Math.abs(x.toOther - 5) < 1e-6 && x.keptFar && x.solved && x.rels;
+    return { ok: good(L) && good(A), detail: `with a line: radius ${L.rad.toFixed(4)}, handle·radius ${L.square.toExponential(1)}, ${L.toOther.toFixed(4)} from the line, far fit points kept ${L.keptFar}, solves ${L.solved}; with an arc: radius ${A.rad.toFixed(4)}, ${A.toOther.toFixed(4)} from it, handle·radius ${A.square.toExponential(1)}, solves ${A.solved}` };
+  },
+
   async 'sketch-box-select'() {
     const a = window.app;
     await a.newDocument?.();

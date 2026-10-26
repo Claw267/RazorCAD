@@ -6,6 +6,10 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-26 13:37 — Sketch Fillet where a spline meets a line or an arc
+- **Sketch Fillet** rounds a corner where a fit-point spline meets a line or an arc. The spline is cut back to where the fillet touches it (its fit points before that dropped; the touch point becomes its end, with its tangent handle along the spline there, so the shape further on stays as it was). The fillet is tangent to the other curve and to the spline (a new **Tangent (spline)** relation keeps the spline's end handle square to the fillet's radius) and gets a radius dimension. Two splines, and control-point splines, are not rounded yet.
+- Test: sketch-fillet-spline (with a line and with an arc: R5, tangent to both, the far fit points kept, the sketch solves).
+
 ## 2026-10-26 13:31 — A Settings window
 - **File ▸ Settings…** and **Tools ▸ Settings…** (in parts, assemblies and drawings): theme, language, toolbar icon size and the Sketch toolbar's layout (expanded, or grouped in flyout menus); the units and up axis of what is shown (and for new parts); your own sheet metal gauges, which can be deleted here; and DXF Settings, Customize Shortcuts, Customize Toolbars, Claude Settings and the tour. Each change applies at once. (A tester couldn't find the settings: they were spread over the View, Tools and Help menus.)
 - Test: settings-window.

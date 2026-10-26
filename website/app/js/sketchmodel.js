@@ -2505,9 +2505,16 @@ function blendCornerInPlace(sk, P, r, chamfer) {
   }
   if (joined.has('O')) P = 'O';
   for (const q of joined) if (q !== P) mergePoints(sk, q, P);
-  let two = sk.curves.filter((c) => (c.type === 'line' || c.type === 'arc') && (c.p1 === P || c.p2 === P));
+  let two = sk.curves.filter((c) => (c.type === 'line' || c.type === 'arc' || (c.type === 'spline' && !c.ctrl && !c.closed && !c.ctrlOf)) && (c.p1 === P || c.p2 === P));
   const regular = two.filter((c) => !c.construction);
   if (regular.length === 2) two = regular;
+  // (a spline and a line or an arc: rounded along the spline, which is cut back to the fillet)
+  if (two.length === 2 && two.some((c) => c.type === 'spline')) {
+    if (chamfer) throw new Error('Pick a corner where exactly two lines meet');
+    if (two.every((c) => c.type === 'spline')) throw new Error('A fillet between two splines is not supported yet: round a spline with a line or an arc');
+    const sp = two.find((c) => c.type === 'spline');
+    return filletSpline(sk, P, sp, two.find((c) => c !== sp), r);
+  }
   const lines = two.length === 2 && two.every((c) => c.type === 'line') ? two : null;
   if (!lines) {
     // a line and an arc, or two arcs: rounded (not chamfered)
@@ -2633,6 +2640,107 @@ function filletCurves(sk, P, A, B, r) {
   if (used) {
     if (P !== 'O') getPoint(sk, P).keep = true;
     addRel(sk, 'onCurve', [P, A.id]);
+    addRel(sk, 'onCurve', [P, B.id]);
+  }
+  return [T1, T2, C, arc];
+}
+
+// Round the corner at P where a (fit-point) spline meets a line or an arc. The fillet's centre is r from both: along
+// the spline, the first place (from the corner) where a point r off it, square to it, is r from the other curve
+// (within it). The spline is cut back to where the fillet touches it: its fit points before that are dropped, the
+// touch point becomes its end, with its tangent handle along the spline there (so the shape beyond barely changes);
+// the other curve is cut back as for two curves. The fillet gets a tangent relation with the other curve, a spline
+// tangent relation (its end handle square to the fillet's radius) and a radius dimension.
+function filletSpline(sk, P, sp, B, r) {
+  const p = getPoint(sk, P), tol = 1e-9, atStart = sp.p1 === P;
+  if (!sp.handles) { sp.handles = fitSplineHandles(sp.pts.map((id) => { const q = getPoint(sk, id); return [q.x, q.y]; }), false).map((q) => addPoint(sk, ...q)); syncFitHandles(sk, sp); }
+  // the spline from the corner, as close points (each with its piece and that piece's parameter), with the length
+  const pieces = splinePieces(sk, sp), N = 48, S = [];
+  pieces.forEach((g, j) => {
+    for (let k = j ? 1 : 0; k <= N; k++) {
+      const t = k / N, u = 1 - t;
+      S.push({ q: [0, 1].map((d) => u * u * u * g.a[d] + 3 * u * u * t * g.c1[d] + 3 * u * t * t * g.c2[d] + t * t * t * g.b[d]), j, t });
+    }
+  });
+  if (!atStart) S.reverse();
+  const L = [0];
+  for (let i = 1; i < S.length; i++) L.push(L[i - 1] + Math.hypot(S[i].q[0] - S[i - 1].q[0], S[i].q[1] - S[i - 1].q[1]));
+  const tangent = (i) => { const a = S[Math.max(0, i - 1)].q, b = S[Math.min(S.length - 1, i + 1)].q, l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1; return [(b[0] - a[0]) / l, (b[1] - a[1]) / l]; };
+  // the other curve: its distance from a point less r (a line: either side; an arc: outside or inside), and where it is
+  // touched (within it)
+  let other;
+  if (B.type === 'line') {
+    const a = getPoint(sk, B.p1 === P ? B.p2 : B.p1), BL = Math.hypot(a.x - p.x, a.y - p.y), u = [(a.x - p.x) / BL, (a.y - p.y) / BL];
+    other = {
+      gap: (O) => Math.abs((O[0] - p.x) * -u[1] + (O[1] - p.y) * u[0]) - r,
+      touch: (O) => { const t = (O[0] - p.x) * u[0] + (O[1] - p.y) * u[1]; return t > tol && t < BL - tol ? [p.x + u[0] * t, p.y + u[1] * t] : null; },
+    };
+  } else {
+    const C = getPoint(sk, B.c), s = getPoint(sk, B.p1), e = getPoint(sk, B.p2), R = Math.hypot(s.x - C.x, s.y - C.y), a0 = Math.atan2(s.y - C.y, s.x - C.x);
+    let span = Math.atan2(e.y - C.y, e.x - C.x) - a0;
+    while (span <= 0) span += 2 * Math.PI;
+    other = {
+      gap: (O) => Math.abs(Math.hypot(O[0] - C.x, O[1] - C.y) - R) - r,
+      touch: (O) => {
+        const v = [O[0] - C.x, O[1] - C.y], vl = Math.hypot(v[0], v[1]);
+        if (vl < tol) return null;
+        const T = [C.x + (v[0] / vl) * R, C.y + (v[1] / vl) * R];
+        let a = Math.atan2(T[1] - C.y, T[0] - C.x) - a0;
+        while (a < 0) a += 2 * Math.PI;
+        return a > 1e-9 && a < span - 1e-9 ? T : null;
+      },
+    };
+  }
+  // along the spline, each side: where the gap first changes sign (found to a hair between two close points)
+  const centre = (i, sg, f = 0) => {
+    // (the direction too between the two points)
+    const q = [0, 1].map((d) => S[i].q[d] + (S[i + 1]?.q[d] - S[i].q[d] || 0) * f), u0 = tangent(i), u1 = tangent(Math.min(S.length - 1, i + 1));
+    const uu = [u0[0] + (u1[0] - u0[0]) * f, u0[1] + (u1[1] - u0[1]) * f], ul = Math.hypot(uu[0], uu[1]) || 1, u = [uu[0] / ul, uu[1] / ul];
+    return { O: [q[0] - u[1] * r * sg, q[1] + u[0] * r * sg], q, s: L[i] + (L[i + 1] - L[i] || 0) * f };
+  };
+  let best = null;
+  for (const sg of [1, -1]) {
+    let prev = other.gap(centre(1, sg).O);
+    for (let i = 2; i < S.length - 1; i++) {
+      const cur = other.gap(centre(i, sg).O);
+      if ((prev < 0) !== (cur < 0)) {
+        let lo = 0, hi = 1;
+        for (let it = 0; it < 40; it++) { const m = (lo + hi) / 2; if ((other.gap(centre(i - 1, sg, m).O) < 0) === (prev < 0)) lo = m; else hi = m; }
+        const c = centre(i - 1, sg, (lo + hi) / 2), T2 = other.touch(c.O);
+        if (T2 && (!best || c.s < best.s)) best = { ...c, T2, i: i - 1 };
+        break;
+      }
+      prev = cur;
+    }
+  }
+  if (!best) throw new Error('The radius is too large (or too small) for these curves: no fillet fits between them');
+  // the spline cut back: its fit points before the touch point dropped, the touch point its end with the handle along it
+  const ptsFrom = atStart ? sp.pts : [...sp.pts].reverse(), handlesFrom = atStart ? sp.handles : [...sp.handles].reverse();
+  // (fit point m, as the spline is stored: where piece m starts, i.e. where piece m − 1 ends; its length from the corner)
+  const posOf = (m) => { const idx = S.findIndex((x) => (m === 0 ? x.j === 0 && x.t === 0 : x.j === m - 1 && x.t === 1)); return idx >= 0 ? L[idx] : Infinity; };
+  const keep = ptsFrom.map((_, k) => k).filter((k) => k > 0 && posOf(atStart ? k : sp.pts.length - 1 - k) > best.s + 1e-6);
+  if (!keep.length) throw new Error('The fillet would take up the whole spline: use a smaller radius');
+  const T1 = addPoint(sk, ...best.q), u = tangent(best.i), nextQ = getPoint(sk, ptsFrom[keep[0]]);
+  const h = Math.hypot(nextQ.x - best.q[0], nextQ.y - best.q[1]) / 3, fwd = atStart ? 1 : -1;
+  const H1 = addPoint(sk, best.q[0] + u[0] * h * fwd, best.q[1] + u[1] * h * fwd);
+  const newPts = [T1, ...keep.map((k) => ptsFrom[k])], newHandles = [H1, ...keep.map((k) => handlesFrom[k])];
+  sp.pts = atStart ? newPts : newPts.reverse();
+  sp.handles = atStart ? newHandles : newHandles.reverse();
+  sp.p1 = sp.pts[0]; sp.p2 = sp.pts[sp.pts.length - 1];
+  syncFitHandles(sk, sp);
+  // the other curve cut back, the fillet
+  const used = P === 'O' || sk.constraints.some((k) => k.refs.includes(P));
+  const T2 = addPoint(sk, ...best.T2), C = addPoint(sk, ...best.O);
+  if (B.p1 === P) B.p1 = T2; else B.p2 = T2;
+  const construction = sp.construction && B.construction;
+  const c = getPoint(sk, C), a = getPoint(sk, T1), b = getPoint(sk, T2);
+  const ccw = (a.x - c.x) * (b.y - c.y) - (a.y - c.y) * (b.x - c.x) > 0;
+  const arc = ccw ? addArc(sk, C, T1, T2, construction) : addArc(sk, C, T2, T1, construction);
+  addRel(sk, 'tangent', B.type === 'line' ? [B.id, arc] : [arc, B.id]);
+  addRel(sk, 'splineTangent', [arc, sp.id]);
+  addRel(sk, 'dim', [arc], { kind: 'radius', value: +r.toFixed(6) });
+  if (used) {
+    if (P !== 'O') getPoint(sk, P).keep = true;
     addRel(sk, 'onCurve', [P, B.id]);
   }
   return [T1, T2, C, arc];

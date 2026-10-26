@@ -24,6 +24,7 @@ export const RELATION_INFO = {
   equalDist: { label: 'Equal Distance', glyph: '=' },
   concentric: { label: 'Concentric', glyph: '◎' },
   tangent: { label: 'Tangent', glyph: 'T' },
+  splineTangent: { label: 'Tangent (spline)', glyph: 'T' },
   fix: { label: 'Fixed', glyph: '⚓' },
   projected: { label: 'On Edge (projected)', glyph: '⇲' },
   sketchPattern: { label: 'Sketch Pattern', glyph: '⋮' },
@@ -269,6 +270,20 @@ export function makeSystem(sk, ev) {
               return [internal ? d - Math.abs(C1.r(Xa) - C2.r(Xa)) : d - (C1.r(Xa) + C2.r(Xa))];
             }, [...C1.deps, ...C2.deps], k);
           }
+          break;
+        }
+        case 'splineTangent': {
+          // an arc and a spline meeting at an end of both: the spline's tangent handle there square to the arc's radius
+          const arc = curves.get(R[0]), sp = curves.get(R[1]);
+          if (!arc || arc.type !== 'arc' || !sp || sp.type !== 'spline' || !sp.handles) throw new Error('Expected an arc and a spline with handles');
+          const end = [sp.p1, sp.p2].find((q) => q === arc.p1 || q === arc.p2);
+          if (!end) throw new Error('The arc and the spline must meet at an end');
+          const T = pt(end), H = pt(sp.handles[end === sp.p1 ? 0 : sp.handles.length - 1]), Cc = pt(arc.c);
+          push((Xa) => {
+            const t = T.get(Xa), hh = H.get(Xa), c = Cc.get(Xa);
+            const hx = hh[0] - t[0], hy = hh[1] - t[1], rx = t[0] - c[0], ry = t[1] - c[1];
+            return [(hx * rx + hy * ry) / ((Math.hypot(hx, hy) * Math.hypot(rx, ry)) || 1e-12)];
+          }, [...T.deps, ...H.deps, ...Cc.deps], k);
           break;
         }
         case 'sketchPattern':

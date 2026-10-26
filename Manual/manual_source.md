@@ -459,7 +459,7 @@ In the sketch Property panel, **Rotate 90°** turns the sketch axes about the sk
 | **Text** | | See below |
 | **Gears** | | See the Gears chapter |
 | **Airfoil** | | See the Airfoils chapter |
-| **Sketch Fillet / Sketch Chamfer** | | Set the radius or distance, then click corners (a fillet: where two lines, a line and an arc, or two arcs meet; a chamfer: two lines). The first one made gets the dimension; the others made before you leave the tool are made Equal to it, so one value changes them all. |
+| **Sketch Fillet / Sketch Chamfer** | | Set the radius or distance, then click corners (a fillet: where two lines, a line and an arc, two arcs, or a fit-point spline and a line or an arc meet: the spline is cut back to the fillet, which stays tangent to it; a chamfer: two lines). The first one made gets the dimension; the others made before you leave the tool are made Equal to it, so one value changes them all. |
 | **Intersection Curve** | | Click earlier sketch curves to create linked intersections with the active sketch plane, or select a model section |
 | **Construction Geometry** | [[Q]] | Toggles selected curves to/from construction; with no curves selected, toggles construction mode for newly drawn geometry. The drawing panel also has **For construction**. Preview and resulting geometry are dashed and ignored by features. |
 | **Display Relations** | | Shows or hides the relation glyphs |
