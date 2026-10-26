@@ -3796,7 +3796,7 @@ export class UI {
         for (const r of rels) {
           const label = sk.relationLabel(r);
           const b = el('button', { title: label }, `<span class="g">${esc(RELATION_INFO[r].glyph)}</span>${esc(label.replace(' (on curve)', ''))}`);
-          if (r === 'equalLength' || r === 'midpointCoincident') b.style.gridColumn = '1 / -1';
+          if (r === 'equalLength') b.style.gridColumn = '1 / -1';
           b.onclick = () => sk.addRelation(r);
           grid.appendChild(b);
         }

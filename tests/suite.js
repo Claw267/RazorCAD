@@ -831,14 +831,16 @@ const UI = {
     S.addRel(f, 'vertical', [segment]);
     S.addRel(f, 'dim', [p[2], p[3]], { kind: 'vdist', value: 8, s: 1 });
     sk.changed(); sk.sel = new Set([axis, segment]); a.ui.renderPM();
-    const button = [...document.querySelectorAll('#pm button')].find((b) => b.title === 'Coincident Midpoints');
-    if (!button) return { ok: false, detail: 'Two segments did not offer Coincident Midpoints' };
+    const buttons = [...document.querySelectorAll('#pm button')];
+    const button = buttons.find((b) => b.title === 'Midpoint');
+    if (!button || buttons.some((b) => b.title === 'Coincident Midpoints')) return { ok: false, detail: 'Two segments did not offer the single Midpoint command' };
     const before = sk.snapshotData(), count = f.points.length;
     const centred = (data) => {
       const q = p.map((id) => S.getPoint(data, id));
       return Math.hypot((q[0].x + q[1].x - q[2].x - q[3].x) / 2, (q[0].y + q[1].y - q[2].y - q[3].y) / 2) < 1e-6;
     };
     button.click();
+    if (!f.constraints.some((k) => k.type === 'midpointCoincident' && k.refs.includes(axis) && k.refs.includes(segment))) return { ok: false, detail: 'Midpoint command did not retain the two-line constraint type' };
     if (!sk.solveOk || !centred(f) || f.points.length !== count || V.analyzeSketch(f, sk.ev).dofDefined !== 0) return { ok: false, detail: 'Midpoints failed to coincide without helper points' };
     sk.undo(); if (sk.snapshotData() !== before) return { ok: false, detail: 'Undo did not restore the sketch' };
     sk.redo(); if (!centred(f)) return { ok: false, detail: 'Redo lost the midpoint relation' };
@@ -852,7 +854,18 @@ const UI = {
     sk.restoreData(JSON.stringify(locked));
     const snapshot = sk.snapshotData();
     if (sk.tryAddConstraints([['midpointCoincident', [axis, segment]]], { quiet: true }) || sk.snapshotData() !== snapshot) return { ok: false, detail: 'Conflicting midpoint relation was not rejected atomically' };
-    return { ok: true, detail: 'Two-line UI, construction line, no helper points, fully defined, undo/redo, serialization, source edits and conflict rollback' };
+    // The same command still creates the point-to-line relation (with the line selected first).
+    sk.undo();
+    const point = p[2];
+    sk.sel = new Set([axis, point]); a.ui.renderPM();
+    const pointButton = [...document.querySelectorAll('#pm button')].find((b) => b.title === 'Midpoint');
+    if (!pointButton) return { ok: false, detail: 'Point and line did not offer Midpoint' };
+    pointButton.click();
+    const mid = S.getPoint(f, point), ends = S.getCurve(f, axis);
+    const e1 = S.getPoint(f, ends.p1), e2 = S.getPoint(f, ends.p2);
+    if (!sk.solveOk || !f.constraints.some((k) => k.type === 'midpoint' && k.refs[0] === point && k.refs[1] === axis)
+      || Math.hypot(mid.x - (e1.x + e2.x) / 2, mid.y - (e1.y + e2.y) / 2) > 1e-6) return { ok: false, detail: 'Unified Midpoint did not preserve point-to-line behavior' };
+    return { ok: true, detail: 'Unified Midpoint command, distinct internal types, construction line, no helper points, fully defined, undo/redo, serialization, source edits and conflict rollback' };
   },
 
   async 'sketch-equal-control-polygon-batch'() {

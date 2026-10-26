@@ -1533,7 +1533,7 @@ export class Sketcher {
     }
     if (pts.length === n) out.push('coincident', 'horizontal', 'vertical');
     if (lines.length === n) out.push('horizontal', 'vertical', 'parallel', 'equal');
-    if (lines.length === 2 && n === 2) out.push('perpendicular', 'collinear', 'midpointCoincident');
+    if (lines.length === 2 && n === 2) out.push('perpendicular', 'collinear', 'midpoint');
     if (rounds.length === n) out.push('equal', 'concentric');
     if (n >= 2 && items.every((i) => ['line', 'arc', 'circle', 'ellipse', 'earc', 'spline'].includes(i.kind)) && lines.length !== n) out.push('equalLength');
     if (n === 2 && rounds.length === 2) out.push('tangent');
@@ -1568,7 +1568,10 @@ export class Sketcher {
       case 'equalLength': chain('equalLength', ids); break;
       case 'concentric': chain('concentric', rounds); break;
       case 'onCurve': list.push(['onCurve', [pts[0], lines[0] || rounds[0]]]); break;
-      case 'midpoint': list.push(['midpoint', [pts[0], lines[0] || rounds[0]]]); break;
+      case 'midpoint':
+        if (lines.length === 2 && items.length === 2) list.push(['midpointCoincident', lines]);
+        else list.push(['midpoint', [pts[0], lines[0] || rounds[0]]]);
+        break;
       case 'midpointCoincident': list.push(['midpointCoincident', lines]); break;
       case 'tangent': {
         if (lines.length) list.push(['tangent', [lines[0], rounds[0]], { s: S.tangentSign(sk, lines[0], rounds[0]) }]);
