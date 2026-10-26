@@ -1277,6 +1277,51 @@ export class UI {
     this.savePrefs();
     this.app.status(`Theme: ${{ light: 'light', dark: 'dark', system: 'as Windows is set' }[v]}.`);
   }
+
+  // Settings: everything you can set, in one place (each change applies at once, as from its own menu): the
+  // look, units and up axis, your gauges, and the editors for drawings' DXF, shortcuts, toolbars and Claude.
+  showSettings() {
+    const a = this.app, box = el('div', { class: 'settings' });
+    let dlg = null;
+    const section = (title) => { const s = el('div', { class: 'settings-sec' }); s.appendChild(el('h4', {}, esc(tr(title)))); box.appendChild(s); return s; };
+    const select = (opts, cur, onchange) => {
+      const s = el('select', { style: 'min-width:12em' });
+      for (const [v, l] of opts) { const o = el('option', { value: v }, esc(l)); if (v === cur) o.selected = true; s.appendChild(o); }
+      s.onchange = () => onchange(s.value);
+      return s;
+    };
+    const open = (label, fn) => el('button', { class: 'pm-btn', onclick: () => { dlg?.close(); fn(); } }, esc(tr(label)));
+    const look = section('Appearance');
+    look.appendChild(this.row('Theme', select([['light', 'Light'], ['dark', 'Dark'], ['system', 'Follow Windows']], this.prefs?.theme || 'system', (v) => this.setTheme(v))));
+    look.appendChild(this.row('Language', select(LANGUAGES, language(), (v) => this.setLang(v))));
+    look.appendChild(this.row('Toolbar icons', select([['small', 'Small'], ['medium', 'Medium'], ['large', 'Large']], this.prefs?.iconSize || 'medium', (v) => this.setIconSize(v))));
+    look.appendChild(this.row('Sketch toolbar', select([['expanded', 'Expanded (all tools)'], ['grouped', 'Grouped (flyout menus)']], this.tbPrefs().sketchLayout || 'expanded', (v) => { this.tbPrefs().sketchLayout = v; this.savePrefs(); this.renderCommandManager(); })));
+    const ua = section('Units and Axes');
+    const what = a.mode === 'drawing' ? (a.drawing?.doc?.kind === 'assembly' ? 'this assembly' : 'this drawing') : 'this part';
+    ua.appendChild(this.row('Units', select([['mm', 'Millimetres (mm)'], ['in', 'Inches (in)']], a.units, (v) => a.setUnits(v))));
+    ua.appendChild(el('div', { class: 'pm-hint' }, esc(`For ${what}.`)));
+    ua.appendChild(this.row('Up axis', select([['y', 'Y up (Top plane XZ, Front XY)'], ['z', 'Z up (Top plane XY, Front XZ)']], W.getUp(), (v) => a.setUpAxis(v))));
+    ua.appendChild(el('div', { class: 'pm-hint' }, esc(a.mode === 'drawing' && a.drawing?.doc?.kind !== 'assembly' ? 'For new parts.' : `For ${what}, and for new parts.`)));
+    const sm = section('Sheet Metal Gauges');
+    const gl = el('div', { class: 'pm-list' });
+    const gauges = () => {
+      gl.innerHTML = '';
+      const mine = this.prefs?.gauges || [];
+      if (!mine.length) gl.appendChild(el('div', { class: 'li pm-hint' }, esc(tr('None of your own yet: save one from a sheet metal feature\'s Gauge row (Save…).'))));
+      for (const g of mine) {
+        const li = el('div', { class: 'li' }, `<span>${esc(g.name)}: t ${esc(fmt(g.t, 3))} mm, R ${esc(fmt(g.R, 3))} mm, K ${esc(fmt(g.K, 3))}</span><span class="x" title="Delete">✕</span>`);
+        li.querySelector('.x').onclick = () => { this.prefs.gauges = mine.filter((x) => x !== g); this.savePrefs(); gauges(); };
+        gl.appendChild(li);
+      }
+    };
+    gauges();
+    sm.appendChild(gl);
+    const more = section('More Settings');
+    const btns = el('div', { class: 'settings-btns' });
+    btns.append(open('DXF Settings…', () => this.showDxfSettings()), open('Customize Shortcuts…', () => this.showShortcutEditor()), open('Customize Toolbars…', () => this.showToolbarCustomize()), open('Claude Settings…', () => this.showClaudeSettings()), open('Getting Started Tour', () => this.startTour()));
+    more.appendChild(btns);
+    dlg = this.modal('Settings', 'gear', box, [{ label: 'Close', primary: true }]);
+  }
   baseMenuDefs() {
     const a = this.app;
     if (a.mode === 'drawing' && a.drawing) return a.drawing.menuDefs();
@@ -1302,6 +1347,8 @@ export class UI {
         'sep',
         { label: 'Properties…', icon: 'customProps', action: () => editCustomProps(this, a.doc, (ch) => { if (ch) { a.commit(); a.status('Part properties changed.'); } }) },
         { label: 'Compare With…', icon: 'compare', action: () => compareWith(a) },
+        'sep',
+        { label: 'Settings…', icon: 'gear', action: () => this.showSettings() },
       ],
       Edit: [
         { label: 'Undo', icon: 'undo', key: 'Ctrl+Z', action: () => a.undo(), disabled: !a.history.canUndo() || a.mode === 'sketch' },
@@ -1377,6 +1424,8 @@ export class UI {
         { label: 'Reference Geometry ▸ Point…', icon: 'refpoint', action: () => a.startFeature('point') },
       ],
       Tools: [
+        { label: 'Settings…', icon: 'gear', action: () => this.showSettings() },
+        'sep',
         { label: 'Measure…', icon: 'measure', action: () => a.startMeasure() },
         { label: 'Equations…', icon: 'equations', action: () => this.showEquations() },
         { label: 'Mass Properties…', icon: 'mass', action: () => this.showMassProps() },

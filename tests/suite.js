@@ -1335,6 +1335,36 @@ const UI = {
     }
   },
 
+  // Settings: one window (File / Tools ▸ Settings…) with the look, units and up axis, your gauges and the other
+  // settings' editors; a change applies at once: Z up for the part, inches, a gauge of your own deleted
+  async 'settings-window'() {
+    const a = window.app;
+    if (a.mode === 'drawing') { const i = a.tabs.findIndex((t) => t.kind !== 'drawing'); if (i >= 0) await a.activateTab(i); }
+    await a.newDocument?.();
+    closeModals();
+    const prefs = a.ui.prefs ||= {}, gaugesWere = prefs.gauges;
+    prefs.gauges = [{ name: 'Test 2 mm', t: 2, R: 2, K: 0.44 }];
+    const menus = a.ui.baseMenuDefs(), inFile = menus.File.some((x) => x?.label === 'Settings…'), inTools = menus.Tools.some((x) => x?.label === 'Settings…');
+    a.ui.showSettings(); await wait(150);
+    const box = document.querySelector('.settings'), rowOf = (label) => [...box.querySelectorAll('.pm-row')].find((r) => r.querySelector('label')?.textContent === label)?.querySelector('select');
+    try {
+      const up = rowOf('Up axis'), units = rowOf('Units');
+      up.value = 'z'; up.dispatchEvent(new Event('change'));
+      units.value = 'in'; units.dispatchEvent(new Event('change'));
+      const gaugeBefore = box.querySelectorAll('.pm-list .li .x').length;
+      box.querySelector('.pm-list .li .x')?.click();
+      const sections = [...box.querySelectorAll('.settings-sec h4')].map((x) => x.textContent).join(', ');
+      const buttons = box.querySelectorAll('.settings-btns .pm-btn').length;
+      const ok = inFile && inTools && a.doc.upAxis === 'z' && a.units === 'in' && gaugeBefore === 1 && !(prefs.gauges || []).length && buttons === 5 && /Appearance/.test(sections);
+      return { ok, detail: `File ${inFile}, Tools ${inTools}; ${sections}; up ${a.doc.upAxis}, units ${a.units}, gauges ${gaugeBefore} → ${(prefs.gauges || []).length}, ${buttons} buttons` };
+    } finally {
+      closeModals();
+      a.setUpAxis('y'); a.setUnits('mm');
+      if (gaugesWere) prefs.gauges = gaugesWere; else delete prefs.gauges;
+      a.ui.savePrefs();
+    }
+  },
+
   async 'sketch-box-select'() {
     const a = window.app;
     await a.newDocument?.();

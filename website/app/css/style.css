@@ -588,6 +588,12 @@ svg.ref-arrows { position: absolute; left: 0; top: 0; pointer-events: none; z-in
 /* measure */
 .measure-label { position: absolute; transform: translate(-50%, -130%); background: #d97706; color: #fff; font-size: 12px; font-weight: 600; padding: 2px 7px; border-radius: 4px; pointer-events: none; white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
 .measure-kv b { color: #92400e; }
+/* Settings */
+.settings { min-width: 420px; max-width: 560px; }
+.settings-sec { margin: 0 0 12px; }
+.settings-sec h4 { margin: 0 0 6px; font-size: 13px; }
+.settings-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.settings-btns .pm-btn { width: auto; }
 /* Measure: the snap point under the cursor, and the items picked (numbered) */
 .point-mark { position: absolute; pointer-events: none; z-index: 3; }
 .point-mark i { position: absolute; left: -4px; top: -4px; width: 8px; height: 8px; border-radius: 50%; background: #d97706; border: 1.5px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.35); }

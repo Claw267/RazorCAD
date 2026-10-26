@@ -6,6 +6,10 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-26 13:31 — A Settings window
+- **File ▸ Settings…** and **Tools ▸ Settings…** (in parts, assemblies and drawings): theme, language, toolbar icon size and the Sketch toolbar's layout (expanded, or grouped in flyout menus); the units and up axis of what is shown (and for new parts); your own sheet metal gauges, which can be deleted here; and DXF Settings, Customize Shortcuts, Customize Toolbars, Claude Settings and the tour. Each change applies at once. (A tester couldn't find the settings: they were spread over the View, Tools and Help menus.)
+- Test: settings-window.
+
 ## 2026-10-26 13:23 — Assemblies keep their own up axis
 - An assembly has its own **Y up / Z up**, kept with it like a part's: View ▸ Up Axis, the status bar, or right-click its **Origin** in the tree (Undo takes it back). The tree shows the standard planes' axes (Top Plane XY with Z up) and the Origin which is up; the triad follows. A new assembly starts with the up axis used for new parts.
 - A STEP file exported from an assembly shown Z up is written Z up (its top-level components turned with it, as a part's export is).

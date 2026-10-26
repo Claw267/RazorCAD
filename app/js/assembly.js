@@ -2363,6 +2363,8 @@ export class AssemblyEditor {
         { label: 'Mate…', icon: 'mate', key: 'M', action: () => this.startMate() },
       ],
       Tools: [
+        { label: 'Settings…', icon: 'gear', action: () => this.app.ui.showSettings() },
+        'sep',
         { label: 'Bill of Materials…', icon: 'bom', action: () => this.showBOM() },
         { label: 'Equations…', icon: 'equations', action: () => this.showEquations() },
         { label: 'Interference Check…', icon: 'interference', action: () => this.checkInterference() },

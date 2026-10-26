@@ -135,6 +135,15 @@ The ribbon shows its buttons in two rows. {idx:toolbars, customising}
 
 The layout is kept in `prefs.json` in RazorCAD's data folder.
 
+## Settings
+
+**File ▸ Settings…** or **Tools ▸ Settings…** (in parts, assemblies and drawings) has everything you can set in one place; a change applies at once: {idx:settings}{idx:preferences}
+
+- **Appearance**: theme, language, the size of the toolbar icons, and the Sketch toolbar's layout (all tools, or grouped in flyout menus).
+- **Units and Axes**: the units of the part, assembly or drawing shown, and its up axis (also used for new parts).
+- **Sheet Metal Gauges**: the gauges you saved (from a sheet metal feature's **Gauge** row, **Save…**); delete the ones you no longer want.
+- **More Settings**: DXF Settings, Customize Shortcuts, Customize Toolbars, Claude Settings and the Getting Started Tour.
+
 ## Language and theme
 
 - **View ▸ Language**: English, Deutsch, Français or Español, in parts, assemblies and drawings. The menus, ribbons, Property panels, dialog titles and buttons, the tree's fixed items and the start window are translated; longer help texts and messages are still in English. The command search finds a command by its translated name or its English one. Macros, recordings and your shortcuts work in every language, and files are the same in all of them. {idx:language}

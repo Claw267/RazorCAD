@@ -2494,6 +2494,8 @@ export class DrawingEditor {
         { label: 'Sheet', icon: 'addSheet', action: () => this.addSheet() },
       ],
       Tools: [
+        { label: 'Settings…', icon: 'gear', action: () => this.app.ui.showSettings() },
+        'sep',
         { label: 'Sheet Properties…', icon: 'sheetProps', action: () => this.sheetPropsDialog() },
         { label: 'Drawing Properties (Title Block)…', icon: 'titleBlock', action: () => this.propsDialog() },
         { label: 'Check Drawing…', icon: 'drawCheck', action: () => this.checkDrawingDialog() },
