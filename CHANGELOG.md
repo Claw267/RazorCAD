@@ -6,6 +6,10 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-26 13:18 — Variable fillet points dragged along their edges
+- While a variable fillet (radii at the vertices) is edited, each point along an edge is marked on the model: press on a mark and drag it along its edge. The point's place (% or mm) follows the cursor, the mark moves with it, and the fillet rebuilds when you let go. The cursor shows a hand over a mark.
+- Test: fillet-point-drag (a point dragged from 50 % to the quarter point: 25 %, the fillet rebuilt).
+
 ## 2026-10-26 13:01 — Version 0.17.3-beta
 - Installer, user manual (85 pages) and website for 0.17.3-beta. The manual's section on picking source sketches for Project and Intersection moved under Project Edges (it had landed after the revision history, which stopped the PDF building).
 

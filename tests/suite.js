@@ -1248,6 +1248,45 @@ const UI = {
     } finally { a.cancelPM(); }
   },
 
+  // A variable fillet's point dragged along its edge: a 100 × 60 × 10 block, a fillet on one top edge (R2 at its
+  // vertices) with a point at 50 % (R5); pressed on its mark and dragged to the place a quarter of the way along, it
+  // is there (about 25 %), the mark follows, and the fillet rebuilds with it there
+  async 'fillet-point-drag'() {
+    const a = window.app;
+    if (a.mode === 'drawing') { const i = a.tabs.findIndex((t) => t.kind !== 'drawing'); if (i >= 0) await a.activateTab(i); }
+    await a.newDocument?.();
+    closeModals();
+    const d = a.doc, S = await import('/js/sketchmodel.js');
+    const s0 = M.createFeature(d, 'sketch', { plane: { ref: 'top' } });
+    S.buildCenterRect(s0, 'O', 0, 0, 50, 30);
+    const ex = M.createFeature(d, 'extrude', { sketch: s0.id, depth: 10 });
+    for (const x of [s0, ex]) M.insertFeature(d, x);
+    a.commit(); await a.rebuild();
+    const vp = a.viewport;
+    // (a top edge along X: the one through (0, 10, ±30) the model has)
+    const edgeP = [[0, 10, 30], [0, 10, -30]].find((q) => vp.edgeIndexForPoint(q) >= 0);
+    const fl = M.createFeature(d, 'fillet', { filletType: 'variable', radiusMode: 'vertices', radius: 2, edges: [{ p: edgeP }], edgePoints: [{ edge: 0, t: 50, r: 5 }] });
+    M.insertFeature(d, fl); a.commit(); await a.rebuild();
+    const v0 = ((await a.kernel.request('measure', { refs: [{ kind: 'body', id: a.result.bodies[0].id }] })).items?.[0] || {}).volume;
+    a.editFeature(fl.id); await wait(400);
+    vp.setStandardView('iso', false); vp.zoomToFit(null, false); await wait(300);
+    const { fire, toScreen } = viewEvents();
+    const f = a.pm.feature, at = a.filletPoints(f)[0];
+    const quarter = (() => { const { P, L } = at, s = L[L.length - 1] / 4; let k = 1; while (k < P.length - 1 && L[k] < s) k++; return P[k - 1].clone().lerp(P[k], (s - L[k - 1]) / ((L[k] - L[k - 1]) || 1)); })();
+    const from = toScreen(vp.camera.position.clone().set(...at.p)), to = toScreen(quarter);
+    fire('pointerdown', ...from, { button: 0, buttons: 1 }); await wait(40);
+    for (let k = 1; k <= 5; k++) { fire('pointermove', from[0] + ((to[0] - from[0]) * k) / 5, from[1] + ((to[1] - from[1]) * k) / 5, { button: 0, buttons: 1 }); await wait(30); }
+    const during = a.filletPoints(f)[0].p;
+    fire('pointerup', ...to, { button: 0, buttons: 0 }); await wait(100);
+    for (let i = 0; i < 100 && a.kernel.pending; i++) await wait(50);
+    await wait(300);
+    const t1 = f.edgePoints[0].t, moved = Math.hypot(...during.map((x, k) => x - quarter.toArray()[k]));
+    a.okPM?.(); await wait(200); await a.rebuild();
+    const v1 = ((await a.kernel.request('measure', { refs: [{ kind: 'body', id: a.result.bodies[0].id }] })).items?.[0] || {}).volume;
+    const ok = Math.abs(t1 - 25) < 1.5 && moved < 1 && !a.result.errors?.length && Math.abs(v1 - v0) > 1e-3;
+    return { ok, detail: `dragged from 50 % to ${t1} % (the mark ${moved.toFixed(2)} mm from the quarter point while dragging); volume ${v0?.toFixed(2)} → ${v1?.toFixed(2)} mm³${a.result.errors?.length ? ' ' + JSON.stringify(a.result.errors) : ''}` };
+  },
+
   async 'sketch-box-select'() {
     const a = window.app;
     await a.newDocument?.();

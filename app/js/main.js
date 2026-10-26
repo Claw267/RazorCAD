@@ -2210,9 +2210,11 @@ class App {
       const refs = f.type === 'fillet' || f.type === 'chamfer' || f.type === 'smFlange' || f.type === 'smHem' || f.type === 'smProfileFlange' ? f.edges : f.edge ? [f.edge] : [];
       const selected = refs.map((e) => vp.edgeIndexForPoint(e.p)).filter((i) => i >= 0);
       vp.setEdgeHighlights({ selected, hover: this.hoverEdge ?? null });
-      // (a variable fillet's points along its edges, where the last build put them)
-      const pts = f.type === 'fillet' && f.filletType === 'variable' && f.radiusMode === 'vertices' ? this.result?.info?.[f.id]?.points : null;
-      vp.setVertexMarkers(pts?.length ? { selected: pts, hover: null } : null);
+      // (a variable fillet's points along its edges: where the panel puts them, so a drag moves them at once; else
+      // where the last build put them)
+      const fp = this.filletPoints(f);
+      const pts = fp ? fp.filter(Boolean).map((x) => x.p) : null;
+      vp.setVertexMarkers(pts?.length ? { selected: pts, hover: this._fpDrag ? pts[this._fpDrag.i] ?? null : null } : null);
     } else if (mode === 'vertex') {
       const ref = f.type === 'extrude' ? f.toVertex : f.type === 'sketch3d' ? null : f.vertex;
       vp.setVertexMarkers({ selected: ref && !f.toPoint ? ref.p : null, hover: this.hoverVertex ?? null });
@@ -2813,9 +2815,9 @@ class App {
     const vp = this.viewport;
     const asm = () => (this.mode === 'drawing' && this.drawing?.vpEvent ? this.drawing : null);
     const exT = () => (this.pm?.kind === 'explode' ? this.explodeTool : null);
-    vp.onPointerDown = (e) => { if (this.sectionDragDown(e)) return; if (asm()) asm().vpEvent('down', e); else if (exT()) exT().down(e); else if (this.mode === 'sketch') this.sketcher.pointerDown(e); else if (this.mode === 'sketch3d') this.sketch3d.pointerDown(e); };
-    vp.onPointerMoveImmediate = (e) => { if (this.sectionDragMove(e)) return; if (asm()) asm().vpEvent('move', e); else if (exT()?.drag) exT().move(e); else if (this.mode === 'sketch' && !this.toolWheel.isOpen) this.sketcher.pointerMove(e); else if (this.mode === 'sketch3d') this.sketch3d.pointerMove(e); };
-    vp.onPointerUp = (e) => { if (this.sectionDragUp(e)) return; if (asm()) asm().vpEvent('up', e); else if (exT()?.drag) exT().up(e); else if (this.mode === 'sketch' && e.button === 0) this.sketcher.pointerUp(e); else if (this.mode === 'sketch3d' && e.button === 0) this.sketch3d.pointerUp(e); };
+    vp.onPointerDown = (e) => { if (this.sectionDragDown(e) || this.filletPointDown(e)) return; if (asm()) asm().vpEvent('down', e); else if (exT()) exT().down(e); else if (this.mode === 'sketch') this.sketcher.pointerDown(e); else if (this.mode === 'sketch3d') this.sketch3d.pointerDown(e); };
+    vp.onPointerMoveImmediate = (e) => { if (this.sectionDragMove(e) || this.filletPointMove(e)) return; if (asm()) asm().vpEvent('move', e); else if (exT()?.drag) exT().move(e); else if (this.mode === 'sketch' && !this.toolWheel.isOpen) this.sketcher.pointerMove(e); else if (this.mode === 'sketch3d') this.sketch3d.pointerMove(e); };
+    vp.onPointerUp = (e) => { if (this.sectionDragUp(e) || this.filletPointUp(e)) return; if (asm()) asm().vpEvent('up', e); else if (exT()?.drag) exT().up(e); else if (this.mode === 'sketch' && e.button === 0) this.sketcher.pointerUp(e); else if (this.mode === 'sketch3d' && e.button === 0) this.sketch3d.pointerUp(e); };
     vp.onDoubleClick = (e) => { if (asm()) asm().vpEvent('dbl', e); else if (this.mode === 'sketch') this.sketcher.doubleClick(); else if (this.mode === 'sketch3d') this.sketch3d.doubleClick(); };
     vp.onLeave = () => {
       if (asm()) { asm().vpEvent('leave'); return; }
@@ -3069,6 +3071,12 @@ class App {
       // otherwise fall through to face / plane hover
     }
     if (mode === 'edge') {
+      // (over a variable fillet's point: it can be dragged)
+      const fpts = this.filletPoints(this.pm?.feature);
+      if (fpts) {
+        const m = vp.screenPos(e);
+        if (fpts.some((x) => x && Math.hypot(...(({ x: sx, y: sy }) => [sx - m.x, sy - m.y])(vp.project(new THREE.Vector3(...x.p)))) < 9)) { vp.canvas.style.cursor = 'grab'; return; }
+      }
       const hit = vp.pickEdge(e);
       const h = hit ? hit.index : null;
       if (h !== this.hoverEdge) { this.hoverEdge = h; this.updateEdgeHighlights(); }
@@ -4051,6 +4059,68 @@ class App {
   }
 
   // Dragging the section arrow: the offset follows the mouse along the section's normal, in round steps.
+  // ------------------------------------------------------------ a variable fillet's points, dragged along their edges
+  // Each point of the fillet's edgePoints on the model: { p (world), vi (the edge as drawn), P (its points), L (the
+  // lengths up to them) } or null (its edge not found, its place not a number). The place is the share of the edge's
+  // drawn length from its start, as a click puts it (applyModelPick).
+  filletPoints(f) {
+    if (f?.type !== 'fillet' || f.filletType !== 'variable' || f.radiusMode !== 'vertices' || !f.edgePoints?.length) return null;
+    const vp = this.viewport;
+    return f.edgePoints.map((x) => {
+      const ref = f.edges?.[x.edge], vi = ref ? vp.edgeIndexForPoint(ref.p) : -1, e = vp.edgeList?.[vi];
+      if (!e) return null;
+      const P = e.pts, L = [0];
+      for (let i = 1; i < P.length; i++) L.push(L[i - 1] + P[i].distanceTo(P[i - 1]));
+      const total = L[L.length - 1] || 1, t = Number(x.t);
+      if (!Number.isFinite(t)) return null;
+      const s = Math.max(0, Math.min(total, x.unit === 'mm' ? t : (t / 100) * total));
+      let k = 1;
+      while (k < P.length - 1 && L[k] < s) k++;
+      const u = (s - L[k - 1]) / ((L[k] - L[k - 1]) || 1);
+      return { p: P[k - 1].clone().lerp(P[k], Math.max(0, Math.min(1, u))).toArray(), vi, P, L };
+    });
+  }
+  filletPointDown(e) {
+    if (this.mode !== 'part' || this.pm?.kind !== 'feature' || e.button !== 0) return false;
+    const pts = this.filletPoints(this.pm.feature);
+    if (!pts) return false;
+    const vp = this.viewport, m = vp.screenPos(e);
+    let best = -1, bd = 9;
+    pts.forEach((x, i) => { if (!x) return; const s = vp.project(new THREE.Vector3(...x.p)), d = Math.hypot(s.x - m.x, s.y - m.y); if (d < bd) { bd = d; best = i; } });
+    if (best < 0) return false;
+    vp.controls.drag = null; // (the press moves the point: no view rotation)
+    try { vp.canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    this._fpDrag = { i: best };
+    this.status('Drag the point along its edge; let go to rebuild.');
+    return true;
+  }
+  filletPointMove(e) {
+    const d = this._fpDrag;
+    if (!d) return false;
+    const f = this.pm?.feature, x = f?.edgePoints?.[d.i], at = this.filletPoints(f)?.[d.i];
+    if (!x || !at) return true;
+    // (the place along the edge nearest the cursor, as the screen shows the edge)
+    const vp = this.viewport, m = vp.screenPos(e), { P, L } = at;
+    let s = 0, bd = Infinity;
+    for (let i = 1; i < P.length; i++) {
+      const a = vp.project(P[i - 1]), b = vp.project(P[i]), dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy;
+      const u = l2 ? Math.max(0, Math.min(1, ((m.x - a.x) * dx + (m.y - a.y) * dy) / l2)) : 0;
+      const dd = Math.hypot(m.x - (a.x + u * dx), m.y - (a.y + u * dy));
+      if (dd < bd) { bd = dd; s = L[i - 1] + u * (L[i] - L[i - 1]); }
+    }
+    const total = L[L.length - 1] || 1, pct = Math.max(0.1, Math.min(99.9, (100 * s) / total));
+    x.t = x.unit === 'mm' ? +((pct / 100) * total).toFixed(2) : +pct.toFixed(2);
+    this.updateEdgeHighlights();
+    this.status(`Point ${d.i + 1}: ${x.unit === 'mm' ? `${x.t} mm` : `${x.t} %`} along edge ${x.edge + 1}`);
+    return true;
+  }
+  filletPointUp() {
+    if (!this._fpDrag) return false;
+    this._fpDrag = null;
+    this.ui.renderPM(); this.updateEdgeHighlights(); this.preview();
+    return true;
+  }
+
   sectionDragDown(e) {
     if (this.pm?.kind !== 'section' || e.button !== 0 || !this.viewport.sectionArrowAt(e)) return false;
     const vp = this.viewport, q = this.activeSection(), { n } = this.sectionFrame(q);

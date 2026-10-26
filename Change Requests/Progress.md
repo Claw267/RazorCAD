@@ -735,3 +735,8 @@ Skipped for now (from the list of 2026-10-21):
 - [x] Lofted Surface open/closed: sketch chains' own closed flag, curves to 0.001 mm, the message names the open profile. Test surface-loft-closed-check (Claw's part not downloaded: not confirmed on it).
 - [ ] STEP import: no failing case posted. Split buttons, pattern side panel, dimension dragging, sketch rename, projected splines, midpoint relation, ViewCube colours: in PR #5.
 - [x] PR #5 (Claw267) tested and merged (user 2026-10-26: "merge the pr with the fix and push"): fix for the sketch results' empty pattern lists (macros, kernel-per-tab); tryAddConstraints merged (diagnosis before solving, their order for conflict / redundant).
+
+## Next round (user 2026-10-26: "go ahead with all in the order you think is best")
+- [x] CI: the two long runs were within the 30-minute limit (a run on GitHub's machines has taken 16 min); logs of the PR's failed runs are no longer available.
+- [x] Sketch -> assembly rebuild race: checked, not real (the part kept its sketch and rebuilt; the test failure was the camera).
+- [x] Variable fillet points dragged along their edges (main.filletPoints / filletPointDown / Move / Up; markers from the panel's places). Test fillet-point-drag.
