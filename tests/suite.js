@@ -1396,6 +1396,38 @@ const UI = {
     return { ok: good(L) && good(A), detail: `with a line: radius ${L.rad.toFixed(4)}, handle·radius ${L.square.toExponential(1)}, ${L.toOther.toFixed(4)} from the line, far fit points kept ${L.keptFar}, solves ${L.solved}; with an arc: radius ${A.rad.toFixed(4)}, ${A.toOther.toFixed(4)} from it, handle·radius ${A.square.toExponential(1)}, solves ${A.solved}` };
   },
 
+  // Feature folders: holes A and B of a 100 × 60 × 10 block put in a folder show under it in the tree; a Linear
+  // Pattern (2 along X, 12 apart) of the folder copies both; a hole C put in the folder later is copied too
+  async 'feature-folders'() {
+    const a = window.app;
+    if (a.mode === 'drawing') { const i = a.tabs.findIndex((t) => t.kind !== 'drawing'); if (i >= 0) await a.activateTab(i); }
+    await a.newDocument?.();
+    closeModals();
+    const d = a.doc;
+    const sketch = (curves, points) => { const s = M.createFeature(d, 'sketch', { plane: { ref: 'top' } }); Object.assign(s, { points, curves, constraints: [] }); return s; };
+    const circle = (x, y, r) => sketch([{ id: 'c', type: 'circle', c: 'o', r, construction: false }], [{ id: 'o', x, y }]);
+    const P = [[-50, -30], [50, -30], [50, 30], [-50, 30]];
+    const s0 = sketch(P.map((_, i) => ({ id: 'c' + i, type: 'line', p1: 'p' + i, p2: 'p' + ((i + 1) % 4), construction: false })), P.map(([x, y], i) => ({ id: 'p' + i, x, y })));
+    const hole = (x, y, r) => { const s = circle(x, y, r); return [s, M.createFeature(d, 'extrude', { sketch: s.id, op: 'cut', end: 'through2', depth: 10 })]; };
+    const [sa, A] = hole(-30, 0, 5), [sb, B] = hole(30, 0, 4), [sc, C] = hole(0, 15, 3);
+    for (const x of [s0, M.createFeature(d, 'extrude', { sketch: s0.id, depth: 10 }), sa, A, sb, B, sc, C]) M.insertFeature(d, x);
+    const fid = M.newFeatureFolder(d, 'Holes', [A.id, B.id]);
+    a.commit(); await a.rebuild(); await wait(200);
+    const rows = [...document.querySelectorAll('#tree .tn')].map((n) => ({ t: n.querySelector('.tl')?.textContent, folder: !!n.dataset.folderF }));
+    const fi = rows.findIndex((r) => r.folder && r.t === 'Holes');
+    const under = rows.slice(fi + 1, fi + 5).map((r) => r.t).filter((t) => t === A.name || t === B.name).join(',');
+    const pat = M.createFeature(d, 'lpattern', { feature: null, features: ['folder:' + fid], dir1: 'x', dist1: 12, count1: 2 });
+    M.insertFeature(d, pat); a.commit(); await a.rebuild();
+    const vol = async () => ((await a.kernel.request('measure', { refs: [{ kind: 'body', id: a.result.bodies[0].id }] })).items?.[0] || {}).volume;
+    const v1 = await vol(), n1 = a.result.notes?.get?.(pat.id) ?? a.result.notes?.[pat.id];
+    M.putFeatureInFolder(d, C.id, fid); a.commit(); await a.rebuild();
+    const v2 = await vol();
+    const block = 60000, h = (r) => Math.PI * r * r * 10;
+    const near = (v, w) => Math.abs(v - w) < 1e-3 * w;
+    const ok = fi >= 0 && under === `${A.name},${B.name}` && near(v1, block - 2 * h(5) - 2 * h(4) - h(3)) && near(v2, block - 2 * h(5) - 2 * h(4) - 2 * h(3)) && !a.result.errors?.size;
+    return { ok, detail: `folder at row ${fi} with ${under}; pattern of it: ${v1?.toFixed(1)} mm³ (${n1}); with C added: ${v2?.toFixed(1)} mm³` };
+  },
+
   async 'sketch-box-select'() {
     const a = window.app;
     await a.newDocument?.();

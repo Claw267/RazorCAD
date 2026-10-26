@@ -4070,6 +4070,18 @@ class App {
   }
 
   // Dragging the section arrow: the offset follows the mouse along the section's normal, in round steps.
+  // A Linear or Circular Pattern of a feature folder: started with the folder as what it copies.
+  patternFolder(folderId, type) {
+    const g = (this.doc.featureFolders || []).find((x) => x.id === folderId);
+    if (!g) return;
+    this.startFeature(type);
+    const f = this.pm?.feature;
+    if (f?.type !== type) return;
+    f.feature = null;
+    f.features = ['folder:' + g.id];
+    this.ui.renderPM(); this.preview(true);
+  }
+
   // ------------------------------------------------------------ a variable fillet's points, dragged along their edges
   // Each point of the fillet's edgePoints on the model: { p (world), vi (the edge as drawn), P (its points), L (the
   // lengths up to them) } or null (its edge not found, its place not a number). The place is the share of the edge's

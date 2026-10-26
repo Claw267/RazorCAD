@@ -2723,7 +2723,9 @@ async function rebuild(doc, previewId = null, opts = {}) {
   };
   const useCache = !opts.partial;
   const eqKey = JSON.stringify(doc.equations || []);
-  const fjson = useCache ? doc.features.map((x) => JSON.stringify(x)) : null;
+  // (a pattern naming a feature folder: what is in the folder counts as part of it, so a change to the folder builds it again)
+  const folderKey = (x) => ((x.features || []).some((r) => String(r).startsWith('folder:')) ? JSON.stringify((x.features || []).map((r) => (doc.featureFolders || []).find((g) => 'folder:' + g.id === r)?.ids || r)) : '');
+  const fjson = useCache ? doc.features.map((x) => JSON.stringify(x) + folderKey(x)) : null;
   const prev = useCache && rebuildCache?.eqKey === eqKey ? rebuildCache.entries : [];
   let start = 0;
   if (useCache) {
@@ -2826,8 +2828,17 @@ async function rebuild(doc, previewId = null, opts = {}) {
         if (!found) throw new Error(`Face ${i + 1} was not made by a feature that can be patterned: pick the feature in the list instead`);
         return found;
       };
+      // (a folder named in the features: what is in it, before the pattern, that a pattern can copy)
+      const FOLDER_SKIP = new Set(['sketch', 'sketch3d', 'plane', 'axis', 'point', 'helix', 'compCurve', 'projCurve', 'lpattern', 'cpattern', 'mirror', 'spattern', 'curvePattern', 'fillPattern']);
       const patternSources = (pf) => {
-        const ids = [pf.feature, ...(pf.features || [])].filter(Boolean);
+        const at = doc.features.findIndex((x) => x.id === pf.id);
+        const fromFolders = (x) => {
+          if (!String(x).startsWith('folder:')) return [x];
+          const g = (doc.featureFolders || []).find((y) => 'folder:' + y.id === x);
+          if (!g) throw new Error('A feature folder to pattern no longer exists');
+          return doc.features.filter((y, i) => g.ids.includes(y.id) && (at < 0 || i < at) && !y.suppressed && !FOLDER_SKIP.has(y.type)).map((y) => y.id);
+        };
+        const ids = [...new Set([pf.feature, ...(pf.features || []).flatMap(fromFolders)].filter(Boolean))];
         (pf.faces || []).forEach((r, i) => { const id = faceFeature(r, i); if (!ids.includes(id)) ids.push(id); });
         const bodyRecs = (pf.bodies || []).map((id) => needBody(id));
         if (!ids.length && !bodyRecs.length) throw new Error('Select the features, faces or bodies to pattern');

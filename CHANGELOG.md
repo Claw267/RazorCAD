@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-26 13:42 — Feature folders, and patterns of them
+- Group features in the tree: right-click a feature ▸ **Add to New Folder…**, **Move to** a folder or **Remove from Folder**. A folder sits where its first feature is, with its features under it (open or closed); right-click it to rename or delete it (its features stay), or for a **Linear / Circular Pattern of the Folder**.
+- A pattern's **More features** takes folders: it copies what is in the folder at each rebuild (a feature added to the folder later is copied too; the pattern is built again when the folder changes).
+- Test: feature-folders.
+
 ## 2026-10-26 13:37 — Sketch Fillet where a spline meets a line or an arc
 - **Sketch Fillet** rounds a corner where a fit-point spline meets a line or an arc. The spline is cut back to where the fillet touches it (its fit points before that dropped; the touch point becomes its end, with its tangent handle along the spline there, so the shape further on stays as it was). The fillet is tangent to the other curve and to the spline (a new **Tangent (spline)** relation keeps the spline's end handle square to the fillet's radius) and gets a radius dimension. Two splines, and control-point splines, are not rounded yet.
 - Test: sketch-fillet-spline (with a line and with an arc: R5, tangent to both, the far fit points kept, the sketch solves).

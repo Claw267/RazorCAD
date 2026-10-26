@@ -14,7 +14,7 @@ import { S3_TOOLS, S3_KEYS } from './sketch3d.js';
 import { RELATION_INFO, analyzeSketch } from './solver.js';
 import * as SM from './sketchmodel.js';
 import * as LR from './loftrefs.js';
-import { axisCandidates, PATTERN_SKIP, fileStem } from './model.js';
+import { axisCandidates, PATTERN_SKIP, fileStem, folderOfFeature, newFeatureFolder, putFeatureInFolder } from './model.js';
 import { BUILTIN_TEMPLATES, DEFAULT_TEMPLATE_ID, templateSummary, isTemplate } from './drawtemplates.js';
 import { SHEET_SIZES as DW_SIZES } from './drawingformats.js';
 import { inferPlaneType, planeRefs, PLANE_TYPES } from './refgeom.js';
@@ -2482,10 +2482,33 @@ export class UI {
       root.appendChild(bar);
     };
     let barDone = false;
+    // (a feature folder: where its first feature is, its features under it)
+    const folderDone = new Set();
+    const folderNode = (g) => {
+      const key = 'ff:' + g.id, collapsed = this.collapsed.has(key);
+      const members = doc.features.filter((x) => g.ids.includes(x.id));
+      const n = node({
+        icon: 'folder', label: g.name, depth: 1, sub: `${members.length}`,
+        title: `Feature folder: ${members.map((x) => x.name).join(', ')}`,
+        twisty: collapsed ? '▶' : '▼',
+        onTwisty: () => { collapsed ? this.collapsed.delete(key) : this.collapsed.add(key); this.renderTree(); },
+        menu: () => [
+          { label: 'Linear Pattern of the Folder…', icon: 'lpattern', action: () => a.patternFolder(g.id, 'lpattern') },
+          { label: 'Circular Pattern of the Folder…', icon: 'cpattern', action: () => a.patternFolder(g.id, 'cpattern') },
+          'sep',
+          { label: 'Rename', icon: 'rename', action: () => this.promptText('Rename Folder', 'folder', 'Name', g.name).then((v) => { if (v?.trim()) { g.name = v.trim(); a.commit(); this.renderTree(); } }) },
+          { label: 'Delete Folder (keep its features)', icon: 'trash', action: () => { doc.featureFolders = doc.featureFolders.filter((x) => x !== g); if (!doc.featureFolders.length) delete doc.featureFolders; a.commit(); this.renderTree(); } },
+        ],
+      });
+      n.dataset.folderF = g.id;
+      if (!collapsed) for (const m of members) if (!(m.type === 'sketch' && consumedBy.has(m.id)) && !(m.parent && findFeature(doc, m.parent))) featureNode(m, 2);
+    };
     for (const f of doc.features) {
       if (f.type === 'sketch' && consumedBy.has(f.id)) continue;
       if (f.parent && findFeature(doc, f.parent)) continue;
       if (!barDone && !active(f)) { barNode(); barDone = true; }
+      const g = folderOfFeature(doc, f.id);
+      if (g) { if (!folderDone.has(g.id)) { folderDone.add(g.id); folderNode(g); } continue; }
       featureNode(f, 1);
     }
     if (!barDone && doc.features.length) barNode();
@@ -3182,6 +3205,11 @@ export class UI {
     if (a.doc.rollbackAt) items.push({ label: 'Roll to End', icon: 'rollback', action: () => a.setRollback(null) });
     items.push({ label: f.suppressed ? 'Unsuppress' : 'Suppress', icon: 'suppress', action: () => a.toggleSuppress(f.id) });
     items.push({ label: 'Rename', icon: 'rename', action: () => this.renameFeature(f.id) });
+    // (feature folders)
+    const inFolder = folderOfFeature(a.doc, f.id);
+    items.push({ label: 'Add to New Folder…', icon: 'folder', action: () => this.promptText('New Folder', 'folder', 'Name', 'Folder').then((v) => { if (v?.trim()) { newFeatureFolder(a.doc, v.trim(), [f.id]); a.commit(); this.renderTree(); } }) });
+    for (const g of (a.doc.featureFolders || []).filter((x) => x !== inFolder)) items.push({ label: `Move to ${g.name}`, icon: 'folder', action: () => { putFeatureInFolder(a.doc, f.id, g.id); a.commit(); this.renderTree(); } });
+    if (inFolder) items.push({ label: 'Remove from Folder', icon: 'folder', action: () => { putFeatureInFolder(a.doc, f.id, null); a.commit(); this.renderTree(); } });
     items.push({ label: 'Delete', icon: 'trash', key: 'Del', action: () => a.deleteFeature(f.id) });
     return items;
   }
@@ -3456,8 +3484,9 @@ export class UI {
           if (L.length) {
             const ul = el('div', { class: 'pm-list' });
             L.forEach((id, i) => {
-              const x = before.find((y) => y.id === id);
-              const li = el('div', { class: 'li sel' }, `${icon(x ? iconFor(x) : 'feature')}<span>${esc(x?.name || '(missing)')}</span><span class="x" title="Remove">✕</span>`);
+              const folder = String(id).startsWith('folder:') ? (a.doc.featureFolders || []).find((g) => 'folder:' + g.id === id) : null;
+              const x = folder ? null : before.find((y) => y.id === id);
+              const li = el('div', { class: 'li sel' }, `${icon(folder ? 'folder' : x ? iconFor(x) : 'feature')}<span>${esc(folder ? `${folder.name} (folder)` : x?.name || '(missing)')}</span><span class="x" title="Remove">✕</span>`);
               li.querySelector('.x').onclick = () => { L.splice(i, 1); this.renderPM(); a.preview(true); };
               ul.appendChild(li);
             });
@@ -3466,6 +3495,7 @@ export class UI {
           const sel = el('select');
           sel.appendChild(el('option', { value: '' }, '+ Add a feature…'));
           for (const x of before.filter((y) => !PATTERN_SKIP.has(y.type) && !y.suppressed && y.id !== f.feature && !L.includes(y.id))) sel.appendChild(el('option', { value: x.id }, esc(x.name)));
+          for (const g of (a.doc.featureFolders || []).filter((y) => !L.includes('folder:' + y.id))) sel.appendChild(el('option', { value: 'folder:' + g.id }, esc(`${g.name} (folder)`)));
           sel.onchange = () => { if (sel.value) { L.push(sel.value); this.renderPM(); a.preview(true); } };
           const w = el('div', { class: 'pm-input' }); w.appendChild(sel);
           body.appendChild(this.row(fd.label, w));

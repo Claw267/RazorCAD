@@ -422,7 +422,7 @@ export function referencesOf(doc, f) {
   const addBody = (v) => { if (typeof v === 'string' && v) addId(bodyOwner(v)); };
   for (const k of ['sketch', 'feature', 'base', 'toPoint', 'toPlane', 'planeA', 'planeB', 'pointA', 'pointB', 'axis', 'dir1', 'dir2', 'rotAxis', 'parent', 'profile', 'path']) addId(f[k]);
   for (const ref of [...(f.profiles || []), ...(f.guides || [])]) addId(typeof ref === 'string' ? ref : ref?.sketch);
-  for (const id of f.features || []) addId(id);
+  for (const id of expandFeatureRefs(doc, f.features)) addId(id);
   if (f.type !== 'sketch' && typeof f.plane === 'string') addId(f.plane);
   if (f.plane?.ref) addId(f.plane.ref);
   if (f.type === 'split') { addId(f.tool); addBody(f.tool); }
@@ -486,6 +486,29 @@ export function moveFeatures(doc, ids, beforeId) {
   if (at < 0) at = rest.length;
   doc.features = [...rest.slice(0, at), ...moving, ...rest.slice(at)];
 }
+
+// ---------------------------------------------------------------- feature folders
+// doc.featureFolders: [{ id, name, ids }]: features of the tree grouped under a folder (shown where its first one is).
+// A pattern may name a folder in its features ('folder:<id>'): it copies what is in the folder at each rebuild.
+export const folderOfFeature = (doc, fid) => (doc.featureFolders || []).find((g) => g.ids.includes(fid)) || null;
+export function putFeatureInFolder(doc, fid, folderId) {
+  for (const g of doc.featureFolders || []) g.ids = g.ids.filter((x) => x !== fid);
+  const g = folderId && (doc.featureFolders || []).find((x) => x.id === folderId);
+  if (g) g.ids.push(fid);
+  doc.featureFolders = (doc.featureFolders || []).filter((x) => x.ids.length);
+  if (!doc.featureFolders.length) delete doc.featureFolders;
+}
+export function newFeatureFolder(doc, name, ids) {
+  const used = new Set((doc.featureFolders || []).map((g) => g.id));
+  let n = 1;
+  while (used.has('ff' + n)) n++;
+  for (const g of doc.featureFolders || []) g.ids = g.ids.filter((x) => !ids.includes(x));
+  (doc.featureFolders ||= []).push({ id: 'ff' + n, name, ids: [...ids] });
+  doc.featureFolders = doc.featureFolders.filter((x) => x.ids.length);
+  return 'ff' + n;
+}
+// (a pattern's features with its folders' features in place of them)
+export const expandFeatureRefs = (doc, ids) => (ids || []).flatMap((x) => (String(x).startsWith('folder:') ? (doc.featureFolders || []).find((g) => 'folder:' + g.id === x)?.ids || [] : [x]));
 
 // ---------------------------------------------------------------- body folders
 // doc.bodyFolders: [{ id, name, kind: 'solid' | 'surface', bodies: [body ids] }]
