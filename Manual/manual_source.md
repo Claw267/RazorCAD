@@ -727,6 +727,10 @@ Every value field accepts numbers or equations (see Equations in the Evaluate ch
 
 ## Extrude and Extrude Cut
 
+**Profiles** uses the same canvas selector as Loft. Click inside a closed region or on its contour to add it; click it again or use its remove button to deselect it. Select several coplanar profiles to extrude them together, including profiles from different sketches. Clicking a sketch in the tree selects its whole profile, including text and generated outlines. Picking an individual region afterwards replaces that whole-sketch selection. Nested regions can be selected separately, so you can extrude a ring or just the disk inside its hole.
+
+**Chain selection** selects connected curves. Turn it off to pick individual segments, then choose **Add selected contour** or press Enter; Escape clears the unfinished selection. Open contours enable **Thin Feature**. Turn off **Select profiles in canvas** to pick end references or target bodies; choosing an up-to end condition also switches to reference picking. Existing whole-sketch extrusions continue to build as before.
+
 Extrudes a sketch profile into a solid, or cuts it out. {idx:extrude}{idx:Extrude Cut}
 
 End conditions:
@@ -765,6 +769,10 @@ Blends between two or more section profiles, in order. A third or later profile 
 Activate **Select profiles in canvas**, then click a sketch contour or inside a closed region. Multiple regions in one sketch can be selected independently; holes belong to their enclosing region. **Select guides in canvas** switches to guide selection, including construction curves. Source sketches are temporarily shown while selecting, without changing their saved visibility.
 
 **Chain selection** picks connected curves automatically. Turn it off to select individual segments from one sketch, then choose **Add selected contour** or press Enter. Escape clears an unfinished selection. Profiles and guides have separate ordered lists with move and remove controls, matching numbered highlights in the canvas. **Other sources** retains whole-sketch and supported 3D curve selection. Stored contour references follow source curve IDs through edits and renaming; missing or ambiguous boundaries report an error. Surface Loft uses the same contour selection for open or closed sections.
+
+Guide contacts are checked against the actual CAD profiles. The fit uses the original guide curves and refines intermediate sections until sampled distances to the CAD faces are within **0.01 mm**. If this check fails, the feature reports an error: add a section near a tight bend. These are sampled numerical checks, not a guarantee over every point of the continuous curve. Thin lofts retain the wall's offset from the sketched guide.
+
+**Guide construction → CAD constraints (two profiles)** builds patches constrained directly by the original 3D guide edges. It checks the kernel's contact error and independent distances against **0.0001 mm**. This method currently requires two profiles without holes or Thin Feature, with guides starting and ending on corresponding patches. **Across guide seams** selects C0 (contact, the default) or G1 (tangent joins along shared guides). Original profile corners are preserved. Unsupported or incompatible constraints report an error without falling back to approximation. **Adaptive approximation** remains available for the broader set of loft options and is the default for existing features.
 
 - A circle is split into as many equal arcs as the other profile has corners.
 - Profiles with different segment counts give an error naming the sketches.
@@ -951,6 +959,12 @@ The **Surfaces** tab builds surface bodies (zero-thickness faces), listed under 
 | **Copy Surface** | Copies faces of any body as surface bodies, leaving the body unchanged. **Join copies that touch into one surface body** is on by default. |
 
 {idx:Lofted Surface}{idx:Swept Surface}{idx:Filled Surface}{idx:Boundary Surface}{idx:Ruled Surface}{idx:Copy Surface}
+
+### Guide construction for Lofted Surface
+
+Select **Guide Curves → Guide construction → CAD constraints (two profiles)** to use the original guide edges as patch boundaries. This supports open profiles forming a sheet, or closed profiles forming an uncapped surface shell. Guides can lie in different planes, making a nonplanar surface. A closed profile does not add end caps or make a solid.
+
+The kernel checks the patch contact error to **0.0001 mm**, validates the resulting CAD shape and checks points on the guide curves independently. **Across guide seams** offers **C0** (contact) and **G1** (tangency) along shared guide edges. G1 is checked against native CAD normals at nine interior positions on every seam, with a maximum angular mismatch of **0.5°**; the measured mismatch appears in the feature note. These are numerical checks, not a symbolic continuity proof. **G2** remains unavailable because independent verification has not passed; it never silently falls back to G1 or C0. The method requires two compatible profiles and guides running from one to the other. Unsupported curve networks report an error without switching methods. Choose **Adaptive approximation** explicitly for other supported loft configurations.
 
 ## Changing surfaces
 

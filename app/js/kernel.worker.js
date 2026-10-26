@@ -2265,12 +2265,17 @@ async function rebuild(doc, previewId = null, opts = {}) {
   // drawing: the 2D profile (closed regions, with any text) to extrude / revolve / project
   const getSketch = (id, thin = null) => {
     if (!id) throw new Error('Select a sketch');
-    const s = sketches.get(id);
+    let s = sketches.get(LR.sourceId(id));
     if (!s) throw new Error('The sketch is missing, suppressed or has errors');
+    let selected = null;
+    if (typeof id !== 'string') {
+      selected = LR.resolveContour(s.sk, id);
+      s = { ...s, sk: selected.sketch };
+    }
     if (thin) { const regions = S.thinRegions(s.sk, thin.t, thin.dir); return { ...s, regions, drawing: regionsDrawing(regions) }; }
-    const regions = S.profileRegions(s.sk);
-    const text = textDrawing(s.sk);
-    const gears = [...gearDrawings(s.sk), ...airfoilDrawings(s.sk)]; // (generated outlines, each made on its own)
+    const regions = selected?.region ? [selected.region] : S.profileRegions(s.sk);
+    const text = selected ? null : textDrawing(s.sk);
+    const gears = selected ? [] : [...gearDrawings(s.sk), ...airfoilDrawings(s.sk)]; // (generated outlines, each made on its own)
     if (!regions.length && !text && !gears.length) throw new Error(s.sk.curves.some((c) => !c.construction) ? 'The sketch has no closed profile — tick Thin Feature to use open curves' : 'The sketch has no closed profile');
     return { ...s, regions, drawing: regions.length ? regionsDrawing(regions) : null, text, gears };
   };
@@ -2986,62 +2991,77 @@ async function rebuild(doc, previewId = null, opts = {}) {
           break;
         }
         case 'extrude': {
-          const sk = getSketch(f.sketch, f.thin ? { t: ev(f.thinT), dir: f.thinDir || 'one' } : null);
-          let z0 = 0, z1 = 0;
-          if (f.end === 'blind' || f.end === 'midplane') {
-            const d = ev(f.depth);
-            if (d <= 0) throw new Error('Depth must be greater than zero');
-            if (f.end === 'blind') z1 = d; else { z0 = -d / 2; z1 = d / 2; }
-          } else if (f.end === 'through' || f.end === 'through2') {
-            if (f.op === 'add' && !body) throw new Error('Through All needs an existing body');
-            const b = body ? bbox(body) : { center: [0, 0, 0], diag: 1000 };
-            const L = len(sub(b.center, sk.frame.o)) + b.diag + 5;
-            if (f.end === 'through') z1 = L; else { z0 = -L; z1 = L; }
+          const refs = Array.isArray(f.profiles) ? f.profiles : f.sketch ? [f.sketch] : [];
+          if (!refs.length) throw new Error('Select one or more sketch profiles');
+          const sections = refs.map((ref) => getSketch(ref, f.thin ? { t: ev(f.thinT), dir: f.thinDir || 'one' } : null));
+          const firstFrame = sections[0].frame;
+          for (const sk of sections) {
+            if (Math.abs(dot(sk.frame.n, firstFrame.n)) < 1 - 1e-7 || Math.abs(dot(sub(sk.frame.o, firstFrame.o), firstFrame.n)) > 1e-5) throw new Error('Extrude profiles must lie in the same plane');
+            // Opposite sketch normals still extrude in the direction of the first selected profile.
+            sk.extrudeSign = dot(sk.frame.n, firstFrame.n) < 0 ? -1 : 1;
           }
-          if (f.reverse && (f.end === 'blind' || f.end === 'through')) [z0, z1] = [-z1, -z0];
-          const fr = sk.frame;
-          let tool = null;
-          if (f.end === 'upToVertex') {
-            const P = resolvePoint(f.toPoint, f.toVertex);
-            if (f.toVertex) res.features[f.id] = { ...(res.features[f.id] || {}), toVertex: f.toVertex };
-            const d = dot(sub(P, fr.o), fr.n);
-            if (Math.abs(d) < 1e-6) throw new Error('The vertex lies in the sketch plane');
-            z0 = Math.min(0, d); z1 = Math.max(0, d);
-          } else if (f.end === 'upToSurface' || f.end === 'offsetSurface') {
-            const tgt = resolveSurface(f.toPlane, f.toFace);
-            if (f.toFace) res.features[f.id] = { ...(res.features[f.id] || {}), toFace: f.toFace };
-            const off = f.end === 'offsetSurface' ? ev(f.toOffset) * (f.toFlip ? -1 : 1) : 0;
-            const cosA = dot(tgt.n, fr.n);
-            if (Math.abs(cosA) < 1e-6) throw new Error('The surface is parallel to the extrusion direction');
-            // signed distance along the sketch normal from the sketch origin to the surface
-            const t = dot(sub(tgt.p, fr.o), tgt.n) / cosA;
-            if (Math.abs(cosA) > 0.99999) {
-              // parallel: a plain blind extrusion, offset back toward the sketch
-              const d = t - Math.sign(t) * off;
-              if (Math.abs(d) < 1e-6) throw new Error('The surface lies in the sketch plane');
-              z0 = Math.min(0, d); z1 = Math.max(0, d);
-            } else {
-              // angled surface: extrude past it, then keep the part on the sketch's side
-              const dir = Math.sign(t) || 1;
-              let rProf = 0;
-              for (const r of sk.regions) for (const q of r.outer.poly) rProf = Math.max(rProf, Math.hypot(q[0], q[1]));
-              const tan = Math.sqrt(1 - cosA * cosA) / Math.abs(cosA);
-              const L = Math.abs(t) + rProf * tan + 10;
-              const long = profileSolid(sk, (dr) => dr.sketchOnPlane(rPlane(fr)).extrude(dir * L));
-              const side = Math.sign(dot(sub(fr.o, tgt.p), tgt.n)) || 1;
-              const nIn = mul(tgt.n, side); // points toward the sketch
-              const pOff = add(tgt.p, mul(nIn, off));
-              const big = L + rProf * (1 + tan) + 100;
-              const tmp = Math.abs(nIn[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
-              const uT = (() => { const c = [nIn[1] * tmp[2] - nIn[2] * tmp[1], nIn[2] * tmp[0] - nIn[0] * tmp[2], nIn[0] * tmp[1] - nIn[1] * tmp[0]]; const l = len(c); return mul(c, 1 / l); })();
-              const block = R.drawRectangle(2 * big, 2 * big).sketchOnPlane(new R.Plane(pOff, uT, nIn)).extrude(2 * big);
-              tool = long.intersect(block);
+          const extrusions = [];
+          for (const sk of sections) {
+            let z0 = 0, z1 = 0;
+            if (f.end === 'blind' || f.end === 'midplane') {
+              const d = ev(f.depth);
+              if (d <= 0) throw new Error('Depth must be greater than zero');
+              if (f.end === 'blind') z1 = d; else { z0 = -d / 2; z1 = d / 2; }
+            } else if (f.end === 'through' || f.end === 'through2') {
+              if (f.op === 'add' && !body) throw new Error('Through All needs an existing body');
+              const b = body ? bbox(body) : { center: [0, 0, 0], diag: 1000 };
+              const L = len(sub(b.center, sk.frame.o)) + b.diag + 5;
+              if (f.end === 'through') z1 = L; else { z0 = -L; z1 = L; }
             }
+            if (f.reverse && (f.end === 'blind' || f.end === 'through')) [z0, z1] = [-z1, -z0];
+            if (sk.extrudeSign < 0) [z0, z1] = [-z1, -z0];
+            const fr = sk.frame;
+            let tool = null;
+            if (f.end === 'upToVertex') {
+              const P = resolvePoint(f.toPoint, f.toVertex);
+              if (f.toVertex) res.features[f.id] = { ...(res.features[f.id] || {}), toVertex: f.toVertex };
+              const d = dot(sub(P, fr.o), fr.n);
+              if (Math.abs(d) < 1e-6) throw new Error('The vertex lies in the sketch plane');
+              z0 = Math.min(0, d); z1 = Math.max(0, d);
+            } else if (f.end === 'upToSurface' || f.end === 'offsetSurface') {
+              const tgt = resolveSurface(f.toPlane, f.toFace);
+              if (f.toFace) res.features[f.id] = { ...(res.features[f.id] || {}), toFace: f.toFace };
+              const off = f.end === 'offsetSurface' ? ev(f.toOffset) * (f.toFlip ? -1 : 1) : 0;
+              const cosA = dot(tgt.n, fr.n);
+              if (Math.abs(cosA) < 1e-6) throw new Error('The surface is parallel to the extrusion direction');
+              // signed distance along the sketch normal from the sketch origin to the surface
+              const t = dot(sub(tgt.p, fr.o), tgt.n) / cosA;
+              if (Math.abs(cosA) > 0.99999) {
+                // parallel: a plain blind extrusion, offset back toward the sketch
+                const d = t - Math.sign(t) * off;
+                if (Math.abs(d) < 1e-6) throw new Error('The surface lies in the sketch plane');
+                z0 = Math.min(0, d); z1 = Math.max(0, d);
+              } else {
+                // angled surface: extrude past it, then keep the part on the sketch's side
+                const dir = Math.sign(t) || 1;
+                let rProf = 0;
+                for (const r of sk.regions) for (const q of r.outer.poly) rProf = Math.max(rProf, Math.hypot(q[0], q[1]));
+                const tan = Math.sqrt(1 - cosA * cosA) / Math.abs(cosA);
+                const L = Math.abs(t) + rProf * tan + 10;
+                const long = profileSolid(sk, (dr) => dr.sketchOnPlane(rPlane(fr)).extrude(dir * L));
+                const side = Math.sign(dot(sub(fr.o, tgt.p), tgt.n)) || 1;
+                const nIn = mul(tgt.n, side); // points toward the sketch
+                const pOff = add(tgt.p, mul(nIn, off));
+                const big = L + rProf * (1 + tan) + 100;
+                const tmp = Math.abs(nIn[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+                const uT = (() => { const c = [nIn[1] * tmp[2] - nIn[2] * tmp[1], nIn[2] * tmp[0] - nIn[0] * tmp[2], nIn[0] * tmp[1] - nIn[1] * tmp[0]]; const l = len(c); return mul(c, 1 / l); })();
+                const block = R.drawRectangle(2 * big, 2 * big).sketchOnPlane(new R.Plane(pOff, uT, nIn)).extrude(2 * big);
+                tool = long.intersect(block);
+              }
+            }
+            if (!tool) {
+              if (z1 - z0 <= 1e-9) throw new Error('Depth must be greater than zero');
+              tool = profileSolid(sk, (dr) => dr.sketchOnPlane(rPlane(fr, add(fr.o, mul(fr.n, z0)))).extrude(z1 - z0));
+            }
+            extrusions.push(tool);
           }
-          if (!tool) {
-            if (z1 - z0 <= 1e-9) throw new Error('Depth must be greater than zero');
-            tool = profileSolid(sk, (dr) => dr.sketchOnPlane(rPlane(fr, add(fr.o, mul(fr.n, z0)))).extrude(z1 - z0));
-          }
+          let tool = extrusions[0];
+          for (const next of extrusions.slice(1)) tool = tool.fuse(next);
           tool = unify(tool);
           const scope = f.op === 'cut' && f.scopeAll === false ? f.scope || [] : null;
           tools.set(f.id, { shape: tool, op: f.op, merge: f.merge !== false, scope });
@@ -3528,9 +3548,12 @@ async function rebuild(doc, previewId = null, opts = {}) {
           if (guides.length) {
             const names = ids.map(pname);
             // (closed sketch profiles: their matched segments; otherwise the profiles as they are, as runs of points)
-            const g = guidedLoftWires(closedSecs || wireSections(list, !closed[0]), guides, names, [], 0, { open: !closed[0], profileWires: list });
-            list = g.outer;
-            res.notes[f.id] = `${ids.length} profiles, ${guides.length} guide curve${guides.length === 1 ? '' : 's'}`;
+            const g = buildGuidedLoft(closedSecs || wireSections(list, !closed[0]), guides, names, [], 0,
+              { surface: true, open: !closed[0], profileWires: list, constrained: f.guideMethod === 'constrained', guideContinuity: f.guideContinuity || 'C0', build: (wires) => R.loft(wires, { ruled: false }, true) });
+            res.notes[f.id] = `${ids.length} profiles, ${guides.length} guide curve${guides.length === 1 ? '' : 's'}` + guideConstraintNote(g);
+            surfaces.push(bodyRec(newId(f.id), g.shape, f.id));
+            applied.push({ op: 'add', tool: g.shape });
+            break;
           }
           let shape;
           try { shape = R.loft(list, { ruled: !!f.ruled }, true); } catch (e) { if (isFatal(e)) throw e; throw new Error(guides.length ? 'The surface could not be lofted through these profiles and guide curves' : 'The surface could not be lofted through these profiles'); }
@@ -4749,10 +4772,10 @@ async function rebuild(doc, previewId = null, opts = {}) {
           const outerM = matchLoftSections(profs.map((p) => p.outer), names);
           const holesM = Array.from({ length: nh }, (_, i) => matchLoftSections(profs.map((p) => p.holes[i]), names));
           // with guides: the outline follows them and the holes (a thin loft's inside) move with it
-          const g = guides.length ? guidedLoftWires(outerM, guides, names, holesM, thin ? thin.t : 0) : null;
-          let tool = buildLoft(g ? g.outer : outerM.map(sectionWire));
-          if (guides.length) res.notes[f.id] = `${profs.length} profiles, ${guides.length} guide curve${guides.length === 1 ? '' : 's'}`;
-          for (let i = 0; i < nh; i++) tool = tool.cut(buildLoft(g ? g.holes[i] : holesM[i].map(sectionWire)));
+          const g = guides.length ? buildGuidedLoft(outerM, guides, names, holesM, thin ? thin.t : 0, { constrained: f.guideMethod === 'constrained', guideContinuity: f.guideContinuity || 'C0', build: buildLoft }) : null;
+          let tool = g ? g.shape : buildLoft(outerM.map(sectionWire));
+          if (guides.length) res.notes[f.id] = `${profs.length} profiles, ${guides.length} guide curve${guides.length === 1 ? '' : 's'}` + guideConstraintNote(g);
+          for (let i = 0; i < nh; i++) tool = tool.cut(g ? g.holes[i] : buildLoft(holesM[i].map(sectionWire)));
           tool = unify(tool);
           const scope = f.op === 'cut' && f.scopeAll === false ? f.scope || [] : null;
           tools.set(f.id, { shape: tool, op: f.op, merge: f.merge !== false, scope });
@@ -6796,7 +6819,7 @@ function matchLoftSections(secs, names) {
   });
 }
 
-// A loft's sections with guide curves: between each two profiles, sections in between (GUIDE_STATIONS of them),
+// A loft's sections with guide curves: between each two profiles, intermediate sections,
 // each first the two profiles blended point by point, then moved so that where the guides touch the profiles it
 // lies on the guides (at the same share of each guide's length between the two profiles): one guide moves the
 // section, several move it by amounts that change smoothly round it between them. The profiles stay as they are;
@@ -6809,10 +6832,10 @@ function matchLoftSections(secs, names) {
 // that offset from the guide. open: the sections are open (a surface's: from one end to the other, not round);
 // profileWires: the wires lofted through at the profiles (else made from the sections). Returns { outer, holes }:
 // the wires to loft.
-// (16 sections between each two profiles: with 6, a loft drifted 0.28 mm from an S-shaped guide 100 long between
-// them; with 12 or more it stays within 0.05 mm, at about the same cost)
-const GUIDE_STATIONS = 16, GUIDE_SAMPLES = 16;
-function guidedLoftWires(matched, guides, names, holeSets = [], slack = 0, { open = false, profileWires = null } = {}) {
+// Guide positions are evaluated on the original CAD edges. Refinement is checked against BRep faces by
+// buildGuidedLoft below. These sampled checks are not a mathematical bound over the continuous curve.
+const GUIDE_TOLERANCE = 0.01, GUIDE_CONTACT_TOLERANCE = 1e-5, GUIDE_SAMPLES = 16;
+function guidedLoftWires(matched, guides, names, holeSets = [], slack = 0, { open = false, profileWires = null, stations = 16 } = {}) {
   // (a loft of circles: each made four arcs, to have points to follow the guides with)
   const asSegs = (s) => {
     if (s.segs) return s;
@@ -6854,20 +6877,35 @@ function guidedLoftWires(matched, guides, names, holeSets = [], slack = 0, { ope
   const tol = Math.max(0.05, size * 2e-3);
   // each guide as points along it, in order, with the length up to each
   const polyOf = (wire) => {
-    const runs = wire.edges.map((e) => Array.from({ length: 41 }, (_, i) => vec(e.pointAt(i / 40))));
+    const nativePoint = (edge, t) => { const p = edge.pointAt(t); try { return vec(p); } finally { p.delete(); } };
+    const runs = wire.edges.map((edge) => {
+      const points = [{ p: nativePoint(edge, 0), edge, t: 0 }];
+      const split = (a, b, depth) => {
+        const middle = { p: nativePoint(edge, (a.t + b.t) / 2), edge, t: (a.t + b.t) / 2 };
+        const error = len(sub(middle.p, mul(add(a.p, b.p), 0.5)));
+        if (error > GUIDE_TOLERANCE / 40) {
+          if (depth >= 10 || points.length > 4096) throw new Error('A guide is too complex to sample at the required tolerance; split it into shorter curves');
+          split(a, middle, depth + 1); split(middle, b, depth + 1);
+        } else points.push(b);
+      };
+      // Seed intervals also detect curves whose midpoint alone lies on their endpoint chord.
+      for (let i = 1; i <= 16; i++) split(points[points.length - 1], { p: nativePoint(edge, i / 16), edge, t: i / 16 }, 0);
+      return points;
+    });
     const out = runs.shift();
     while (runs.length) {
-      const end = out[out.length - 1], start = out[0];
-      let k = runs.findIndex((r) => len(sub(r[0], end)) < tol || len(sub(r[r.length - 1], end)) < tol);
-      if (k >= 0) { const r = runs.splice(k, 1)[0]; out.push(...(len(sub(r[0], end)) < tol ? r : r.reverse()).slice(1)); continue; }
-      k = runs.findIndex((r) => len(sub(r[0], start)) < tol || len(sub(r[r.length - 1], start)) < tol);
-      if (k < 0) break;
+      const end = out[out.length - 1].p, start = out[0].p;
+      let k = runs.findIndex((r) => len(sub(r[0].p, end)) < GUIDE_CONTACT_TOLERANCE || len(sub(r[r.length - 1].p, end)) < GUIDE_CONTACT_TOLERANCE);
+      if (k >= 0) { const r = runs.splice(k, 1)[0]; out.push(...(len(sub(r[0].p, end)) < GUIDE_CONTACT_TOLERANCE ? r : r.reverse())); continue; }
+      k = runs.findIndex((r) => len(sub(r[0].p, start)) < GUIDE_CONTACT_TOLERANCE || len(sub(r[r.length - 1].p, start)) < GUIDE_CONTACT_TOLERANCE);
+      if (k < 0) throw new Error('A guide contains disconnected edges');
       const r = runs.splice(k, 1)[0];
-      out.unshift(...(len(sub(r[r.length - 1], start)) < tol ? r : r.reverse()).slice(0, -1));
+      out.unshift(...(len(sub(r[r.length - 1].p, start)) < GUIDE_CONTACT_TOLERANCE ? r : r.reverse()));
     }
+    const pts = out.map((q) => q.p);
     const L = [0];
-    for (let i = 1; i < out.length; i++) L.push(L[i - 1] + len(sub(out[i], out[i - 1])));
-    return { pts: out, L };
+    for (let i = 1; i < pts.length; i++) L.push(L[i - 1] + len(sub(pts[i], pts[i - 1])));
+    return { pts, L, samples: out };
   };
   // (a guide drawn from the last profile to the first: turned round)
   const G = guides.map((g) => {
@@ -6875,6 +6913,7 @@ function guidedLoftWires(matched, guides, names, holeSets = [], slack = 0, { ope
     const near = (sec) => Math.min(...sec.map((x) => len(sub(x, q.pts[0]))));
     if (near(P[P.length - 1]) < near(P[0])) {
       q.pts.reverse();
+      q.samples.reverse();
       q.L = [0];
       for (let i = 1; i < q.pts.length; i++) q.L.push(q.L[i - 1] + len(sub(q.pts[i], q.pts[i - 1])));
     }
@@ -6884,23 +6923,41 @@ function guidedLoftWires(matched, guides, names, holeSets = [], slack = 0, { ope
     let i = 1;
     while (i < g.L.length - 1 && g.L[i] < s) i++;
     const t = (s - g.L[i - 1]) / ((g.L[i] - g.L[i - 1]) || 1);
-    return add(g.pts[i - 1], mul(sub(g.pts[i], g.pts[i - 1]), Math.max(0, Math.min(1, t))));
+    const a = g.samples[i - 1], b = g.samples[i];
+    const start = a.edge === b.edge ? a.t : b.t < 0.5 ? 0 : 1;
+    const p = b.edge.pointAt(start + (b.t - start) * Math.max(0, Math.min(1, t)));
+    try { return vec(p); } finally { p.delete(); }
   };
-  // where each guide touches each profile: the profile's point (as a sample index, between samples too) and the
-  // guide's length there: the nearest the two come, each one's points against the other's segments
+  // Locate guide/profile contacts on the exact CAD wires, then map them to section indices and guide lengths.
   const clamp01 = (t) => Math.max(0, Math.min(1, t));
   const touch = G.map((g) => P.map((sec, k) => {
-    let best = null;
-    const keep = (X, Q, i, s) => { const d = len(sub(X, Q)); if (!best || d < best.d) best = { d, i, s, off: sub(X, Q) }; };
-    for (let i = 0; i < (open ? sec.length - 1 : sec.length); i++) {
-      const A = sec[i], AB = sub(sec[(i + 1) % sec.length], A), l2 = dot(AB, AB) || 1;
-      for (let j = 0; j < g.pts.length; j++) { const t = clamp01(dot(sub(g.pts[j], A), AB) / l2); keep(add(A, mul(AB, t)), g.pts[j], i + t, g.L[j]); }
-    }
-    for (let j = 0; j + 1 < g.pts.length; j++) {
-      const A = g.pts[j], AB = sub(g.pts[j + 1], A), l2 = dot(AB, AB) || 1;
-      for (let i = 0; i < sec.length; i++) { const t = clamp01(dot(sub(sec[i], A), AB) / l2); keep(sec[i], add(A, mul(AB, t)), i, g.L[j] + (g.L[j + 1] - g.L[j]) * t); }
-    }
-    if (best.d > tol + slack) throw new Error(`The guide ${g.name} doesn't touch ${names[k]} (it passes ${best.d.toFixed(2)} mm from it): each guide must run through every profile`);
+    const best = {};
+    // Check attachment on the exact wires, rather than accepting a gap based on model size or retaining
+    // the sampling polygon's offset. Thin walls deliberately keep their offset from the sketched guide.
+    const wire = profileWires?.[k] || sectionWire(secs[k]), query = new (R.getOC()).BRepExtrema_DistShapeShape();
+    try {
+      query.LoadS1(g.wire.wrapped); query.LoadS2(wire.wrapped); query.Perform();
+      if (!query.IsDone() || !query.NbSolution()) throw new Error(`Could not locate the guide ${g.name} on ${names[k]}`);
+      const distance = query.Value();
+      if (distance > GUIDE_CONTACT_TOLERANCE + slack) throw new Error(`The guide ${g.name} doesn't touch ${names[k]} (CAD gap ${distance.toFixed(6)} mm): each guide must run through every profile`);
+      const guidePoint = query.PointOnShape1(1), sectionPoint = query.PointOnShape2(1);
+      let Q, X;
+      try { Q = [guidePoint.X(), guidePoint.Y(), guidePoint.Z()]; X = [sectionPoint.X(), sectionPoint.Y(), sectionPoint.Z()]; }
+      finally { guidePoint.delete(); sectionPoint.delete(); }
+      const closest = (p, pts, closed) => {
+        let d = Infinity, index = 0;
+        for (let i = 0; i < pts.length - (closed ? 0 : 1); i++) {
+          const a = pts[i], ab = sub(pts[(i + 1) % pts.length], a), t = clamp01(dot(sub(p, a), ab) / (dot(ab, ab) || 1));
+          const gap = len(sub(p, add(a, mul(ab, t))));
+          if (gap < d) { d = gap; index = i + t; }
+        }
+        return index;
+      };
+      best.i = closest(X, sec, !open);
+      const position = closest(Q, g.pts, false), i = Math.min(g.L.length - 2, Math.floor(position)), fraction = position - i;
+      best.s = g.L[i] + (g.L[i + 1] - g.L[i]) * fraction;
+      best.off = slack ? sub(X, Q) : [0, 0, 0];
+    } finally { query.delete(); if (!profileWires) wire.delete(); }
     return best;
   }));
   touch.forEach((tg, gi) => { for (let k = 1; k < tg.length; k++) if (tg[k].s < tg[k - 1].s - tol) throw new Error(`The guide ${G[gi].name} doesn't run from one profile to the next in order`); });
@@ -6909,13 +6966,14 @@ function guidedLoftWires(matched, guides, names, holeSets = [], slack = 0, { ope
   const cyc = (i) => (open ? Math.max(0, Math.min(NM - 1, i)) : ((i % NM) + NM) % NM);
   const pointAt = (sec, x) => { const i = Math.floor(x), t = x - i; return lerp(sec[cyc(i)], sec[cyc(i + 1)], t); };
   // a section in between from its points (n segments of M each, round): fitted segment by segment
-  const fitWire = (pts, n) => {
+  const fitWire = (pts, n, anchors = [], evaluate = null) => {
     const edges = [];
     for (let si = 0; si < n; si++) {
-      const run = Array.from({ length: M + 1 }, (_, j) => pts[open ? si * M + j : (si * M + j) % (n * M)]);
-      const chord = sub(run[M], run[0]), cl = len(chord);
+      const indices = [...Array.from({ length: M + 1 }, (_, j) => si * M + j), ...anchors.filter((x) => x > si * M && x < (si + 1) * M)].sort((a, b) => a - b).filter((x, i, all) => !i || x - all[i - 1] > 1e-8);
+      const run = indices.map((i) => evaluate ? evaluate(i) : pts[open ? i : i % (n * M)]);
+      const end = run.length - 1, chord = sub(run[end], run[0]), cl = len(chord);
       const straight = cl > 1e-9 && run.every((q) => len(cross(sub(q, run[0]), chord)) / cl < size * 1e-7);
-      edges.push(straight ? R.makeLine(run[0], run[M]) : R.makeBSplineApproximation(run, { tolerance: Math.max(1e-5, size * 1e-6), degMax: 5 }));
+      edges.push(straight ? R.makeLine(run[0], run[end]) : R.makeBSplineApproximation(run, { tolerance: Math.min(GUIDE_TOLERANCE / 20, Math.max(1e-6, size * 1e-7)), degMax: 5 }));
     }
     return R.assembleWire(edges);
   };
@@ -6927,8 +6985,14 @@ function guidedLoftWires(matched, guides, names, holeSets = [], slack = 0, { ope
     wires.push(profileWires ? profileWires[k] : sectionWire(secs[k]));
     H.forEach((h, hi) => holeWires[hi].push(sectionWire(h.secs[k])));
     if (k === secs.length - 1) break;
-    for (let st = 1; st <= GUIDE_STATIONS; st++) {
-      const lam = st / (GUIDE_STATIONS + 1);
+    const fractions = new Set(Array.from({ length: stations }, (_, st) => (st + 1) / (stations + 1)));
+    G.forEach((g, gi) => g.samples.forEach((q, i) => {
+      if (i && q.edge !== g.samples[i - 1].edge) {
+        const fraction = (g.L[i - 1] - touch[gi][k].s) / (touch[gi][k + 1].s - touch[gi][k].s);
+        if (fraction > 1e-8 && fraction < 1 - 1e-8) fractions.add(fraction);
+      }
+    }));
+    for (const lam of [...fractions].sort((a, b) => a - b)) {
       const base = P[k].map((q, i) => lerp(q, P[k + 1][i], lam));
       // each guide's pull: where it touches this section (between the two profiles' touch points) and by how much
       const knots = G.map((g, gi) => {
@@ -6957,7 +7021,7 @@ function guidedLoftWires(matched, guides, names, holeSets = [], slack = 0, { ope
         return lerp(A.d, B.d, t);
       };
       const pulls = base.map((_, i) => pull(i));
-      wires.push(fitWire(base.map((q, i) => add(q, pulls[i])), N));
+      wires.push(fitWire(base.map((q, i) => add(q, pulls[i])), N, knots.map((q) => q.at), (i) => add(pointAt(base, i), pull(cyc(i)))));
       // each hole point: the outline's pulls, weighted by 1 / distance⁴ (the nearest outline points count most)
       H.forEach((h, hi) => {
         const pts = h.P[k].map((q, i) => {
@@ -6973,7 +7037,254 @@ function guidedLoftWires(matched, guides, names, holeSets = [], slack = 0, { ope
       });
     }
   }
-  return { outer: wires, holes: holeWires };
+  const checkPoints = [];
+  G.forEach((g, gi) => {
+    for (let k = 0; k + 1 < secs.length; k++) {
+      const a = touch[gi][k], b = touch[gi][k + 1];
+      const lengths = new Set(Array.from({ length: 65 }, (_, i) => a.s + (b.s - a.s) * i / 64));
+      for (let i = 1; i < g.L.length; i++) {
+        const s = (g.L[i - 1] + g.L[i]) / 2;
+        if (s > a.s && s < b.s) lengths.add(s);
+      }
+      for (const s of lengths) checkPoints.push({ p: add(atLen(g, s), lerp(a.off, b.off, (s - a.s) / ((b.s - a.s) || 1))), name: g.name });
+    }
+  });
+  return { outer: wires, holes: holeWires, checkPoints };
+}
+
+// Refine the intermediate sections until independent points on the native guide edges are within 0.01 mm
+// of the resulting CAD faces. Never silently accept a fit that fails this sampled tolerance check.
+function buildGuidedLoft(matched, guides, names, holeSets, slack, options) {
+  if (options.constrained) return constrainedGuideLoft(matched, guides, names, holeSets, slack, options);
+  let worst = 0, worstName = '';
+  for (const stations of [16, 32, 64, 128]) {
+    const g = guidedLoftWires(matched, guides, names, holeSets, slack, { ...options, stations });
+    let shape;
+    const holes = [];
+    try {
+      shape = options.build(g.outer);
+      const faces = facesWithBox(shape);
+      worst = 0;
+      for (const { p, name } of g.checkPoints) {
+        const vertex = R.makeVertex(p), query = new R.DistanceQuery(vertex);
+        let distance = Infinity;
+        try {
+          for (const { face, box } of faces) if (boxDist(box, p) <= distance) distance = Math.min(distance, query.distanceTo(face));
+        } finally { query.delete(); vertex.delete(); }
+        if (!Number.isFinite(distance)) throw new Error(`Could not verify the guide ${name} against the CAD faces`);
+        if (distance > worst) { worst = distance; worstName = name; }
+        if (worst > GUIDE_TOLERANCE) break; // refine immediately; a failing candidate needs no further checks
+      }
+      if (worst <= GUIDE_TOLERANCE) {
+        for (const wires of g.holes) holes.push(options.build(wires));
+        return { shape, holes };
+      }
+    } catch (e) { shape?.delete(); holes.forEach((h) => h.delete()); throw e; }
+    finally {
+      for (const wire of [...g.outer, ...g.holes.flat()]) if (!options.profileWires?.includes(wire)) wire.delete();
+    }
+    shape.delete();
+  }
+  throw new Error(`The guide ${worstName} could not be followed within ${GUIDE_TOLERANCE} mm (sampled CAD deviation ${worst.toFixed(4)} mm). Add a section profile near the tightest bend`);
+}
+
+// Native edge constraints, rather than interpolating a finite sequence of displaced cross-sections.
+// The loft supplies a patch layout; affected patches are rebuilt with the original guide edges as C0
+// constraints. Guides at patch seams replace those boundaries on both sides, using the same CAD edges.
+const CONSTRAINED_GUIDE_TOLERANCE = 1e-4;
+function guideConstraintNote(g) {
+  if (!g?.guideQuality) return '';
+  const q = g.guideQuality;
+  return ` · CAD guide constraints: ${q.continuity}, ${q.seams} seams; normal mismatch ${q.maxAngle.toFixed(4)} deg`;
+}
+function constrainedGuideLoft(matched, guides, names, holeSets, slack, options) {
+  if (matched.length !== 2 || holeSets.length || slack) throw new Error('CAD guide constraints currently require two profiles without holes or Thin Feature. Select Adaptive approximation for this loft');
+  const continuity = options.guideContinuity || 'C0', seams = [];
+  if (continuity === 'G2') throw new Error('G2 guide continuity is not available: the bundled kernel has not passed independent curvature and tangency verification. Select G1 or C0 explicitly');
+  if (!['C0', 'G1'].includes(continuity)) throw new Error('Select C0 or G1 guide continuity');
+  const contact = guidedLoftWires(matched, guides, names, [], 0, { ...options, stations: 0 });
+  const owned = [], patches = [];
+  const guideEdges = guides.flatMap((g) => g.wire.edges);
+  let scaffold, sewn, result, stage = 'patch layout';
+  const point = (edge, t) => { const p = edge.pointAt(t); try { return vec(p); } finally { p.delete(); } };
+  const ends = (edge) => [point(edge, 0), point(edge, 1)];
+  const near = (a, b) => len(sub(a, b)) <= GUIDE_CONTACT_TOLERANCE;
+  const distance = (p, shape) => {
+    const vertex = R.makeVertex(p), query = new R.DistanceQuery(vertex);
+    try { return query.distanceTo(shape); } finally { query.delete(); vertex.delete(); }
+  };
+  const order = (edges) => {
+    const pool = edges.map((edge) => ({ edge, ends: ends(edge) })), out = [];
+    let at = pool[0].ends[0]; const start = at;
+    while (pool.length) {
+      const i = pool.findIndex((q) => q.ends.some((p) => near(p, at)));
+      if (i < 0) throw new Error('CAD guide constraints could not form a connected patch boundary');
+      const q = pool.splice(i, 1)[0], reverse = !near(q.ends[0], at);
+      const edge = reverse === (q.edge.orientation === 'backward') ? q.edge : q.edge.flipOrientation();
+      if (edge !== q.edge) owned.push(edge);
+      out.push(edge); at = q.ends[reverse ? 0 : 1];
+    }
+    if (!near(at, start)) throw new Error('CAD guide constraints left an open patch boundary');
+    return out;
+  };
+  const splitAt = (edge, contacts) => {
+    const [a, b] = ends(edge), cuts = [0, 1];
+    for (const p of contacts) {
+      if (near(a, p) || near(b, p) || distance(p, edge) > GUIDE_CONTACT_TOLERANCE) continue;
+      let index = 0, best = Infinity;
+      for (let j = 0; j <= 32; j++) { const d = len(sub(point(edge, j / 32), p)); if (d < best) { best = d; index = j; } }
+      let lo = Math.max(0, (index - 1) / 32), hi = Math.min(1, (index + 1) / 32);
+      for (let j = 0; j < 70; j++) {
+        const x = lo + (hi - lo) / 3, y = hi - (hi - lo) / 3;
+        if (len(sub(point(edge, x), p)) < len(sub(point(edge, y), p))) hi = y; else lo = x;
+      }
+      cuts.push((lo + hi) / 2);
+    }
+    if (cuts.length === 2) return [edge];
+    cuts.sort((x, y) => x - y);
+    const oc = R.getOC(), geometry = oc.BRep_Tool.Curve(edge.wrapped, 0, 0), curve = geometry.returnValue;
+    try {
+      const first = geometry.First, span = geometry.Last - first;
+      return cuts.slice(1).map((t, i) => {
+        const mk = new oc.BRepBuilderAPI_MakeEdge(curve, first + span * cuts[i], first + span * t);
+        let piece;
+        try { const raw = mk.Edge(); try { piece = R.cast(raw); } finally { raw.delete(); } } finally { mk.delete(); }
+        owned.push(piece);
+        if (!near(point(piece, 0), point(edge, cuts[i])) || !near(point(piece, 1), point(edge, t))) throw new Error('The profile edge could not be split in world coordinates for CAD guide constraints');
+        return piece;
+      });
+    } finally { curve.delete(); }
+  };
+  try {
+    // Split circular sections into patches: a periodic cylindrical face is not a disk-like filling domain.
+    const original = matched.map((section, i) => {
+      if (!section.circle) return options.profileWires?.[i] || sectionWire(section);
+      const { c, r, n, u } = section.circle, x = unit(rej(u, n)), y = cross(n, x);
+      const at = (t) => add(c, add(mul(x, r * Math.cos(t)), mul(y, r * Math.sin(t))));
+      return R.assembleWire([0, 1, 2, 3].map((j) => R.makeThreePointArc(at(j * Math.PI / 2), at((j + 0.5) * Math.PI / 2), at((j + 1) * Math.PI / 2))));
+    });
+    owned.push(...original.filter((wire) => !options.profileWires?.includes(wire)));
+    scaffold = options.build(original);
+    const faces = scaffold.faces, assignments = faces.map(() => []);
+    for (const guide of guides) {
+      const endpoints = ends(guide.wire);
+      const connects = (a, b) => distance(endpoints[a], original[0]) <= GUIDE_CONTACT_TOLERANCE && distance(endpoints[b], original[1]) <= GUIDE_CONTACT_TOLERANCE;
+      if (!connects(0, 1) && !connects(1, 0)) throw new Error(`The guide ${guide.name} must start on one profile and end on the other for CAD constraints`);
+      let assigned = false;
+      faces.forEach((face, i) => {
+        if (endpoints.every((p) => distance(p, face) <= GUIDE_CONTACT_TOLERANCE)) { assignments[i].push(guide); assigned = true; }
+      });
+      if (!assigned) throw new Error(`The guide ${guide.name} must start and end on corresponding profile patches for CAD constraints; split the profiles at its contacts`);
+    }
+    let constraintError = 0;
+    for (let i = 0; i < faces.length; i++) {
+      if (!assignments[i].length) { patches.push(faces[i]); continue; }
+      const face = faces[i], boundary = face.edges, internal = [], replaced = new Map();
+      for (const guide of assignments[i]) {
+        const [a, b] = ends(guide.wire);
+        const seam = boundary.find((edge) => { const [x, y] = ends(edge); return (near(x, a) && near(y, b)) || (near(x, b) && near(y, a)); });
+        if (seam) {
+          if (replaced.has(seam)) throw new Error('Two guides compete for the same patch boundary');
+          replaced.set(seam, guide.wire.edges);
+        } else internal.push(guide.wire);
+      }
+      const domains = [boundary.flatMap((edge) => replaced.get(edge) || [edge])];
+      for (const guide of internal) {
+        const contacts = ends(guide);
+        const domain = domains.findIndex((edges) => contacts.every((p) => edges.some((edge) => distance(p, edge) <= GUIDE_CONTACT_TOLERANCE)));
+        if (domain < 0) throw new Error('The guide network crosses patch boundaries incompatibly; split the profiles at guide contacts');
+        const edges = order(domains[domain].flatMap((edge) => splitAt(edge, contacts)));
+        const starts = edges.map((edge) => point(edge, edge.orientation === 'backward' ? 1 : 0));
+        const [a, b] = contacts.map((p) => starts.findIndex((q) => near(p, q)));
+        if (a < 0 || b < 0 || a === b) throw new Error('The guide could not split the patch at two distinct profile contacts');
+        const path = (from, to) => { const out = []; for (let j = from; j !== to; j = (j + 1) % edges.length) out.push(edges[j]); return out; };
+        domains.splice(domain, 1, [...path(a, b), ...guide.edges], [...path(b, a), ...guide.edges]);
+      }
+      for (const domain of domains) {
+        const edges = order(domain);
+        const oc = R.getOC(), filling = new oc.BRepOffsetAPI_MakeFilling(3, 25, 3, false, 1e-7, 1e-6, continuity === 'G1' ? 0.001 : 0.01, 0.1, 10, 16);
+        const supports = [];
+        try {
+          stage = 'adding ' + continuity + ' constraints';
+          for (const edge of edges) {
+            let support = null;
+            if (continuity !== 'C0' && guideEdges.some((g) => g.isSame(edge))) {
+              const [a, b] = ends(edge);
+              for (const face of patches) {
+                const candidate = face.edges.find((other) => {
+                  const [x, y] = ends(other);
+                  return ((near(a, x) && near(b, y)) || (near(a, y) && near(b, x))) && [0.25, 0.5, 0.75].every((t) => distance(point(edge, t), other) <= GUIDE_CONTACT_TOLERANCE);
+                });
+                if (candidate) { support = { face, edge: candidate }; break; }
+              }
+            }
+            if (support) {
+              filling.Add(support.edge.wrapped, support.face.wrapped, oc.GeomAbs_Shape.GeomAbs_G1, true);
+              supports.push(support);
+            } else filling.Add(edge.wrapped, oc.GeomAbs_Shape.GeomAbs_C0, true);
+          }
+          stage = `solving ${continuity} constraints (${supports.length} support edges)`; filling.Build();
+          if (!filling.IsDone()) throw new Error('The CAD guide constraints could not be solved');
+          stage = 'checking kernel constraint errors'; const error = filling.G0Error();
+          if (!Number.isFinite(error) || error > CONSTRAINED_GUIDE_TOLERANCE) throw new Error(`The CAD guide constraints exceed ${CONSTRAINED_GUIDE_TOLERANCE} mm (kernel error ${error})`);
+          constraintError = Math.max(constraintError, error);
+          if (supports.length) {
+            if (!Number.isFinite(filling.G1Error()) || filling.G1Error() > 0.5 * Math.PI / 180) throw new Error('The requested guide tangency could not be satisfied');
+          }
+          const patch = R.cast(filling.Shape()); owned.push(patch); patches.push(patch);
+          for (const support of supports) seams.push({ edge: support.edge, a: support.face, b: patch });
+        } finally { filling.delete(); }
+      }
+    }
+    stage = 'sewing CAD patches'; sewn = sewShapes(patches, CONSTRAINED_GUIDE_TOLERANCE);
+    if (options.surface) result = sewn;
+    else {
+      if (holeLoops(sewn).freeEdges) throw new Error('The constrained guide patches could not be sewn into a closed solid');
+      result = solidFromSewn(sewn);
+      if (!result) throw new Error('The constrained guide patches did not make a valid solid');
+    }
+    stage = 'validating CAD shape'; const validity = new (R.getOC()).BRepCheck_Analyzer(result.wrapped, true);
+    try { if (!validity.IsValid()) throw new Error('The CAD guide constraints produced an invalid boundary representation'); }
+    finally { validity.delete(); }
+    // Find every shared guide edge, including C0 seams, so an unmatched support cannot silently bypass G1.
+    const sameEdge = (a, b) => {
+      const [x, y] = ends(a), [u, v] = ends(b);
+      return ((near(x, u) && near(y, v)) || (near(x, v) && near(y, u))) && [0.25, 0.5, 0.75].every((t) => distance(point(a, t), b) <= GUIDE_CONTACT_TOLERANCE);
+    };
+    const joined = [];
+    for (const edge of guideEdges) {
+      const adjacent = patches.filter((face) => face.edges.some((other) => sameEdge(edge, other)));
+      if (!adjacent.length || adjacent.length > 2) throw new Error('A guide did not form a valid patch boundary');
+      if (adjacent.length === 2) {
+        if (continuity !== 'C0' && !seams.some((s) => ((s.a === adjacent[0] && s.b === adjacent[1]) || (s.a === adjacent[1] && s.b === adjacent[0])) && sameEdge(edge, s.edge))) throw new Error(`The ${continuity} guide seam has no matching CAD support surface`);
+        joined.push({ edge, a: adjacent[0], b: adjacent[1] });
+      }
+    }
+    let maxAngle = 0;
+    // Independent normal checks on native surfaces, rather than only the filling builder's errors.
+    stage = 'checking CAD surface normals';
+    for (const seam of joined) for (let j = 0; j < 9; j++) {
+      const p = point(seam.edge, (j + 0.5) / 9), a = seam.a.normalAt(p), b = seam.b.normalAt(p);
+      let angle;
+      try { angle = Math.acos(Math.min(1, Math.abs(dot(unit(vec(a)), unit(vec(b)))))); }
+      finally { a.delete(); b.delete(); }
+      if (!Number.isFinite(angle) || (continuity !== 'C0' && angle > 0.5 * Math.PI / 180)) throw new Error(`The ${continuity} guide seam failed the CAD normal check (${angle * 180 / Math.PI} degrees)`);
+      maxAngle = Math.max(maxAngle, angle * 180 / Math.PI);
+
+    }
+    // Independent face-distance checks catch incompatible/ignored constraints and trimming problems.
+    const resultFaces = result.faces;
+    for (const { p, name } of contact.checkPoints) {
+      const error = Math.min(...resultFaces.map((face) => distance(p, face)));
+      if (!Number.isFinite(error) || error > CONSTRAINED_GUIDE_TOLERANCE) throw new Error(`The guide ${name} failed the final CAD constraint check (${error} mm)`);
+    }
+    return { shape: result, holes: [], constraintError, guideQuality: { continuity, seams: joined.length, maxAngle } };
+  } catch (e) { result?.delete(); if (isFatal(e) || e?.message) throw e; throw new Error(`${continuity} guide construction failed while ${stage}; the constraints could not be computed`); }
+  finally {
+    if (sewn && sewn !== result) sewn.delete();
+    scaffold?.delete(); owned.forEach((shape) => shape.delete());
+    for (const wire of [...contact.outer, ...contact.holes.flat()]) if (!options.profileWires?.includes(wire)) wire.delete();
+  }
 }
 
 // Wires (a surface loft's profiles, in order, each running the same way as the one before) as sections of points

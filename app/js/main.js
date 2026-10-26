@@ -1960,7 +1960,7 @@ class App {
   }
 
   // What the open Property panel wants picked on the model: 'edge', 'vertex' or 'face'.
-  loftPicking() { return this.pm?.kind === 'feature' && ['loft', 'surfLoft'].includes(this.pm.feature.type); }
+  loftPicking() { return this.pm?.kind === 'feature' && (['loft', 'surfLoft'].includes(this.pm.feature.type) || (this.pm.feature.type === 'extrude' && this.pm.extrudePick !== false)); }
 
   loftCandidates() {
     if (!this.loftPicking()) return [];
@@ -2020,12 +2020,23 @@ class App {
     if (!source) throw new Error('The source sketch is unavailable');
     const result = LR.resolveContour(source.sketch, ref, guide);
     if (!guide && f.type === 'loft' && !f.thin && !result.region && !result.chain.closed) throw new Error('A solid loft needs a closed profile. Use Surface Loft for open sections');
+    if (f.type === 'extrude') {
+      const first = this.result.sketches.get(LR.sourceId(f.profiles?.[0]));
+      if (first && (Math.abs(first.frame.n.dot(source.frame.n)) < 1 - 1e-7 || Math.abs(source.frame.o.clone().sub(first.frame.o).dot(first.frame.n)) > 1e-5)) throw new Error('Extrude profiles must lie in the same plane');
+      if (!result.region && result.chain && !result.chain.closed) f.thin = true;
+    }
     f[key] ||= [];
     if (f[key].some((q) => LR.refKey(q) === LR.refKey(ref))) {
+      if (f.type === 'extrude') {
+        f[key] = f[key].filter((q) => LR.refKey(q) !== LR.refKey(ref));
+        this.pm.loftDraft = null; this.pm.loftHover = null;
+        this.preview(true); this.updateSketchDisplay(); return;
+      }
       this.pm.loftDraft = null; this.pm.loftHover = null;
       this.ui.renderPM(); this.updateSketchDisplay();
       this.status('That contour is already selected.'); return;
     }
+    if (f.type === 'extrude') f[key] = f[key].filter((q) => q !== LR.sourceId(ref));
     f[key].push(ref); this.pm.loftDraft = null; this.pm.loftHover = null;
     this.preview(true); this.updateSketchDisplay();
     this.status(`${guide ? 'Guide' : 'Profile'} ${f[key].length} selected.`);
@@ -2035,7 +2046,7 @@ class App {
     if (!this.pm?.loftDraft?.curves.length) return;
     try {
       let ref = this.pm.loftDraft;
-      if ((this.pm.loftSlot || 'profiles') === 'profiles' && this.pm.feature.type === 'loft') {
+      if ((this.pm.loftSlot || 'profiles') === 'profiles' && ['loft', 'extrude'].includes(this.pm.feature.type)) {
         const source = this.result.sketches.get(ref.sketch), subset = source && LR.contourSketch(source.sketch, ref);
         const regions = subset && S.profileRegions(subset, true);
         if (regions?.length === 1) {
@@ -2730,6 +2741,13 @@ class App {
     const target = M.findFeature(this.doc, id);
     if (target && before >= 0 && this.doc.features.indexOf(target) > before) return false; // only earlier references
     if (this.loftPicking() && kind === 'sketch') {
+      if (f.type === 'extrude') {
+        f.profiles ||= [];
+        f.profiles = f.profiles.filter((r) => LR.sourceId(r) !== id || typeof r === 'string');
+        if (!f.profiles.includes(id)) f.profiles.push(id);
+        if (S.isOpenSketch(target)) f.thin = true;
+        this.preview(true); this.updateSketchDisplay(); return true;
+      }
       this.hoverSketchId = id; this.updateSketchDisplay();
       this.status('Select the desired contour in the canvas; a sketch can contain several profiles or guides.');
       return true;
@@ -3605,10 +3623,11 @@ class App {
     if (M.SKETCH_FEATURES.has(type)) {
       let sk = preSketch || (selF?.type === 'sketch' ? selF : null);
       if (!sk) {
-        const used = new Set(doc.features.map((f) => f.sketch).filter(Boolean));
-        sk = doc.features.slice(0, M.rollbackIndex(doc)).reverse().find((f) => f.type === 'sketch' && !used.has(f.id) && !f.suppressed) || null;
+        const used = new Set(doc.features.flatMap((f) => M.sketchesUsedBy(f)));
+        const free = doc.features.slice(0, M.rollbackIndex(doc)).filter((f) => f.type === 'sketch' && !used.has(f.id) && !f.suppressed);
+        sk = (type === 'extrude' && free.length !== 1 ? null : free[free.length - 1]) || null;
       }
-      if (!sk) {
+      if (!sk && !(type === 'extrude' && doc.features.slice(0, M.rollbackIndex(doc)).some((f) => f.type === 'sketch' && !f.suppressed))) {
         // nothing to use: sketch the profile first (on the selected plane/face, or pick one), then come back
         this.pendingFeature = { type, op, opts };
         this.startSketch();
@@ -3617,7 +3636,12 @@ class App {
       }
       props.sketch = sk?.id ?? null;
       if (type === 'extrude' && op === 'cut' && this.result.body) props.end = 'through2';
-      if (type === 'extrude' && S.isOpenSketch(sk)) props.thin = true; // open curves: a thin wall
+      if (type === 'extrude') {
+        if (sk && S.isOpenSketch(sk)) props.thin = true; // open curves: a thin wall
+        const regions = sk && LR.selectableRegions(this.result.sketches.get(sk.id)?.sketch || sk);
+        props.profiles = sk ? (preSketch || selF?.id === sk.id || !regions.length ? [sk.id] : regions.length === 1 ? [LR.regionRef(sk.id, regions[0])] : []) : [];
+        props.sketch = null;
+      }
     }
     if (type === 'sweep' || type === 'loft') {
       const ri = M.rollbackIndex(doc);
@@ -3777,7 +3801,7 @@ class App {
   }
 
   async okPM() {
-    if (this.loftPicking() && this.pm.loftDraft?.curves.length) { this.toast('Add or clear the current contour selection before accepting the loft', true); return; }
+    if (this.pm?.loftDraft?.curves.length) { this.toast(this.pm.feature.type === 'extrude' ? 'Add or clear the current contour selection before accepting the extrusion' : 'Add or clear the current contour selection before accepting the loft', true); return; }
     if (this.mode === 'sketch' && this.sketcher.patternDraft) { this.sketcher.finishPattern(true); return; }
     const pm = this.pm;
     if (!pm) return;

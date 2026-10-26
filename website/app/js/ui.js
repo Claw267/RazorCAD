@@ -612,11 +612,14 @@ const PM_SCHEMAS = {
     { title: 'Profiles', fields: [{ key: 'profiles', type: 'loftSelection' }] },
     { title: 'Guide Curves', fields: [
       { key: 'guides', type: 'loftSelection', show: (f) => !f.ruled || f.guides?.length },
+      { key: 'guideMethod', type: 'select', label: 'Guide construction', show: (f) => f.guides?.length && !f.ruled, options: [['adaptive', 'Adaptive approximation'], ['constrained', 'CAD constraints (two profiles)']] },
+      { key: 'guideContinuity', type: 'select', label: 'Across guide seams', show: (f) => f.guides?.length && f.guideMethod === 'constrained' && !f.ruled, options: [['C0', 'C0 — Contact'], ['G1', 'G1 — Tangent']] },
+      { key: 'guideMethodHint', type: 'hint', show: (f) => f.guides?.length && f.guideMethod === 'constrained', text: 'Native guide edges constrain the CAD patches to 0.0001 mm. Requires two profiles without holes or Thin Feature. Across guide seams controls the joins along shared guides; original profile corners are not smoothed. Incompatible constraints report an error without lowering continuity.' },
     ] },
     { title: 'Options', fields: [
       { key: 'ruled', type: 'check', label: 'Straight (ruled) sides between profiles' },
-      { key: 'continuity', type: 'select', label: 'Through the profiles', show: (f) => !f.ruled, options: [['C2', 'Curvature-continuous (C2)'], ['C1', 'Tangent-continuous (C1)']] },
-      { key: 'smoothing', type: 'check', label: 'Smooth the surface (evens out its bends)', show: (f) => !f.ruled },
+      { key: 'continuity', type: 'select', label: 'Through the profiles', show: (f) => !f.ruled && !(f.guides?.length && f.guideMethod === 'constrained'), options: [['C2', 'Curvature-continuous (C2)'], ['C1', 'Tangent-continuous (C1)']] },
+      { key: 'smoothing', type: 'check', label: 'Smooth the surface (evens out its bends)', show: (f) => !f.ruled && !(f.guides?.length && f.guideMethod === 'constrained') },
       { key: 'merge', type: 'check', label: 'Merge result (off: make a separate body)', show: (f) => f.op === 'add' },
     ] },
     THIN_GROUP,
@@ -731,7 +734,7 @@ const PM_SCHEMAS = {
     },
   ],
   extrude: [
-    { title: 'From', fields: [{ key: 'sketch', type: 'sketch', label: 'Sketch' }] },
+    { title: 'Profiles', fields: [{ key: 'profiles', type: 'loftSelection' }] },
     {
       title: 'Direction 1', fields: [
         { key: 'end', type: 'select', label: 'End condition', options: ENDS_REF },
@@ -977,7 +980,10 @@ const PM_SCHEMAS = {
     { title: 'Profiles', fields: [{ key: 'profiles', type: 'loftSelection', with3d: true }] },
     { title: 'Guide Curves', fields: [
       { key: 'guides', type: 'loftSelection', show: (f) => !f.ruled || f.guides?.length },
-      { key: 'gHint', type: 'hint', show: (f) => !f.ruled, text: 'Optional: curves (rails) the surface follows between the profiles, e.g. along its edges. Each runs from the first profile to the last, through every profile. One guide pulls the surface along it; two or more shape it across, each where it touches the profiles.' },
+      { key: 'guideMethod', type: 'select', label: 'Guide construction', show: (f) => f.guides?.length && !f.ruled, options: [['adaptive', 'Adaptive approximation'], ['constrained', 'CAD constraints (two profiles)']] },
+      { key: 'guideContinuity', type: 'select', label: 'Across guide seams', show: (f) => f.guides?.length && f.guideMethod === 'constrained' && !f.ruled, options: [['C0', 'C0 — Contact'], ['G1', 'G1 — Tangent']] },
+      { key: 'guideMethodHint', type: 'hint', show: (f) => f.guides?.length && f.guideMethod === 'constrained', text: 'Native guide edges form patch boundaries, checked to 0.0001 mm. Requires two profiles. Open profiles make a sheet; closed profiles make an uncapped shell. Across guide seams controls contact or tangency along shared guides. Incompatible constraints report an error without lowering continuity.' },
+      { key: 'gHint', type: 'hint', show: (f) => !f.ruled && f.guideMethod !== 'constrained', text: 'Optional: curves (rails) the surface follows between the profiles, e.g. along its edges. Each runs from the first profile to the last, through every profile. One guide pulls the surface along it; two or more shape it across, each where it touches the profiles.' },
     ] },
     { title: 'Options', fields: [{ key: 'ruled', type: 'check', label: 'Straight (ruled) between profiles' }] },
   ],
@@ -3430,12 +3436,14 @@ export class UI {
   renderFeaturePM(root) {
     const a = this.app, pm = a.pm, f = pm.feature, doc = a.doc;
     const info = TYPE_INFO[f.type];
+    if (f.type === 'extrude' && !Array.isArray(f.profiles)) { f.profiles = f.sketch ? [f.sketch] : []; f.sketch = null; }
     this.pmHeader(root, iconFor(f), f.name);
     const err = a.result?.errors.get(f.id);
     if (f.type === 'loft' && f.ruled && pm.loftSlot === 'guides') { pm.loftSlot = 'profiles'; pm.loftDraft = null; pm.loftHover = null; }
     const waitingForRefs = f.type === 'plane' && !inferPlaneType(planeRefs(f), f.through); // the References box explains this
     const waitingForProfiles = ['loft', 'surfLoft'].includes(f.type) && (f.profiles || []).length < 2;
     if (waitingForProfiles) root.appendChild(el('div', { class: 'pm-msg' }, 'Select two or more section profiles in the canvas.'));
+    else if (f.type === 'extrude' && !f.profiles.length) root.appendChild(el('div', { class: 'pm-msg' }, 'Select one or more profiles in the canvas, or select a whole sketch in the tree.'));
     else if (err && !waitingForRefs) root.appendChild(el('div', { class: 'pm-msg pm-status err' }, esc(err)));
     else if (pm.isNew && !waitingForRefs) root.appendChild(el('div', { class: 'pm-msg pm-status' }, 'Set the parameters. The model previews live. Click ✔ to accept.'));
 
@@ -3587,7 +3595,7 @@ export class UI {
         } else if (fd.type === 'check') {
           const cb = el('input', { type: 'checkbox' });
           cb.checked = !!(f[fd.key] ?? fd.default);
-          cb.onchange = () => { f[fd.key] = cb.checked; fd.onChange?.(f, a); if (fd.onChange) this.renderPM(); a.preview(true); a.updateEdgeHighlights(); };
+          cb.onchange = () => { f[fd.key] = cb.checked; if (f.type === 'extrude' && fd.key === 'scopeAll' && !cb.checked) pm.extrudePick = false; fd.onChange?.(f, a); if (fd.onChange) this.renderPM(); a.preview(true); a.updateEdgeHighlights(); };
           const lab = el('label');
           lab.append(cb, document.createTextNode(tr(fd.label)));
           body.appendChild(this.row(null, lab, 'check'));
@@ -3626,6 +3634,7 @@ export class UI {
           }
           s.onchange = () => {
             f[fd.key] = s.value || null;
+            if (f.type === 'extrude' && (['pointRef', 'surfaceRef'].includes(fd.type) || (fd.key === 'end' && ['upToVertex', 'upToSurface', 'offsetSurface'].includes(f.end)))) { pm.extrudePick = false; pm.loftHover = null; a.updateSketchDisplay(); }
             // an open sketch can only be extruded as a thin feature
             if (fd.type === 'sketch' && f.type === 'extrude' && SM.isOpenSketch(findFeature(doc, f.sketch))) f.thin = true;
             a.preview(true);
@@ -4972,10 +4981,12 @@ export class UI {
   // Loft profiles: sketches in order (the loft goes through them from first to last).
   renderLoftSelection(body, f, before, fd) {
     const a = this.app, pm = a.pm, key = fd.key, guide = key === 'guides';
+    const extrude = f.type === 'extrude';
     pm.loftSlot ||= 'profiles'; f[key] ||= [];
-    const active = pm.loftSlot === key;
+    const active = pm.loftSlot === key && (!extrude || pm.extrudePick !== false);
     body.appendChild(el('button', { class: 'pm-btn' + (active ? ' on' : ''), 'aria-pressed': String(active), disabled: guide && f.ruled, 'data-loft-slot': key, onclick: () => {
       pm.loftSlot = key; pm.loftDraft = null; pm.loftHover = null;
+      if (extrude) pm.extrudePick = !active;
       this.renderPM(); a.updateSketchDisplay(); a.status(guide ? 'Click the guide curves in the canvas.' : 'Click the section contours or inside closed profiles in the canvas.');
     } }, guide ? 'Select guides in canvas' : 'Select profiles in canvas'));
     if (!guide) {
@@ -4984,13 +4995,13 @@ export class UI {
       const label = el('label'); label.append(cb, document.createTextNode(' Chain selection'));
       body.appendChild(this.row(null, label, 'check'));
     }
-    body.appendChild(el('div', { class: 'pm-hint' }, guide ? f.ruled ? 'Guide curves require a smooth loft. Remove the guides or untick straight (ruled) sides.' : 'Pick guide curves or connected chains, including construction curves. Guides must meet every section.' : f.type === 'loft' ? 'Pick closed contours or click inside regions. Each selection adds one section.' : 'Pick open or closed contours. All sections must be open, or all closed.'));
+    body.appendChild(el('div', { class: 'pm-hint' }, extrude ? 'Click inside closed regions or select contours. Click again to remove a profile. Profiles must be coplanar; open contours enable Thin Feature. Turn off canvas profile selection to pick end references or bodies.' : guide ? f.ruled ? 'Guide curves require a smooth loft. Remove the guides or untick straight (ruled) sides.' : 'Pick guide curves or connected chains, including construction curves. Guides must meet every section.' : f.type === 'loft' ? 'Pick closed contours or click inside regions. Each selection adds one section.' : 'Pick open or closed contours. All sections must be open, or all closed.'));
     const ul = el('div', { class: 'pm-list', 'data-loft-list': key });
     if (!f[key].length) ul.appendChild(el('div', { class: 'li pm-hint' }, guide ? 'No guides selected' : 'No profiles selected'));
     f[key].forEach((ref, i) => {
       const li = el('div', { class: 'li sel' });
       li.appendChild(el('span', {}, `${i + 1}. ${LR.describeRef(a.doc, ref)}`));
-      for (const [label, action] of [['▲', 'up'], ['▼', 'down'], ['✕', 'remove']]) {
+      for (const [label, action] of (extrude ? [['✕', 'remove']] : [['▲', 'up'], ['▼', 'down'], ['✕', 'remove']])) {
         const b = el('button', { class: 'pm-btn', title: action === 'up' ? 'Move up' : action === 'down' ? 'Move down' : 'Remove', 'data-loft-action': action, disabled: action === 'up' ? i === 0 : action === 'down' ? i === f[key].length - 1 : false }, label);
         b.onclick = () => {
           if (action === 'remove') f[key].splice(i, 1);
@@ -5014,7 +5025,10 @@ export class UI {
     const select = el('select', { 'data-loft-legacy': key }); select.appendChild(el('option', { value: '' }, '+ Add source…'));
     const kinds = guide ? ['sketch', 'sketch3d', 'compCurve', 'projCurve', 'helix'] : fd.with3d ? ['sketch', 'sketch3d', 'compCurve', 'projCurve'] : ['sketch'];
     for (const source of before.filter((s) => kinds.includes(s.type) && !s.suppressed && !f[key].includes(s.id))) select.appendChild(el('option', { value: source.id }, esc(source.name)));
-    select.onchange = () => { if (select.value) { f[key].push(select.value); a.preview(true); a.updateSketchDisplay(); } };
+    select.onchange = () => { if (select.value) {
+      if (extrude) { f[key] = f[key].filter((r) => LR.sourceId(r) !== select.value); if (SM.isOpenSketch(findFeature(a.doc, select.value))) f.thin = true; }
+      f[key].push(select.value); a.preview(true); a.updateSketchDisplay();
+    } };
     details.appendChild(select); body.appendChild(details);
   }
 

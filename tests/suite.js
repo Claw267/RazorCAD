@@ -518,6 +518,80 @@ const UI = {
     return { ok: true, detail: `${notes.length} parts restored without rebuilding (${(bytes / 1048576).toFixed(1)} MB of BRep; meshing ${mesh1} ms → ${mesh2} ms)` };
   },
 
+  async 'extrude-contour-references'() {
+    const a = window.app, S = await import('/js/sketchmodel.js'), LR = await import('/js/loftrefs.js');
+    const d = M.newDoc(), sk = M.createFeature(d, 'sketch', { plane: { ref: 'top' } });
+    const outer = S.addCircle(sk, 'O', 10), inner = S.addCircle(sk, 'O', 3);
+    S.addCircle(sk, S.addPoint(sk, 35, 0), 5); d.features.push(sk);
+    const regions = LR.selectableRegions(sk), ring = LR.regionRef(sk.id, regions.find((r) => r.outer.segs.some((g) => g.sourceCurve === outer)));
+    const disk = LR.regionRef(sk.id, regions.find((r) => r.outer.segs.some((g) => g.sourceCurve === inner)));
+    const f = M.createFeature(d, 'extrude', { profiles: [ring], depth: 10 }); d.features.push(f);
+    const volume = async (expected) => {
+      const r = await a.kernel.rebuild(d, null, null);
+      if (r.errors.length || !r.body?.bodies?.length) throw new Error(JSON.stringify(r.errors));
+      const m = await a.kernel.request('measure', { refs: r.body.bodies.map((b) => ({ kind: 'body', id: b.id })) });
+      const v = m.items.reduce((sum, b) => sum + (b.volume || 0), 0);
+      if (Math.abs(v - expected) > expected * 1e-5) throw new Error(`Expected volume ${expected}, got ${v}`);
+    };
+    await volume(Math.PI * 91 * 10);
+    f.profiles = [disk]; await volume(Math.PI * 9 * 10);
+    f.profiles = [ring, disk]; await volume(Math.PI * 100 * 10);
+    const cut = M.createFeature(d, 'extrude', { profiles: [disk], op: 'cut', depth: 10 }); d.features.push(cut);
+    await volume(Math.PI * 91 * 10); d.features.pop();
+    const second = M.createFeature(d, 'sketch', { plane: { ref: 'top' } });
+    S.addCircle(second, S.addPoint(second, 60, 0), 2); d.features.splice(1, 0, second);
+    f.profiles = [disk, second.id]; await volume(Math.PI * 13 * 10);
+    if (!M.referencesOf(d, f).has(second.id) || !M.referencesOf(d, f).has(sk.id)) return { ok: false, detail: 'Selected sketch dependencies were lost' };
+    const line = S.addLine(second, S.addPoint(second, 80, 0), S.addPoint(second, 100, 0)); second.rev = M.newRev();
+    f.profiles = [LR.chainRef(second, second.id, line)]; f.thin = true; f.thinT = 2; f.thinDir = 'mid';
+    await volume(400); f.thin = false;
+    f.profiles = []; let r = await a.kernel.rebuild(d, null, null);
+    if (!r.errors.some(([id, message]) => id === f.id && message.includes('Select'))) return { ok: false, detail: 'Empty selection silently extruded a whole sketch' };
+    second.plane = { ref: 'front' }; second.rev = M.newRev(); f.profiles = [disk, second.id];
+    r = await a.kernel.rebuild(d, null, null);
+    if (!r.errors.some(([id, message]) => id === f.id && message.includes('same plane'))) return { ok: false, detail: 'Noncoplanar profiles were accepted' };
+    f.profiles = [ring]; sk.curves = sk.curves.filter((c) => c.id !== outer); sk.rev = M.newRev();
+    r = await a.kernel.rebuild(d, null, null);
+    if (!r.errors.some(([id, message]) => id === f.id && message.includes('deleted'))) return { ok: false, detail: 'Deleted boundary silently selected another profile' };
+    delete f.profiles; f.sketch = sk.id; await volume(Math.PI * 34 * 10);
+    return { ok: true, detail: 'Selected annulus and hole disk, adjacent regions union, cut, thin open contour, multiple coplanar sketches, dependencies, empty/noncoplanar/deleted references and legacy whole sketches' };
+  },
+
+  async 'extrude-canvas-selection'() {
+    const a = window.app, S = await import('/js/sketchmodel.js');
+    await a.newDocument?.(); closeModals();
+    const d = M.newDoc(), source = M.createFeature(d, 'sketch', { plane: { ref: 'top' }, visible: false });
+    S.addCircle(source, 'O', 10); S.addCircle(source, S.addPoint(source, 40, 0), 5); d.features.push(source);
+    await a.setDoc(d); a.startFeature('extrude'); await a.rebuild();
+    const f = a.pm.feature;
+    if (f.profiles.length || !document.querySelector('[data-loft-slot="profiles"]')) return { ok: false, detail: 'Multi-profile sketch was silently selected in full' };
+    a.viewport.setStandardView('top', false); a.viewport.camera.zoom = 2; a.viewport.camera.updateProjectionMatrix(); a.viewport.camera.updateMatrixWorld(true);
+    const v = viewEvents(), frame = a.result.sketches.get(source.id).frame;
+    const pick = async (x, y) => { await v.click(...v.toScreen(frame.o.clone().addScaledVector(frame.u, x).addScaledVector(frame.v, y))); await a.rebuild(); };
+    await pick(1, 1);
+    if (f.profiles.length !== 1 || f.profiles[0].kind !== 'sketchContour' || a.result.errors.size || !a.result.preview) return { ok: false, detail: `Region pick failed: ${JSON.stringify(f.profiles)} ${JSON.stringify([...a.result.errors])}` };
+    await pick(40, 1);
+    if (f.profiles.length !== 2 || document.querySelectorAll('[data-loft-label]').length !== 2) return { ok: false, detail: 'Multiple regions or highlights missing' };
+    await pick(40, 1);
+    if (f.profiles.length !== 1) return { ok: false, detail: 'Clicking a selected region did not remove it' };
+    a.pmPick('sketch', source.id); await a.rebuild();
+    if (f.profiles.length !== 1 || f.profiles[0] !== source.id) return { ok: false, detail: 'Tree sketch selection did not select all profiles' };
+    await pick(1, 1);
+    if (f.profiles.length !== 1 || typeof f.profiles[0] === 'string') return { ok: false, detail: 'Canvas selection did not replace the whole-sketch selection' };
+    const end = [...document.querySelectorAll('#pm select')].find((s) => [...s.options].some((o) => o.value === 'upToVertex'));
+    end.value = 'upToVertex'; end.dispatchEvent(new Event('change'));
+    if (a.pickMode() !== 'vertex') return { ok: false, detail: 'Profile picking blocked the end reference' };
+    f.end = 'blind'; a.preview(true); await a.rebuild();
+    await a.okPM();
+    a.undo(); await a.rebuild(); if (a.doc.features.some((q) => q.id === f.id)) return { ok: false, detail: 'Created extrusion could not be undone' };
+    a.redo(); await a.rebuild();
+    const restored = a.doc.features.find((q) => q.id === f.id);
+    if (!restored?.profiles[0]?.region) return { ok: false, detail: 'Redo lost selected region' };
+    a.editFeature(f.id); await a.rebuild(); a.pm.feature.profiles.length = 0; a.cancelPM(); await a.rebuild();
+    if (!a.doc.features.find((q) => q.id === f.id)?.profiles.length || source.visible !== false) return { ok: false, detail: 'Cancel or source visibility changed' };
+    return { ok: true, detail: 'Canvas regions, hidden source visibility, toggle selection, whole sketch from tree, end references, preview, accept/cancel and undo/redo' };
+  },
+
   async 'loft-contour-references'() {
     const a = window.app, S = await import('/js/sketchmodel.js'), LR = await import('/js/loftrefs.js');
     const build = (hole = false) => {
@@ -4356,8 +4430,149 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
   },
 
   // A guided loft follows its guide closely: two 40 × 40 squares 100 apart and an S-shaped guide (two arcs bulging
-  // 12 out and 12 in) through a corner of each: every point of the guide lies within 0.15 mm of the loft's surface, as meshed
-  // (it drifted 0.28 mm with 6 sections between the profiles)
+  // 12 out and 12 in) through a corner of each: sampled guide points lie within 0.15 mm of the loft's surface, as meshed
+  // (it drifted 0.28 mm with 6 sections between the profiles). Also measure analytic guide points against
+  // the actual BRep faces: mesh proximity alone cannot establish guide interpolation.
+  async 'loft-cad-guide-constraints'() {
+    const a = window.app, S = await import('/js/sketchmodel.js'), d = M.newDoc();
+    const plane = M.createFeature(d, 'plane', { refs: [{ kind: 'plane', id: 'top' }], offset: 100 }); d.features.push(plane);
+    const profiles = [];
+    for (const ref of ['top', plane.id]) {
+      const sk = M.createFeature(d, 'sketch', { plane: { ref } });
+      const points = [[-20, -20], [20, -20], [20, 20], [-20, 20]].map(([x, y]) => S.addPoint(sk, x, y));
+      points.forEach((id, i) => S.addLine(sk, id, points[(i + 1) % 4])); d.features.push(sk); profiles.push(sk.id);
+    }
+    const guide = M.createFeature(d, 'sketch', { plane: { ref: 'front' } });
+    S.addCtrlSpline(guide, [[20, 0], [40, 100 / 3], [0, 200 / 3], [20, 100]].map(([x, y]) => S.addPoint(guide, x, y)), 3);
+    d.features.push(guide);
+    const loft = M.createFeature(d, 'loft', { profiles, guides: [guide.id], guideMethod: 'constrained' }); d.features.push(loft);
+    let r = await a.kernel.rebuild(d, null, null);
+    if (r.errors.length || !r.body?.bodies?.length) return { ok: false, detail: JSON.stringify(r.errors) };
+    let worst = 0;
+    for (let j = 0; j < 101; j++) {
+      const t = (j + 0.29) / 101, u = 1 - t;
+      const p = [20 * u ** 3 + 120 * u * u * t + 20 * t ** 3, 100 * t, 0];
+      const m = await a.kernel.request('measure', { refs: [{ kind: 'point', p }, { kind: 'face', p }] });
+      if (!Number.isFinite(m.distance)) return { ok: false, detail: 'Constrained CAD face measurement unavailable' };
+      worst = Math.max(worst, m.distance);
+    }
+    if (worst > 1e-4) return { ok: false, detail: `CAD constraints miss the cubic guide by ${worst} mm` };
+    const t = 0.23, u = 1 - t, nativePoint = [20 * u ** 3 + 120 * u * u * t + 20 * t ** 3, 100 * t, 0];
+    const nativeEdge = await a.kernel.request('measure', { refs: [{ kind: 'point', p: nativePoint }, { kind: 'edge', p: nativePoint }] });
+    if (!Number.isFinite(nativeEdge.distance) || nativeEdge.distance > 1e-8 || !r.notes[loft.id]?.includes('CAD guide constraints')) return { ok: false, detail: 'The guide was not retained as a native CAD edge' };
+    loft.thin = true; r = await a.kernel.rebuild(d, null, null);
+    if (!r.errors.some(([, message]) => message.includes('without holes or Thin Feature'))) return { ok: false, detail: 'Unsupported constrained thin loft silently fell back to approximation' };
+    loft.thin = false;
+    const circles = JSON.parse(JSON.stringify(d));
+    for (const id of profiles) { const sk = circles.features.find((f) => f.id === id); sk.points = []; sk.curves = []; S.addCircle(sk, 'O', 20); }
+    r = await a.kernel.rebuild(circles, null, null);
+    if (r.errors.length || !r.body?.bodies?.length) return { ok: false, detail: `Circular sections / seam guide: ${JSON.stringify(r.errors)}` };
+    const seam = await a.kernel.request('measure', { refs: [{ kind: 'point', p: nativePoint }, { kind: 'edge', p: nativePoint }] });
+    if (!Number.isFinite(seam.distance) || seam.distance > 1e-8) return { ok: false, detail: 'Circular patch seams did not retain the native guide' };
+    const diagonal = JSON.parse(JSON.stringify(circles)), q = Math.SQRT1_2;
+    diagonal.features.find((f) => f.id === guide.id).plane = { ref: 'face', frame: { o: [0, 0, 0], u: [q, 0, q], v: [0, 1, 0], n: [-q, 0, q] } };
+    r = await a.kernel.rebuild(diagonal, null, null);
+    if (r.errors.length) return { ok: false, detail: `Splitting native circular profile edges: ${JSON.stringify(r.errors)}` };
+    const rotated = [nativePoint[0] * q, nativePoint[1], nativePoint[0] * q];
+    const splitArc = await a.kernel.request('measure', { refs: [{ kind: 'point', p: rotated }, { kind: 'edge', p: rotated }] });
+    if (!Number.isFinite(splitArc.distance) || splitArc.distance > 1e-8) return { ok: false, detail: 'Guide contacts inside circular arcs were not preserved as native edges' };
+    const open = JSON.parse(JSON.stringify(d));
+    for (const id of profiles) { const sk = open.features.find((f) => f.id === id); sk.points = []; sk.curves = []; S.addLine(sk, S.addPoint(sk, -20, 0), S.addPoint(sk, 20, 0)); }
+    const left = M.createFeature(open, 'sketch', { plane: { ref: 'front' } });
+    S.addCtrlSpline(left, [[-20, 0], [-40, 100 / 3], [0, 200 / 3], [-20, 100]].map(([x, y]) => S.addPoint(left, x, y)), 3);
+    open.features.splice(-1, 0, left); const surface = open.features.at(-1); surface.type = 'surfLoft'; surface.guides.push(left.id);
+    r = await a.kernel.rebuild(open, null, null);
+    if (r.errors.length || !r.body?.bodies?.some((b) => b.kind === 'surface')) return { ok: false, detail: `Open surface / two constrained guides: ${JSON.stringify(r.errors)}` };
+    return { ok: true, detail: `Native cubic guide constraints: independent CAD deviation ${worst.toExponential(3)} mm; native shared edges, circular seams / split arcs, open surface with two guides and explicit unsupported-thin rejection` };
+  },
+
+  async 'surface-cad-guide-constraints'() {
+    const a = window.app, S = await import('/js/sketchmodel.js'), d = M.newDoc();
+    const plane = M.createFeature(d, 'plane', { refs: [{ kind: 'plane', id: 'top' }], offset: 100 }); d.features.push(plane);
+    const profiles = [];
+    for (const ref of ['top', plane.id]) {
+      const sk = M.createFeature(d, 'sketch', { plane: { ref } });
+      S.addLine(sk, S.addPoint(sk, -20, 0), S.addPoint(sk, 20, 0)); d.features.push(sk); profiles.push(sk.id);
+    }
+    const right = M.createFeature(d, 'sketch', { plane: { ref: 'front' } });
+    S.addCtrlSpline(right, [[20, 0], [30, 100 / 3], [10, 200 / 3], [20, 100]].map(([x, y]) => S.addPoint(right, x, y)), 3); d.features.push(right);
+    // A guide in a perpendicular plane makes the result genuinely nonplanar.
+    const left = M.createFeature(d, 'sketch', { plane: { ref: 'face', frame: { o: [-20, 0, 0], u: [0, 0, 1], v: [0, 1, 0], n: [-1, 0, 0] } } });
+    S.addCtrlSpline(left, [[0, 0], [8, 100 / 3], [-8, 200 / 3], [0, 100]].map(([x, y]) => S.addPoint(left, x, y)), 3); d.features.push(left);
+    const surface = M.createFeature(d, 'surfLoft', { profiles, guides: [right.id, left.id], guideMethod: 'constrained' }); d.features.push(surface);
+    let r = await a.kernel.rebuild(d, null, null);
+    if (r.errors.length || !r.body?.bodies?.every((b) => b.kind === 'surface')) return { ok: false, detail: `Nonplanar surface: ${JSON.stringify(r.errors)}` };
+    let worst = 0;
+    for (let j = 0; j < 31; j++) {
+      const t = (j + 0.31) / 31, u = 1 - t;
+      const points = [[20 * u ** 3 + 90 * u * u * t + 30 * u * t * t + 20 * t ** 3, 100 * t, 0], [-20, 100 * t, 24 * u * u * t - 24 * u * t * t]];
+      for (const p of points) {
+        const m = await a.kernel.request('measure', { refs: [{ kind: 'point', p }, { kind: 'edge', p }] });
+        if (!Number.isFinite(m.distance)) return { ok: false, detail: 'Surface guide is not a native CAD edge' };
+        worst = Math.max(worst, m.distance);
+      }
+    }
+    if (worst > 1e-4) return { ok: false, detail: `Nonplanar guide deviation ${worst} mm` };
+    // Closed profiles produce an uncapped surface shell, rather than accidentally making a solid.
+    const closed = JSON.parse(JSON.stringify(d)); closed.features.pop();
+    for (const id of profiles) { const sk = closed.features.find((f) => f.id === id); sk.points = []; sk.curves = []; S.addCircle(sk, 'O', 20); }
+    const tube = M.createFeature(closed, 'surfLoft', { profiles, guides: [right.id], guideMethod: 'constrained' }); closed.features.push(tube);
+    r = await a.kernel.rebuild(closed, null, null);
+    if (r.errors.length || !r.body?.bodies?.length || r.body.bodies.some((b) => b.kind !== 'surface')) return { ok: false, detail: `Closed-profile surface: ${JSON.stringify(r.errors)}` };
+    const body = r.body.bodies[0], measured = await a.kernel.request('measure', { refs: [{ kind: 'body', id: body.id }] });
+    if (measured.items[0].solid || !(measured.items[0].area > 0)) return { ok: false, detail: 'Closed-profile loft was capped into a solid' };
+    // Exercise the actual surface panel and cancel, preserving the stored construction method.
+    await a.newDocument?.(); closeModals(); await a.setDoc(closed); a.editFeature(tube.id); await a.rebuild();
+    const method = [...document.querySelectorAll('#pm select')].find((s) => [...s.options].some((o) => o.value === 'constrained'));
+    if (!method || method.value !== 'constrained') return { ok: false, detail: 'Surface panel did not restore the CAD guide construction method' };
+    method.value = 'adaptive'; method.dispatchEvent(new Event('change')); a.cancelPM(); await a.rebuild();
+    if (a.doc.features.find((f) => f.id === tube.id).guideMethod !== 'constrained') return { ok: false, detail: 'Cancel lost the surface guide construction method' };
+    return { ok: true, detail: `Nonplanar open surface / two native spline guides (${worst.toExponential(3)} mm), uncapped circular surface, panel method selection and cancel` };
+  },
+
+  async 'surface-guide-continuity'() {
+    const a = window.app, S = await import('/js/sketchmodel.js'), d = M.newDoc();
+    const plane = M.createFeature(d, 'plane', { refs: [{ kind: 'plane', id: 'top' }], offset: 100 }); d.features.push(plane);
+    const profiles = [];
+    for (const ref of ['top', plane.id]) {
+      const sk = M.createFeature(d, 'sketch', { plane: { ref } });
+      S.addLine(sk, S.addPoint(sk, -20, 0), S.addPoint(sk, 20, 0)); d.features.push(sk); profiles.push(sk.id);
+    }
+    const guide = M.createFeature(d, 'sketch', { plane: { ref: 'face', frame: { o: [0, 0, 0], u: [0, 0, 1], v: [0, 1, 0], n: [-1, 0, 0] } } });
+    S.addCtrlSpline(guide, [[0, 0], [6, 100 / 3], [6, 200 / 3], [0, 100]].map(([x, y]) => S.addPoint(guide, x, y)), 3); d.features.push(guide);
+    const surface = M.createFeature(d, 'surfLoft', { profiles, guides: [guide.id], guideMethod: 'constrained' }); d.features.push(surface);
+    const notes = [];
+    for (const mode of ['C0', 'G1']) {
+      surface.guideContinuity = mode;
+      const r = await a.kernel.rebuild(d, null, null);
+      if (r.errors.length) return { ok: false, detail: `${mode}: ${JSON.stringify(r.errors)}; completed checks: ${notes.join(' | ')}` };
+      const note = r.notes[surface.id] || '', angle = Number(note.match(/normal mismatch ([\d.]+) deg/)?.[1]);
+      if (!note.includes(`${mode}, 1 seams`) || !Number.isFinite(angle) || (mode === 'C0' ? angle < 2 : angle > 0.5)) return { ok: false, detail: `Unexpected differential check: ${note}` };
+      notes.push(note);
+    }
+    surface.guideContinuity = 'G2';
+    const unsupported = await a.kernel.rebuild(d, null, null);
+    if (!unsupported.errors.some(([, message]) => message.includes('G2 guide continuity is not available'))) return { ok: false, detail: 'Unverified G2 silently fell back to another continuity' };
+    surface.guideContinuity = 'G1';
+    await a.newDocument?.(); closeModals(); await a.setDoc(d); a.editFeature(surface.id); await a.rebuild();
+    const selector = [...document.querySelectorAll('#pm select')].find((s) => [...s.options].some((o) => o.value === 'G1'));
+    if (!selector || selector.value !== 'G1' || [...selector.options].some((o) => o.value === 'G2')) return { ok: false, detail: 'Guide continuity selector exposed an unsupported mode or lost G1' };
+    selector.value = 'C0'; selector.dispatchEvent(new Event('change')); a.cancelPM(); await a.rebuild();
+    if (a.doc.features.find((f) => f.id === surface.id).guideContinuity !== 'G1') return { ok: false, detail: 'Cancel did not restore guide continuity' };
+    const solid = JSON.parse(JSON.stringify(a.doc));
+    for (const id of profiles) {
+      const sk = solid.features.find((f) => f.id === id); sk.points = []; sk.curves = [];
+      const points = [[-20, -20], [20, -20], [20, 20], [-20, 20]].map(([x, y]) => S.addPoint(sk, x, y));
+      points.forEach((p, i) => S.addLine(sk, p, points[(i + 1) % 4]));
+    }
+    const solidGuide = solid.features.find((f) => f.id === guide.id); solidGuide.plane = { ref: 'front' };
+    solidGuide.points.forEach((p) => { p.x += 20; });
+    const boss = solid.features.find((f) => f.id === surface.id); boss.type = 'loft'; boss.op = 'add'; boss.merge = true;
+    const built = await a.kernel.rebuild(solid, null, null);
+    if (built.errors.length || !built.body?.bodies?.some((b) => b.kind === 'solid') || !built.notes[boss.id]?.includes('G1, 1 seams')) return { ok: false, detail: `Solid G1 loft: ${JSON.stringify(built.errors)}` };
+    return { ok: true, detail: notes.join(' | ') };
+  },
+
   async 'loft-guide-accuracy'() {
     const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient({ threads: threadsPerKernel() });
     try {
@@ -4391,14 +4606,67 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
         const den = 1 / (va + vb + vc), v = vb * den, w = vc * den;
         return [A[0] + ab[0] * v + ac[0] * w, A[1] + ab[1] * v + ac[1] * w, A[2] + ab[2] * v + ac[2] * w];
       };
-      let worst = 0;
+      let worst = 0, worstCAD = 0;
       for (let y = 1; y < 100; y++) {
         const p = [y <= 50 ? 20 - c + Math.sqrt(R * R - (y - 25) ** 2) : 20 + c - Math.sqrt(R * R - (y - 75) ** 2), y, 0];
         let best = Infinity;
         for (let q = 0; q < T.length; q += 3) best = Math.min(best, Math.hypot(...sub(near(p, P3(T[q]), P3(T[q + 1]), P3(T[q + 2])), p)));
         worst = Math.max(worst, best);
+        const measured = await k.request('measure', { refs: [{ kind: 'point', p }, { kind: 'face', p }] });
+        if (!Number.isFinite(measured.distance)) return { ok: false, detail: 'Could not measure an analytic guide point against the BRep surface' };
+        worstCAD = Math.max(worstCAD, measured.distance);
       }
-      return { ok: worst < 0.15, detail: `the S-shaped guide lies within ${worst.toFixed(3)} mm of the loft's surface (as meshed)` };
+      if (worst >= 0.15 || worstCAD >= 0.01) return { ok: false, detail: `Guide deviation: CAD ${worstCAD}, mesh ${worst}` };
+      const scaleChecks = [];
+      for (const scale of [0.1, 10]) {
+        const scaled = JSON.parse(JSON.stringify(d));
+        for (const f of scaled.features) {
+          for (const p of f.points || []) { p.x *= scale; p.y *= scale; }
+          if (f.type === 'plane') f.offset *= scale;
+        }
+        // Reverse source edge order without changing the actual arcs.
+        scaled.features.find((f) => f.id === gs.id).curves.reverse();
+        const built = await k.rebuild(scaled, null, null);
+        if (built.errors.length) {
+          // A difficult large model may exhaust bounded refinement. It must reject the fit explicitly,
+          // rather than return a successful loft which misses its guide beyond the requested tolerance.
+          if (scale === 10 && built.errors.length === 1 && built.errors[0][1].includes('could not be followed within 0.01 mm')) {
+            scaleChecks.push('10×: out-of-tolerance fit explicitly rejected'); continue;
+          }
+          return { ok: false, detail: `Scale ${scale}: ${JSON.stringify(built.errors)}` };
+        }
+        let deviation = 0;
+        for (let j = 0; j < 51; j++) {
+          const y = (j + 0.37) * 100 / 51;
+          const p = [(y <= 50 ? 20 - c + Math.sqrt(R * R - (y - 25) ** 2) : 20 + c - Math.sqrt(R * R - (y - 75) ** 2)) * scale, y * scale, 0];
+          const m = await k.request('measure', { refs: [{ kind: 'point', p }, { kind: 'face', p }] });
+          if (!Number.isFinite(m.distance)) return { ok: false, detail: `Scale ${scale}: CAD measurement unavailable` };
+          deviation = Math.max(deviation, m.distance);
+        }
+        if (deviation >= 0.01) return { ok: false, detail: `Scale ${scale}: deviation ${deviation} exceeded 0.01 mm` };
+        scaleChecks.push(`${scale}×: ${deviation.toFixed(6)} mm`);
+      }
+      // A guide displaced 0.02 mm from both sections used to pass the size-dependent contact test.
+      const missed = JSON.parse(JSON.stringify(d));
+      for (const p of missed.features.find((f) => f.id === gs.id).points) p.x += 0.02;
+      const bad = await k.rebuild(missed, null, null);
+      if (!bad.errors.some(([, message]) => message.includes("doesn't touch"))) return { ok: false, detail: 'A guide with a CAD gap was silently accepted' };
+      // Independently evaluate a cubic Bezier guide instead of relying only on circular-arc test cases.
+      const S = await import('/js/sketchmodel.js'), splineDoc = JSON.parse(JSON.stringify(d));
+      const source = splineDoc.features.find((f) => f.id === gs.id); source.points = []; source.curves = [];
+      S.addCtrlSpline(source, [[20, 0], [30, 100 / 3], [10, 200 / 3], [20, 100]].map(([x, y]) => S.addPoint(source, x, y)), 3);
+      const splineBuilt = await k.rebuild(splineDoc, null, null);
+      if (splineBuilt.errors.length) return { ok: false, detail: `Bezier guide: ${JSON.stringify(splineBuilt.errors)}` };
+      let splineDeviation = 0;
+      for (let j = 0; j < 51; j++) {
+        const t = (j + 0.37) / 51, u = 1 - t;
+        const p = [20 * u ** 3 + 90 * u * u * t + 30 * u * t * t + 20 * t ** 3, 100 * t, 0];
+        const m = await k.request('measure', { refs: [{ kind: 'point', p }, { kind: 'face', p }] });
+        if (!Number.isFinite(m.distance)) return { ok: false, detail: 'Bezier guide measurement unavailable' };
+        splineDeviation = Math.max(splineDeviation, m.distance);
+      }
+      if (splineDeviation >= 0.01) return { ok: false, detail: `Bezier guide deviates by ${splineDeviation} mm` };
+      return { ok: true, detail: `99 analytic S-guide samples: maximum CAD deviation ${worstCAD.toFixed(6)} mm (mesh ${worst.toFixed(6)} mm); ${scaleChecks.join('; ')}; Bezier ${splineDeviation.toFixed(6)} mm; reversed edge order and a nonintersecting guide checked` };
     } finally { k.dispose(); }
   },
 
