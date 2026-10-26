@@ -3150,7 +3150,7 @@ export function developedSheet(solid, faces, P0, { t, K }) {
   }
   // the material side: against the faces' outward normals
   const Mn = N.map((n) => mul3(unit3(n), -1));
-  const T = [], curvedTri = [], fixedTri = [];
+  const T = [], curvedTri = [], fixedTri = [], triFace = [];
   for (const g of m.faceGroups) {
     const ty = kind.get(g.faceId), fixed = g.faceId === P0.face.hashCode;
     for (let q = g.start * gs; q < (g.start + g.count) * gs; q += 3) {
@@ -3158,20 +3158,31 @@ export function developedSheet(solid, faces, P0, { t, K }) {
       if (tri[0] === tri[1] || tri[1] === tri[2] || tri[0] === tri[2]) continue;
       if (fixed) fixedTri.push(T.length);
       curvedTri.push(ty !== 'PLANE');
+      triFace.push(g.faceId);
       T.push(tri);
     }
   }
   if (!fixedTri.length) throw new Error('The picked face was not found in the sheet');
-  // the neutral layer: K·t from the inside of the curves (where moving into the material makes them longer)
+  // the neutral layer: K·t from the inside of the curves, the inside found for each face (where moving into the
+  // material makes it longer): a square-to-round's cone and the bends of its rims curve opposite ways, so one side
+  // for the whole sheet put the layer on the wrong side of one of them. A face curving both ways along it (a twisted
+  // blade) takes its overall side, as the whole sheet did; a point on an edge between faces curving opposite ways
+  // takes the mean of theirs.
   const area3 = (a, b, c) => { const u = sub3(b, a), v = sub3(c, a); return len3(cross3(u, v)) / 2; };
-  let grow = 0;
+  const faceGrow = new Map();
   T.forEach((tri, k) => {
     if (!curvedTri[k]) return;
     const p = tri.map((i) => V[i]), q = tri.map((i) => add3(V[i], mul3(Mn[i], 1e-3)));
-    grow += area3(...q) - area3(...p);
+    const dA = area3(...q) - area3(...p);
+    if (Number.isFinite(dA)) faceGrow.set(triFace[k], (faceGrow.get(triFace[k]) || 0) + dA);
   });
-  const delta = (grow >= 0 ? K : 1 - K) * t;
-  const P = V.map((v, i) => add3(v, mul3(Mn[i], delta)));
+  const sideSum = new Float64Array(V.length), sideN = new Float64Array(V.length);
+  T.forEach((tri, k) => {
+    if (!curvedTri[k]) return;
+    const g = faceGrow.get(triFace[k]) || 0, sgn = g > 0 ? 1 : g < 0 ? -1 : 0;
+    for (const i of tri) { sideSum[i] += sgn; sideN[i]++; }
+  });
+  const P = V.map((v, i) => { const sgn = sideN[i] ? sideSum[i] / sideN[i] : 0; return add3(v, mul3(Mn[i], t * (0.5 + (K - 0.5) * sgn))); });
   // edges → their triangles
   const ek = (a, b) => (a < b ? a * 4294967296 + b : b * 4294967296 + a);
   const edges = new Map();
@@ -3186,7 +3197,9 @@ export function developedSheet(solid, faces, P0, { t, K }) {
   const flipSign = facing.filter((x) => x < 0).length > T.length / 2 ? -1 : 1;
   T.forEach((tri, k) => { if (flipSign * facing[k] <= 0) for (const i of tri) inner[i] = 0; });
   const ang = (a, b, c) => { const u = unit3(sub3(b, a)), v = unit3(sub3(c, a)); return Math.acos(Math.max(-1, Math.min(1, dot3(u, v)))); };
-  for (const tri of T) for (let s = 0; s < 3; s++) angSum[tri[s]] += ang(P[tri[s]], P[tri[(s + 1) % 3]], P[tri[(s + 2) % 3]]);
+  // (of the sheet's own side: the shape's test; the neutral layer, moved by different amounts where the curves turn the
+  // other way, is a hair off developable there)
+  for (const tri of T) for (let s = 0; s < 3; s++) angSum[tri[s]] += ang(V[tri[s]], V[tri[(s + 1) % 3]], V[tri[(s + 2) % 3]]);
   let worst = 0;
   for (let i = 0; i < V.length; i++) if (inner[i]) worst = Math.max(worst, Math.abs(2 * Math.PI - angSum[i]));
   if (worst > DEV_DEFECT) throw new Error(`A face of the sheet is curved both ways (by ${(worst * 180 / Math.PI).toFixed(2)}° at a point): it cannot be unrolled flat`);

@@ -2221,7 +2221,7 @@ rc.log(b.bodies, b.errors.length);`, 'text');
     await asm.addComponent(asm.addPart(plate, null, null));
     const pc = asm.doc.components[0];
     await until(() => asm.geo(pc)?.mesh, 30000);
-    asm.vp.setStandardView('iso');
+    asm.vp.setStandardView('iso', false); // (at once: the hole's end facing the camera is the one used)
     const mesh = asm.geo(pc).mesh, gi = mesh.faceGroups.findIndex((g) => g.surf?.t === 'CYLINDER');
     const sf = mesh.faceGroups[gi].surf;
     const hole = asm.holeOf({ comp: pc.id, kind: 'axis', p: sf.p, d: sf.d, r: sf.r, face: gi, gi: `0:f${gi}`, what: 'Cylindrical face' });
