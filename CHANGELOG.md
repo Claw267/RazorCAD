@@ -6,6 +6,9 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-26 21:14 — Version 0.17.4-beta
+- Installer, user manual (85 pages) and website for 0.17.4-beta.
+
 ## 2026-10-26 14:38 — Developed sheets: the neutral layer on the inside of each face's curve
 - Convert to Sheet Metal of a developed sheet (a square-to-round, a cone, a twisted strip) puts the neutral layer K·t from the inside of each curved face, found face by face: a square-to-round's cone and the bends of its rims curve opposite ways, and one side for the whole sheet put the layer on the wrong side of one of them, so the K-factor could not fit such parts. A face curving both ways along it keeps its overall side, as before; a point between faces curving opposite ways takes the mean.
 - Checked on real parts from another CAD program: two square-to-rounds that differed now match it at K 0.27 (the K-factor those jobs used); 128 of 167 parts match (126 before), none worse. Tests: the regression suite (unchanged); the real parts are checked outside the repository.
