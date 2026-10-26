@@ -109,7 +109,11 @@ def resource_dir():
 
 def data_dir():
     # RAZORCAD_DATA_DIR lets tests run without touching the user's own autosave
-    base = os.environ.get('APPDATA') or os.path.expanduser('~')
+    # (Windows: %APPDATA%\RazorCAD; Linux: $XDG_DATA_HOME/RazorCAD, i.e. ~/.local/share/RazorCAD)
+    if os.name == 'nt':
+        base = os.environ.get('APPDATA') or os.path.expanduser('~')
+    else:
+        base = os.environ.get('XDG_DATA_HOME') or os.path.join(os.path.expanduser('~'), '.local', 'share')
     path = os.environ.get('RAZORCAD_DATA_DIR') or os.path.join(base, APP_NAME)
     os.makedirs(path, exist_ok=True)
     return path
@@ -1186,6 +1190,8 @@ class Api:
 
     def register_file_types(self):
         """Make .rcad / .rasm / .rdrw open with this RazorCAD.exe (for this Windows user)."""
+        if os.name != 'nt':
+            raise RuntimeError('On Linux the desktop opens RazorCAD files through razorcad.desktop (installed with the AppImage)')
         if not getattr(sys, 'frozen', False):
             raise RuntimeError('File types can only be registered from RazorCAD.exe')
         register_file_types(sys.executable)
@@ -1350,10 +1356,16 @@ def main():
              '--enable-zero-copy --js-flags=--max-old-space-size=8192')
     current = os.environ.get('WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS', '')
     os.environ['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = (current + ' ' + extra).strip()
-    # The UI looks for "RazorCAD-Desktop" in the user agent to enable native file dialogs.
-    user_agent = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
-                  'Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0 RazorCAD-Desktop')
-    webview.start(gui='edgechromium', http_server=True, debug='--debug' in sys.argv,
+    # The UI looks for "RazorCAD-Desktop" in the user agent to enable native file dialogs. Windows: Edge's WebView2;
+    # Linux: what pywebview finds (WebKitGTK, or Qt WebEngine), which keeps its own user agent apart from the mark.
+    if os.name == 'nt':
+        gui = 'edgechromium'
+        user_agent = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
+                      'Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0 RazorCAD-Desktop')
+    else:
+        gui = os.environ.get('RAZORCAD_GUI') or None
+        user_agent = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15 RazorCAD-Desktop'
+    webview.start(gui=gui, http_server=True, debug='--debug' in sys.argv,
                   user_agent=user_agent, private_mode=True)
     crash.stop()  # reached only when the window closed normally
 

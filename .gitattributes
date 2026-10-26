@@ -1,0 +1,4 @@
+
+# (Linux build files: LF, whatever the checkout)
+*.sh text eol=lf
+*.desktop text eol=lf

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- RazorCAD's file types, so the desktop opens them with RazorCAD (installed with the AppImage's desktop entry). -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-razorcad-part"><comment>RazorCAD part</comment><glob pattern="*.rcad"/></mime-type>
+  <mime-type type="application/x-razorcad-assembly"><comment>RazorCAD assembly</comment><glob pattern="*.rasm"/></mime-type>
+  <mime-type type="application/x-razorcad-drawing"><comment>RazorCAD drawing</comment><glob pattern="*.rdrw"/></mime-type>
+</mime-info>

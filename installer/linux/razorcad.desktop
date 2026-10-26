@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=RazorCAD
+Comment=Parametric 3D CAD: parts, sheet metal, assemblies and drawings
+Exec=RazorCAD %F
+Icon=razorcad
+Terminal=false
+Categories=Graphics;Engineering;3DGraphics;
+MimeType=application/x-razorcad-part;application/x-razorcad-assembly;application/x-razorcad-drawing;

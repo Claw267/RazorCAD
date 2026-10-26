@@ -6,6 +6,11 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-26 14:00 — An experimental Linux build
+- `build_linux.sh` builds RazorCAD for Linux (`dist/RazorCAD`, and an AppImage with a desktop entry and the .rcad / .rasm / .rdrw file types when appimagetool is installed). The same app runs in WebKitGTK (or Qt WebEngine) through pywebview; on Linux its data folder is `~/.local/share/RazorCAD`.
+- A **Linux build** workflow (started by hand from the Actions tab) builds the AppImage on Ubuntu and smoke-tests it in a virtual display: it starts and the geometry kernel gets ready.
+- razorcad.py: the window engine and data folder chosen per system (Windows unchanged); file types are registered by the desktop entry on Linux.
+
 ## 2026-10-26 13:42 — Feature folders, and patterns of them
 - Group features in the tree: right-click a feature ▸ **Add to New Folder…**, **Move to** a folder or **Remove from Folder**. A folder sits where its first feature is, with its features under it (open or closed); right-click it to rename or delete it (its features stay), or for a **Linear / Circular Pattern of the Folder**.
 - A pattern's **More features** takes folders: it copies what is in the folder at each rebuild (a feature added to the folder later is copied too; the pattern is built again when the folder changes).

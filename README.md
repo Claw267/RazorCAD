@@ -89,6 +89,12 @@ To work on the UI code, run `python serve.py` and open http://localhost:8765/ in
 In that mode, files are downloaded instead of saved through dialogs.
 Set the `RAZORCAD_DATA_DIR` environment variable to keep a test run's recent-files list separate from your own.
 
+### Linux (experimental)
+RazorCAD is made and tested on Windows, but the same app runs on Linux in WebKitGTK (or Qt WebEngine) through
+pywebview. `build_linux.sh` builds `dist/RazorCAD`, and with `appimagetool` on the PATH an AppImage with a desktop entry
+and the `.rcad` / `.rasm` / `.rdrw` file types. The **Linux build** workflow (Actions tab, **Run workflow**) builds the
+AppImage on Ubuntu and smoke-tests it in a virtual display. On Linux the data folder is `~/.local/share/RazorCAD`.
+
 ## Navigating
 
 | Action | Mouse / keys |
