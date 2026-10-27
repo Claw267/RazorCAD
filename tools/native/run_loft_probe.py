@@ -28,8 +28,10 @@ class Server(http.server.SimpleHTTPRequestHandler):
             self.send_response(204);self.end_headers();return
         if self.path.split('?')[0] == '/js/kernel.worker.js':
             source=(app/'js/kernel.worker.js').read_text(encoding='utf-8')
-            source=source.replace('new URL(`../vendor/replicad/${KERNEL_BUILD}.wasm`, import.meta.url)', "new URL(`/native/${KERNEL_BUILD}.wasm`, import.meta.url)")
-            source=source.replace('import(`../vendor/replicad/${KERNEL_BUILD}.js`)', "import(`/native/${KERNEL_BUILD}.js`)")
+            old_wasm,old_js='new URL(`../vendor/replicad/${KERNEL_BUILD}.wasm${KERNEL_QUERY}`, import.meta.url)','import(`../vendor/replicad/${KERNEL_BUILD}.js${KERNEL_QUERY}`)'
+            assert source.count(old_wasm)==1 and source.count(old_js)==1, 'the worker no longer loads the kernel as expected: update these replacements'
+            source=source.replace(old_wasm, "new URL(`/native/${KERNEL_BUILD}.wasm`, import.meta.url)")
+            source=source.replace(old_js, "import(`/native/${KERNEL_BUILD}.js`)")
             payload=source.encode();self.send_response(200);self.send_header('Content-Type','application/javascript');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload);return
         super().do_GET()
 

@@ -7,7 +7,7 @@ import re
 import sys
 
 source, destination = map(Path, sys.argv[1:3])
-s = source.read_text()
+s = source.read_text(encoding='utf-8')
 assert 'razorcadDtors' not in s, 'Input is already patched'
 identifier = r'[A-Za-z_$][\w$]*'
 module = re.search(r'var\s+('+identifier+r')=moduleArg[,;]', s)
@@ -31,5 +31,10 @@ s = s[:c.start()]+f'var razorcadDtor={destructor};'+s[c.start():]
 if '--multi' in sys.argv[3:]:
     assert s.count('navigator.hardwareConcurrency') == 2, 'Thread-count setup changed'
     s = s.replace('navigator.hardwareConcurrency',f'({module}.razorcadThreads??navigator.hardwareConcurrency)')
-destination.write_text(s)
-print(f'Patched lifetime hooks'+(' and thread count' if '--multi' in sys.argv[3:] else ''))
+    # (each thread's worker loads the module from the address it was itself loaded from, query included: the browser
+    # version asks for the kernel by its signature, ?k=…, so a browser never runs a cached older copy beside it)
+    spawn = re.findall(r'new URL\("[\w.-]+\.js",\s*import\.meta\.url\)', s)
+    assert len(spawn) == 1, f'Thread worker creation changed: {len(spawn)} matches'
+    s = s.replace(spawn[0], 'new URL(import.meta.url)')
+destination.write_text(s, encoding='utf-8')
+print(f'Patched lifetime hooks'+(' and thread count and worker address' if '--multi' in sys.argv[3:] else ''))

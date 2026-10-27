@@ -114,6 +114,9 @@ export class KernelClient {
   newWorker() {
     const url = new URL('./kernel.worker.js', import.meta.url);
     if (this.threads > 1) url.searchParams.set('threads', String(this.threads));
+    // (the browser version: the kernel's files asked for by its signature, so a browser or the website's cache never
+    // hands an older kernel to this worker after an update; the files are kept a day: website/_headers)
+    if (globalThis.RAZORCAD_WEB?.kernel) url.searchParams.set('k', String(globalThis.RAZORCAD_WEB.kernel));
     const worker = new Worker(url, { type: 'module' });
     this.worker = worker;
     worker.onmessage = (e) => {

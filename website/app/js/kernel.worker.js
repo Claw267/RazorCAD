@@ -128,7 +128,9 @@ function isFatal(e) {
   return /Maximum call stack|Aborted\(|memory access out of bounds|unreachable|table index is out of bounds|Out of memory/i.test(msg);
 }
 
-const wasmUrl = new URL(`../vendor/replicad/${KERNEL_BUILD}.wasm`, import.meta.url);
+// (the browser version: ?k=<kernel signature>, the same for the kernel's script, so cached files of another version are never used)
+const KERNEL_QUERY = (() => { const k = new URL(self.location.href).searchParams.get('k'); return k ? `?k=${encodeURIComponent(k)}` : ''; })();
+const wasmUrl = new URL(`../vendor/replicad/${KERNEL_BUILD}.wasm${KERNEL_QUERY}`, import.meta.url);
 // The kernel's wasm: the whole file, or, where the website's host limits a file's size, its parts name.part0,
 // name.part1… joined (tools/build_web_app.py). Fetched once.
 const wasmFetched = new Map();
@@ -139,7 +141,8 @@ function wasmBytes(url) {
     if (r.ok) return new Uint8Array(await r.arrayBuffer());
     const parts = [];
     for (let i = 0; ; i++) {
-      const p = await fetch(`${key}.part${i}`);
+      const part = new URL(key); part.pathname += `.part${i}`;
+      const p = await fetch(part);
       if (!p.ok) break;
       parts.push(new Uint8Array(await p.arrayBuffer()));
     }
@@ -154,7 +157,7 @@ function wasmBytes(url) {
 let kernelThreads = 1; // (threads the kernel runs with: for the status and crash reports)
 const ready = (async () => {
   let exportsOf = null;
-  const Module = (await import(`../vendor/replicad/${KERNEL_BUILD}.js`)).default;
+  const Module = (await import(`../vendor/replicad/${KERNEL_BUILD}.js${KERNEL_QUERY}`)).default;
   const oc = await new Promise((resolve, reject) => {
     Module({
       ...(MULTI ? { razorcadThreads: THREADS } : {}),

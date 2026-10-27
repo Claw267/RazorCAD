@@ -6,6 +6,17 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-28 11:09 — Browser version: never an older cached kernel after an update
+- The browser keeps the kernel's files a day (and so, for a while after a deploy, did the website's cache): after an
+  update the new kernel worker could get the older kernel, and parts didn't build (0.18.1-beta's site check saw it:
+  the multi-threaded kernel on 1 thread, the test part failing; the single-thread kernel didn't start). The worker
+  now asks for the kernel's script and files by the kernel's signature (`?k=…`), its thread workers too (the
+  multi-threaded loader starts them from its own address: `tools/patch_surface_kernel_loader.py`), so a cached
+  file of another version is never used. Checked with a server that hands out an older kernel to unversioned
+  requests: 0.18.1-beta's browser version fails there, this one builds with both kernels.
+- `tools/patch_surface_kernel_loader.py` reads and writes UTF-8; `tools/native/run_loft_probe.py` fails loudly if the
+  worker's kernel lines change, instead of testing the wrong kernel.
+
 ## 2026-10-28 10:01 — Version 0.18.1-beta
 - Installer, user manual (93 pages) and website for 0.18.1-beta. The manual's kernel paragraphs (threads per kernel, how the kernels are built and published) brought up to date.
 
