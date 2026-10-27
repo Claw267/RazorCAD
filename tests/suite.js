@@ -4778,6 +4778,19 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     return { ok: true, detail: `Nonplanar open surface / two native spline guides (${worst.toExponential(3)} mm), uncapped circular surface, panel method selection and cancel` };
   },
 
+  async 'extrusion-start-controls'() {
+    const {run,fixture,base}=await import('/tests/extrusion-start-cases.js'),native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:native};
+    const a=window.app;await a.newDocument?.();closeModals();const d=fixture();await a.setDoc(d.doc);a.editFeature(d.feature.id);const settle=async()=>{await wait(180);await until(()=>!a.kernel.pending);};await settle();
+    const field=key=>document.querySelector(`[data-feature-field="${key}"]`),start=field('startFrom');start.value='surface';start.dispatchEvent(new Event('change'));await settle();
+    document.querySelector('[data-extrude-surface-pick="startPlane"]').click();a.pmPick('plane',d.plane.id);await settle();if(a.pm.feature.startPlane!==d.plane.id||a.pm.feature.toPlane)return {ok:false,detail:'Start picker overwrote end'};
+    const end=field('end');end.value='upToSurface';end.dispatchEvent(new Event('change'));await settle();document.querySelector('[data-extrude-surface-pick="toPlane"]').click();a.pmPick('plane','front');await settle();
+    if(a.pm.feature.startPlane!==d.plane.id||a.pm.feature.toPlane!=='front')return {ok:false,detail:'End picker overwrote start'};
+    const id=d.feature.id;await a.okPM();await a.setDoc(JSON.parse(JSON.stringify(a.doc)));a.editFeature(id);await settle();if(a.pm.feature.startPlane!==d.plane.id||a.pm.feature.toPlane!=='front')return {ok:false,detail:'Reopen lost independent bounds'};a.cancelPM();await a.rebuild();
+    const faced=fixture({startFrom:'surface',merge:false});base(faced);await a.setDoc(faced.doc);a.editFeature(faced.feature.id);await settle();document.querySelector('[data-extrude-surface-pick="startPlane"]').click();a.viewport.setStandardView('front',false);a.viewport.zoomToFit(null,false);a.viewport.camera.updateMatrixWorld(true);const {Vector3}=await import('three'),v=viewEvents();await v.click(...v.toScreen(new Vector3(4,4,20)));await settle();
+    if(!a.pm.feature.startFace||a.pm.feature.toFace)return {ok:false,detail:'Canvas face pick did not bind the start independently'};a.cancelPM();await a.rebuild();
+    return {ok:true,detail:{native,ui:'Independent start/end plane slots, real start face pick and persistence'}};
+  },
+
   async 'standard-feature-workflows'() {
     const {run,fixture,withBase}=await import('/tests/standard-feature-cases.js');const S=await import('/js/sketchmodel.js');
     const native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};

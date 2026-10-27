@@ -3251,7 +3251,52 @@ async function rebuild(doc, previewId = null, opts = {}) {
             sk.extrudeSign = dot(sk.frame.n, firstFrame.n) < 0 ? -1 : 1;
           }
           const extrusions = [];
-          for (const sk of sections) {
+          const startMode=f.startFrom||'profile';
+          if(!['profile','offset','surface'].includes(startMode))throw new Error('Select a supported extrusion start');
+          const startSurface=startMode==='surface'?resolveSurface(f.startPlane,f.startFace):null;
+          const startOffset=startMode==='offset'?ev(f.startOffset??0):0;
+          if(!Number.isFinite(startOffset))throw new Error('Start offset must be finite');
+          if(startSurface&&Math.abs(dot(startSurface.n,firstFrame.n))<1e-7)throw new Error('The start surface is parallel to the extrusion direction');
+          if(f.startFace&&startSurface)res.features[f.id]={...(res.features[f.id]||{}),startFace:f.startFace};
+          for (const sourceSection of sections) {
+            let sk=sourceSection;
+            const axis=mul(sk.frame.n,sk.extrudeSign);
+            if(startMode==='offset'||startSurface&&Math.abs(dot(startSurface.n,axis))>1-1e-7){
+              const distance=startSurface?dot(sub(startSurface.p,sk.frame.o),startSurface.n)/dot(axis,startSurface.n):startOffset;
+              sk={...sk,frame:{...sk.frame,o:add(sk.frame.o,mul(axis,distance))}};
+            }
+            if(startSurface&&Math.abs(dot(startSurface.n,axis))<=1-1e-7){
+              // Clip a prism with two independent planar boundaries. Keep the
+              // sketch frame fixed; only the generated feature changes origin.
+              const fr=sk.frame,probe=profileSolid(sk,dr=>dr.sketchOnPlane(rPlane(fr)).extrude(1));let box;
+              try{box=bbox(probe);}finally{probe.delete();}
+              const corners=[];for(const x of [box.min[0],box.max[0]])for(const y of [box.min[1],box.max[1]])for(const z of [box.min[2],box.max[2]]){const p=[x,y,z];corners.push(sub(p,mul(axis,dot(sub(p,fr.o),axis))));}
+              const height=(surface,p)=>dot(sub(surface.p,p),surface.n)/dot(axis,surface.n);
+              const atStart=height(startSurface,fr.o),startCenter=add(fr.o,mul(axis,atStart));
+              let lower,upper;
+              if(['blind','midplane','twoSides'].includes(f.end||'blind')){
+                const interval=extrusionInterval(f,ev);lower={p:add(startSurface.p,mul(axis,interval.start)),n:startSurface.n};upper={p:add(startSurface.p,mul(axis,interval.end)),n:startSurface.n};
+              }else if(['upToSurface','offsetSurface','upToVertex'].includes(f.end)){
+                let end;
+                if(f.end==='upToVertex'){const p=resolvePoint(f.toPoint,f.toVertex);end={p,n:axis};}
+                else{end=resolveSurface(f.toPlane,f.toFace);if(Math.abs(dot(end.n,axis))<1e-7)throw new Error('The end surface is parallel to the extrusion direction');if(f.end==='offsetSurface'){const offset=ev(f.toOffset)*(f.toFlip?-1:1),side=Math.sign(dot(sub(startCenter,end.p),end.n))||1;end={...end,p:add(end.p,mul(end.n,side*offset))};}}
+                const direction=height(end,fr.o)>atStart?1:-1;lower=direction>0?startSurface:end;upper=direction>0?end:startSurface;
+              }else if(['through','through2'].includes(f.end)){
+                if(f.op==='add'&&!body)throw new Error('Through All needs an existing body');
+                const bounds=body?bbox(body):{center:fr.o,diag:1000},length=len(sub(bounds.center,startCenter))+bounds.diag+box.diag+10;
+                const below={p:add(startCenter,mul(axis,-length)),n:axis},above={p:add(startCenter,mul(axis,length)),n:axis};
+                lower=f.end==='through2'||f.reverse?below:startSurface;upper=f.end==='through2'||!f.reverse?above:startSurface;
+              }else throw new Error('Select a supported extrusion end');
+              for(const p of corners)if(height(upper,p)-height(lower,p)<=1e-6)throw new Error('The start and end surfaces cross or leave no extrusion thickness over the profile');
+              const low=Math.min(...corners.map(p=>height(lower,p))),high=Math.max(...corners.map(p=>height(upper,p))),big=box.diag+Math.max(Math.abs(low),Math.abs(high))+len(fr.o)+100;
+              let tool=profileSolid(sk,dr=>dr.sketchOnPlane(rPlane(fr,add(fr.o,mul(axis,low-5)))).extrude((high-low+10)*sk.extrudeSign));
+              for(const [surface,sign] of [[lower,1],[upper,-1]]){
+                const n=mul(surface.n,(dot(surface.n,axis)>0?1:-1)*sign),base=Math.abs(n[0])<.9?[1,0,0]:[0,1,0],u=unit(cross(n,base)),center=add(fr.o,mul(axis,height(surface,fr.o)));
+                const block=R.drawRectangle(2*big,2*big).sketchOnPlane(new R.Plane(center,u,n)).extrude(2*big);tool=tool.intersect(block);
+              }
+              if(!solidsOf(tool).length)throw new Error('The start and end references leave no solid extrusion');
+              extrusions.push(tool);continue;
+            }
             let z0 = 0, z1 = 0;
             if(['blind','midplane','twoSides'].includes(f.end||'blind'))({start:z0,end:z1}=extrusionInterval(f,ev));
             else if(f.end==='through'||f.end==='through2'){

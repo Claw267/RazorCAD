@@ -796,8 +796,13 @@ const PM_SCHEMAS = {
   ],
   extrude: [
     { title: 'Profiles', fields: [{ key: 'profiles', type: 'loftSelection' }] },
+    { title:'Start',fields:[
+      {key:'startFrom',type:'select',label:'Start from',default:'profile',options:[['profile','Profile plane'],['offset','Offset from profile'],['surface','Plane / planar face']]},
+      {key:'startOffset',type:'expr',label:'Start offset',unit:'mm',show:f=>f.startFrom==='offset'},
+      {key:'startPlane',type:'surfaceRef',label:'Start surface',show:f=>f.startFrom==='surface'},
+    ]},
     {
-      title: 'Direction 1', fields: [
+      title: 'End', fields: [
         { key: 'end', type: 'select', label: 'End condition', options: [...ENDS_REF,['twoSides','Two sides']] },
         { key: 'depth', type: 'expr', label: 'Depth', unit: 'mm', show: (f) => ['blind', 'midplane', 'twoSides'].includes(f.end) },
         { key: 'depth2', type: 'expr', label: 'Second depth', unit: 'mm', default: 0, show: f => f.end === 'twoSides' },
@@ -3687,7 +3692,7 @@ export class UI {
           if (fd.type === 'direction') options = [...(fd.none ? [['none', 'None']] : []), ...axisChoices(f[fd.key]), ...axisFeats];
           if (fd.type === 'pointSel') options = [['', '— select a reference point —'], ...pointFeats];
           if (fd.type === 'pointRef') options = [['', f.toVertex ? '✔ Vertex picked on the model' : '— click a vertex on the model —'], ...pointFeats];
-          if (fd.type === 'surfaceRef') options = [['', f.toFace ? '✔ Face picked on the model' : '— click a flat face on the model —'], ...Object.entries(STD_PLANES).map(([k, p]) => [k, p.name]), ...before.filter((x) => x.type === 'plane' && !x.suppressed).map((x) => [x.id, x.name])];
+          if (fd.type === 'surfaceRef') options = [['', (fd.key==='startPlane'?f.startFace:f.toFace) ? '✔ Face picked on the model' : '— click a flat face on the model —'], ...Object.entries(STD_PLANES).map(([k, p]) => [k, p.name]), ...before.filter((x) => x.type === 'plane' && !x.suppressed).map((x) => [x.id, x.name])];
           if (fd.type === 'pathSel') options = [['', fd.optional ? '— None —' : '— a sketch, 3D sketch, curve or helix —'], ...before.filter((x) => ['sketch', 'helix', 'sketch3d', 'compCurve', 'projCurve'].includes(x.type) && !x.suppressed && (['sweep','surfSweep'].includes(f.type) && f.profileType === 'circle' || x.id !== f.profile) && !(['sweep','surfSweep'].includes(f.type) && x.id === (fd.key === 'guide' ? f.path : f.guide))).map((x) => [x.id, x.name])];
           if (fd.type === 'threadSize') {
             options = [['auto', 'Automatic (the size that fits the face)'], ...threadList(f.system || 'metric').map((t) => [t.id, t.label]), ['custom', 'Custom…']];
@@ -3711,8 +3716,15 @@ export class UI {
           if(f.referenceDefinition)s.dataset.datumField=fd.key;
           if (f.type === 'surfFill' && fd.key === 'continuity') s.dataset.patchContinuity = '';
           if (['sweep','surfSweep'].includes(f.type) && ['profile','path','guide'].includes(fd.key)) s.onfocus = () => { pm.sweepSlot = fd.key; };
+          if(f.type==='extrude'&&fd.type==='surfaceRef')s.onfocus=()=>{pm.extrudeSurfaceSlot=fd.key==='startPlane'?'start':'end';pm.extrudePick=false;pm.scopePick=false;a.updateSketchDisplay();};
+          if(f.type==='extrude'&&fd.type==='pointRef')s.onfocus=()=>{pm.extrudeSurfaceSlot='end';pm.extrudePick=false;pm.scopePick=false;a.updateSketchDisplay();};
           s.onchange = () => {
             f[fd.key] = s.value || null;
+            if(f.type==='extrude'){
+              if(fd.key==='startFrom'&&f.startFrom==='surface'){pm.extrudeSurfaceSlot='start';pm.extrudePick=false;pm.scopePick=false;}
+              if(fd.type==='surfaceRef'){pm.extrudeSurfaceSlot=fd.key==='startPlane'?'start':'end';f[fd.key==='startPlane'?'startFace':'toFace']=null;}
+              if(fd.key==='end')pm.extrudeSurfaceSlot='end';
+            }
             if(f.type==='point'&&fd.key==='pointType'&&s.value==='references')useReferenceRelations(f);
             if(['sweep','surfSweep'].includes(f.type)&&fd.key==='profileType'){pm.sweepSlot=f.profileType==='circle'?'path':'profile';pm.sweepCanvas=true;pm.loftDraft=null;pm.loftHover=null;}
             if (['revolve','surfRevolve'].includes(f.type)&&fd.key==='axis')s.onfocus=()=>{pm.profilePick=false;pm.scopePick=false;a.updateSketchDisplay();};
@@ -3727,6 +3739,7 @@ export class UI {
           const wrap = el('div', { class: 'pm-input' });
           wrap.appendChild(s);
           body.appendChild(this.row(fd.label, wrap));
+          if(f.type==='extrude'&&fd.type==='surfaceRef')body.appendChild(el('button',{class:'pm-btn'+(pm.extrudeSurfaceSlot===(fd.key==='startPlane'?'start':'end')?' on':''),'data-extrude-surface-pick':fd.key,onclick:()=>{pm.extrudeSurfaceSlot=fd.key==='startPlane'?'start':'end';pm.extrudePick=false;pm.scopePick=false;this.renderPM();a.updateSketchDisplay();a.updatePlanes();a.status('Select a plane or planar face for the '+pm.extrudeSurfaceSlot+' of the extrusion.');}},fd.key==='startPlane'?'Pick start surface in canvas':'Pick end surface in canvas'));
         }
       }
     }

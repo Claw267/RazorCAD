@@ -2241,6 +2241,7 @@ class App {
     if (f.type === 'weldTrim' || f.type === 'weldBead') return 'body';
     if (f.type === 'endCap' || f.type === 'weldGusset') return 'faces';
     if (f.type === 'moveFace') return f.mode === 'rotate' && f.faces?.length && !f.edge ? 'edge' : 'faces';
+    if(f.type==='extrude'&&f.startFrom==='surface'&&this.pm.extrudeSurfaceSlot==='start')return 'face';
     if (f.type === 'extrude' && f.end === 'upToVertex') return 'vertex';
     if (f.type === 'extrude' && (f.end === 'upToSurface' || f.end === 'offsetSurface')) return 'face';
     if (scoped) return 'body';
@@ -2306,6 +2307,7 @@ class App {
       else f.vertex = { p: hit.point.toArray() };
     } else if (mode === 'face') {
       if (f.type === 'split') f.toolFace = { p: hit.p, n: hit.n };
+      else if(f.type==='extrude'&&this.pm.extrudeSurfaceSlot==='start'){f.startFace={p:hit.p,n:hit.n};f.startPlane=null;}
       else { f.toFace = { p: hit.p, n: hit.n }; f.toPlane = null; }
     }
     this.ui.renderPM();
@@ -2417,6 +2419,7 @@ class App {
       }
     }
     if (f) {
+      if(f.type==='extrude'&&f.startFrom==='surface'&&f.startFace){const i=vp.faceIndexNear(f.startFace.p);if(i>=0)infos.push(vp.faceInfo(i));}
       const faceRefs = [...(f.faces || []), ...(f.startFaces || []), ...(f.endFaces || []), ...(f.refs||[]).filter(r=>r.kind==='face'), ...(f.type === 'moveBody' ? (f.mates || []).flatMap((m) => [m.a, m.b]).filter((r) => r?.kind === 'face') : [])];
       if (((f.type === 'axis' && f.axisType === 'cylinder') || f.type === 'thread' || f.type === 'cosmeticThread' || f.type === 'wrap') && f.face) faceRefs.push(f.face);
       if (f.axis === 'face' && f.axisFace) faceRefs.push(f.axisFace);
@@ -2627,6 +2630,7 @@ class App {
       const pmPlanes = new Set();
       if (this.pm?.kind === 'feature') {
         const f = this.pm.feature;
+        if(f.type==='extrude'){if(f.startFrom==='surface'&&f.startPlane)pmPlanes.add(f.startPlane);if(['upToSurface','offsetSurface'].includes(f.end)&&f.toPlane)pmPlanes.add(f.toPlane);}
         if (['plane','axis','point'].includes(f.type)) for (const r of f.refs || []) if (r.kind === 'plane') pmPlanes.add(r.id);
         if (f.type === 'mirror') pmPlanes.add(f.plane);
       }
@@ -2950,6 +2954,7 @@ class App {
     if (kind === 'axis' && f.type === 'moveBody' && f.mode !== 'mates') { f.rotAxis = id; this.preview(true); return true; }
     if (kind === 'plane') {
       if (f.type === 'mirror') key = 'plane';
+      else if(f.type==='extrude'&&f.startFrom==='surface'&&this.pm.extrudeSurfaceSlot==='start'){key='startPlane';f.startFace=null;}
       else if (f.type === 'extrude' && (f.end === 'upToSurface' || f.end === 'offsetSurface')) { key = 'toPlane'; f.toFace = null; }
       else if (f.type === 'axis' && f.axisType === 'twoPlanes') key = slot('planeA', 'planeB');
     } else if (kind === 'point') {

@@ -742,6 +742,10 @@ Every value field accepts numbers or equations (see Equations in the Evaluate ch
 
 Extrudes a sketch profile into a solid, or cuts it out. {idx:extrude}{idx:Extrude Cut}
 
+**Start** and **End** are independent. **Start from → Profile plane** preserves the usual extrusion. **Offset from profile** translates the starting plane by a signed distance along the first selected profile's normal; expressions are supported. **Plane / planar face** projects the profiles along the extrusion direction onto the underlying plane of the selected reference, including inclined planes. Use **Pick start surface in canvas** or the Start surface list. End references have their own picker and do not replace the start reference.
+
+Blind depth, symmetric and two-sided distances are measured from the new start. Reversing the extrusion changes its extent direction while preserving the start offset. With an inclined start and a distance end, both caps follow the starting plane, separated along the extrusion direction. **Up To Surface**, **Offset From Surface** and **Up To Vertex** retain independent end references. Crossing boundaries, zero thickness and a starting plane parallel to the extrusion direction are rejected. The options apply to solid extrusions, cuts, Thin Feature and selected profile regions; saved start-plane references follow source edits. Surface Extrude retains its existing start behavior.
+
 End conditions:
 
 | End condition | Meaning |
