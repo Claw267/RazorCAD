@@ -5049,7 +5049,10 @@ export class UI {
     body.appendChild(el('div',{'data-datum-status':'checking',class:'pm-msg'},'Updating preview…'));
     const info=a.result?.info?.[f.id],resolved=info?.datumSignature===JSON.stringify(f)&&info.geometry;
     const hints=resolved?resolved.map((g,i)=>resolvedDatumHint(a.doc,f.refs[i],g,f.type)):f.refs.map(r=>this.datumGeometryHint(r)),defaults=defaultReferenceRelations(f.type,hints,f);body.dataset.geometry=resolved?JSON.stringify(resolved):'';
-    const name=r=>r.kind==='plane'?STD_PLANES[r.id]?.name||findFeature(a.doc,r.id)?.name||'(missing plane)':['axis','point','curve'].includes(r.kind)?findFeature(a.doc,r.id)?.name||'(missing reference)':r.kind==='sketch'?`${findFeature(a.doc,r.sketch)?.name||'(missing sketch)'} · ${r.point||r.curve}`:r.kind==='face'?(r.n?'Planar face':'Cylindrical / conical face'):r.kind==='edge'?'Model edge':'Model vertex';
+    const name=r=>{
+      if(r.kind==='sketch'){const sk=a.result?.sketches.get(r.sketch)?.sketch||findFeature(a.doc,r.sketch),id=r.point||r.curve;return `${sk?.name||'(missing sketch)'} · ${sk?SM.itemName(sk,id):id} (${id})`;}
+      return r.kind==='plane'?STD_PLANES[r.id]?.name||findFeature(a.doc,r.id)?.name||'(missing plane)':['axis','point','curve'].includes(r.kind)?findFeature(a.doc,r.id)?.name||'(missing reference)':r.kind==='face'?(r.n?'Planar face':'Cylindrical / conical face'):r.kind==='edge'?'Model edge':'Model vertex';
+    };
     for(let i=0;i<3;i++){
       const r=f.refs[i],row=el('div',{class:'pm-row','data-datum-slot':i});
       const pick=el('button',{class:'pm-btn'+(pm.datumSlot===i?' on':''),'data-datum-pick':i,disabled:i>f.refs.length,onclick:()=>{pm.datumSlot=pm.datumSlot===i?null:i;this.renderPM();a.updateSketchDisplay();a.updatePlanes();}},`Reference ${i+1}: ${r?esc(name(r)):'Select geometry'}`);
@@ -5076,10 +5079,18 @@ export class UI {
         body.appendChild(el('div',{'data-datum-path-info':i,class:'pm-hint'},''));
       }
     }
-    const sources=el('select',{'data-datum-source':''});sources.appendChild(el('option',{value:''},'Choose a plane, axis or point…'));
+    const sources=el('select',{'data-datum-source':'','aria-label':'Reference geometry'}),entities=[];sources.appendChild(el('option',{value:''},'Choose reference geometry…'));
     for(const [id,p] of Object.entries(STD_PLANES))sources.appendChild(el('option',{value:'plane:'+id},esc(p.name)));
     for(const source of before.filter(x=>!x.suppressed&&(['plane','axis','point'].includes(x.type)||f.type!=='axis'&&['helix','sketch3d','compCurve','projCurve'].includes(x.type))))sources.appendChild(el('option',{value:(['plane','axis','point'].includes(source.type)?source.type:'curve')+':'+source.id},esc(source.name)));
-    sources.onchange=()=>{if(sources.value){const [kind,id]=sources.value.split(':');a.togglePlaneRef({kind,id});}};
+    for(const source of before.filter(x=>x.type==='sketch'&&!x.suppressed&&!a.result?.errors.has(x.id))){
+      const sk=a.result?.sketches.get(source.id)?.sketch;if(!sk)continue;
+      const group=el('optgroup',{label:source.name});
+      const add=(kind,id)=>{const ref={kind:'sketch',sketch:source.id,[kind]:id},value='entity:'+entities.length;entities.push(ref);group.appendChild(el('option',{value,'data-datum-sketch':source.id,['data-datum-'+kind]:id},`${SM.itemName(sk,id)} (${id})`));};
+      for(const c of sk.curves)if(['line','arc','circle'].includes(c.type)||f.type!=='axis'&&c.type==='spline')add('curve',c.id);
+      add('point','O');for(const p of sk.points)add('point',p.id);
+      sources.appendChild(group);
+    }
+    sources.onchange=()=>{if(sources.value){const [kind,id]=sources.value.split(':');a.togglePlaneRef(kind==='entity'?{...entities[Number(id)]}:{kind,id});}};
     body.appendChild(sources);
     const solution=el('select',{'data-datum-solution':'','aria-label':'Geometric solution'});solution.append(el('option',{value:'0'},'Solution 1'),el('option',{value:'1'},'Solution 2'));
     solution.value=String(f.solution||0);solution.onchange=()=>{f.solution=Number(solution.value);a.preview();};body.appendChild(this.row('Solution',solution));

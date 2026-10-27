@@ -139,7 +139,11 @@ Checks selected solid/surface profiles, analytical volumes and areas, directiona
 
 ## Reference geometry constraints
 
-`python tests/run_tests.py --only reference-datum-workflows plane-sketch-refs plane-more-types --jobs 1`
+`python tests/run_tests.py --only reference-entity-list reference-datum-workflows plane-sketch-refs plane-more-types --jobs 1`
+
+`reference-entity-list` checks named sketch entities in the shared panel list,
+explicit slot replacement, spline compatibility, origin points, hidden sources,
+suppression/order filtering and stable references after reopening.
 
 The shared datum test checks affine/unit-direction constraints for planes, axes and
 points; underdefinition, conflicts, alternate angular planes/bisectors, tangent

@@ -4092,6 +4092,31 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     return {ok:true,detail:JSON.stringify({native,ui:'actual arc pick, along-path plane and point, distance expressions, reversal, length feedback, invalid acceptance guard, save/reopen/cancel and source edits'})};
   },
 
+  async 'reference-entity-list'() {
+    const a=window.app,S=await import('/js/sketchmodel.js'),{fixture}=await import('/tests/reference-datum-cases.js');
+    const settle=async()=>{await wait(180);await until(()=>!a.kernel.pending);};
+    const pick=async(sketch,kind,id)=>{const select=document.querySelector('[data-datum-source]'),option=[...select.options].find(o=>o.dataset.datumSketch===sketch&&o.dataset['datum'+(kind==='curve'?'Curve':'Point')]===id);if(!option)throw new Error('Missing '+kind+' '+id);select.value=option.value;select.dispatchEvent(new Event('change'));await settle();};
+    await a.newDocument?.();closeModals();
+    for(const type of ['plane','axis','point']){
+      const data=fixture(type),{doc,sk,feature,line}=data,spline=S.addCtrlSpline(sk,[[30,0],[35,0],[40,10],[45,10]].map(q=>S.addPoint(sk,...q)));
+      const suppressed=M.createFeature(doc,'sketch',{suppressed:true});S.addLine(suppressed,S.addPoint(suppressed,0,0),S.addPoint(suppressed,10,0));doc.features.unshift(suppressed);
+      const later=M.createFeature(doc,'sketch');S.addLine(later,S.addPoint(later,0,0),S.addPoint(later,10,0));doc.features.push(later);
+      await a.setDoc(doc);a.editFeature(feature.id);await settle();
+      if(document.querySelector(`[data-datum-sketch="${suppressed.id}"], [data-datum-sketch="${later.id}"]`))return {ok:false,detail:'Suppressed or later sketch offered'};
+      if(!!document.querySelector(`[data-datum-curve="${spline}"]`)!==(type!=='axis'))return {ok:false,detail:'Incompatible spline list for '+type};
+      await pick(sk.id,'curve',line);
+      if(a.pm.feature.refs[0]?.curve!==line||document.querySelector('[data-datum-status]')?.dataset.datumStatus!=='defined'||!document.querySelector('[data-datum-pick="0"]').textContent.includes('Line1'))return {ok:false,detail:'List did not create named linked '+type+' reference'};
+      const id=feature.id;await a.okPM();await a.setDoc(JSON.parse(JSON.stringify(a.doc)));a.editFeature(id);await settle();
+      if(a.pm.feature.refs[0]?.curve!==line||M.findFeature(a.doc,sk.id).visible!==false)return {ok:false,detail:'Reopen lost stable reference or hidden source visibility'};
+      if(type==='plane'){
+        document.querySelector('[data-datum-pick="0"]').click();await pick(sk.id,'curve',spline);if(a.pm.feature.refs.length!==1||a.pm.feature.refs[0].curve!==spline)return {ok:false,detail:'Active slot did not replace with spline'};
+        document.querySelector('[data-datum-pick="0"]').click();await pick(sk.id,'point','O');if(a.pm.feature.refs[0]?.point!=='O'||!document.querySelector('[data-datum-pick="0"]').textContent.includes('Origin'))return {ok:false,detail:'Origin point selection failed'};
+      }
+      a.cancelPM();await a.rebuild();
+    }
+    return {ok:true,detail:'Named curves and points grouped by sketch for planes, axes and points; spline compatibility, explicit slot replacement, hidden sources, suppression/order filtering and save/reopen'};
+  },
+
   async 'reference-datum-workflows'() {
     const {run,fixture}=await import('/tests/reference-datum-cases.js');const native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
     const a=window.app,settle=async()=>{await wait(180);await until(()=>!a.kernel.pending);};

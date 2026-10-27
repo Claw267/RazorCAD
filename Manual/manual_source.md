@@ -1103,7 +1103,7 @@ Surface quality can be checked with Zebra Stripes, Curvature and Draft Analysis 
 
 ## Reference Plane
 
-Reference Plane, Reference Axis and Reference Point share a **References and Relations** panel with three numbered slots. Pick sketch geometry, model geometry or an earlier reference feature in the canvas or tree. Hidden source sketches are temporarily displayed without changing their saved visibility. Click a slot to replace its reference; a fourth pick never discards an existing reference. Click a selected reference again, or its remove button, to remove it. References remain linked to their sources. {idx:reference plane}
+Reference Plane, Reference Axis and Reference Point share a **References and Relations** panel with three numbered slots. Pick sketch geometry, model geometry or an earlier reference feature in the canvas or tree. The **Choose reference geometry** list also offers individual sketch lines, arcs, circles, supported splines and points (including the sketch origin), grouped by source sketch. Entries show the entity name and stable ID; suppressed, failed and later sketches are omitted. Hidden source sketches are temporarily displayed without changing their saved visibility. Click a slot to replace its reference; a fourth pick never discards an existing reference. Click a selected reference again, or its remove button, to remove it. References remain linked to their sources. {idx:reference plane}
 
 Each slot offers compatible **Relation** choices. **Automatic** chooses the usual relation for the selected combination; selecting an explicit relation keeps that choice when other references change. Distances and angles accept expressions. References must precede the feature in the tree.
 
