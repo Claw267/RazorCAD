@@ -340,8 +340,8 @@ export function readStepAssembly(text, onProgress = null) {
   for (const root of roots) visit(root, 0, new Set());
   // (a single part: every product with a shape is a part, in place)
   if (single) for (const pd of byType.get('PRODUCT_DEFINITION')) if (repOfPd(pd)) leafPds.add(pd);
-  // A product can contain both its own B-rep and child components (Fusion exports necks and
-  // fretboards this way). Keep that geometry as a part inside its assembly, in local coordinates.
+  // A product can contain both its own B-rep and child components (some CAD programs export a guitar's neck and
+  // fretboard this way). Keep that geometry as a part inside its assembly, in local coordinates.
   const ownGeometryPds = new Set();
   if (!single) for (const pd of assemblies.keys()) if (repOfPd(pd)) {
     ownGeometryPds.add(pd);
