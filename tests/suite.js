@@ -716,8 +716,9 @@ const UI = {
   },
 
   async 'sketch-grouped-tools'() {
-    const a = window.app, prefs = a.ui.tbPrefs(), previous = prefs.sketchLayout;
+    const a = window.app, prefs = a.ui.tbPrefs(), previous = prefs.sketchLayout, previousVariants=structuredClone(prefs.sketchVariants);
     try {
+      prefs.sketchVariants={};
       await a.newDocument?.(); closeModals();
       const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } }); a.doc.features.push(f); a.commit(); await a.enterSketch(f, true);
       a.ui.showToolbarCustomize('sketch');
@@ -727,15 +728,40 @@ const UI = {
       select.value = 'grouped'; select.dispatchEvent(new Event('change'));
       document.querySelector('.modal-back .modal-h .x').click();
       if (document.querySelectorAll('#cm-buttons [data-group]').length !== 5 || document.querySelector('#cm-buttons [data-key="tool-midline"]')) return { ok: false, detail: 'Tools were not grouped' };
-      document.querySelector('[data-group="sketch-group-slot"]').click();
+      const primary=group=>document.querySelector(`[data-group="sketch-group-${group}"] [data-sketch-primary]`),arrow=group=>document.querySelector(`[data-sketch-variants="sketch-group-${group}"]`);
+      a.ui.closeContext();primary('line').click();
+      if(a.sketcher.tool!=='line'||!document.querySelector('#ctxmenu').hidden)return {ok:false,detail:'Primary click opened a menu instead of starting the tool'};
+      arrow('slot').click();
       if (document.querySelectorAll('#ctxmenu .mi').length !== 5) return { ok: false, detail: 'Slot flyout did not expose five variants' };
-      document.querySelector('[data-group="sketch-group-line"]').click();
+      if(a.sketcher.tool!=='line')return {ok:false,detail:'Arrow changed the active tool'};
+      arrow('line').click();
       [...document.querySelectorAll('#ctxmenu .mi')].find((q) => q.textContent.includes('Midpoint Line')).click();
       if (a.sketcher.tool !== 'midline' || !document.querySelector('[data-group="sketch-group-line"]').classList.contains('active')) return { ok: false, detail: 'Flyout did not activate the variant' };
+      a.sketcher.setTool('select');primary('line').click();
+      if(a.sketcher.tool!=='midline'||!primary('line').textContent.includes('Midpoint Line')||!document.querySelector('#ctxmenu').hidden)return {ok:false,detail:'Primary did not reuse the last variant'};
+      for(const [group,tool] of [['line','centerline'],['rectangle','crect'],['arc','arc3'],['spline','cspline'],['slot','arcslot3']]){
+        arrow(group).click();const label=(await import('/js/sketcher.js')).SKETCH_TOOLS[tool].label;
+        [...document.querySelectorAll('#ctxmenu .mi')].find(q=>q.textContent.includes(label)).click();
+        const variant=document.querySelector(`[data-sketch-tool-variant="${group}"]`);
+        if(variant?.value!==tool||prefs.sketchVariants[group]!==tool)return {ok:false,detail:group+': menu and Property Panel disagree'};
+        const other=[...variant.options].find(o=>o.value!==tool).value;variant.value=other;variant.dispatchEvent(new Event('change'));
+        a.sketcher.setTool('select');primary(group).click();
+        if(a.sketcher.tool!==other||document.querySelector(`[data-sketch-tool-variant="${group}"]`)?.value!==other)return {ok:false,detail:group+': Property Panel choice was not reused'};
+      }
+      a.sketcher.setTool('midline');a.sketcher.setTool('select');primary('line').click();
+      if(a.sketcher.tool!=='midline')return {ok:false,detail:'Activation outside the flyout was not remembered'};
+      primary('line').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true}));
+      if(document.querySelector('#ctxmenu').hidden||document.querySelectorAll('#ctxmenu .mi').length!==3)return {ok:false,detail:'Keyboard menu access failed'};a.ui.closeContext();
+      const {platform}=await import('/js/platform.js');await platform.setPrefs(a.ui.prefs);const saved=await platform.getPrefs();
+      if(saved.toolbars?.sketchVariants?.line!=='midline')return {ok:false,detail:'Last variant was not saved in preferences'};
+      const filtered=a.ui.groupSketchTools([{id:'tool-line',label:'Line',icon:'line'},{id:'tool-midline',label:'Midpoint Line',icon:'line',disabled:true}]);
+      if(filtered[0].primary.id!=='tool-line')return {ok:false,detail:'A disabled remembered variant blocked the default tool'};
       prefs.sketchLayout = 'expanded'; a.ui.renderCommandManager();
       if (!document.querySelector('#cm-buttons [data-key="tool-midline"]') || a.ui.currentKeys('sketch').join(',') !== keys) return { ok: false, detail: 'Switching layout changed toolbar customization' };
-      return { ok: true, detail: 'Layout option, five flyouts, variant selection, active state and preserved expanded ordering' };
-    } finally { prefs.sketchLayout = previous; a.ui.savePrefs(); a.ui.renderCommandManager(); }
+      const variant=document.querySelector('[data-sketch-tool-variant="line"]');variant.value='centerline';variant.dispatchEvent(new Event('change'));
+      if(a.sketcher.tool!=='centerline'||prefs.sketchVariants.line!=='centerline')return {ok:false,detail:'Property Panel selector failed in expanded layout'};
+      return { ok: true, detail: 'Split primary/arrow behavior, five variant families, Property Panel synchronization, saved last choice, keyboard access, disabled fallback and preserved expanded ordering' };
+    } finally { prefs.sketchLayout = previous; prefs.sketchVariants=previousVariants;a.ui.savePrefs(); a.ui.renderCommandManager(); }
   },
 
   async 'sketch-new-drawing-tools'() {

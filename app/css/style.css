@@ -88,6 +88,11 @@ table.bom td.num { text-align: right; }
 .cm-btn:hover { background: var(--hover); border-color: #b9d0f2; }
 .cm-btn.active { background: var(--accent-weak); border-color: #8fb4ea; }
 .cm-btn:disabled { opacity: .4; pointer-events: none; }
+.cm-split { display: flex; height: var(--cm-h); }
+.cm-split-arrow { width: 16px; padding: 0; border: 1px solid transparent; border-radius: 3px; background: none; cursor: default; }
+.cm-split-arrow:hover { background: var(--hover); border-color: var(--border-soft); }
+.cm-split.active .cm-split-arrow { background: var(--accent-weak); }
+.cm-split-arrow:disabled { opacity: .4; }
 .cm-sep { width: 1px; background: var(--border-soft); margin: 3px 3px; grid-row: 1 / span 2; }
 #cm-tabs { display: flex; padding: 0 6px; border-top: 1px solid var(--border-soft); background: var(--panel); }
 #cm-tabs button {

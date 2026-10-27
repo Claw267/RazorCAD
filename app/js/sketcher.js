@@ -231,6 +231,7 @@ export class Sketcher {
     if (['convert', 'intersect', 'offset'].includes(t)) { this.tool = t; this.loadSection(); }
     else this.clearSection();
     this.tool = t;
+    this.app.ui.rememberSketchTool(t);
     this.app.updateSketchDisplay();
     if (t !== 'select') this.sel.clear();
     if (dimPicks.length && dimPicks.length <= 2) {

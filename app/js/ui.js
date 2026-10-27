@@ -30,6 +30,14 @@ import { lenText, lenValue, fmtLen, lenWithUnit, areaWithUnit, volWithUnit } fro
 import { groupBodies } from './bodygroups.js';
 import * as W from './wcs.js';
 
+const SKETCH_TOOL_GROUPS = [
+  ['line', 'Line', ['line', 'centerline', 'midline']],
+  ['rectangle', 'Rectangle', ['rect', 'crect']],
+  ['arc', 'Arc', ['arc', 'arc3', 'tarc']],
+  ['spline', 'Spline', ['spline', 'cspline']],
+  ['slot', 'Slot', ['slot', 'cslot', 'oslot', 'arcslot3', 'arcslot']],
+];
+
 // Draw DXF entities (flat pattern) on a canvas: CAD colours on dark, line types as dash patterns.
 // view: { zoom, px, py } on top of the fit-to-window placement (zoom / pan in the preview);
 // sel / hover: entity ids drawn highlighted. Returns the placement { X, Y, s, toWorld } (for picking).
@@ -1562,7 +1570,7 @@ export class UI {
     cm.style.top = Math.min(y, innerHeight - h - 4) + 'px';
   }
 
-  closeContext() { $('#ctxmenu').hidden = true; }
+  closeContext() { $('#ctxmenu').hidden = true; document.querySelectorAll('[data-sketch-variants][aria-expanded="true"]').forEach(b=>b.setAttribute('aria-expanded','false')); }
 
   // ------------------------------------------------------------ Command ribbon
   commandDefs() {
@@ -1803,12 +1811,14 @@ export class UI {
         `<span class="cm-ic">${icon(d.icon)}${d.key ? `<span class="cm-key">${esc(d.key)}</span>` : ''}</span><span>${esc(tr(d.label))}</span>`);
       b.dataset.key = cmdKey(d);
       if (d.children) {
-        b.classList.add('cm-flyout'); b.dataset.group = d.id;
-        b.setAttribute('aria-haspopup', 'menu');
-        b.lastElementChild.appendChild(document.createTextNode(' ▾'));
-        b.onclick = () => { const r = b.getBoundingClientRect(); this.showContext(r.left, r.bottom, d.children); };
-        b.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showToolbarCustomize('sketch'); });
-        btns.appendChild(b); continue;
+        const group=el('div',{class:'cm-split'+(d.active?' active':''),role:'group','aria-label':tr(d.groupLabel),'data-group':d.id});
+        group.dataset.key=cmdKey(d);b.dataset.sketchPrimary=d.primary.id;
+        b.onclick=(e)=>{if(this._tbJustDragged){e.preventDefault();return;}this.app.macros?.note(d.primary.label);d.primary.action();};
+        const arrow=el('button',{class:'cm-split-arrow',title:tr(d.groupLabel)+' variants','aria-label':tr(d.groupLabel)+' variants','aria-haspopup':'menu','aria-expanded':'false',disabled:d.disabled,'data-sketch-variants':d.id},'▾');
+        const open=()=>{this.closeContext();const r=group.getBoundingClientRect();this.showContext(r.left,r.bottom,d.children);arrow.setAttribute('aria-expanded','true');};
+        arrow.onclick=open;b.onkeydown=e=>{if(e.key==='ArrowDown'){e.preventDefault();open();}};
+        group.addEventListener('contextmenu',(e)=>{e.preventDefault();this.showToolbarCustomize('sketch');});
+        group.append(b,arrow);btns.appendChild(group);continue;
       }
       // (the click that ends a drag is not a press)
       b.addEventListener('click', (e) => { if (this._tbJustDragged) { e.preventDefault(); return; } this.app.macros?.note(d.label); d.action(); });
@@ -1843,22 +1853,22 @@ export class UI {
   }
 
   groupSketchTools(items) {
-    const groups = [
-      ['line', 'Line', 'line', ['tool-line', 'tool-centerline', 'tool-midline']],
-      ['rectangle', 'Rectangle', 'rect', ['tool-rect', 'tool-crect']],
-      ['arc', 'Arc', 'arc', ['tool-arc', 'tool-arc3', 'tool-tarc']],
-      ['spline', 'Spline', 'spline', ['tool-spline', 'tool-cspline']],
-      ['slot', 'Slot', 'slot', ['tool-slot', 'tool-cslot', 'tool-oslot', 'tool-arcslot3', 'tool-arcslot']],
-    ];
     const emitted = new Set();
     return items.flatMap((d) => {
-      const group = groups.find((g) => g[3].includes(d.id));
+      const group = SKETCH_TOOL_GROUPS.find((g) => g[2].some(t=>'tool-'+t===d.id));
       if (!group) return [d];
       if (emitted.has(group[0])) return [];
       emitted.add(group[0]);
-      const children = items.filter((q) => group[3].includes(q.id));
-      return [{ id: 'sketch-group-' + group[0], label: group[1], icon: group[2], children, active: children.some((q) => q.active), disabled: children.every((q) => q.disabled) }];
+      const children = items.filter((q) => group[2].some(t=>'tool-'+t===q.id));
+      const primary=children.find(q=>q.active&&!q.disabled)||children.find(q=>q.id==='tool-'+this.tbPrefs().sketchVariants?.[group[0]]&&!q.disabled)||children.find(q=>!q.disabled)||children[0];
+      return [{ ...primary, id: 'sketch-group-' + group[0], groupLabel:group[1], primary, children, active: children.some((q) => q.active), disabled: children.every((q) => q.disabled) }];
     });
+  }
+
+  rememberSketchTool(tool){
+    const group=SKETCH_TOOL_GROUPS.find(g=>g[2].includes(tool));if(!group)return;
+    const prefs=this.tbPrefs();prefs.sketchVariants ||= {};
+    if(prefs.sketchVariants[group[0]]!==tool){prefs.sketchVariants[group[0]]=tool;this.savePrefs();}
   }
   // The browser version's notice above the window (closed for good with ✕).
   showWebNotice() {
@@ -3774,6 +3784,13 @@ export class UI {
     const a = this.app, sk = a.sketcher, f = sk.f;
     if (sk.patternDraft) { this.renderSketchPatternPM(root); return; }
     this.pmHeader(root, 'sketch', f.name);
+    const variants=SKETCH_TOOL_GROUPS.find(g=>g[2].includes(sk.tool));
+    if(variants){
+      const group=this.pmGroup(root,tr(variants[1])+' type','sk:tool-variant'),select=el('select',{'data-sketch-tool-variant':variants[0],'aria-label':tr(variants[1])+' type'});
+      for(const tool of variants[2])select.appendChild(el('option',{value:tool},esc(tr(SKETCH_TOOLS[tool].label))));
+      select.value=sk.tool;select.onchange=()=>a.sketchTool(select.value);
+      group.appendChild(this.row('Type',select));
+    }
     const st = sk.statusText();
     if (st.text) root.appendChild(el('div', { class: 'pm-msg ' + st.cls }, esc(st.text)));
     if (f.patterns?.length) {
