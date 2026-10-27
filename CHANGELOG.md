@@ -6,6 +6,13 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-28 08:55 — PCs with 4 or 5 processor threads: the open part's geometry kernel multi-threaded
+- On a PC with 4 or 5 threads the first part's kernel now runs on all threads but one (it was the single-thread
+  kernel below 6); the other kernels (more parts, assemblies, drawings) keep one thread. Held to 4 threads, one a
+  core: the check set's full rebuilds 16.3 s → 9.2 s, edits 3.8 s → 2.8 s (the golf ball 5.8 → 2.6 s); on 2
+  cores with 4 threads 17.7 s → 11.7 s. The same geometry and meshes (compared to the last digit); the test suite
+  passes run as a 4-thread PC.
+
 ## 2026-10-28 08:37 — RazorCAD starts reliably on PCs with few processor threads
 - **Start-up**: the desktop app's own web server let at most 5 connections wait, and Windows refuses the next ones;
   the window asks for RazorCAD's hundred or so script files at once. On a PC with 4 processor threads, busy
