@@ -45,6 +45,11 @@ def _isolated_static_file(*args, _orig=_webview_http.bottle.static_file, **kwarg
 
 _webview_http.bottle.static_file = _isolated_static_file
 
+# pywebview's server (wsgiref's WSGIServer) waits with 5 connections at most; Windows refuses the next ones, and the
+# window opens RazorCAD's hundred or so script files at once. On a PC with 4 processor threads, busy compiling the
+# geometry kernel, a start then failed now and then: a script not loaded, no part, no kernel (1 to 4 starts in 6).
+_webview_http.WSGIServer.request_queue_size = 128
+
 from crashreport import CrashReporter, _pid_alive  # noqa: E402
 from kernelsig import kernel_signature  # noqa: E402
 

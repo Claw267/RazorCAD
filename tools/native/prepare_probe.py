@@ -25,12 +25,12 @@ here = Path(__file__).resolve().parent
 shutil.copyfile(here / 'surface-patch.cpp', destination / 'wrappers/surface-patch.cpp')
 for name in ['custom_build_single.yml','custom_build_multi.yml']:
     config=destination/name
-    s=config.read_text()
+    s=config.read_text(encoding='utf-8')
     assert s.count('  emccFlags:')==1 and s.count('additionalCppFiles:')==1
     s=s.replace('  emccFlags:','  - symbol: RazorCADSurfacePatch\n  emccFlags:')
     assert 'EXPORTED_FUNCTIONS' not in s
     s=s.replace('  - --no-entry','  - -sEXPORTED_FUNCTIONS=["_malloc","_free","___libc_free","_emscripten_stack_get_current","__emscripten_stack_restore"]\n  - --no-entry')
     if not args.release:
         s=s.replace('  - -O3\n','  - -O0\n').replace('  - -sEVAL_CTORS=2\n','')
-    s+='\n- wrappers/surface-patch.cpp\n';config.write_text(s)
+    s+='\n- wrappers/surface-patch.cpp\n';config.write_text(s,encoding='utf-8')
 print(destination)

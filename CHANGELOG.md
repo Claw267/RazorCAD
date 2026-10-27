@@ -6,6 +6,14 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-28 08:37 — RazorCAD starts reliably on PCs with few processor threads
+- **Start-up**: the desktop app's own web server let at most 5 connections wait, and Windows refuses the next ones;
+  the window asks for RazorCAD's hundred or so script files at once. On a PC with 4 processor threads, busy
+  compiling the geometry kernel, a start now and then got no part and no kernel (held to 4 threads here: 5 starts
+  in 10 failed, 1 in 4 with 40 s to start). It now lets 128 wait: 10 starts in 10. `serve.py` the same.
+- `tools/native`'s probes read and write their text files as UTF-8 (on Windows they read the worker with the
+  system's code page and failed).
+
 ## 2026-10-28 08:00 — Guided lofts with CAD guide constraints built up to 16 times faster
 - **The final guide check** of a loft with CAD guide constraints measured every check point (65 or more on each
   guide) against every face with OpenCascade's general distance search: 16 of 17 s on a tight G2 spline loft. A
