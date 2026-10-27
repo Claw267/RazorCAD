@@ -145,6 +145,10 @@ Checks selected solid/surface profiles, analytical volumes and areas, directiona
 explicit slot replacement, spline compatibility, origin points, hidden sources,
 suppression/order filtering and stable references after reopening.
 
+`reference-plane-display-anchor` checks that the displayed rectangle stays on an
+offset defining line as its angle changes, independently of the model pivot,
+while preserving the geometric plane and saved sketch coordinate frame.
+
 The shared datum test checks affine/unit-direction constraints for planes, axes and
 points; underdefinition, conflicts, alternate angular planes/bisectors, tangent
 cylinders, circular edge centres, expressions, incremental replay and downstream

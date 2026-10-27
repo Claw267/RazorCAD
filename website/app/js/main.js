@@ -2640,7 +2640,7 @@ class App {
         if (f.type !== 'plane' || f.suppressed) continue;
         const fr = this.result.planes.get(f.id);
         const st = state(f.id);
-        if (fr && (this.refShown(f) || st !== 'normal' || this.pm?.kind === 'selectPlane')) list.push({ id: f.id, name: f.name, frame: fr, state: st });
+        if (fr && (this.refShown(f) || st !== 'normal' || this.pm?.kind === 'selectPlane')) list.push({ id: f.id, name: f.name, frame: fr, state: st,displayAnchor:this.result.info?.[f.id]?.datumAnchor });
       }
     }
     this.viewport.setPlanes(list);

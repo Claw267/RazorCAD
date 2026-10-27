@@ -4092,6 +4092,25 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     return {ok:true,detail:JSON.stringify({native,ui:'actual arc pick, along-path plane and point, distance expressions, reversal, length feedback, invalid acceptance guard, save/reopen/cancel and source edits'})};
   },
 
+  async 'reference-plane-display-anchor'() {
+    const a=window.app,S=await import('/js/sketchmodel.js'),{Vector3}=await import('three'),{fixture}=await import('/tests/reference-datum-cases.js'),data=fixture(),{doc,sk,line,feature}=data;
+    const source=S.getCurve(sk,line);Object.assign(S.getPoint(sk,source.p1),{x:100,y:30});Object.assign(S.getPoint(sk,source.p2),{x:300,y:30});
+    feature.refs=[{kind:'sketch',sketch:sk.id,curve:line,relation:'coincident'},{kind:'plane',id:'front',relation:'angle',angle:45}];
+    await a.newDocument?.();closeModals();await a.setDoc(doc);a.editFeature(feature.id);
+    const settle=async()=>{await wait(180);await until(()=>!a.kernel.pending);};await settle();
+    const center=()=>{const group=a.viewport.planeGroup.children.find(g=>g.userData.planeId===feature.id),geometry=group.children[0].geometry;geometry.computeBoundingBox();return geometry.boundingBox.getCenter(new Vector3()).applyMatrix4(group.matrix);};
+    const expected=new Vector3(200,30,0);
+    for(const angle of [15,45,75]){
+      const input=document.querySelector('[data-datum-parameter="1:angle"] input');input.value=String(angle);input.dispatchEvent(new Event('input',{bubbles:true}));await settle();
+      const frame=a.result.planes.get(feature.id);if(!frame||center().distanceTo(expected)>1e-5)return {ok:false,detail:'Displayed plane moved off its defining line at '+angle};
+      for(const p of [new Vector3(100,30,0),new Vector3(300,30,0)])if(Math.abs(p.sub(frame.o).dot(frame.n))>1e-7)return {ok:false,detail:'Geometric plane lost the reference line'};
+      if(Math.abs(Math.abs(frame.n.z)-Math.cos(angle*Math.PI/180))>1e-7)return {ok:false,detail:'Geometric angle changed'};
+    }
+    const pivot=a.viewport.rotationPivot;a.viewport.rotationPivot=()=>new Vector3(900,-800,100);try{a.updatePlanes();if(center().distanceTo(expected)>1e-5)return {ok:false,detail:'Unrelated model center displaced the plane display'};}finally{a.viewport.rotationPivot=pivot;}
+    await a.okPM();await a.setDoc(JSON.parse(JSON.stringify(a.doc)));a.editFeature(feature.id);await settle();if(center().distanceTo(expected)>1e-5)return {ok:false,detail:'Reopen lost display anchor'};a.cancelPM();await a.rebuild();
+    return {ok:true,detail:'Plane rectangle stays centered on an offset defining line at 15/45/75 degrees, independently of model pivot; plane equations and saved sketch frame remain unchanged'};
+  },
+
   async 'reference-entity-list'() {
     const a=window.app,S=await import('/js/sketchmodel.js'),{fixture}=await import('/tests/reference-datum-cases.js');
     const settle=async()=>{await wait(180);await until(()=>!a.kernel.pending);};

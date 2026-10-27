@@ -1107,6 +1107,8 @@ Reference Plane, Reference Axis and Reference Point share a **References and Rel
 
 Each slot offers compatible **Relation** choices. **Automatic** chooses the usual relation for the selected combination; selecting an explicit relation keeps that choice when other references change. Distances and angles accept expressions. References must precede the feature in the tree.
 
+The displayed rectangle of a reference plane is centered near its defining line, point or path location, projected onto the plane. This display position does not change the plane's sketch coordinate system. For rotation about a line, use **Coincident / through** on the line and **At angle** on a reference plane.
+
 **Fully Defined** means the supported constraints have a finite solution with no remaining continuous freedom. **Under Defined** identifies missing constraints; **Conflicting** identifies incompatible geometry, relations or values. An axis direction alone does not fix its position, and two points alone do not fix a plane. Incomplete and conflicting definitions cannot be accepted. When two distinct geometric solutions exist, **Solution 1 / Solution 2** selects the branch; opposite normals of the same plane are handled by **Reverse its normal** instead.
 
 | Reference geometry | Available plane relations and constructions |

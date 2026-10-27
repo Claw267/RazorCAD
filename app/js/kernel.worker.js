@@ -2438,7 +2438,8 @@ async function rebuild(doc, previewId = null, opts = {}) {
       const relations=evaluated.map(r=>r.relation),opts={...f};
       if(f.type==='plane')for(const key of ['offset','angle','along','around']){const active=key==='along'?relations.includes('normal')&&f.position==='distance':key==='around'?relations.includes('tangent')&&!geo.some(g=>g.kind==='plane'):relations.includes(key==='offset'?'offset':'angle');opts[key]=active?ev(f[key]??0):0;}
       const solved=solveReferenceDatum(f.type,geo,evaluated,opts);
-      (res.info ||= {})[f.id]={datum:solved,datumSignature:signature,relations,geometry:geo.map(g=>({kind:g.kind,curve:g.curve?{type:g.curve.type}:null})),pathLocations:geo.map(g=>g.sample||null)};
+      const datumAnchor=f.type==='plane'?(geo.find(g=>g.kind==='path')?.sample?.p||geo.find(g=>g.kind==='line')?.mid||geo.find(g=>g.kind==='point')?.p):null;
+      (res.info ||= {})[f.id]={datum:solved,datumSignature:signature,datumAnchor,relations,geometry:geo.map(g=>({kind:g.kind,curve:g.curve?{type:g.curve.type}:null})),pathLocations:geo.map(g=>g.sample||null)};
       if(solved.status!=='defined')throw new Error(solved.status==='under'?`Under Defined: ${solved.message}`:`Conflicting: ${solved.message}`);
       res.features[f.id]={refs};
       return {solved,geo,relations};

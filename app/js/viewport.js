@@ -913,10 +913,10 @@ export class Viewport {
       grp.matrixAutoUpdate = false;
       grp.matrix.copy(m);
       const col = p.state === 'selected' ? 0x2b7de9 : p.state === 'hover' || p.state === 'preview' ? 0xf59e0b : 0x7f9cc4;
-      // reference planes are drawn around the model (standard planes around the origin)
+      // Display defined planes near their references, without moving sketch frames.
       let cx = 0, cy = 0;
       if (!G.STD_PLANES[p.id]) {
-        const d = this.rotationPivot().sub(p.frame.o);
+        const d = (p.displayAnchor?new THREE.Vector3(...p.displayAnchor):this.rotationPivot()).sub(p.frame.o);
         cx = d.dot(p.frame.u); cy = d.dot(p.frame.v);
       }
       const fill = new THREE.Mesh(
