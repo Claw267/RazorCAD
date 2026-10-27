@@ -4,7 +4,7 @@
 // drives them to zero while moving geometry as little as possible.
 // The same Jacobian gives degrees of freedom and fully-defined status.
 
-import { patternEntities, updateSketchPatterns, getCurve, getPoint, curveLength } from './sketchmodel.js';
+import { patternEntities, updateSketchPatterns, getCurve, getPoint, curveLength, splinePieces } from './sketchmodel.js';
 
 const H = 1e-6;
 
@@ -238,6 +238,20 @@ export function makeSystem(sk, ev) {
           break;
         }
         case 'tangent': {
+          if(kindOf(R[0])==='line'&&kindOf(R[1])==='spline'){
+            const sp=curves.get(R[1]),end=R[2],L=line(R[0]);
+            if(sp.closed||![sp.p1,sp.p2].includes(end))throw new Error('The tangent relation needs an endpoint of an open spline');
+            const atStart=end===sp.p1,T=pt(end),handle=sp.ctrl?sp.pts[atStart?1:sp.pts.length-2]:sp.handles?.[atStart?0:sp.handles.length-1];
+            const points=[...new Set(sp.pts)].map(id=>({id,...pt(id)})),HP=handle?pt(handle):null;
+            const tangent=Xa=>{
+              const t=T.get(Xa);if(HP){const h=HP.get(Xa);return [h[0]-t[0],h[1]-t[1]];}
+              const local={points:points.map(p=>{const q=p.get(Xa);return {id:p.id,x:q[0],y:q[1]};})},pieces=splinePieces(local,sp),piece=atStart?pieces[0]:pieces.at(-1),h=atStart?piece.c1:piece.c2;
+              return [h[0]-t[0],h[1]-t[1]];
+            };
+            if(Math.hypot(...tangent(X))<1e-9||dist(L.a(X),L.b(X))<1e-9)throw new Error('A tangent needs a nonzero line and spline endpoint direction');
+            push(Xa=>{const h=tangent(Xa),d=dir(L,Xa);return [(h[0]*d[1]-h[1]*d[0])/(Math.hypot(...h)||1e-12)];},[...L.deps,...T.deps,...(HP?HP.deps:points.flatMap(p=>p.deps))],k);
+            break;
+          }
           const s = k.s || 1;
           // Tangency at a shared end point is written as "radius ⊥ line" (or collinear
           // centers for two arcs); the distance form is degenerate there.

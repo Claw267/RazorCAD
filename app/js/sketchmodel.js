@@ -442,6 +442,20 @@ export function splinePieces(sk, c) {
   return c.ctrl ? ctrlSplineBeziers(P, c.degree ?? 3, !!c.closed, c.weights) : splineBeziers(P, !!c.closed, H);
 }
 
+// Persist the chosen endpoint as a point reference, so edits never switch ends.
+export function lineSplineTangentEnd(sk, lineId, splineId, selectedEnd = null) {
+  const l=getCurve(sk,lineId),s=getCurve(sk,splineId);
+  if(l?.type!=='line'||s?.type!=='spline'||s.closed)throw new Error('Select a line and an open spline');
+  const ends=[s.p1,s.p2];
+  if(selectedEnd){if(!ends.includes(selectedEnd))throw new Error('Select an endpoint of the spline');return selectedEnd;}
+  const shared=ends.filter(id=>id===l.p1||id===l.p2);if(shared.length===1)return shared[0];
+  const a=getPoint(sk,l.p1),b=getPoint(sk,l.p2),dx=b.x-a.x,dy=b.y-a.y,n=Math.hypot(dx,dy);
+  if(n<1e-9)throw new Error('The tangent line must have a nonzero length');
+  const distances=ends.map(id=>{const p=getPoint(sk,id);return Math.abs((p.x-a.x)*dy-(p.y-a.y)*dx)/n;});
+  if(Math.abs(distances[0]-distances[1])<1e-7)throw new Error('Both spline ends are equally close: also select the desired spline endpoint');
+  return ends[distances[0]<distances[1]?0:1];
+}
+
 export function fitSplineHandles(P, closed = false) {
   const pieces = splineBeziers(P, closed);
   return P.map((p, i) => {

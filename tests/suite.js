@@ -852,6 +852,38 @@ const UI = {
     return { ok: true, detail: 'Midpoint line, pre/post construction, five closed tangent slot variants, undo/redo, kernel rebuild and degenerate-input rejection' };
   },
 
+  async 'sketch-line-spline-tangent'() {
+    const a=window.app,S=await import('/js/sketchmodel.js'),V=await import('/js/solver.js');
+    const fixture=(kind='ctrl',end=0)=>{
+      const d=M.newDoc(),f=M.createFeature(d,'sketch',{plane:{ref:'front'}});d.features.push(f);
+      const p=[[0,0],[10,4],[20,14],[30,20]].map(q=>S.addPoint(f,...q));
+      const sp=kind==='ctrl'?S.addCtrlSpline(f,p,3,false,false,[1,2,3,1]):kind==='fit'?S.addFitSpline(f,p):S.addSpline(f,p);
+      const endpoint=p[end?3:0],q=S.getPoint(f,endpoint),lp=S.addPoint(f,q.x-20,q.y),line=S.addLine(f,lp,endpoint);
+      for(const id of [lp,endpoint]){const t=S.getPoint(f,id);S.addRel(f,'fix',[id],{x:t.x,y:t.y});}
+      return {d,f,sp,line,endpoint};
+    };
+    const parallel=(f,sp,line,end)=>{const c=S.getCurve(f,sp),pieces=S.splinePieces(f,c),g=end===c.p1?pieces[0]:pieces.at(-1),u=end===c.p1?[g.c1[0]-g.a[0],g.c1[1]-g.a[1]]:[g.b[0]-g.c2[0],g.b[1]-g.c2[1]],l=S.getCurve(f,line),p=S.getPoint(f,l.p1),q=S.getPoint(f,l.p2);return Math.hypot(...u)>1e-6&&Math.abs(u[0]*(q.y-p.y)-u[1]*(q.x-p.x))/(Math.hypot(...u)*Math.hypot(q.x-p.x,q.y-p.y))<1e-6;};
+    for(const kind of ['ctrl','fit','legacy'])for(const end of [0,1]){
+      const {f,sp,line,endpoint}=fixture(kind,end);S.addRel(f,'tangent',[line,sp,endpoint]);
+      const r=V.solveSketch(f,Number);if(!r.ok||!parallel(f,sp,line,endpoint))return {ok:false,detail:{kind,end,r}};
+      const saved=JSON.parse(JSON.stringify(f));if(!V.solveSketch(saved,Number).ok||!parallel(saved,sp,line,endpoint))return {ok:false,detail:'Serialization lost tangent'};
+      const fixedLine=S.getCurve(saved,line),source=saved.constraints.find(k=>k.type==='fix'&&k.refs[0]===fixedLine.p1);source.y-=8;
+      if(!V.solveSketch(saved,Number).ok||!parallel(saved,sp,line,endpoint)||saved.constraints.find(k=>k.type==='tangent').refs[2]!==endpoint)return {ok:false,detail:'Tangent did not follow line edits with a stable endpoint'};
+    }
+    await a.newDocument?.();closeModals();const {d,f,sp,line,endpoint}=fixture();await a.setDoc(d);await a.enterSketch(f,true);await wait(100);
+    const sk=a.sketcher;sk.sel=new Set([sp,line]);a.ui.renderPM();
+    const button=[...document.querySelectorAll('#pm button')].find(b=>b.title==='Tangent');if(!button)return {ok:false,detail:'Line + control spline did not offer Tangent'};
+    const before=sk.snapshotData();button.click();if(!sk.solveOk||!parallel(f,sp,line,endpoint)||!f.constraints.some(k=>k.type==='tangent'&&k.refs[2]===endpoint))return {ok:false,detail:'UI tangent failed'};
+    sk.undo();if(sk.snapshotData()!==before)return {ok:false,detail:'Undo changed original spline'};sk.redo();if(!parallel(f,sp,line,endpoint))return {ok:false,detail:'Redo lost tangent'};
+    // A fixed incompatible endpoint handle must be refused without changing the sketch.
+    sk.undo();const c=S.getCurve(f,sp),h=S.getPoint(f,c.pts[1]);S.addRel(f,'fix',[h.id],{x:h.x,y:h.y});sk.solve();const locked=sk.snapshotData();
+    if(sk.tryAddConstraints([['tangent',[line,sp,endpoint]]],{quiet:true})||sk.snapshotData()!==locked)return {ok:false,detail:'Conflicting tangent was not rejected atomically'};
+    const ambiguous=fixture(),l=S.getCurve(ambiguous.f,ambiguous.line);l.p1=S.addPoint(ambiguous.f,-10,10);l.p2=S.addPoint(ambiguous.f,40,10);
+    let rejected=false;try{S.lineSplineTangentEnd(ambiguous.f,ambiguous.line,ambiguous.sp);}catch{rejected=true;}
+    if(!rejected||S.lineSplineTangentEnd(ambiguous.f,ambiguous.line,ambiguous.sp,ambiguous.endpoint)!==ambiguous.endpoint)return {ok:false,detail:'Ambiguous endpoint not handled'};
+    a.exitSketch(false);return {ok:true,detail:'Control/rational, fit and legacy spline tangents at both ends; Property panel command, stable endpoint refs, persistence, undo/redo, ambiguity and conflict rejection'};
+  },
+
   async 'sketch-fit-spline-handles'() {
     const a = window.app, S = await import('/js/sketchmodel.js'), V = await import('/js/solver.js');
     await a.newDocument?.(); closeModals();

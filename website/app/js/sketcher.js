@@ -1541,6 +1541,7 @@ export class Sketcher {
     if (n === 2 && pts.length === 1 && (lines.length === 1 || rounds.length === 1)) out.push('onCurve');
     if (n === 2 && pts.length === 1 && (lines.length === 1 || (rounds.length === 1 && rounds[0].kind === 'arc'))) out.push('midpoint');
     if (n === 2 && lines.length === 1 && rounds.length === 1) out.push('tangent');
+    if ((n===2||n===3&&pts.length===1)&&lines.length===1&&items.some(i=>i.kind==='spline'&&!S.getCurve(this.f,i.id)?.closed)) out.push('tangent');
     if (n === 3 && pts.length === 2 && lines.length === 1) out.push('symmetric');
     if (n === 3 && lines.length === 3) out.push('symmetric');
     return [...new Set(out)];
@@ -1575,7 +1576,12 @@ export class Sketcher {
         break;
       case 'midpointCoincident': list.push(['midpointCoincident', lines]); break;
       case 'tangent': {
-        if (lines.length) list.push(['tangent', [lines[0], rounds[0]], { s: S.tangentSign(sk, lines[0], rounds[0]) }]);
+        const spline=items.find(i=>i.kind==='spline');
+        if(lines.length&&spline){
+          try{list.push(['tangent',[lines[0],spline.id,S.lineSplineTangentEnd(sk,lines[0],spline.id,pts[0])]]);}
+          catch(e){this.app.toast(e.message,true);return;}
+        }
+        else if (lines.length) list.push(['tangent', [lines[0], rounds[0]], { s: S.tangentSign(sk, lines[0], rounds[0]) }]);
         else {
           const a = S.getCurve(sk, rounds[0]), b = S.getCurve(sk, rounds[1]);
           const ca = S.getPoint(sk, a.c), cb = S.getPoint(sk, b.c);

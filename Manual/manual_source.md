@@ -554,12 +554,15 @@ Select entities ([[Ctrl]]+click for several, or drag a box from empty space: lef
 | Point + arc | Coincident (on curve), Midpoint (half way round the arc) |
 | Point + circle | Coincident (on curve) |
 | Line + circle/arc | Tangent |
+| Line + open spline | Tangent at a spline endpoint (control-point or fit-point spline) |
 | Circles/arcs | Equal Radius, Equal Curve Length, Concentric, Tangent |
 | 2 or more curves (including splines, ellipses or mixed line/curve selections) | Equal Curve Length; for lines only, use Equal |
 | 2 points + line | Symmetric (about the line) |
 | 3 lines | Symmetric (two lines about a centerline) |
 
 Relations are shown as small green glyphs next to the geometry. Click a glyph to select it, then press [[Del]] to remove it. Hovering a glyph highlights the entities it ties together. For several selected entities, relations already implied by existing constraints are skipped while useful relations are added. A relation refused says why: one that is **already satisfied** names the relations that already define the geometry that way (an information message); one that **would over-define** the sketch names the relations or dimensions in its way. Either way those relations are selected, so you can delete one and add the new relation instead. A true conflict rejects the entire request without changing the sketch.
+
+**Tangent with a spline:** Ctrl-select a line and an open spline, then choose **Tangent**. The shared endpoint, or otherwise the spline endpoint closest to the infinite line, is used. To choose explicitly (required if both ends are equally close), also select the desired spline endpoint. The selected endpoint is stored and does not switch after edits. For control-point splines the first or last control-polygon leg is aligned with the line; fit-point splines use their endpoint tangent. Coincidence is separate: add Coincident between endpoints or Coincident (on line) to make the curves meet. Closed splines and zero-length endpoint directions are unsupported.
 
 **Equal Curve Length (≋)** constrains the length measured along each selected curve, not its chord or control polygon. Two arcs may have different radii and sweeps while keeping equal lengths; a spline can also match a line or another curve. Select the curves with Ctrl and choose **Equal Curve Length** in **Add Relations**. With more than two curves, each is matched to the first. Circular curves' **Equal Radius (=)** keeps their radii equal and remains a separate relation. Length links survive source edits, undo/redo, save/reopen and rebuild. Ellipse and spline lengths are integrated numerically from their definitions.
 
