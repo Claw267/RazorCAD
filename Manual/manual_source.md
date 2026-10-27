@@ -755,8 +755,14 @@ Revolves a profile about an axis: the sketch axes, any line in the sketch (such 
 Sweeps a profile along a path. {idx:sweep}
 
 - **Profile**: a sketch, or **Circular** with a diameter (useful for springs).
-- **Path**: a sketch chain or a helix.
-- **Thin** option.
+- **Path**: a sketch chain, 3D sketch, curve or helix.
+- **Orientation**: **Perpendicular to path** keeps the section square to the path; **Parallel to initial profile** moves it along the path without turning it (tight bends can make the sweep invalid). {idx:sweep, orientation}
+- **Twist angle** (with Perpendicular): the profile turns by this total angle along the path, evenly by distance. Positive angles turn by the right-hand rule along the path. Equations are allowed; 0 is the usual sweep. A twist needs an open path with no sharp corners (round them first), and the profile in the plane square to the path at its start. {idx:sweep, twist}
+- **Guide (optional)**: a second curve (sketch chain, 3D sketch, curve or helix) the profile follows. It replaces Orientation and Twist; removing it brings them back. {idx:sweep, guide curve}
+  - **Guide controls → Orientation**: the profile turns to keep facing the guide and keeps its size. The guide doesn't have to touch the profile.
+  - **Guide controls → Section size**: the profile is scaled evenly so its edge stays on the guide. The guide starts on the profile's edge and crosses each plane square to the path once.
+  - A guided sweep takes one closed profile without holes or Thin, an open path and an open guide. Both curves run between the planes square to the path at its ends, and don't touch. A guide drawn the other way round is turned automatically. Contact with the guide is checked to 0.0001 mm; geometry that doesn't fit gives an error rather than an ordinary sweep.
+- **Thin** option (without a guide).
 
 ## Loft and Loft Cut
 
@@ -943,7 +949,7 @@ The **Surfaces** tab builds surface bodies (zero-thickness faces), listed under 
 | **Revolved Surface** | Revolves the sketch's curves about an axis |
 | **Planar Surface** | Fills a closed sketch (holes allowed) |
 | **Lofted Surface** | A surface through two or more profiles (sketches or 3D sketches), open or closed, optionally ruled (straight between profiles). Open profiles drawn in opposite directions are lined up automatically. **Guide Curves** (rails, optional): sketches or curves the surface follows between the profiles, e.g. along its edges; each runs from the first profile to the last, through every profile. One guide pulls the surface along it; two or more shape it across, each where it touches the profiles. |
-| **Swept Surface** | An open or closed sketch profile, or a circle, swept along a sketch, 3D sketch or helix |
+| **Swept Surface** | An open or closed sketch profile, or a circle, swept along a sketch, 3D sketch or helix. **Orientation**, **Twist angle** and an optional **Guide** work as for Sweep (see Sweep and Sweep Cut); with a guide the profile can be open or closed. Closed profiles give a surface without end caps. |
 | **Filled Surface** | A smooth patch over a hole bounded by edges of a surface or a solid, touching or optionally tangent to the faces round it. It can be knit into the surface and close a solid. A flat loop gives a flat patch. |
 | **Boundary Surface** | A surface through curves in two directions. The first and last curve of each direction bound it and must meet at their ends; the curves between shape it. |
 | **Ruled Surface** | Straight-sided surfaces standing on edges, either normal to the surface or along a direction tapered by an angle, on one or both sides (for example mould parting surfaces) |

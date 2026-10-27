@@ -174,7 +174,7 @@ export const SKETCH_FEATURES = new Set(['extrude', 'revolve', 'surfExtrude', 'su
 
 // Sketches a feature uses (they are hidden and shown under it in the tree once used).
 export function sketchesUsedBy(f) {
-  return [...new Set([f.sketch, f.profile, f.path, f.profileA, f.profileB, ...(Array.isArray(f.profiles) ? f.profiles : []), ...(f.guides || [])].map((x) => typeof x === 'string' ? x : x?.sketch).filter(Boolean))];
+  return [...new Set([f.sketch, f.profile, f.path, f.guide, f.profileA, f.profileB, ...(Array.isArray(f.profiles) ? f.profiles : []), ...(f.guides || [])].map((x) => typeof x === 'string' ? x : x?.sketch).filter(Boolean))];
 }
 
 export function iconFor(f) {
@@ -269,7 +269,7 @@ export function createFeature(doc, type, props = {}) {
     // profiles: sketches / 3D sketches (one chain each, all open or all closed), in order; guides: guide curves
     // (sketches or curves) the surface follows, each through every profile
     surfLoft: { profiles: [], guides: [], ruled: false },
-    surfSweep: { profileType: 'sketch', profile: null, diameter: 10, path: null },
+    surfSweep: { profileType: 'sketch', profile: null, diameter: 10, path: null, guide: null, guideMode: 'orientation', orientation: 'perpendicular', twistAngle: 0 },
     // edges round a hole; tangent: G1 to the faces round it; merge: knit into that surface; solid: close it
     surfFill: { edges: [], tangent: false, merge: true, solid: false },
     // tool: a plane, surface body or sketch; faces: points on the pieces; mode 'keep' | 'remove'
@@ -315,7 +315,9 @@ export function createFeature(doc, type, props = {}) {
     deleteBody: { bodies: [] },
     deleteSurface: { bodies: [] },
     // profileType 'circle': a round profile of `diameter` made across the start of the path (springs)
-    sweep: { op: 'add', profileType: 'sketch', profile: null, diameter: 2, path: null, merge: true, thin: false, thinT: 1, thinDir: 'one', scopeAll: true, scope: [] },
+    // guide: a curve the profile follows (guideMode 'orientation': turned by it; 'contact': also scaled so its edge
+    // stays on it); orientation 'perpendicular' (to the path; twistAngle turns it along the way) | 'parallel'
+    sweep: { op: 'add', profileType: 'sketch', profile: null, diameter: 2, path: null, guide: null, guideMode: 'orientation', orientation: 'perpendicular', twistAngle: 0, merge: true, thin: false, thinT: 1, thinDir: 'one', scopeAll: true, scope: [] },
     // profiles: sketch ids in order; circles are split to match the other profiles' points
     // continuity: 'C2' (curvature-continuous through the profiles) | 'C1' (tangent-continuous); smoothing: evened out
     // guides: guide curves (sketches or curves) the loft's outline follows, each from the first profile to the last
@@ -420,7 +422,7 @@ export function referencesOf(doc, f) {
   const out = new Set();
   const addId = (v) => { if (typeof v === 'string' && ids.has(v)) out.add(v); };
   const addBody = (v) => { if (typeof v === 'string' && v) addId(bodyOwner(v)); };
-  for (const k of ['sketch', 'feature', 'base', 'toPoint', 'toPlane', 'planeA', 'planeB', 'pointA', 'pointB', 'axis', 'dir1', 'dir2', 'rotAxis', 'parent', 'profile', 'path']) addId(f[k]);
+  for (const k of ['sketch', 'feature', 'base', 'toPoint', 'toPlane', 'planeA', 'planeB', 'pointA', 'pointB', 'axis', 'dir1', 'dir2', 'rotAxis', 'parent', 'profile', 'path', 'guide']) addId(f[k]);
   for (const ref of [...(f.profiles || []), ...(f.guides || [])]) addId(typeof ref === 'string' ? ref : ref?.sketch);
   for (const id of expandFeatureRefs(doc, f.features)) addId(id);
   if (f.type !== 'sketch' && typeof f.plane === 'string') addId(f.plane);

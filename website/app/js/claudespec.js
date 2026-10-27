@@ -158,7 +158,7 @@ export function applyPlan(doc, plan) {
       added.push(f.id);
       continue;
     }
-    for (const k of ['sketch', 'feature', 'plane', 'profile', 'path']) if (k in props) props[k] = ref(props[k]);
+    for (const k of ['sketch', 'feature', 'plane', 'profile', 'path', 'guide']) if (k in props) props[k] = ref(props[k]);
     if (Array.isArray(props.refs)) props.refs = props.refs.map((r) => ({ ...r, id: ref(r.id) }));
     const f = M.createFeature(doc, type, props);
     if (type === 'extrude' || type === 'revolve') f.op = props.op === 'cut' ? 'cut' : 'add';

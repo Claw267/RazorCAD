@@ -1,0 +1,127 @@
+{
+ "version": 1,
+ "name": "Sweep with 180 degree twist",
+ "material": null,
+ "equations": [],
+ "features": [
+  {
+   "id": "f1",
+   "type": "sketch",
+   "name": "Sketch1",
+   "suppressed": false,
+   "plane": {
+    "ref": "top"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": -5,
+     "y": -3
+    },
+    {
+     "id": "p2",
+     "x": 5,
+     "y": -3
+    },
+    {
+     "id": "p3",
+     "x": 5,
+     "y": 3
+    },
+    {
+     "id": "p4",
+     "x": -5,
+     "y": 3
+    }
+   ],
+   "curves": [
+    {
+     "id": "c5",
+     "type": "line",
+     "p1": "p1",
+     "p2": "p2",
+     "construction": false
+    },
+    {
+     "id": "c6",
+     "type": "line",
+     "p1": "p2",
+     "p2": "p3",
+     "construction": false
+    },
+    {
+     "id": "c7",
+     "type": "line",
+     "p1": "p3",
+     "p2": "p4",
+     "construction": false
+    },
+    {
+     "id": "c8",
+     "type": "line",
+     "p1": "p4",
+     "p2": "p1",
+     "construction": false
+    }
+   ],
+   "constraints": [],
+   "nextSid": 9,
+   "rev": "2cdglm4d"
+  },
+  {
+   "id": "f2",
+   "type": "sketch",
+   "name": "Sketch2",
+   "suppressed": false,
+   "plane": {
+    "ref": "front"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": 0,
+     "y": 0
+    },
+    {
+     "id": "p2",
+     "x": 0,
+     "y": 100
+    }
+   ],
+   "curves": [
+    {
+     "id": "c3",
+     "type": "line",
+     "p1": "p1",
+     "p2": "p2",
+     "construction": false
+    }
+   ],
+   "constraints": [],
+   "nextSid": 4,
+   "rev": "cry6zmvs"
+  },
+  {
+   "id": "f3",
+   "type": "sweep",
+   "name": "Sweep1",
+   "suppressed": false,
+   "op": "add",
+   "profileType": "sketch",
+   "profile": "f1",
+   "diameter": 2,
+   "path": "f2",
+   "guide": null,
+   "guideMode": "orientation",
+   "orientation": "perpendicular",
+   "twistAngle": 180,
+   "merge": true,
+   "thin": false,
+   "thinT": 1,
+   "thinDir": "one",
+   "scopeAll": true,
+   "scope": []
+  }
+ ],
+ "nextId": 4
+}

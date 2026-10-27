@@ -390,6 +390,20 @@ def main():
     for name, r in results['ui'].items():
         print(f'  {"PASS" if r.get("ok") else "FAIL"}  {name:24} {r.get("ms", "?")} ms  {r.get("detail", "")}')
         failures += not r.get('ok')
+    # the desktop app's own tests (Python: the updater's hand-over to the setup), with the whole run or --only updater
+    if not args.only or 'updater' in args.only:
+        import unittest
+        suite = unittest.defaultTestLoader.discover(os.path.dirname(os.path.abspath(__file__)), pattern='test_updater.py')
+        ids = [x.id() for g in suite for s in g for x in s]  # (a suite lets go of its tests once run)
+        outcome = unittest.TestResult()
+        suite.run(outcome)
+        bad = {t.id(): why for t, why in outcome.failures + outcome.errors}
+        print(f'\nDesktop ({outcome.testsRun}):')
+        for i in ids:
+            print(f'  {"FAIL" if i in bad else "PASS"}  {i.split(".")[-1]}')
+            if i in bad:
+                print('        ' + bad[i].strip().splitlines()[-1])
+        failures += len(bad)
     if console_errors:
         print(f'\nBrowser console errors ({len(console_errors)}):')
         for e in console_errors[:20]:

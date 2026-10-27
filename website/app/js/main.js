@@ -2316,7 +2316,8 @@ class App {
     const res = this.result;
     const editing = this.pm?.kind === 'feature' ? this.pm.feature.id : null;
     const sel = this.selection?.kind === 'feature' ? this.selection.id : null;
-    const state = (id) => (id === editing ? 'preview' : id === sel || id === this._hoverFeature ? 'selected' : 'normal');
+    const sweep = this.pm?.kind === 'feature' && ['sweep', 'surfSweep'].includes(this.pm.feature.type) ? this.pm.feature : null;
+    const state = (id) => (id === editing || id === sweep?.guide ? 'preview' : id === sel || id === this._hoverFeature || id === sweep?.path ? 'selected' : 'normal');
     const axes = [], points = [];
     for (const f of this.doc.features) {
       if (f.suppressed || this.mode === 'sketch') continue;
@@ -2374,6 +2375,7 @@ class App {
   updateSketchDisplay() {
     const res = this.result, list = [];
     const loft = this.loftPicking(), loftFeature = loft ? this.pm.feature : null;
+    const sweepFeature = this.pm?.kind === 'feature' && ['sweep', 'surfSweep'].includes(this.pm.feature.type) ? this.pm.feature : null;
     if (!loft) this._loftPickCache = null;
     // Dependent sketches still contain the last rebuilt projections while their source is being edited.
     // Hide that stale geometry until leaving the sketch rebuilds it; keep independent references visible.
@@ -2408,9 +2410,15 @@ class App {
       if (c) list.push({ frame: s.frame, polylines: [{ pts: S.curvePoints(s.sketch, c), construction: false }], highlight: true, color: 0xf97316 });
     }
     const tags = [];
-    if (loft) {
+    if (loft || sweepFeature) {
       const show = (ref, color, label = '') => {
-        const s = res.sketches.get(LR.sourceId(ref)); if (!s) return;
+        const s = res.sketches.get(LR.sourceId(ref));
+        if (!s) {
+          // (a curve or helix: its label at its start)
+          const cv = res.curves?.get(ref), pts = Array.isArray(cv?.[0]?.[0]) ? cv[0] : cv;
+          if (label && pts?.length) tags.push({ text: label, at: new THREE.Vector3(...pts[0]), color });
+          return;
+        }
         const ids = typeof ref === 'string' ? null : new Set(ref.curves);
         const curves = s.sketch.curves.filter((c) => !c.ctrlOf && (ids ? ids.has(c.id) : !c.construction));
         list.push({ frame: s.frame, polylines: curves.map((c) => ({ pts: S.curvePoints(s.sketch, c), construction: false })), highlight: true, color });
@@ -2419,10 +2427,16 @@ class App {
           tags.push({ text: label, at: G.toWorld(s.frame, p[0], p[1]), color });
         }
       };
-      (loftFeature.profiles || []).forEach((r, i) => show(r, 0x0ea5e9, `Profile ${i + 1}`));
-      (loftFeature.guides || []).forEach((r, i) => show(r, 0xf97316, `Guide ${i + 1}`));
-      if (this.pm.loftDraft?.curves.length) show(this.pm.loftDraft, 0x16a34a);
-      if (this.pm.loftHover) show(this.pm.loftHover, 0xfacc15);
+      if (loft) {
+        (loftFeature.profiles || []).forEach((r, i) => show(r, 0x0ea5e9, `Profile ${i + 1}`));
+        (loftFeature.guides || []).forEach((r, i) => show(r, 0xf97316, `Guide ${i + 1}`));
+        if (this.pm.loftDraft?.curves.length) show(this.pm.loftDraft, 0x16a34a);
+        if (this.pm.loftHover) show(this.pm.loftHover, 0xfacc15);
+      } else {
+        if (sweepFeature.profileType !== 'circle') show(sweepFeature.profile, 0x0ea5e9, 'Profile');
+        show(sweepFeature.path, 0x8b5cf6, 'Path');
+        if (sweepFeature.guide) show(sweepFeature.guide, 0xf97316, 'Guide');
+      }
     }
     this.viewport.setSketches(list);
     this.viewport.setLoftTags(tags);
@@ -2759,8 +2773,10 @@ class App {
       if (!f.profiles.includes(id)) f.profiles.push(id); else f.profiles = f.profiles.filter((x) => x !== id);
       this.preview(true);
       return true;
-    } else if ((kind === 'sketch' || kind === 'helix') && f.type === 'sweep') {
-      if (kind === 'helix') key = 'path';
+    } else if (['sweep', 'surfSweep'].includes(f.type) && target && ['sketch', 'sketch3d', 'helix', 'compCurve', 'projCurve'].includes(target.type)) {
+      if (this.pm.sweepSlot === 'profile' && target.type === 'sketch' && f.profileType !== 'circle') key = 'profile';
+      else if (this.pm.sweepSlot && ['path', 'guide'].includes(this.pm.sweepSlot)) key = this.pm.sweepSlot;
+      else if (kind === 'helix') key = 'path';
       else if (f.profileType !== 'circle' && !f.profile) key = 'profile';
       else if (!f.path) key = 'path';
       else key = f.profileType === 'circle' ? 'path' : 'profile';
@@ -2769,6 +2785,11 @@ class App {
       if (fields[kind]?.includes(f.type)) key = kind;
     }
     if (!key) return false;
+    // (a sweep's profile, path and guide are three different curves)
+    if (['sweep', 'surfSweep'].includes(f.type)) {
+      const profile = f.profileType === 'circle' ? null : f.profile;
+      if (key === 'guide' && [f.path, profile].includes(id) || key === 'path' && f.guide === id || key === 'profile' && [f.path, f.guide].includes(id)) return false;
+    }
     f[key] = id;
     this.preview(true);
     return true;

@@ -19,6 +19,8 @@ import { profileDims, profileSection, piercePoint } from './profiles.js';
 import { normalize3d, solve3d, splineGeom } from './sketch3dmodel.js';
 import { decimate } from './meshdecimate.js';
 import { installRealDelete, freeStats } from './ocfree.js';
+import { guideScaleLaw } from './sweepguides.js';
+import { sweepWithOrientation } from './sweepoptions.js';
 
 // sheet metal features (they keep a body's flat pattern up to date)
 // sheet metal features that make new bodies (from sketches)
@@ -3562,10 +3564,25 @@ async function rebuild(doc, previewId = null, opts = {}) {
             if (ws.length !== 1) throw new Error('The profile sketch must be one connected chain of curves');
             profile = ws[0];
           }
-          let shape = null;
-          for (const transitionMode of ['right', 'round', 'transformed']) {
+          let guide;
+          if (f.guide) {
+            if (f.guide === f.path || f.profileType !== 'circle' && f.guide === f.profile) throw new Error('Choose different sources for the sweep profile, path and guide');
+            if (curves.has(f.guide)) guide = curves.get(f.guide).wire;
+            else {
+              const gs = sketches.get(f.guide);
+              if (!gs) throw new Error('The sweep guide is missing, suppressed or has errors');
+              const wires = sketchWires(gs.sk, gs.frame);
+              if (wires.length !== 1) throw new Error('The sweep guide must be one connected chain of curves');
+              guide = wires[0];
+            }
+          }
+          const orientation = f.orientation || 'perpendicular', twist = guide || orientation === 'parallel' ? 0 : ev(f.twistAngle ?? 0);
+          const oriented = !guide && (orientation !== 'perpendicular' || twist !== 0);
+          let shape = guide ? sweepWithGuide(profile, spine, guide, f.guideMode || 'orientation', true) : oriented ? sweepWithOrientation(R, profile, spine, orientation, twist, true, nearFacePoint) : null;
+          for (const transitionMode of guide || oriented ? [] : ['right', 'round', 'transformed']) {
             try { shape = R.genericSweep(profile, spine, { frenet: helical, transitionMode }, true)[0]; break; } catch (e) { if (isFatal(e)) throw e; }
           }
+          if (guide) res.notes[f.id] = `Path and one guide · ${f.guideMode === 'contact' ? 'Section size; CAD guide contact ≤ 0.0001 mm' : 'Orientation; constant profile size'} · Uncapped surface`;
           if (!shape) throw new Error('The profile could not be swept along the path (place it at the start of the path, across it)');
           surfaces.push(bodyRec(newId(f.id), shape, f.id));
           applied.push({ op: 'add', tool: shape });
@@ -4684,7 +4701,23 @@ async function rebuild(doc, previewId = null, opts = {}) {
             const sk = getSketch(f.profile, f.thin ? { t: ev(f.thinT), dir: f.thinDir || 'one' } : null);
             profiles = sk.regions.map((rg) => ({ outer: loopWire(sk.frame, rg.outer.segs), holes: rg.holes.map((h) => loopWire(sk.frame, h.segs)) }));
           }
+          let guide;
+          if (f.guide) {
+            if (f.guide === f.path || f.profileType !== 'circle' && f.guide === f.profile) throw new Error('Choose different sources for the sweep profile, path and guide');
+            if (f.profileType !== 'circle' && f.thin || profiles.length !== 1 || profiles[0].holes.length) throw new Error('A guided sweep requires one closed profile without holes or Thin Feature');
+            if (curves.has(f.guide)) guide = curves.get(f.guide).wire;
+            else {
+              const gs = sketches.get(f.guide);
+              if (!gs) throw new Error('The sweep guide is missing, suppressed or has errors');
+              const wires = sketchWires(gs.sk, gs.frame);
+              if (wires.length !== 1) throw new Error('The sweep guide must be one connected chain of curves');
+              guide = wires[0];
+            }
+          }
+          const orientation = f.orientation || 'perpendicular', twist = guide || orientation === 'parallel' ? 0 : ev(f.twistAngle ?? 0);
           const sweepOne = (w) => {
+            if (guide) return sweepWithGuide(w, spine, guide, f.guideMode || 'orientation');
+            if (orientation !== 'perpendicular' || twist !== 0) return sweepWithOrientation(R, w, spine, orientation, twist, false, nearFacePoint);
             for (const transitionMode of ['right', 'round', 'transformed']) {
               try { return R.genericSweep(w, spine, { frenet: helical, transitionMode }); } catch (e) { if (isFatal(e)) throw e; }
             }
@@ -4697,6 +4730,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
             tool = tool ? tool.fuse(s) : s;
           }
           tool = unify(tool);
+          if (guide) res.notes[f.id] = `Path and one guide · ${f.guideMode === 'contact' ? 'Section size; CAD guide contact ≤ 0.0001 mm' : 'Orientation; constant profile size'}`;
           const scope = f.op === 'cut' && f.scopeAll === false ? f.scope || [] : null;
           tools.set(f.id, { shape: tool, op: f.op, merge: f.merge !== false, scope });
           apply(f.op, tool, f.merge !== false, scope);
@@ -7155,6 +7189,83 @@ function chamferAsym(body, edges, type, d1, x, flip) {
   } finally { mk.delete(); }
 }
 
+// Auxiliary-spine sweep. The native builder controls the moving section; no
+// sampled loft or silent fallback to an unguided sweep is used.
+function sweepWithGuide(profile, spine, originalGuide, mode, surface = false) {
+  if (!['orientation','contact'].includes(mode)) throw new Error('Select Orientation or Section size for the sweep guide');
+  if (spine.isClosed || originalGuide.isClosed) throw new Error('A guided sweep currently requires an open path and an open guide');
+  const tolerance=1e-4,oc=R.getOC();let reversed,shape;
+  const point=(wire,t)=>{const p=wire.pointAt(t);try{return vec(p);}finally{p.delete();}};
+  const tangent=(wire,t)=>{const p=wire.tangentAt(t);try{return unit(vec(p));}finally{p.delete();}};
+  const start=point(spine,0),end=point(spine,1),first=tangent(spine,0),last=tangent(spine,1);
+  const endpoints=[point(originalGuide,0),point(originalGuide,1)];
+  const planeError=(points)=>Math.abs(dot(sub(points[0],start),first))+Math.abs(dot(sub(points[1],end),last));
+  let guide=originalGuide;
+  try {
+    if(planeError([...endpoints].reverse())+tolerance<planeError(endpoints)){
+      const edges=originalGuide.edges,flipped=edges.reverse().map((e)=>e.flipOrientation());
+      try{reversed=R.assembleWire(flipped);guide=reversed;}finally{edges.forEach((e)=>e.delete());flipped.forEach((e)=>e.delete());}
+    }
+    const a=point(guide,0),b=point(guide,1);
+    if(Math.abs(dot(sub(a,start),first))>tolerance||Math.abs(dot(sub(b,end),last))>tolerance)
+      throw new Error('The guide must start and end in the normal planes at the path endpoints');
+    if(len(sub(a,start))<=tolerance||len(sub(b,end))<=tolerance)
+      throw new Error('The guide must stay separate from the path');
+    const separation=new R.DistanceQuery(guide);
+    try{if(separation.distanceTo(spine)<=tolerance)throw new Error('The sweep guide crosses or approaches the path too closely');}finally{separation.delete();}
+    const edges=profile.edges;
+    try{for(const edge of edges)for(const t of [0,0.25,0.5,0.75,1])
+      if(Math.abs(dot(sub(point(edge,t),start),first))>tolerance)
+        throw new Error('Place the profile in the normal plane at the start of the path');
+    }finally{edges.forEach((e)=>e.delete());}
+    if(mode==='contact'){
+      const vertex=R.makeVertex(a),query=new R.DistanceQuery(vertex);
+      try{if(query.distanceTo(profile)>tolerance)throw new Error(surface ? 'For Section size, the guide must start on the profile curve' : 'For Section size, the guide must start on the profile boundary');}
+      finally{query.delete();vertex.delete();}
+    }
+    const builder=new oc.BRepOffsetAPI_MakePipeShell(spine.wrapped);let law;
+    try{
+      builder.SetTolerance(1e-6,1e-6,1e-3);builder.SetMaxDegree(12);builder.SetMaxSegments(128);
+      builder.SetMode(guide.wrapped,false,oc.BRepFill_TypeOfContact.BRepFill_NoContact);
+      if(mode==='contact'){law=guideScaleLaw(R,spine,guide,len(sub(a,start)),tolerance);builder.SetLaw(profile.wrapped,law,false,false);}
+      else builder.Add(profile.wrapped,false,false);
+      builder.Build();
+      if(!builder.IsDone()||!surface&&!builder.MakeSolid())throw new Error(`The path and guide could not produce a ${surface ? 'surface' : 'solid'} sweep; check that every normal section meets the guide`);
+      if(!Number.isFinite(builder.ErrorOnSurface())||builder.ErrorOnSurface()>tolerance)throw new Error('The guided sweep exceeds the 0.0001 mm construction tolerance');
+      const raw=builder.Shape();try{shape=R.cast(raw);}finally{raw.delete();}
+    }catch(e){
+      if(isFatal(e)||e?.message)throw e;
+      throw new Error('The path and guide are incompatible: check their normal sections and avoid sharp corners or crossings');
+    }finally{builder.delete();law?.delete();}
+    const validity=new oc.BRepCheck_Analyzer(shape.wrapped,true);
+    try{if(!validity.IsValid()||!surface&&!solidsOf(shape).length)throw new Error(`The guided sweep produced an invalid ${surface ? 'surface' : 'solid'}`);}
+    finally{validity.delete();}
+    if(mode==='contact'){
+      const faces=shape.faces;
+      try{for(let i=0;i<=32;i++){
+        const p=point(guide,i/32),vertex=R.makeVertex(p),query=new R.DistanceQuery(vertex);
+        let error=Infinity;
+        try{for(const face of faces){const contact=nearFacePoint(face,p);error=Math.min(error,contact?len(sub(contact,p)):query.distanceTo(face));}}
+        finally{query.delete();vertex.delete();}
+        if(!Number.isFinite(error)||error>tolerance)throw new Error('The sweep does not follow the guide within 0.0001 mm');
+      }}finally{faces.forEach((f)=>f.delete());}
+    }
+    return shape;
+  }catch(e){shape?.delete();throw e;}finally{reversed?.delete();}
+}
+// Local exact-surface contact avoids the global extrema grid on dense splines.
+// Only accept points within 1e-7 mm; all other distances use the global solver.
+function nearFacePoint(face, point) {
+  const oc = R.getOC();
+  if (!oc.RazorCADSurfacePatch?.NearPoint || face.geomType !== 'BSPLINE_SURFACE') return null;
+  const p = new oc.gp_Pnt(...point); let hit;
+  try {
+    hit = oc.RazorCADSurfacePatch.NearPoint(face.wrapped, p, 1e-7);
+    const q = [hit.X(), hit.Y(), hit.Z()];
+    return q.every(Number.isFinite) ? q : null;
+  } catch (e) { if (isFatal(e)) throw e; return null; }
+  finally { hit?.delete(); p.delete(); }
+}
 // A face of any body near a picked point (faces of dense STL bodies are not searched).
 function findFaceAny(bodies, ref) {
   const cands = [];

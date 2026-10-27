@@ -6,6 +6,27 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-27 16:09 — Sweeps: a guide curve, Parallel orientation and a twist; the updater waits for RazorCAD to close (from PR #6)
+
+From Claw267's pull request #6, taken on its own (without its rebuilt geometry kernel, the loft end conditions, the
+loft guide constraints, extrude contour selection or the shell changes):
+
+- **Sweep and Swept Surface: Guide (optional).** A second curve (sketch chain, 3D sketch, curve or helix) the profile
+  follows. **Guide controls → Orientation** turns the profile to keep facing the guide at its own size; **Section
+  size** scales it evenly so its edge stays on the guide (the guide starts on the profile's edge). The guide's
+  contact is checked to 0.0001 mm, and geometry that doesn't fit gives an error rather than an ordinary sweep. A
+  guided solid sweep takes one closed profile without holes or Thin; a swept surface takes an open or closed one.
+- **Orientation**: Perpendicular to path (as before) or **Parallel to initial profile** (moved along the path without
+  turning). **Twist angle** (with Perpendicular): the profile turns by the total angle along the path, evenly by
+  distance (equations allowed; 0 is the usual sweep; needs an open path with no sharp corners).
+- The panel names the fields Profile, Path and Guide in the view while the sweep is edited; a sketch clicked in the
+  tree goes to the field last clicked, and the three can't be the same curve.
+- **Updater**: the helper that runs the setup now waits (up to 2 minutes) for RazorCAD to close before installing,
+  and the restarted RazorCAD unpacks the new version instead of reusing the old one's files. If the helper can't
+  start, RazorCAD says so and stays open.
+- Tests: sweep-orientation-and-twist, sweep-path-guide, surface-sweep-path-guide (with their case modules and example
+  parts in tests/data), and tests/test_updater.py, now part of the whole run (`--only updater` on its own).
+
 ## 2026-10-27 06:32 — Tests: the sheet-metal tray's measure time limit fits GitHub's runner
 
 - convert-sheet-corners checks that the tray's exact measure stays quick: 0.15 s on a desktop, 16 s before it was

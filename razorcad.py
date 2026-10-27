@@ -194,16 +194,18 @@ def download_verified(url, path, size=None, digest=None, timeout=60):
     return n
 
 
-def update_script(setup, folder, all_users, log):
+def update_script(setup, folder, all_users, log, pid):
     """PowerShell that runs the setup silently into folder (asking for administrator rights for an installation
     for all users), waits for it, then starts RazorCAD again (also when the setup failed or was refused)."""
     q = lambda s: "'" + str(s).replace("'", "''") + "'"
     args = ["'/S'", q('"/D=' + folder + '"')] + (["'/ALLUSERS'"] if all_users else [])
     run = 'Start-Process -FilePath %s -ArgumentList %s -Wait -PassThru%s' % (q(setup), ','.join(args), ' -Verb RunAs' if all_users else '')
     return ('$ErrorActionPreference = "Stop"; '
+            'try { Get-Process -Id %d -ErrorAction SilentlyContinue | Wait-Process -Timeout 120 -ErrorAction Stop } '
+            'catch { Add-Content -Path %s -Value ("RazorCAD did not close: " + $_); exit 1 }; '
             'try { $p = %s; Add-Content -Path %s -Value ("setup exit " + $p.ExitCode) } '
             'catch { Add-Content -Path %s -Value ("setup not run: " + $_) }; '
-            'Start-Sleep -Milliseconds 400; Start-Process -FilePath %s') % (run, q(log), q(log), q(os.path.join(folder, APP_NAME + '.exe')))
+            'Start-Sleep -Milliseconds 400; Start-Process -FilePath %s') % (int(pid), q(log), run, q(log), q(log), q(os.path.join(folder, APP_NAME + '.exe')))
 
 
 def issue_url(title, body):
@@ -1166,10 +1168,16 @@ class Api:
             download_verified(url, path, size, digest)
         except Exception as e:
             return {'error': 'Download failed: %s' % getattr(e, 'reason', e)}
-        script = update_script(path, info['folder'], info['allUsers'], os.path.join(folder, 'update.log'))
+        script = update_script(path, info['folder'], info['allUsers'], os.path.join(folder, 'update.log'), os.getpid())
+        # The helper outlives this one-file application. On restart PyInstaller must extract the new
+        # executable, rather than reuse this process's old (or already removed) _MEI directory.
+        env = dict(os.environ, PYINSTALLER_RESET_ENVIRONMENT='1')
         flags = getattr(subprocess, 'DETACHED_PROCESS', 0) | getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0) | NO_WINDOW
-        subprocess.Popen(['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-Command', script],
-                         creationflags=flags, close_fds=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            subprocess.Popen(['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-Command', script],
+                             env=env, creationflags=flags, close_fds=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as e:
+            return {'error': 'The update helper could not start: %s' % e}
         return {'ok': True, 'allUsers': info['allUsers']}
 
     def open_url(self, url):

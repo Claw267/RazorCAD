@@ -596,11 +596,17 @@ const PM_SCHEMAS = {
   ],
   sweep: [
     {
-      title: 'Profile and Path', fields: [
+      title: 'Profile, Path and Guide', fields: [
         { key: 'profileType', type: 'select', label: 'Profile', options: [['sketch', 'A sketch'], ['circle', 'Circular (enter the diameter)']] },
         { key: 'profile', type: 'sketch', label: 'Profile sketch', show: (f) => f.profileType !== 'circle' },
         { key: 'diameter', type: 'expr', label: 'Diameter', unit: 'mm', show: (f) => f.profileType === 'circle' },
         { key: 'path', type: 'pathSel', label: 'Path' },
+        { key: 'guide', type: 'pathSel', label: 'Guide (optional)', optional: true },
+        { key: 'orientation', type: 'select', label: 'Orientation', show: (f) => !f.guide, options: [['perpendicular', 'Perpendicular to path'], ['parallel', 'Parallel to initial profile']] },
+        { key: 'twistAngle', type: 'expr', default: 0, label: 'Twist angle', unit: '°', show: (f) => !f.guide && f.orientation !== 'parallel' },
+        { key: 'twistHint', type: 'hint', show: (f) => !f.guide && f.orientation !== 'parallel', text: 'Total rotation distributed by distance along the path. Positive angles follow the right-hand rule along the path. Twist requires an open, tangent-continuous path; zero keeps the usual sweep.' },
+        { key: 'guideMode', type: 'select', label: 'Guide controls', show: (f) => !!f.guide, options: [['orientation', 'Orientation — keep profile size'], ['contact', 'Section size — keep guide on boundary']] },
+        { key: 'guideHint', type: 'hint', show: (f) => !!f.guide, text: 'Use one closed profile without holes or Thin, with an open path and guide. Both curves must span the same normal sections. Orientation keeps the profile size; the guide need not touch its boundary. Section size uniformly scales the profile; the guide must start on its boundary. Contact is checked to 0.0001 mm.' },
         { key: 'sweepHint', type: 'hint', text: 'The path is a sketch (one chain of lines and arcs) or a helix. A sketch profile should sit at the start of the path, across it. For a spring: a helix path and a circular profile.' },
       ],
     },
@@ -982,11 +988,17 @@ const PM_SCHEMAS = {
     { title: 'Options', fields: [{ key: 'ruled', type: 'check', label: 'Straight (ruled) between profiles' }] },
   ],
   surfSweep: [
-    { title: 'Profile and Path', fields: [
+    { title: 'Profile, Path and Guide', fields: [
       { key: 'profileType', type: 'select', label: 'Profile', options: [['sketch', 'A sketch (open or closed)'], ['circle', 'Circular (enter the diameter)']] },
       { key: 'profile', type: 'sketch', label: 'Profile sketch', show: (f) => f.profileType !== 'circle' },
       { key: 'diameter', type: 'expr', label: 'Diameter', unit: 'mm', show: (f) => f.profileType === 'circle' },
       { key: 'path', type: 'pathSel', label: 'Path' },
+      { key: 'guide', type: 'pathSel', label: 'Guide (optional)', optional: true },
+      { key: 'orientation', type: 'select', label: 'Orientation', show: (f) => !f.guide, options: [['perpendicular', 'Perpendicular to path'], ['parallel', 'Parallel to initial profile']] },
+      { key: 'twistAngle', type: 'expr', default: 0, label: 'Twist angle', unit: '°', show: (f) => !f.guide && f.orientation !== 'parallel' },
+      { key: 'twistHint', type: 'hint', show: (f) => !f.guide && f.orientation !== 'parallel', text: 'Total rotation distributed by distance along the path. Positive angles follow the right-hand rule along the path. Twist requires an open, tangent-continuous path; zero keeps the usual sweep.' },
+      { key: 'guideMode', type: 'select', label: 'Guide controls', show: (f) => !!f.guide, options: [['orientation', 'Orientation — keep profile size'], ['contact', 'Section size — follow the guide']] },
+      { key: 'guideHint', type: 'hint', show: (f) => !!f.guide, text: 'Use one open or closed profile chain and an open path and guide. Orientation keeps the profile size. Section size uniformly scales the profile; the guide must start on the profile curve. Contact with the surface is checked to 0.0001 mm. Closed profiles produce an uncapped surface.' },
       { key: 'ssHint', type: 'hint', text: 'The profile (one chain of curves, open or closed) is swept along the path as a surface. Place it at the start of the path, across it.' },
     ] },
   ],
@@ -3583,7 +3595,7 @@ export class UI {
           if (picked) row.appendChild(el('button', { class: 'pm-btn', onclick: () => { f[fd.key] = null; this.renderPM(); a.updateEdgeHighlights(); a.preview(); } }, 'Clear'));
           body.appendChild(this.row(fd.label, row));
         } else if (fd.type === 'expr') {
-          body.appendChild(this.row(fd.label, this.exprInput(fd.neg ? negExpr(f[fd.key]) : f[fd.key], fd.unit, (v) => { f[fd.key] = fd.neg ? negExpr(v) : v; a.preview(); }, { optional: !!fd.optional })));
+          body.appendChild(this.row(fd.label, this.exprInput(fd.neg ? negExpr(f[fd.key] ?? fd.default) : (f[fd.key] ?? fd.default), fd.unit, (v) => { f[fd.key] = fd.neg ? negExpr(v) : v; a.preview(); }, { optional: !!fd.optional })));
         } else if (fd.type === 'check') {
           const cb = el('input', { type: 'checkbox' });
           cb.checked = !!(f[fd.key] ?? fd.default);
@@ -3608,7 +3620,8 @@ export class UI {
           if (fd.type === 'pointSel') options = [['', '— select a reference point —'], ...pointFeats];
           if (fd.type === 'pointRef') options = [['', f.toVertex ? '✔ Vertex picked on the model' : '— click a vertex on the model —'], ...pointFeats];
           if (fd.type === 'surfaceRef') options = [['', f.toFace ? '✔ Face picked on the model' : '— click a flat face on the model —'], ...Object.entries(STD_PLANES).map(([k, p]) => [k, p.name]), ...before.filter((x) => x.type === 'plane' && !x.suppressed).map((x) => [x.id, x.name])];
-          if (fd.type === 'pathSel') options = [['', '— a sketch, 3D sketch, curve or helix —'], ...before.filter((x) => ['sketch', 'helix', 'sketch3d', 'compCurve', 'projCurve'].includes(x.type) && !x.suppressed && x.id !== f.profile).map((x) => [x.id, x.name])];
+          // (a sweep's path and guide: neither offers the profile, nor the other one)
+          if (fd.type === 'pathSel') options = [['', fd.optional ? '— None —' : '— a sketch, 3D sketch, curve or helix —'], ...before.filter((x) => ['sketch', 'helix', 'sketch3d', 'compCurve', 'projCurve'].includes(x.type) && !x.suppressed && (['sweep', 'surfSweep'].includes(f.type) && f.profileType === 'circle' || x.id !== f.profile) && !(['sweep', 'surfSweep'].includes(f.type) && x.id === (fd.key === 'guide' ? f.path : f.guide))).map((x) => [x.id, x.name])];
           if (fd.type === 'threadSize') {
             options = [['auto', 'Automatic (the size that fits the face)'], ...threadList(f.system || 'metric').map((t) => [t.id, t.label]), ['custom', 'Custom…']];
             if (!options.some(([vv]) => vv === f.size)) f.size = 'auto';
@@ -3624,6 +3637,9 @@ export class UI {
             if ((f[fd.key] ?? '') === v) o.selected = true;
             s.appendChild(o);
           }
+          // (a sweep's profile, path and guide: a sketch picked in the tree goes to the one last clicked)
+          if (['sweep', 'surfSweep'].includes(f.type)) s.dataset.sweepField = fd.key;
+          if (['sweep', 'surfSweep'].includes(f.type) && ['profile', 'path', 'guide'].includes(fd.key)) s.onfocus = () => { pm.sweepSlot = fd.key; };
           s.onchange = () => {
             f[fd.key] = s.value || null;
             // an open sketch can only be extruded as a thin feature

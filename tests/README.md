@@ -35,3 +35,12 @@ earlier one left behind (or must make it itself, as drawing-from-part does). Tim
 
 To cover a new feature, add a part to `make_parts.js`, run `python tests/run_tests.py --make-parts --only <name> --update`,
 and check the recorded numbers by hand (for example a plate's volume) before committing them.
+
+Some UI tests run a list of kernel cases from a module of their own (`tests/sweep-options-cases.js`,
+`tests/sweep-guide-cases.js`, `tests/surface-sweep-guide-cases.js`: sweeps with a twist, an orientation or a guide,
+checked against exact volumes and areas). Example parts for them are in `tests/data` (`sweep-twist.rcad`,
+`sweep-path-guide.rcad`, `surface-sweep-path-guide.rcad`).
+
+`tests/test_updater.py` checks the desktop app's hand-over to the setup when it updates itself (no window needed). The
+whole run includes it; on its own: `python tests/run_tests.py --only updater`, or
+`python -m unittest discover -s tests -p test_updater.py`.

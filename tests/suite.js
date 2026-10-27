@@ -4347,6 +4347,94 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     } finally { k.dispose(); }
   },
 
+  // Sweeps with a guide curve, an orientation (Parallel) and a twist (from PR #6, by Claw267): the kernel cases
+  // (tests/sweep-*-cases.js: volumes and areas against their exact values, contact with the guide to 0.0001 mm,
+  // bad inputs refused with their reasons) and the Property panel (expressions, saving, switching, Cancel)
+  async 'sweep-orientation-and-twist'() {
+    const {run,fixture}=await import('/tests/sweep-options-cases.js');
+    const native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
+    const a=window.app;
+    const twistInput=()=>[...document.querySelectorAll('#pm .pm-row')].find(r=>r.querySelector('label')?.textContent==='Twist angle')?.querySelector('input');
+    const settle=async()=>{await wait(150);await until(()=>!a.kernel.pending);};
+    for(const type of ['sweep','surfSweep']){
+      const {doc,sweep}=fixture(type);await a.newDocument?.();closeModals();await a.setDoc(doc);a.editFeature(sweep.id);await a.rebuild();
+      const orientation=()=>document.querySelector('[data-sweep-field="orientation"]');
+      if(orientation()?.value!=='perpendicular'||!twistInput())return {ok:false,detail:type+': missing orientation or twist controls'};
+      const input=twistInput();input.value='45 + 45';input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));await settle();await a.okPM();
+      if(a.result.errors.size||M.findFeature(a.doc,sweep.id).twistAngle!=='45 + 45')return {ok:false,detail:type+': twist expression did not confirm'};
+      await a.setDoc(JSON.parse(JSON.stringify(a.doc)));
+      if(a.result.errors.size)return {ok:false,detail:type+': serialized twist failed'};
+      const probe=[0,100,-5],contact=await a.kernel.request('measure',{refs:[{kind:'point',p:probe},{kind:'face',p:probe}]});
+      if(contact.distance>1e-4)return {ok:false,detail:type+': saved rotation is wrong'};
+      a.editFeature(sweep.id);orientation().value='parallel';orientation().dispatchEvent(new Event('change',{bubbles:true}));await settle();
+      if(twistInput())return {ok:false,detail:type+': twist remains available with Parallel'};
+      await a.okPM();
+      if(a.result.errors.size)return {ok:false,detail:type+': Parallel failed'};
+      const p=[5,100,0],m=await a.kernel.request('measure',{refs:[{kind:'point',p},{kind:'face',p}]});
+      if(m.distance>1e-4)return {ok:false,detail:type+': Parallel did not preserve the profile'};
+      a.editFeature(sweep.id);orientation().value='perpendicular';orientation().dispatchEvent(new Event('change',{bubbles:true}));await settle();
+      if(!twistInput())return {ok:false,detail:type+': switching back did not restore twist'};
+      a.cancelPM();await a.rebuild();
+      if(M.findFeature(a.doc,sweep.id).orientation!=='parallel')return {ok:false,detail:type+': cancel failed to restore orientation'};
+    }
+    return {ok:true,detail:JSON.stringify({cases:native.results,health:native.health,ui:'solid and surface: expression, serialization, orientation switch, hidden twist and cancel'})};
+  },
+
+  async 'surface-sweep-path-guide'() {
+    const {run,fixture}=await import('/tests/surface-sweep-guide-cases.js');
+    const native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
+    const a=window.app,{doc,sweep,guide}=fixture();await a.newDocument?.();closeModals();await a.setDoc(doc);a.editFeature(sweep.id);await a.rebuild();
+    const guideSelect=document.querySelector('[data-sweep-field="guide"]'),mode=document.querySelector('[data-sweep-field="guideMode"]');
+    if(guideSelect?.value!==guide.id||mode?.value!=='contact')return {ok:false,detail:'Surface sweep guide panel did not restore its inputs'};
+    const tags=[...document.querySelectorAll('[data-loft-label]')].map((e)=>e.textContent);
+    if(!['Profile','Path','Guide'].every((s)=>tags.includes(s)))return {ok:false,detail:'Surface sweep input labels missing'};
+    guideSelect.focus();a.pmPick('sketch',guide.id);
+    if(a.pm.feature.path!==sweep.path||a.pm.feature.profile!==sweep.profile)return {ok:false,detail:'Guide picking overwrote path or profile'};
+    mode.value='orientation';mode.dispatchEvent(new Event('change'));await a.rebuild();
+    if(a.result.errors.size)return {ok:false,detail:JSON.stringify([...a.result.errors])};
+    a.cancelPM();await a.rebuild();if(M.findFeature(a.doc,sweep.id).guideMode!=='contact')return {ok:false,detail:'Cancel did not restore the surface guide mode'};
+    await a.setDoc(JSON.parse(JSON.stringify(a.doc)));
+    await a.enterSketch(M.findFeature(a.doc,guide.id),false);a.sketcher.f.points[1].x=15;a.sketcher.changed();a.exitSketch(true);await a.rebuild();
+    if(a.result.errors.size)return {ok:false,detail:JSON.stringify([...a.result.errors])};
+    const measured=await a.kernel.request('measure',{refs:[{kind:'body',id:a.result.body.bodies[0].id}]});
+    if(measured.items[0].solid||Math.abs(measured.items[0].area-2000)>0.001)return {ok:false,detail:'Guide edit did not regenerate an open surface'};
+    a.editFeature(sweep.id);const input=document.querySelector('[data-sweep-field="guide"]');input.value='';input.dispatchEvent(new Event('change'));await a.okPM();
+    if(a.result.errors.size||M.findFeature(a.doc,sweep.id).guide)return {ok:false,detail:'Removing the surface guide failed'};
+    return {ok:true,detail:JSON.stringify({cases:native.results,health:native.health,ui:'selection, cancel, serialization, editing and clearing'})};
+  },
+
+  async 'sweep-path-guide'() {
+    const {run,fixture}=await import('/tests/sweep-guide-cases.js');
+    const native=await run({threads:threadsPerKernel()});
+    if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
+    const a=window.app,{doc,sweep,guide}=fixture();
+    await a.newDocument?.();closeModals();await a.setDoc(doc);a.editFeature(sweep.id);await a.rebuild();
+    const tags=[...document.querySelectorAll('[data-loft-label]')].map((e)=>e.textContent);
+    if(!['Profile','Path','Guide'].every((name)=>tags.includes(name)))return {ok:false,detail:'Sweep input labels are missing from the view'};
+    const selector=document.querySelector('[data-sweep-field="guide"]');
+    const mode=document.querySelector('[data-sweep-field="guideMode"]');
+    if(!selector||selector.value!==guide.id||!mode||mode.value!=='contact')return {ok:false,detail:'Guide panel did not restore the selected guide and mode'};
+    if([...selector.options].some((o)=>o.value===sweep.path||o.value===sweep.profile))return {ok:false,detail:'Guide selector offers the profile or path'};
+    if(!M.referencesOf(a.doc,M.findFeature(a.doc,sweep.id)).has(guide.id)||!M.sketchesUsedBy(sweep).includes(guide.id))return {ok:false,detail:'Guide dependency is missing'};
+    selector.focus();a.pmPick('sketch',guide.id);
+    if(a.pm.feature.path!==sweep.path||a.pm.feature.profile!==sweep.profile||a.pm.feature.guide!==guide.id)return {ok:false,detail:'Tree guide selection replaced another sweep input'};
+    mode.value='orientation';mode.dispatchEvent(new Event('change'));await a.rebuild();
+    if(a.result.errors.size)return {ok:false,detail:JSON.stringify([...a.result.errors])};
+    a.cancelPM();await a.rebuild();
+    if(M.findFeature(a.doc,sweep.id).guideMode!=='contact')return {ok:false,detail:'Cancel failed to restore the guide mode'};
+    const saved=JSON.parse(JSON.stringify(a.doc));await a.setDoc(saved);
+    await a.enterSketch(M.findFeature(a.doc,guide.id),false);
+    a.sketcher.f.points[1].x=15;a.sketcher.changed();a.exitSketch(true);await a.rebuild();
+    if(a.result.errors.size)return {ok:false,detail:'Guide edit failed: '+JSON.stringify([...a.result.errors])};
+    const body=a.result.body.bodies[0],measured=await a.kernel.request('measure',{refs:[{kind:'body',id:body.id}]});
+    const expected=Math.PI*100*(25+75+225)/3;
+    if(Math.abs(measured.items[0].volume-expected)/expected>2e-5)return {ok:false,detail:'Guide edit did not regenerate the section size'};
+    a.editFeature(sweep.id);document.querySelector('[data-sweep-field="guide"]').value='';document.querySelector('[data-sweep-field="guide"]').dispatchEvent(new Event('change'));
+    await a.okPM();
+    if(M.findFeature(a.doc,sweep.id).guide||a.result.errors.size)return {ok:false,detail:'Clearing the guide failed to restore the ordinary sweep'};
+    return {ok:true,detail:JSON.stringify({cases:native.results,health:native.health,ui:'selection, cancel, serialization, guide editing and clearing'})};
+  },
+
   // A guided loft follows its guide closely: two 40 × 40 squares 100 apart and an S-shaped guide (two arcs bulging
   // 12 out and 12 in) through a corner of each: every point of the guide lies within 0.15 mm of the loft's surface, as meshed
   // (it drifted 0.28 mm with 6 sections between the profiles)
