@@ -975,7 +975,7 @@ The **Surfaces** tab builds surface bodies (zero-thickness faces), listed under 
 |---|---|
 | **Extruded Surface** | Sweeps the sketch's curves in a straight line; open chains are fine |
 | **Revolved Surface** | Revolves the sketch's curves about an axis |
-| **Planar Surface** | Fills a closed sketch (holes allowed) |
+| **Planar Surface** | Creates flat surfaces from selected sketch regions, closed entity contours or coplanar model boundary edges; sketch regions preserve their holes |
 | **Lofted Surface** | A surface through two or more profiles (sketches or 3D sketches), open or closed, optionally ruled (straight between profiles). Open profiles drawn in opposite directions are lined up automatically. **Guide Curves** (rails, optional): sketches or curves the surface follows between the profiles, e.g. along its edges; each runs from the first profile to the last, through every profile. One guide pulls the surface along it; two or more shape it across, each where it touches the profiles. |
 | **Swept Surface** | An open or closed sketch profile, or a circle, swept along a sketch, 3D sketch or helix, optionally controlled by one guide |
 | **Filled Surface** | A patch over one closed boundary loop, with G0 contact, G1 tangency or G2 curvature relative to adjacent faces. Continuity can be set for each edge. It can be knit into a surface and close a solid. |
@@ -1003,6 +1003,14 @@ Lofted Surface uses the same **Start Condition**, **End Condition**, **Influence
 Select **Guide Curves → Guide construction → CAD constraints (two profiles)** to use the original guide edges as patch boundaries. This supports open profiles forming a sheet, or closed profiles forming an uncapped surface shell. Guides can lie in different planes, making a nonplanar surface. A closed profile does not add end caps or make a solid.
 
 The kernel checks the patch contact error to **0.0001 mm**, validates the resulting CAD shape and checks points on the guide curves independently. **Across guide seams** offers **C0** (contact), **G1** (tangency) and **G2** (curvature continuity) along shared guide edges. G1 checks native CAD normals at nine interior positions, allowing at most **0.5°** mismatch. G2 constructs a C2 B-spline surface for internal guide networks, trims the resulting patches and checks contact, normals and all three components of the second fundamental form at 33 independent positions on each seam. Its curvature mismatch limit is **0.001 1/mm**. Measured angular and G2 curvature mismatches appear in the feature note. These are numerical tolerance checks, not a symbolic proof that every guide point is exact. The method requires two compatible profiles without holes or Thin Feature. Original profile corners are preserved. A transverse guide through a sharp corner cannot provide G2 continuity: choose C0 or move the contact onto a smooth profile segment. Circular profile seams are positioned automatically; straight guides already on a cylinder or cone preserve its geometry. Incompatible constraints report an error without lowering continuity or switching methods. Choose **Adaptive approximation** explicitly for other supported loft configurations.
+
+### Planar Surface selection
+
+Use **Sketch Profiles → Select profiles in canvas** to click inside a closed region or select its contour. Each selection adds only that region, including its inner holes, instead of every profile in its sketch. Click a selected profile again to remove it. **Chain selection** follows connected sketch entities; turn it off to pick individual curves, then use **Add selected contour** once they close. Selecting just an outer contour fills that outline; click the actual region to include its holes.
+
+Use **Model Boundary Edges → Select model edges** for existing solid or surface edges. Choose one connected, closed, coplanar loop, with optional chain selection. The kernel rejects open, duplicate, missing or nonplanar boundary edges. Each selected sketch region creates a planar face; multiple independent regions are supported. Profiles remain linked to their source entities when dimensions change, and deleted selected entities require reselection.
+
+Existing whole-sketch features remain compatible. **Other sources (whole sketch / curve)** keeps whole-sketch selection available explicitly. A sketch with multiple regions no longer gets selected in full automatically when starting Planar Surface: choose the desired profiles in the canvas. Planar Surface creates flat sheets; use Filled Surface for a nonplanar patch or continuity to adjacent faces.
 
 ### Filled Surface / Patch continuity
 

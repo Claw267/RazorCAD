@@ -264,7 +264,7 @@ export function createFeature(doc, type, props = {}) {
     moveBody: { bodies: [], copy: false, copies: 1, mode: 'translate', dx: 0, dy: 0, dz: 0, rotAxis: 'none', angle: 0, rotCenter: 'origin', mates: [] },
     surfExtrude: { sketch: null, end: 'blind', depth: 10, reverse: false },
     surfRevolve: { sketch: null, axis: 'v', angle: 360 },
-    surfPlanar: { sketch: null },
+    surfPlanar: { sketch: null, profiles: null, edges: [], chainSelection: true },
     surfOffset: { faces: [], distance: 5, flip: false },
     // profiles: sketches / 3D sketches (one chain each, all open or all closed), in order; guides: guide curves
     // (sketches or curves) the surface follows, each through every profile
@@ -428,7 +428,7 @@ export function referencesOf(doc, f) {
   if (f.type === 'split') { addId(f.tool); addBody(f.tool); }
   if (f.sketchLine) addId(String(f.sketchLine).split(':')[0]);
   for (const r of [...(f.startFaces || []), ...(f.endFaces || []), ...(f.supportFaces || [])]) addBody(r.body);
-  if (f.type === 'surfFill') for (const r of f.edges || []) addBody(r.body);
+  if (['surfFill','surfPlanar'].includes(f.type)) for (const r of f.edges || []) addBody(r.body);
   for (const r of f.refs || []) { addId(r?.id); if (r?.kind === 'sketch') addId(r.sketch); }
   for (const b of [...(f.bodies || []), ...(f.scope || []), f.main, f.body]) addBody(b);
   for (const m of f.mates || []) { addId(m.a?.id); addId(m.b?.id); }

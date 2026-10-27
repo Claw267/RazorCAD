@@ -106,3 +106,9 @@ Checks analytic volumes for holes and all three Thin directions, open Thin profi
 Checks G0/G1/G2 on planar, circular, spherical and cylindrical boundaries; mixed edge conditions; explicit and ambiguous supports; legacy Tangent files; knitting and solid closure; missing/disconnected/duplicate boundaries; and incompatible requests without a G0 fallback. The UI test picks a real support face, switches boundary and face selection, overrides an individual edge, saves/reopens and cancels an edit. Final CAD checks use native trimming curves and independent differential comparisons. Run on both kernels. Example: `tests/data/surface-patch-g2.rcad`.
 
 Patch chain selection additionally checks native inner/outer loops, circular rims without cylinder/sphere seams, solid branches and explicit support-face loops. Real viewport clicks exercise chain toggling, individual picking, partial-chain completion, per-edge continuity retention, save/reopen and cancel.
+
+### Planar Surface profile and entity selection
+
+`python tests/run_tests.py --only planar-surface-selection surface-patch-chain-selection --jobs 1`
+
+Checks individual sketch regions, holes, multiple regions, whole-sketch compatibility, manual entity contours, dimensional edits, construction/unselected geometry, missing/deleted/open entities, model boundary edges and rejection of duplicate/nonplanar loops. The app test starts from a sketch with several regions, clicks a region and individual sketch entities in the viewport, picks model boundary edges, saves/reopens, cancels edits and migrates a legacy whole-sketch feature. Run on both kernels.

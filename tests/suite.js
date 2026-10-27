@@ -4535,6 +4535,42 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     return { ok: true, detail: `Nonplanar open surface / two native spline guides (${worst.toExponential(3)} mm), uncapped circular surface, panel method selection and cancel` };
   },
 
+  async 'planar-surface-selection'() {
+    const {run,fixture,edgeFixture}=await import('/tests/planar-surface-cases.js');
+    const native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
+    const a=window.app,settle=async()=>{await wait(180);await until(()=>!a.kernel.pending&&!a.pm?.patchChainBusy);};
+    const area=async()=>{const b=a.result.body.bodies.at(-1),m=await a.kernel.request('measure',{refs:[{kind:'body',id:b.id}]});return m.items[0].area;};
+    const {Vector3}=await import('three'),click=async p=>{const ev=viewEvents();ev.vp.camera.updateMatrixWorld(true);await ev.click(...ev.toScreen(new Vector3(...p)));await settle();};
+    const data=fixture();data.doc.features.pop();await a.newDocument?.();closeModals();await a.setDoc(data.doc);
+    a.selection={kind:'feature',id:data.sk.id};a.startFeature('surfPlanar');await a.rebuild();await settle();
+    if(a.pm.feature.profiles.length)return {ok:false,detail:'A whole multi-profile sketch was selected automatically'};
+    const id=a.pm.feature.id;
+    a.viewport.setStandardView('top',false);a.viewport.zoomToFit(null,false);await wait(160);
+    await click([5,0,0]);
+    if(a.pm.feature.profiles.length!==1||typeof a.pm.feature.profiles[0]==='string')return {ok:false,detail:'Canvas region selection failed'};
+    await a.okPM();if(a.result.errors.size||Math.abs(await area()-200)>1e-4)return {ok:false,detail:'Unselected sketch region was included'};
+    await a.setDoc(JSON.parse(JSON.stringify(a.doc)));if(a.result.errors.size||Math.abs(await area()-200)>1e-4)return {ok:false,detail:'Selected region failed save/reopen'};
+    a.editFeature(id);await a.rebuild();
+    document.querySelector('[data-loft-action="remove"]').click();await settle();
+    let checkbox=document.querySelector('[data-loft-chain]');checkbox.checked=false;checkbox.dispatchEvent(new Event('change',{bubbles:true}));
+    for(const p of [[10,0,0],[0,0,5],[-10,0,0],[0,0,-5]])await click(p);
+    if(a.pm.loftDraft?.curves.length!==4)return {ok:false,detail:'Individual sketch entities did not accumulate'};
+    document.querySelector('[data-loft-finish]').click();await settle();await a.okPM();
+    if(a.result.errors.size||Math.abs(await area()-200)>1e-4)return {ok:false,detail:'Individual closed contour failed: '+JSON.stringify([...a.result.errors])};
+    a.editFeature(id);document.querySelector('[data-loft-action="remove"]').click();await settle();a.cancelPM();await a.rebuild();
+    if(a.result.errors.size||M.findFeature(a.doc,id).profiles.length!==1)return {ok:false,detail:'Profile edit cancel failed'};
+    const legacy=fixture({legacy:true});await a.setDoc(legacy.doc);a.editFeature(legacy.planar.id);await a.rebuild();await a.okPM();
+    if(a.result.errors.size||Math.abs(await area()-(200+9*Math.PI))>1e-4)return {ok:false,detail:'Legacy whole-sketch edit changed the surface'};
+    const model=edgeFixture();model.planar.edges=[];await a.setDoc(model.doc);a.editFeature(model.planar.id);await a.rebuild();
+    document.querySelector('[data-planar-edges]').click();if(a.pickMode()!=='edge')return {ok:false,detail:'Model edge picker unavailable'};
+    checkbox=document.querySelector('[data-patch-chain]');checkbox.checked=false;checkbox.dispatchEvent(new Event('change',{bubbles:true}));
+    a.viewport.setStandardView('trimetric',false);a.viewport.zoomToFit(null,false);await wait(160);
+    for(const p of [[10,10,0],[0,10,5],[-10,10,0],[0,10,-5]])await click(p);
+    if(a.pm.feature.edges.length!==4)return {ok:false,detail:'Model boundary edge picking failed: '+a.pm.feature.edges.length};
+    await a.okPM();if(a.result.errors.size||Math.abs(await area()-200)>1e-4)return {ok:false,detail:'Selected model boundary failed'};
+    return {ok:true,detail:JSON.stringify({cases:native.results,health:native.health,ui:'multi-region source, actual region and entity picks, save/reopen, cancel, legacy migration and model edge picks'})};
+  },
+
   async 'surface-patch-chain-selection'() {
     const {runChains,fixture}=await import('/tests/surface-patch-cases.js');
     const native=await runChains({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};

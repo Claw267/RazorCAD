@@ -22,7 +22,7 @@ import { installRealDelete, freeStats } from './ocfree.js';
 import { compareSurfaceContinuity, surfaceNormalAtUV } from './surfacecontinuity.js';
 import { guideScaleLaw } from './sweepguides.js';
 import { sweepWithOrientation } from './sweepoptions.js';
-import {buildSurfacePatch,verifyPatch,patchContinuity} from './surfacepatch.js';
+import {buildSurfacePatch,verifyPatch,patchContinuity,patchBoundary} from './surfacepatch.js';
 import { hasLoftEnds, endConstrainedLoft, checkLoftEndGuides, tensorFaceDistance } from './loftends.js';
 
 // sheet metal features (they keep a body's flat pattern up to date)
@@ -3585,24 +3585,49 @@ async function rebuild(doc, previewId = null, opts = {}) {
           replaceSolid(rec, unify(out), f.id);
           break;
         }
-        case 'surfExtrude':
-        case 'surfRevolve':
         case 'surfPlanar': {
+          const profiles=Array.isArray(f.profiles)?f.profiles:f.sketch?[f.sketch]:[],parts=[],owned=[];
+          if(!profiles.length&&!f.edges?.length)throw new Error('Select closed sketch profiles or a coplanar loop of model edges');
+          try{
+            for(const ref of profiles){
+              const sk=sketches.get(LR.sourceId(ref));if(!sk)throw new Error('A planar surface sketch is missing, suppressed or has errors');
+              const selected=typeof ref==='string'?null:LR.resolveContour(sk.sk,ref);
+              if(selected?.chain&&!selected.chain.closed)throw new Error('Planar Surface requires a closed contour');
+              const regions=selected?.region?[selected.region]:S.profileRegions(selected?.sketch||sk.sk);
+              if(!regions.length)throw new Error('The selected entities do not form a closed profile');
+              for(const region of regions){
+                const outer=loopWire(sk.frame,region.outer.segs),holes=region.holes.map(h=>loopWire(sk.frame,h.segs));
+                try{let face=R.makeFace(outer);if(holes.length){const original=face;try{face=R.addHolesInFace(original,holes);}finally{original.delete();}}parts.push(face);owned.push(face);}finally{outer.delete();holes.forEach(w=>w.delete());}
+              }
+            }
+            if(f.edges?.length){
+              const all=[...solids,...surfaces],entries=[];
+              for(const ref of f.edges){
+                const owners=ref.body?all.filter(b=>b.id===ref.body):all;
+                const found=owners.map(b=>({body:b,hit:findEdgeInfo(b.shape,ref)})).filter(x=>x.hit);
+                if(found.length!==1)throw new Error('A planar boundary edge is missing or ambiguous');
+                const {body,hit}=found[0];if(entries.some(e=>e.edge.isSame(hit.e)))throw new Error('A planar boundary edge is selected more than once');
+                ref.body=body.id;updateEdgeRef(ref,hit.e,body.shape);entries.push({edge:hit.e});
+              }
+              const wire=patchBoundary(R,entries),oc=R.getOC();let maker;
+              try{maker=new oc.BRepBuilderAPI_MakeFace(wire.wrapped,true);if(!maker.IsDone())throw new Error('All selected boundary edges must be coplanar and form a closed loop');const raw=maker.Face();try{const face=R.cast(raw);parts.push(face);owned.push(face);}finally{raw.delete();}}finally{maker?.delete();wire.delete();}
+            }
+            for(const face of parts){const check=new (R.getOC()).BRepCheck_Analyzer(face.wrapped,true);try{if(!check.IsValid())throw new Error('The selected entities do not form a valid planar surface');}finally{check.delete();}}
+            // asShape retains these faces as its cached component shapes.
+            const shape=asShape(parts);owned.length=0;surfaces.push(bodyRec(newId(f.id),shape,f.id));applied.push({op:'add',tool:shape});
+            res.features[f.id]={...(res.features[f.id]||{}),edges:f.edges||[]};
+            res.notes[f.id]=`Planar Surface · ${parts.length} selected region${parts.length===1?'':'s'}`;
+          }finally{owned.forEach(face=>face.delete());}
+          break;
+        }
+        case 'surfExtrude':
+        case 'surfRevolve': {
           if (!f.sketch) throw new Error('Select a sketch');
           const sk = sketches.get(f.sketch);
           if (!sk) throw new Error('The sketch is missing, suppressed or has errors');
           const fr = sk.frame, oc = R.getOC();
           let parts = [];
-          if (f.type === 'surfPlanar') {
-            const regions = S.profileRegions(sk.sk);
-            if (!regions.length) throw new Error('The sketch has no closed profile');
-            for (const r of regions) {
-              // (outline and holes as wires: a drawing with holes cut out does not make one face)
-              let face = R.makeFace(loopWire(fr, r.outer.segs));
-              if (r.holes.length) face = R.addHolesInFace(face, r.holes.map((h) => loopWire(fr, h.segs)));
-              parts.push(face);
-            }
-          } else if (f.type === 'surfExtrude') {
+          if (f.type === 'surfExtrude') {
             const dpt = ev(f.depth);
             if (dpt <= 0) throw new Error('Depth must be greater than zero');
             const dir = f.reverse ? -1 : 1, z0 = f.end === 'midplane' ? -dpt / 2 : 0;

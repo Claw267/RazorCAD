@@ -992,7 +992,8 @@ const PM_SCHEMAS = {
     { title: 'Direction 1', fields: [{ key: 'angle', type: 'expr', label: 'Angle', unit: '°' }] },
   ],
   surfPlanar: [
-    { title: 'Bounding Entities', fields: [{ key: 'sketch', type: 'sketch', label: 'Sketch (closed)' }] },
+    { title: 'Sketch Profiles', fields: [{ key: 'profiles', type: 'loftSelection' }] },
+    { title: 'Model Boundary Edges', fields: [{ key: 'edges', type: 'edges' }] },
   ],
   surfLoft: [
     { title: 'Profiles', fields: [{ key: 'profiles', type: 'loftSelection', with3d: true }] },
@@ -3463,7 +3464,9 @@ export class UI {
     const a = this.app, pm = a.pm, f = pm.feature, doc = a.doc;
     const info = TYPE_INFO[f.type];
     if (f.type === 'surfFill' && f.continuity == null) f.continuity = f.tangent ? 'G1' : 'G0';
-    if (f.type === 'extrude' && !Array.isArray(f.profiles)) { f.profiles = f.sketch ? [f.sketch] : []; f.sketch = null; }
+    if (['extrude','surfPlanar'].includes(f.type) && !Array.isArray(f.profiles)) { f.profiles = f.sketch ? [f.sketch] : []; f.sketch = null; }
+    if (f.type === 'surfPlanar') f.edges ||= [];
+    if (f.type === 'surfPlanar' && pm.planarEdges === undefined) pm.planarEdges = !!f.edges?.length && !f.profiles.length;
     this.pmHeader(root, iconFor(f), f.name);
     const err = a.result?.errors.get(f.id);
     if (f.type === 'loft' && f.ruled && pm.loftSlot === 'guides') { pm.loftSlot = 'profiles'; pm.loftDraft = null; pm.loftHover = null; }
@@ -5017,12 +5020,13 @@ export class UI {
   // Loft profiles: sketches in order (the loft goes through them from first to last).
   renderLoftSelection(body, f, before, fd) {
     const a = this.app, pm = a.pm, key = fd.key, guide = key === 'guides';
-    const extrude = f.type === 'extrude';
+    const extrude = f.type === 'extrude', planar = f.type === 'surfPlanar';
     pm.loftSlot ||= 'profiles'; f[key] ||= [];
-    const active = !pm.loftEndSlot && pm.loftSlot === key && (!extrude || pm.extrudePick !== false);
+    const active = !pm.loftEndSlot && pm.loftSlot === key && (!extrude || pm.extrudePick !== false) && (!planar || !pm.planarEdges);
     body.appendChild(el('button', { class: 'pm-btn' + (active ? ' on' : ''), 'aria-pressed': String(active), disabled: guide && f.ruled, 'data-loft-slot': key, onclick: () => {
       pm.loftEndSlot = null; pm.loftEndAxis = null; pm.loftSlot = key; pm.loftDraft = null; pm.loftHover = null;
       if (extrude) pm.extrudePick = !active;
+      if (planar) pm.planarEdges = active;
       this.renderPM(); a.updateSketchDisplay(); a.status(guide ? 'Click the guide curves in the canvas.' : 'Click the section contours or inside closed profiles in the canvas.');
     } }, guide ? 'Select guides in canvas' : 'Select profiles in canvas'));
     if (!guide) {
@@ -5031,13 +5035,13 @@ export class UI {
       const label = el('label'); label.append(cb, document.createTextNode(' Chain selection'));
       body.appendChild(this.row(null, label, 'check'));
     }
-    body.appendChild(el('div', { class: 'pm-hint' }, extrude ? 'Click inside closed regions or select contours. Click again to remove a profile. Profiles must be coplanar; open contours enable Thin Feature. Turn off canvas profile selection to pick end references or bodies.' : guide ? f.ruled ? 'Guide curves require a smooth loft. Remove the guides or untick straight (ruled) sides.' : 'Pick guide curves or connected chains, including construction curves. Guides must meet every section.' : f.type === 'loft' ? 'Pick closed contours or click inside regions. Each selection adds one section.' : 'Pick open or closed contours. All sections must be open, or all closed.'));
+    body.appendChild(el('div', { class: 'pm-hint' }, planar ? 'Click inside closed regions or select sketch contours. Turn off Chain selection to pick individual entities, then add the closed contour. Select model edges in the section below.' : extrude ? 'Click inside closed regions or select contours. Click again to remove a profile. Profiles must be coplanar; open contours enable Thin Feature. Turn off canvas profile selection to pick end references or bodies.' : guide ? f.ruled ? 'Guide curves require a smooth loft. Remove the guides or untick straight (ruled) sides.' : 'Pick guide curves or connected chains, including construction curves. Guides must meet every section.' : f.type === 'loft' ? 'Pick closed contours or click inside regions. Each selection adds one section.' : 'Pick open or closed contours. All sections must be open, or all closed.'));
     const ul = el('div', { class: 'pm-list', 'data-loft-list': key });
     if (!f[key].length) ul.appendChild(el('div', { class: 'li pm-hint' }, guide ? 'No guides selected' : 'No profiles selected'));
     f[key].forEach((ref, i) => {
       const li = el('div', { class: 'li sel' });
       li.appendChild(el('span', {}, `${i + 1}. ${LR.describeRef(a.doc, ref)}`));
-      for (const [label, action] of (extrude ? [['✕', 'remove']] : [['▲', 'up'], ['▼', 'down'], ['✕', 'remove']])) {
+      for (const [label, action] of (extrude || planar ? [['✕', 'remove']] : [['▲', 'up'], ['▼', 'down'], ['✕', 'remove']])) {
         const b = el('button', { class: 'pm-btn', title: action === 'up' ? 'Move up' : action === 'down' ? 'Move down' : 'Remove', 'data-loft-action': action, disabled: action === 'up' ? i === 0 : action === 'down' ? i === f[key].length - 1 : false }, label);
         b.onclick = () => {
           if (action === 'remove') f[key].splice(i, 1);
@@ -5062,7 +5066,7 @@ export class UI {
     const kinds = guide ? ['sketch', 'sketch3d', 'compCurve', 'projCurve', 'helix'] : fd.with3d ? ['sketch', 'sketch3d', 'compCurve', 'projCurve'] : ['sketch'];
     for (const source of before.filter((s) => kinds.includes(s.type) && !s.suppressed && !f[key].includes(s.id))) select.appendChild(el('option', { value: source.id }, esc(source.name)));
     select.onchange = () => { if (select.value) {
-      if (extrude) { f[key] = f[key].filter((r) => LR.sourceId(r) !== select.value); if (SM.isOpenSketch(findFeature(a.doc, select.value))) f.thin = true; }
+      if (extrude || planar) { f[key] = f[key].filter((r) => LR.sourceId(r) !== select.value); if (extrude && SM.isOpenSketch(findFeature(a.doc, select.value))) f.thin = true; }
       f[key].push(select.value); a.preview(true); a.updateSketchDisplay();
     } };
     details.appendChild(select); body.appendChild(details);
@@ -5308,12 +5312,13 @@ export class UI {
 
     const a = this.app;
     const n = f.edges.length;
-    if(f.type==='surfFill'){
+    if(['surfFill','surfPlanar'].includes(f.type)){
       const label=el('label'),checkbox=el('input',{type:'checkbox','data-patch-chain':''});checkbox.checked=!!f.chainSelection;
       checkbox.onchange=()=>{f.chainSelection=checkbox.checked;this.renderPM();};
       label.append(checkbox,document.createTextNode(' Chain selection'));body.appendChild(this.row(null,label,'check'));
       body.appendChild(el('div',{class:'pm-hint'},'Chain selection follows connected boundary edges on the clicked body and stops at branches. Turn it off to pick individual edges. Existing edge continuity settings are preserved.'));
     }
+    if(f.type==='surfPlanar')body.appendChild(el('button',{class:'pm-btn'+(a.pm.planarEdges?' on':''),'data-planar-edges':'',onclick:()=>{a.pm.planarEdges=true;this.renderPM();a.updateSketchDisplay();}},'Select model edges'));
     if (f.type === 'surfFill') body.appendChild(el('button', { class: 'pm-btn' + (!a.pm.patchSupportPick ? ' on' : ''), 'data-patch-edges': '', onclick: () => { a.pm.patchSupportPick = false; this.renderPM(); a.updateEdgeHighlights(); } }, 'Select boundary edges'));
     body.appendChild(el('div', { class: 'pm-hint' }, 'Click edges on the model to add or remove them. The preview shows material removed in <b style="color:#c62828">red</b> and added in <b style="color:#a37f00">yellow</b>.'));
     const ul = el('div', { class: 'pm-list' });
