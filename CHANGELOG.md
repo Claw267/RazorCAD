@@ -6,6 +6,9 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-28 10:01 — Version 0.18.1-beta
+- Installer, user manual (93 pages) and website for 0.18.1-beta. The manual's kernel paragraphs (threads per kernel, how the kernels are built and published) brought up to date.
+
 ## 2026-10-28 08:55 — PCs with 4 or 5 processor threads: the open part's geometry kernel multi-threaded
 - On a PC with 4 or 5 threads the first part's kernel now runs on all threads but one (it was the single-thread
   kernel below 6); the other kernels (more parts, assemblies, drawings) keep one thread. Held to 4 threads, one a
