@@ -3964,6 +3964,51 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
   // (y 10, x 30 to 60). Normal to the first line: its normal along y; through the first line and the second's end
   // point, and through both lines: the front plane (normal along z); the sketch changed (the first line's top end
   // moved to x 40): the normal plane turns with it
+  async 'reference-datum-workflows'() {
+    const {run,fixture}=await import('/tests/reference-datum-cases.js');const native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
+    const a=window.app,settle=async()=>{await wait(180);await until(()=>!a.kernel.pending);};
+    const state=()=>document.querySelector('[data-datum-status]')?.dataset.datumStatus;
+    const relation=async(i,value)=>{const s=document.querySelector(`[data-datum-relation="${i}"]`);s.value=value;s.dispatchEvent(new Event('change'));await settle();};
+    const parameter=async(i,key,value)=>{const input=document.querySelector(`[data-datum-parameter="${i}:${key}"] input`);input.value=value;input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));await settle();};
+    const {Vector3}=await import('three'),click=async p=>{const ev=viewEvents();ev.vp.camera.updateMatrixWorld(true);await ev.click(...ev.toScreen(new Vector3(...p)));await settle();};
+    const data=fixture(),{doc,sk,points}=data;doc.features.pop();
+    await a.newDocument?.();closeModals();await a.setDoc(doc);a.selection=null;a.startFeature('plane');await settle();
+    if(state()!=='under'||document.querySelectorAll('[data-datum-pick]').length!==3)return {ok:false,detail:'Missing three slots or initial Under Defined status'};
+    a.viewport.setStandardView('front',false);a.viewport.zoomToFit(null,false);await wait(160);await click([5,0,0]);
+    if(a.pm.feature.refs[0]?.curve!==data.line||state()!=='defined')return {ok:false,detail:'Actual hidden sketch line pick or normal plane preview failed: '+state()};
+    await relation(0,'coincident');if(state()!=='under')return {ok:false,detail:'A plane through a line was incorrectly fully defined'};
+    a.pmPick('plane','front');await settle();await relation(1,'angle');await parameter(1,'angle','30');
+    if(state()!=='defined'||document.querySelector('[data-datum-solution]').disabled)return {ok:false,detail:'Two angular solutions were not exposed'};
+    const id=a.pm.feature.id,first=a.result.planes.get(id).n.clone(),solution=document.querySelector('[data-datum-solution]');solution.value='1';solution.dispatchEvent(new Event('change'));await settle();
+    const second=a.result.planes.get(id).n;if(first.distanceTo(second)<.1||Math.abs(second.z-Math.sqrt(3)/2)>1e-7)return {ok:false,detail:'Alternate solution failed its angular relation'};
+    document.querySelector('[data-datum-remove="1"]').click();await settle();await a.okPM();
+    if(!a.pm||state()!=='under')return {ok:false,detail:'An incomplete plane was accepted'};
+    a.cancelPM();await a.rebuild();if(a.doc.features.some(f=>f.id===id)||M.findFeature(a.doc,sk.id).visible!==false)return {ok:false,detail:'Cancel changed source visibility or kept the new plane'};
+    a.selection=null;a.startFeature('plane');await settle();
+    for(const p of points){a.pmPick('point',p.id);await settle();}
+    if(state()!=='defined'||a.pm.feature.refs.length!==3)return {ok:false,detail:'Three-point definition failed'};
+    const original=JSON.stringify(a.pm.feature.refs);a.pmPick('plane','right');await settle();if(JSON.stringify(a.pm.feature.refs)!==original)return {ok:false,detail:'A fourth reference silently replaced a slot'};
+    document.querySelector('[data-datum-pick="1"]').click();a.pmPick('plane','right');await settle();
+    if(a.pm.feature.refs[1]?.id!=='right'||a.pm.feature.refs[0]?.id!==points[0].id)return {ok:false,detail:'Explicit slot replacement changed other references'};
+    a.cancelPM();await a.rebuild();
+    a.selection=null;a.startFeature('axis');await settle();a.pmPick('plane','front');a.pmPick('plane','right');await settle();
+    if(state()!=='defined'||Math.abs(a.result.axes.get(a.pm.feature.id).d.y)<1-1e-7)return {ok:false,detail:'Axis did not use shared plane-reference slots'};
+    const axisId=a.pm.feature.id;await a.okPM();await a.setDoc(JSON.parse(JSON.stringify(a.doc)));a.editFeature(axisId);await settle();
+    await relation(0,'perpendicular');if(state()!=='under')return {ok:false,detail:'Free axis position was hidden'};
+    a.cancelPM();await a.rebuild();if(M.findFeature(a.doc,axisId).refs[0].relation)return {ok:false,detail:'Cancel failed to restore axis relations'};
+    a.selection=null;a.startFeature('point');await settle();const source=document.querySelector('[data-datum-field="pointType"]');source.value='references';source.dispatchEvent(new Event('change'));await settle();
+    a.viewport.setStandardView('front',false);a.viewport.zoomToFit(null,false);await wait(160);await click([5,0,0]);
+    if(state()!=='defined'||Math.abs(a.result.points.get(a.pm.feature.id).x-5)>1e-7)return {ok:false,detail:'Reference point did not select a sketch midpoint'};
+    await relation(0,'distance');await parameter(0,'distance','2+1');
+    if(state()!=='defined'||Math.abs(a.result.points.get(a.pm.feature.id).x-3)>1e-7)return {ok:false,detail:'Reference distance expression failed'};
+    const pointId=a.pm.feature.id;await a.okPM();await a.setDoc(JSON.parse(JSON.stringify(a.doc)));
+    if(a.result.errors.size||Math.abs(a.result.points.get(pointId).x-3)>1e-7||!M.referencesOf(a.doc,M.findFeature(a.doc,pointId)).has(sk.id))return {ok:false,detail:'Reopening lost point definition or dependencies'};
+    const legacy=M.createFeature(a.doc,'axis',{axisType:'twoPlanes',planeA:'front',planeB:'right'});a.doc.features.push(legacy);await a.rebuild();const before=a.result.axes.get(legacy.id).d.clone();a.editFeature(legacy.id);await settle();
+    if(state()!=='defined'||Math.abs(before.dot(a.result.axes.get(legacy.id).d))<1-1e-7)return {ok:false,detail:'Legacy axis upgrade changed geometry'};
+    a.cancelPM();await a.rebuild();if(legacy.referenceDefinition)return {ok:false,detail:'Cancel persisted the legacy upgrade'};
+    return {ok:true,detail:JSON.stringify({native,ui:'three shared slots, actual canvas selection, per-reference relations and expressions, underdefinition, alternate solutions, no silent replacement, accept/cancel, source visibility, legacy upgrade and reopen'})};
+  },
+
   async 'plane-sketch-refs'() {
     const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient();
     try {

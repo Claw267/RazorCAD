@@ -430,7 +430,7 @@ export function referencesOf(doc, f) {
   if (f.sketchLine) addId(String(f.sketchLine).split(':')[0]);
   for (const r of [...(f.startFaces || []), ...(f.endFaces || []), ...(f.supportFaces || [])]) addBody(r.body);
   if (['surfFill','surfPlanar'].includes(f.type)) for (const r of f.edges || []) addBody(r.body);
-  for (const r of f.refs || []) { addId(r?.id); if (r?.kind === 'sketch') addId(r.sketch); }
+  for (const r of f.type==='point'&&f.referenceDefinition&&f.pointType==='coords'?[]:f.refs||[]) { addId(r?.id); if (r?.kind === 'sketch') addId(r.sketch); addBody(r?.body); }
   for (const b of [...(f.bodies || []), ...(f.scope || []), f.main, f.body]) addBody(b);
   for (const m of f.mates || []) { addId(m.a?.id); addId(m.b?.id); }
   // projected (converted) sketch geometry

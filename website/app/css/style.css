@@ -93,6 +93,13 @@ table.bom td.num { text-align: right; }
 .cm-split-arrow:hover { background: var(--hover); border-color: var(--border-soft); }
 .cm-split.active .cm-split-arrow { background: var(--accent-weak); }
 .cm-split-arrow:disabled { opacity: .4; }
+.datum-definition { min-width: 0; grid-template-columns: minmax(0, 1fr); }
+.datum-definition .pm-row { grid-template-columns: 70px minmax(0, 1fr); }
+.datum-definition [data-datum-slot] { display: flex; align-items: stretch; }
+.datum-definition [data-datum-slot] .pm-btn { height: auto; min-height: 30px; }
+.datum-definition [data-datum-slot] .pm-btn:first-child { flex: 1; min-width: 0; padding: 4px 6px; white-space: normal; overflow-wrap: anywhere; text-align: left; }
+.datum-definition select { min-width: 0; width: 100%; height: 26px; border: 1px solid var(--border); border-radius: 3px; background: var(--panel); }
+.datum-definition .pm-input { min-width: 0; }
 .cm-sep { width: 1px; background: var(--border-soft); margin: 3px 3px; grid-row: 1 / span 2; }
 #cm-tabs { display: flex; padding: 0 6px; border-top: 1px solid var(--border-soft); background: var(--panel); }
 #cm-tabs button {

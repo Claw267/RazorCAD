@@ -118,3 +118,15 @@ Checks individual sketch regions, holes, multiple regions, whole-sketch compatib
 `python tests/run_tests.py --only standard-feature-workflows extrude-canvas-selection loft-canvas-selection planar-surface-selection surface-patch-continuity --jobs 1`
 
 Checks selected solid/surface profiles, analytical volumes and areas, directional native contact probes, two-sided/symmetric/reversed extents, Full with inactive stored angles, legacy whole sketches and clamped angles, independent/projected sketch axes, Thin, solid Join/New body/Cut, invalid angles and axis crossings. The app test uses actual profile/axis picks and cut-target body picks, edits operation/direction controls, saves/reopens and cancels. Run on both kernels. The implementation/reference inventory is in `Manual/cad-behavior-alignment.md`.
+
+## Reference geometry constraints
+
+`python tests/run_tests.py --only reference-datum-workflows plane-sketch-refs plane-more-types --jobs 1`
+
+The shared datum test checks affine/unit-direction constraints for planes, axes and
+points; underdefinition, conflicts, alternate angular planes/bisectors, tangent
+cylinders, circular edge centres, expressions, incremental replay and downstream
+extrusion after source edits. Its UI workflow uses real canvas clicks, replaces
+numbered slots, rejects a fourth reference and incomplete acceptance, switches
+solutions, and checks cancel, source visibility, legacy editing and reopening.
+Run on both kernel configurations.

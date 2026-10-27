@@ -1086,31 +1086,42 @@ Surface quality can be checked with Zebra Stripes, Curvature and Draft Analysis 
 
 ## Reference Plane
 
-Pick up to three references (faces, edges or vertices on the model; lines, circles, arcs or points of a sketch shown in the view; planes in the view; planes, axes or points in the tree). A sketch line counts as an edge, a sketch circle or arc as its axis, a sketch point as a vertex, and the plane follows the sketch when it changes. The plane type follows from what you pick. Click a reference again to remove it. {idx:reference plane}
+Reference Plane, Reference Axis and Reference Point share a **References and Relations** panel with three numbered slots. Pick sketch geometry, model geometry or an earlier reference feature in the canvas or tree. Hidden source sketches are temporarily displayed without changing their saved visibility. Click a slot to replace its reference; a fourth pick never discards an existing reference. Click a selected reference again, or its remove button, to remove it. References remain linked to their sources. {idx:reference plane}
 
-| References | Plane made |
+Each slot offers compatible **Relation** choices. **Automatic** chooses the usual relation for the selected combination; selecting an explicit relation keeps that choice when other references change. Distances and angles accept expressions. References must precede the feature in the tree.
+
+**Fully Defined** means the supported constraints have a finite solution with no remaining continuous freedom. **Under Defined** identifies missing constraints; **Conflicting** identifies incompatible geometry, relations or values. An axis direction alone does not fix its position, and two points alone do not fix a plane. Incomplete and conflicting definitions cannot be accepted. When two distinct geometric solutions exist, **Solution 1 / Solution 2** selects the branch; opposite normals of the same plane are handled by **Reverse its normal** instead.
+
+| Reference geometry | Available plane relations and constructions |
 |---|---|
-| One plane or face | Offset (distance, flip) |
-| Two planes or faces | Mid plane: halfway between parallel faces, or the bisector of angled ones |
-| Plane/face + edge/axis | Through the edge at an angle (Parallel 0° and Perpendicular 90° buttons) |
-| Edge/axis (+ optional point) | Normal to the edge, at its start, middle, end or the point |
-| Plane/face + point/vertex | Parallel, through the point |
-| Three points or vertices | Through three points |
-| Edge/axis + point/vertex, **Through the edge and the point** ticked | Through the edge and the point |
-| Two edges or axes | Through both (they must meet or be parallel) |
-| Edge/axis, position **At a distance from the start** | Normal to the edge, at that distance along it |
-| Cylindrical face | Tangent to it, at an angle round it |
-| Cylindrical face + plane/face | Tangent to it, parallel to the plane (either side) |
+| Planar face or plane | Coincident, Offset, Parallel, Perpendicular, At angle |
+| Point or vertex | Coincident / through |
+| Straight edge, sketch line or reference axis | Coincident / through, Parallel, Perpendicular, At angle; Normal at position |
+| Sketch circle/arc or circular model edge | Its containing plane supplies Coincident, Parallel, Perpendicular and At angle relations |
+| Two planes/faces with Midplane relations | Midplane of parallel planes, or either angular bisector |
+| Cylindrical face | Tangent, with an angle round the cylinder; optionally parallel to one selected plane, with either side available |
 
-**Placement**, for any plane: move it along its normal, turn its axes in the plane (how a sketch on it lies), or reverse its normal.
+Examples: three non-collinear points define a plane; a line with **Coincident** plus an external point defines the plane through both; a line with **Perpendicular** plus a point defines a normal plane through that point. A line with **Coincident** and a plane with **At angle** can define two angular solutions. Skew lines, inconsistent angles and invalid tangent combinations report conflicts. **Normal at position** uses the selected segment's start, midpoint, end or a distance within a straight segment. A reference axis supplies a direction and its stored anchor.
+
+The solver uses affine equations and the unit-normal constraint, rather than a tessellated approximation. Numerical rank and consistency checks distinguish free, unique and incompatible definitions. Tangency currently supports a cylinder alone or a cylinder with one parallel plane; midplane supports two plane references. Arbitrary curved-surface relations and additional constraints on these special constructions are not supported yet.
+
+**Placement** transforms the constructed plane after its reference relations have been solved: move along its normal, turn its sketch axes in the plane, or reverse its normal. An Offset relation already supplies its signed distance and has **Flip offset direction**.
+
+Existing plane and axis constructions keep their original geometry and anchor when opened for editing. The panel identifies the preserved construction; changing a reference or relation upgrades it to the constraint definition. Cancel restores the original saved definition.
 
 ## Reference Axis
 
-Made from two planes, two reference points, a straight or circular model edge, a sketch line, or a cylindrical face (axis at its centre). Right-click an edge ▸ **Reference Axis** to start one. Axes are drawn dashed and follow the model when it changes. A reference axis can drive a revolve or a pattern. {idx:reference axis}
+Uses the same three slots, per-reference relations and definition states. Two points define a through-axis; two intersecting planes define an axis in both. A straight edge or sketch line supplies its line, a circular edge supplies its centre axis, and a cylindrical or conical face supplies its centre axis. Plane **Perpendicular** plus a point defines a normal axis through that point. Parallel and perpendicular relations can constrain the direction while other references constrain the position. {idx:reference axis}
+
+Axes remain linked, are drawn dashed and can drive a revolve or a pattern. Right-click an edge and choose **Reference Axis** to preselect it. Parallel distinct planes, coincident points and zero-length directions cannot define the requested axis.
 
 ## Reference Point
 
-Coordinates (equations allowed), a model vertex, an arc centre or an edge midpoint. Right-click a vertex ▸ **Reference Point** to start one. {idx:reference point}
+Choose **Coordinates** (expressions allowed) or **Reference geometry**. The latter uses the shared slots and states. A point/vertex can be copied; a selected sketch line or model edge can supply its start, end or midpoint, and a circular curve can supply its centre. **Distance from start** currently supports straight segments and rejects distances outside the segment. {idx:reference point}
+
+**Coincident** relations intersect straight lines and planes: two crossing lines, a line crossing a plane, or three independent planes can define one point. A point on one plane retains two degrees of freedom; one on a line retains one. Skew lines, incompatible planes and missing references report conflicts. Circular and other curved-edge midpoint positions use the kernel's normalized curve parameter, preserving the existing Edge midpoint behavior; they are not a general arc-length locator. Intersections of arbitrary curves or curved surfaces are not supported yet.
+
+Right-click a vertex and choose **Reference Point** to preselect it. Coordinate mode retains its stored reference choices but does not depend on or evaluate them.
 
 # The Feature Tree and History
 

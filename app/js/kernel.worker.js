@@ -11,6 +11,7 @@ import * as S from './sketchmodel.js';
 import * as LR from './loftrefs.js';
 import { solveSketch } from './solver.js';
 import { inferPlaneType, planeRefs } from './refgeom.js';
+import { solveReferenceDatum, defaultReferenceRelations } from './refconstraints.js';
 import { threadList, minorDiameter, nearestThread } from './threads.js';
 import * as SM from './sheetmetal.js';
 import { holeSpec, holeProfile } from './holes.js';
@@ -2366,8 +2367,8 @@ async function rebuild(doc, previewId = null, opts = {}) {
       if (!e) throw new Error('A selected edge could not be found in the model');
       updateEdgeRef(r, e, body);
       const g = edgeGeom(e, bbox(body).diag);
-      if (g?.type === 'line') return { kind: 'line', d: unit(sub(g.b, g.a)), start: g.a, end: g.b, mid: mul(add(g.a, g.b), 0.5) };
-      if (g?.type === 'circle' || g?.type === 'arc') return { kind: 'line', d: g.normal, start: g.c, end: add(g.c, g.normal), mid: g.c };
+      if (g?.type === 'line') return { kind: 'line', d: unit(sub(g.b, g.a)), start: g.a, end: g.b, mid: mul(add(g.a, g.b), 0.5),curve:{type:'line'} };
+      if (g?.type === 'circle' || g?.type === 'arc') return { kind: 'line', d: g.normal, start: g.c, end: add(g.c, g.normal), mid: g.c,curve:{type:g.type,c:g.c,start:vec(e.startPoint),end:vec(e.endPoint),mid:vec(e.pointAt(.5))} };
       throw new Error('Select a straight or circular edge');
     }
     if (r.kind === 'point') return { kind: 'point', p: resolvePoint(r.id) };
@@ -2380,11 +2381,40 @@ async function rebuild(doc, previewId = null, opts = {}) {
       if (r.point) { const q = r.point === 'O' ? { x: 0, y: 0 } : S.getPoint(s.sk, r.point); if (!q) throw new Error('A sketch point used as a reference is gone'); return { kind: 'point', p: W(q) }; }
       const c = S.getCurve(s.sk, r.curve);
       if (!c) throw new Error('A sketch entity used as a reference is gone');
-      if (c.type === 'line') { const a = W(S.getPoint(s.sk, c.p1)), b = W(S.getPoint(s.sk, c.p2)); return { kind: 'line', d: unit(sub(b, a)), start: a, end: b, mid: mul(add(a, b), 0.5) }; }
-      if (c.type === 'circle' || c.type === 'arc') { const o = W(S.getPoint(s.sk, c.c)); return { kind: 'line', d: s.frame.n, start: o, end: add(o, s.frame.n), mid: o }; }
+      if (c.type === 'line') { const a = W(S.getPoint(s.sk, c.p1)), b = W(S.getPoint(s.sk, c.p2)); return { kind: 'line', d: unit(sub(b, a)), start: a, end: b, mid: mul(add(a, b), 0.5),curve:{type:'line'} }; }
+      if (c.type === 'circle' || c.type === 'arc') {
+        const center=S.getPoint(s.sk,c.c),o=W(center),arc=c.type==='arc'?S.arcAngles(s.sk,c):{a0:0,span:2*Math.PI,r:c.r},at=t=>W({x:center.x+arc.r*Math.cos(arc.a0+t*arc.span),y:center.y+arc.r*Math.sin(arc.a0+t*arc.span)});
+        return {kind:'line',d:s.frame.n,start:o,end:add(o,s.frame.n),mid:o,curve:{type:c.type,c:o,start:at(0),end:at(1),mid:at(.5)}};
+      }
       throw new Error('Pick a line, circle or arc of the sketch (or one of its points)');
     }
     throw new Error('Unknown reference');
+  };
+  const referenceDatum=f=>{
+    const signature=JSON.stringify(f);
+    try{
+      const refs=f.refs||[],geo=refs.map(r=>{
+        if(f.type==='axis'&&r.kind==='face'&&!r.n){const hit=findFaceAny([...solids,...surfaces],r),axis=hit&&faceAxis(hit.face);if(!axis)throw new Error('Select a cylindrical or conical face');return {kind:'cylinder',o:axis.o,d:axis.d};}
+        if(f.type==='point'&&r.kind==='edge'){
+          needEdges('Reference point from an edge');const edge=findEdge(body,r);if(!edge)throw new Error('The selected edge could not be found in the model');
+          updateEdgeRef(r,edge,body);const g=edgeGeom(edge,bbox(body).diag),start=vec(edge.startPoint),end=vec(edge.endPoint),mid=vec(edge.pointAt(.5));
+          return {kind:'line',d:unit(vec(edge.tangentAt(.5))),start,end,mid,curve:{type:g?.type||'curve',c:g?.c,start,end,mid}};
+        }
+        return resolveRefGeom(r);
+      });
+      const defaults=defaultReferenceRelations(f.type,geo,f),evaluated=refs.map((r,i)=>{
+        const relation=r.relation||defaults[i],out={...r,relation};
+        for(const key of relation==='angle'?['angle']:relation==='offset'?['offset']:relation==='distance'?['distance']:[])if(r[key]!=null)out[key]=ev(r[key]);
+        return out;
+      });
+      const relations=evaluated.map(r=>r.relation),opts={...f};
+      if(f.type==='plane')for(const key of ['offset','angle','along','around']){const active=key==='along'?relations.includes('normal')&&f.position==='distance':key==='around'?relations.includes('tangent')&&!geo.some(g=>g.kind==='plane'):relations.includes(key==='offset'?'offset':'angle');opts[key]=active?ev(f[key]??0):0;}
+      const solved=solveReferenceDatum(f.type,geo,evaluated,opts);
+      (res.info ||= {})[f.id]={datum:solved,datumSignature:signature,relations,geometry:geo.map(g=>({kind:g.kind,curve:g.curve?{type:g.curve.type}:null}))};
+      if(solved.status!=='defined')throw new Error(solved.status==='under'?`Under Defined: ${solved.message}`:`Conflicting: ${solved.message}`);
+      res.features[f.id]={refs};
+      return {solved,geo,relations};
+    }catch(e){if(!res.info?.[f.id]?.datum)(res.info ||= {})[f.id]={datum:{status:'conflict',message:e.message},datumSignature:signature};throw e;}
   };
   // axis { o, d } from X/Y/Z or a reference axis feature
   const resolveAxis = (key) => {
@@ -2680,7 +2710,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
     body, solids: [...solids], surfaces: [...surfaces], dense, blendChain, steps: [...steps], pending: [...pending],
     planes: new Map(planes), sketches: new Map(sketches), axes: new Map(axes), points: new Map(points), tools: new Map(tools), curves: new Map(curves),
     usedIds: new Set(usedIds), featureDiffs: new Map(featureDiffs), sketchBodies: new Map(sketchBodies),
-    res: { errors: [...res.errors], sketches: { ...res.sketches }, planes: { ...res.planes }, axes: { ...res.axes }, points: { ...res.points }, curves: { ...res.curves }, notes: { ...res.notes }, detected: { ...res.detected }, features: { ...res.features }, threads: { ...res.threads }, missing: { ...res.missing } },
+    res: { info:{...res.info}, errors: [...res.errors], sketches: { ...res.sketches }, planes: { ...res.planes }, axes: { ...res.axes }, points: { ...res.points }, curves: { ...res.curves }, notes: { ...res.notes }, detected: { ...res.detected }, features: { ...res.features }, threads: { ...res.threads }, missing: { ...res.missing } },
     timing: [...timing.features],
   });
   const restoreSnap = (s) => {
@@ -2692,7 +2722,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
     copyMap(featureDiffs, s.featureDiffs); copyMap(sketchBodies, s.sketchBodies);
     usedIds.clear(); for (const id of s.usedIds) usedIds.add(id);
     res.errors = [...s.res.errors];
-    for (const key of ['sketches', 'planes', 'axes', 'points', 'curves', 'notes', 'detected', 'features', 'threads', 'missing']) res[key] = { ...s.res[key] };
+    for (const key of ['sketches', 'planes', 'axes', 'points', 'curves', 'notes', 'detected', 'features', 'threads', 'missing', 'info']) res[key] = { ...s.res[key] };
     timing.features = [...s.timing];
   };
   // ---- cuts made together
@@ -3055,14 +3085,19 @@ async function rebuild(doc, previewId = null, opts = {}) {
         case 'plane': {
           const refs = planeRefs(f);
           const type = inferPlaneType(refs, !!f.through);
-          if (!type) throw new Error('These references do not define a plane — pick a face/plane, an edge/axis or points');
-          const geo = refs.map(resolveRefGeom);
+          if (!type&&!f.referenceDefinition) throw new Error('These references do not define a plane — pick a face/plane, an edge/axis or points');
+          const geo = f.referenceDefinition?[]:refs.map(resolveRefGeom);
           if (f.refs?.length) res.features[f.id] = { refs: f.refs };
           const planesOf = geo.filter((g) => g.kind === 'plane');
           const lineOf = geo.find((g) => g.kind === 'line');
           const pointsOf = geo.filter((g) => g.kind === 'point');
           let fr;
-          if (type === 'offset') {
+          if(f.referenceDefinition&&!f.referenceLegacy){
+            const {solved,geo}=referenceDatum(f),{n,h}=solved.value;
+            const source=geo.find(g=>g.kind==='plane'&&g.frame&&Math.abs(dot(n,g.n))>1-1e-8);
+            fr=source?{...source.frame,o:add(source.frame.o,mul(n,h-dot(n,source.frame.o)))}:frameOnPlane(mul(n,h),n);
+            if(dot(fr.n,n)<0)fr={...fr,v:mul(fr.v,-1),n};
+          } else if (type === 'offset') {
             const g = planesOf[0];
             const d = ev(f.offset) * (f.flip ? -1 : 1);
             fr = g.frame
@@ -3139,10 +3174,13 @@ async function rebuild(doc, previewId = null, opts = {}) {
             fr = frameOnPlane(a, unit(n));
           }
           // (any type: moved along its normal, its axes turned in it, its normal turned round)
-          const moveBy = type === 'offset' ? 0 : ev(f.moveBy ?? 0), turn = ((ev(f.turn ?? 0) || 0) * Math.PI) / 180;
+          const offsetMode=f.referenceDefinition&&!f.referenceLegacy?(res.info?.[f.id]?.relations||[]).includes('offset'):type==='offset';
+          const moveBy = offsetMode ? 0 : ev(f.moveBy ?? 0), turn = ((ev(f.turn ?? 0) || 0) * Math.PI) / 180;
           if (moveBy) fr = { ...fr, o: add(fr.o, mul(fr.n, moveBy)) };
           if (turn) fr = { ...fr, u: add(mul(fr.u, Math.cos(turn)), mul(fr.v, Math.sin(turn))), v: add(mul(fr.v, Math.cos(turn)), mul(fr.u, -Math.sin(turn))) };
           if (f.reverse) fr = { ...fr, v: mul(fr.v, -1), n: mul(fr.n, -1) };
+          if(f.referenceDefinition&&![...fr.o,...fr.u,...fr.v,...fr.n].every(Number.isFinite))throw new Error('Plane placement must be finite');
+          if(f.referenceLegacy)(res.info ||= {})[f.id]={datum:{status:'defined',dof:0,alternatives:1,legacy:true},datumSignature:JSON.stringify(f)};
           planes.set(f.id, fr);
           res.planes[f.id] = fr;
           break;
@@ -6149,6 +6187,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
           break;
         }
         case 'axis': {
+          if(f.referenceDefinition&&!f.referenceLegacy){const {solved}=referenceDatum(f),value=solved.value;axes.set(f.id,value);res.axes[f.id]=value;break;}
           let o, d;
           if (f.axisType === 'twoPlanes') {
             const A = resolveFrame(f.planeA), B = resolveFrame(f.planeB);
@@ -6189,14 +6228,21 @@ async function rebuild(doc, previewId = null, opts = {}) {
             const p1 = S.getPoint(s.sk, c.p1), p2 = S.getPoint(s.sk, c.p2);
             o = S.fromFrame2D(s.frame, p1.x, p1.y); d = sub(S.fromFrame2D(s.frame, p2.x, p2.y), o);
           } else throw new Error('Choose how to define the axis');
+          if(len(d)<1e-9)throw new Error('The selected axis direction has zero length');
           d = mul(d, 1 / len(d));
           axes.set(f.id, { o, d });
           res.axes[f.id] = { o, d };
+          if(f.referenceLegacy)(res.info ||= {})[f.id]={datum:{status:'defined',dof:0,alternatives:1,legacy:true},datumSignature:JSON.stringify(f)};
           break;
         }
         case 'point': {
+          if(f.referenceDefinition&&f.pointType!=='coords'){const {solved}=referenceDatum(f);points.set(f.id,solved.value);res.points[f.id]=solved.value;break;}
           let p;
-          if (f.pointType === 'coords') p = [ev(f.x), ev(f.y), ev(f.z)];
+          if (f.pointType === 'coords') {
+            try{p=[ev(f.x),ev(f.y),ev(f.z)];if(!p.every(Number.isFinite))throw new Error('Point coordinates must be finite');
+              if(f.referenceDefinition)(res.info ||= {})[f.id]={datum:{status:'defined',dof:0,alternatives:1},datumSignature:JSON.stringify(f)};
+            }catch(e){if(f.referenceDefinition)(res.info ||= {})[f.id]={datum:{status:'conflict',message:e.message},datumSignature:JSON.stringify(f)};throw e;}
+          }
           else if (f.pointType === 'vertex') p = resolvePoint(null, f.vertex);
           else if (f.pointType === 'arcCenter' || f.pointType === 'edgeMid') {
             if (!f.edge) throw new Error('Select an edge on the model');
@@ -6222,6 +6268,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
     } catch (e) {
       // a broken kernel is not a feature error: stop, so the worker is replaced and the rebuild retried
       if (isFatal(e)) throw e;
+      if(f.referenceDefinition&&res.info?.[f.id]?.datum?.status!=='under')(res.info ||= {})[f.id]={datum:{status:'conflict',message:e.message},datumSignature:JSON.stringify(f)};
       resetStack();
       // OpenCascade failures arrive as WebAssembly exceptions (or numbers) without a message
       const raw = typeof e === 'number' || (typeof WebAssembly !== 'undefined' && WebAssembly.Exception && e instanceof WebAssembly.Exception) || !e?.message;

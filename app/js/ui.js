@@ -17,7 +17,7 @@ import * as LR from './loftrefs.js';
 import { axisCandidates, PATTERN_SKIP, fileStem, folderOfFeature, newFeatureFolder, putFeatureInFolder } from './model.js';
 import { BUILTIN_TEMPLATES, DEFAULT_TEMPLATE_ID, templateSummary, isTemplate } from './drawtemplates.js';
 import { SHEET_SIZES as DW_SIZES } from './drawingformats.js';
-import { inferPlaneType, planeRefs, PLANE_TYPES } from './refgeom.js';
+import { inferPlaneType, planeRefs, legacyDatumRefs, useReferenceRelations } from './refgeom.js';
 import * as G from './geometry.js';
 import { platform } from './platform.js';
 import { threadList } from './threads.js';
@@ -29,6 +29,19 @@ import { CLAUDE_MODELS } from './claudespec.js';
 import { lenText, lenValue, fmtLen, lenWithUnit, areaWithUnit, volWithUnit } from './units.js';
 import { groupBodies } from './bodygroups.js';
 import * as W from './wcs.js';
+import {referenceRelations,defaultReferenceRelations,RELATION_LABELS} from './refconstraints.js';
+
+function datumHint(doc,r){
+  if(r.kind==='plane'||r.kind==='face'&&r.n)return {kind:'plane'};
+  if(r.kind==='face')return {kind:'cylinder'};
+  if(r.kind==='point'||r.kind==='vertex'||r.kind==='sketch'&&r.point)return {kind:'point'};
+  const source=r.kind==='sketch'?findFeature(doc,r.sketch):null,c=source&&SM.getCurve(source,r.curve);
+  return {kind:'line',...(r.kind==='edge'||c?{curve:{type:c?.type||'unknown'}}:{})};
+}
+function hasPlaneRelation(f,a,relation){
+  const refs=f.refs||[],info=a.result?.info?.[f.id],geo=info?.datumSignature===JSON.stringify(f)&&info.geometry?info.geometry:refs.map(r=>datumHint(a.doc,r)),defaults=defaultReferenceRelations('plane',geo,f);
+  return refs.some((r,i)=>(r.relation||defaults[i])===relation);
+}
 
 const SKETCH_TOOL_GROUPS = [
   ['line', 'Line', ['line', 'centerline', 'midline']],
@@ -802,31 +815,19 @@ const PM_SCHEMAS = {
     THIN_GROUP,...SCOPE_GROUP,
   ],
   plane: [
-    { title: 'References', fields: [{ key: 'refs', type: 'planeRefs' }] },
-    {
-      title: 'Options', fields: [
-        { key: 'offset', type: 'expr', label: 'Distance', unit: 'mm', show: (f) => inferPlaneType(planeRefs(f)) === 'offset' },
-        { key: 'flip', type: 'check', label: 'Flip side', show: (f) => inferPlaneType(planeRefs(f)) === 'offset' },
-        { key: 'angle', type: 'expr', label: 'Angle', unit: '°', show: (f) => inferPlaneType(planeRefs(f)) === 'atAngle' },
-        { key: 'angle', type: 'angleQuick', show: (f) => inferPlaneType(planeRefs(f)) === 'atAngle' },
-        { key: 'flipAngle', type: 'check', label: 'Flip angle direction', show: (f) => inferPlaneType(planeRefs(f)) === 'atAngle' },
-        { key: 'through', type: 'check', label: 'Through the edge and the point (not normal to the edge)', show: (f) => { const r = planeRefs(f); return r.length === 2 && r.some((x) => x.kind === 'edge' || x.kind === 'axis') && r.some((x) => x.kind === 'point' || x.kind === 'vertex'); } },
-        { key: 'position', type: 'select', label: 'Position on edge', options: [['start', 'Start'], ['mid', 'Midpoint'], ['end', 'End'], ['distance', 'At a distance from the start']], show: (f) => inferPlaneType(planeRefs(f)) === 'normalToEdge' && planeRefs(f).length === 1 },
-        { key: 'bisector', type: 'check', label: 'Use the other bisector (angled faces)', show: (f) => inferPlaneType(planeRefs(f)) === 'midPlane' },
-        { key: 'along', type: 'expr', label: 'Distance along the edge', unit: 'mm', show: (f) => inferPlaneType(planeRefs(f)) === 'normalToEdge' && f.position === 'distance' && planeRefs(f).length === 1 },
-        { key: 'around', type: 'expr', label: 'Angle round the cylinder', unit: '°', show: (f) => inferPlaneType(planeRefs(f)) === 'tangent' && planeRefs(f).length === 1 },
-        { key: 'flip', type: 'check', label: 'The other side of the cylinder', show: (f) => inferPlaneType(planeRefs(f)) === 'tangent' && planeRefs(f).length === 2 },
-      ],
-    },
-    {
-      // (any type: placed exactly, and turned for the sketches made on it)
-      title: 'Placement', fields: [
-        { key: 'moveBy', type: 'expr', label: 'Move along its normal', unit: 'mm', show: (f) => !!inferPlaneType(planeRefs(f), f.through) && inferPlaneType(planeRefs(f), f.through) !== 'offset' },
-        { key: 'turn', type: 'expr', label: 'Turn its axes in the plane', unit: '°', show: (f) => !!inferPlaneType(planeRefs(f), f.through) },
-        { key: 'reverse', type: 'check', label: 'Reverse its normal', show: (f) => !!inferPlaneType(planeRefs(f), f.through) },
-        { key: 'plHint', type: 'hint', text: 'Move it by a distance along its normal, turn its horizontal and vertical directions (how a sketch on it lies), or turn it to face the other way.', show: (f) => !!inferPlaneType(planeRefs(f), f.through) },
-      ],
-    },
+    {title:'References and Relations',fields:[{key:'refs',type:'planeRefs'}]},
+    {title:'Options',fields:[
+      {key:'flip',type:'check',label:'Flip offset direction',show:(f,a)=>hasPlaneRelation(f,a,'offset')},
+      {key:'position',type:'select',label:'Position on edge',options:[['start','Start'],['mid','Midpoint'],['end','End'],['distance','At a distance from the start']],show:(f,a)=>hasPlaneRelation(f,a,'normal')&&f.refs?.length===1&&f.refs[0].kind!=='axis'},
+      {key:'along',type:'expr',label:'Distance along the edge',unit:'mm',show:(f,a)=>hasPlaneRelation(f,a,'normal')&&f.position==='distance'&&f.refs?.length===1&&f.refs[0].kind!=='axis'},
+      {key:'around',type:'expr',label:'Angle round the cylinder',unit:'°',show:(f,a)=>hasPlaneRelation(f,a,'tangent')&&f.refs?.length===1},
+    ]},
+    {title:'Placement',fields:[
+      {key:'moveBy',type:'expr',label:'Move along its normal',unit:'mm',show:(f,a)=>!hasPlaneRelation(f,a,'offset')},
+      {key:'turn',type:'expr',label:'Turn its axes in the plane',unit:'°'},
+      {key:'reverse',type:'check',label:'Reverse its normal'},
+      {key:'plHint',type:'hint',text:'Placement transforms the constructed plane after solving its reference relations. Reverse changes its orientation; Turn changes the axes of sketches attached to it.'},
+    ]},
   ],
   lpattern: [
     patternSources('Features to Pattern'),
@@ -1220,31 +1221,11 @@ const PM_SCHEMAS = {
       { key: 'mtHint', type: 'hint', show: (f) => f.format !== 'step', text: 'Big meshes (e.g. 3D printing models) are simplified on import: the triangles that change the shape least are merged. Around 80,000 keeps the detail and stays quick; much more gets slow and can run out of memory.' },
     ] },
   ],
-  axis: [
-    {
-      title: 'Selections', fields: [
-        { key: 'axisType', type: 'select', label: 'Defined by', options: [['twoPlanes', 'Two planes'], ['twoPoints', 'Two points'], ['edge', 'Model edge (straight or circular)'], ['cylinder', 'Cylindrical / conical face (its centre line)'], ['sketchLine', 'Sketch line']] },
-        { key: 'planeA', type: 'plane', label: 'Plane 1', show: (f) => f.axisType === 'twoPlanes' },
-        { key: 'planeB', type: 'plane', label: 'Plane 2', show: (f) => f.axisType === 'twoPlanes' },
-        { key: 'pointA', type: 'pointSel', label: 'Point 1', show: (f) => f.axisType === 'twoPoints' },
-        { key: 'pointB', type: 'pointSel', label: 'Point 2', show: (f) => f.axisType === 'twoPoints' },
-        { key: 'edge', type: 'pick', label: 'Edge', what: 'edge', show: (f) => f.axisType === 'edge' },
-        { key: 'face', type: 'pick', label: 'Face', what: 'face', show: (f) => f.axisType === 'cylinder' },
-        { key: 'sketchLine', type: 'sketchLineSel', label: 'Line', show: (f) => f.axisType === 'sketchLine' },
-      ],
-    },
-  ],
+  axis: [{title:'References and Relations',fields:[{key:'refs',type:'planeRefs'}]}],
   point: [
-    {
-      title: 'Selections', fields: [
-        { key: 'pointType', type: 'select', label: 'Defined by', options: [['coords', 'Coordinates'], ['vertex', 'Model vertex'], ['arcCenter', 'Arc / circle center'], ['edgeMid', 'Edge midpoint']] },
-        { key: 'x', world: ['x', ['x', 'y', 'z']], type: 'expr', label: 'X', unit: 'mm', show: (f) => f.pointType === 'coords' },
-        { key: 'y', world: ['y', ['x', 'y', 'z']], type: 'expr', label: 'Y', unit: 'mm', show: (f) => f.pointType === 'coords' },
-        { key: 'z', world: ['z', ['x', 'y', 'z']], type: 'expr', label: 'Z', unit: 'mm', show: (f) => f.pointType === 'coords' },
-        { key: 'vertex', type: 'pick', label: 'Vertex', what: 'vertex', show: (f) => f.pointType === 'vertex' },
-        { key: 'edge', type: 'pick', label: 'Edge', what: 'edge', show: (f) => f.pointType === 'arcCenter' || f.pointType === 'edgeMid' },
-      ],
-    },
+    {title:'Definition',fields:[{key:'pointType',type:'select',label:'Defined by',options:[['coords','Coordinates'],['references','Reference geometry']]}]},
+    {title:'References and Relations',show:f=>f.pointType!=='coords',fields:[{key:'refs',type:'planeRefs',show:f=>f.pointType!=='coords'}]},
+    {title:'Coordinates',fields:['x','y','z'].map(k=>({key:k,world:[k,['x','y','z']],type:'expr',label:k.toUpperCase(),unit:'mm',show:f=>f.pointType==='coords'}))},
   ],
 };
 
@@ -3317,7 +3298,11 @@ export class UI {
     const f = pm.feature;
     let msg = root.querySelector('.pm-status');
     const err = this.app.result?.errors.get(f.id);
-    if (f.type === 'plane' && !inferPlaneType(planeRefs(f), f.through)) { msg?.remove(); return; } // References box explains
+    if(f.referenceDefinition&&['plane','axis','point'].includes(f.type)){
+      const info=this.app.result?.info?.[f.id],body=root.querySelector('.datum-definition');
+      if(body&&info?.datumSignature===JSON.stringify(f)&&info.geometry&&body.dataset.geometry!==JSON.stringify(info.geometry)){this.renderPM();return;}
+      this.updateDatumStatus(root,f);msg?.remove();return;
+    }
     if (!msg) {
       msg = el('div', { class: 'pm-msg pm-status' });
       root.querySelector('.pm-actions')?.after(msg);
@@ -3483,6 +3468,12 @@ export class UI {
   renderFeaturePM(root) {
     const a = this.app, pm = a.pm, f = pm.feature, doc = a.doc;
     const info = TYPE_INFO[f.type];
+    if(['plane','axis','point'].includes(f.type)&&!f.referenceDefinition){
+      f.refs=legacyDatumRefs(f);f.referenceDefinition=true;
+      if(['plane','axis'].includes(f.type))f.referenceLegacy=true;
+      if(f.type==='point'&&f.pointType!=='coords')f.pointType='references';
+      a.preview();
+    }
     if(['sweep','surfSweep'].includes(f.type)){pm.sweepSlot ||= f.profileType==='circle'?'path':'profile';}
     if (f.type === 'surfFill' && f.continuity == null) f.continuity = f.tangent ? 'G1' : 'G0';
     if (['extrude','surfPlanar','revolve','surfExtrude','surfRevolve'].includes(f.type) && !Array.isArray(f.profiles)) { f.profiles = f.sketch ? [f.sketch] : []; f.sketch = null; }
@@ -3490,9 +3481,10 @@ export class UI {
     if (f.type === 'surfPlanar') f.edges ||= [];
     if (f.type === 'surfPlanar' && pm.planarEdges === undefined) pm.planarEdges = !!f.edges?.length && !f.profiles.length;
     this.pmHeader(root, iconFor(f), f.name);
+    if(f.type==='point'&&f.pointType==='coords')root.appendChild(el('div',{'data-datum-status':'checking',class:'pm-msg'},'Updating preview…'));
     const err = a.result?.errors.get(f.id);
     if (f.type === 'loft' && f.ruled && pm.loftSlot === 'guides') { pm.loftSlot = 'profiles'; pm.loftDraft = null; pm.loftHover = null; }
-    const waitingForRefs = f.type === 'plane' && !inferPlaneType(planeRefs(f), f.through); // the References box explains this
+    const waitingForRefs = f.referenceDefinition || f.type === 'plane' && !inferPlaneType(planeRefs(f), f.through);
     const waitingForProfiles = ['loft', 'surfLoft'].includes(f.type) && (f.profiles || []).length < 2;
     if (waitingForProfiles) root.appendChild(el('div', { class: 'pm-msg' }, 'Select two or more section profiles in the canvas.'));
     else if (f.type === 'extrude' && !f.profiles.length) root.appendChild(el('div', { class: 'pm-msg' }, 'Select one or more profiles in the canvas, or select a whole sketch in the tree.'));
@@ -3699,10 +3691,12 @@ export class UI {
           if (['loft', 'surfLoft'].includes(f.type) && /^(start|end)/.test(fd.key)) { s.dataset.loftEndField = fd.key; if (fd.type === 'direction') s.onfocus = () => { pm.loftEndAxis = fd.key; }; }
           if (['revolve','surfRevolve'].includes(f.type)&&fd.key==='axis')s.onfocus=()=>{pm.profilePick=false;pm.scopePick=false;a.updateSketchDisplay();};
           if (['revolve','surfRevolve','surfExtrude','extrude'].includes(f.type))s.dataset.featureField=fd.key;
+          if(f.referenceDefinition)s.dataset.datumField=fd.key;
           if (f.type === 'surfFill' && fd.key === 'continuity') s.dataset.patchContinuity = '';
           if (['sweep','surfSweep'].includes(f.type) && ['profile','path','guide'].includes(fd.key)) s.onfocus = () => { pm.sweepSlot = fd.key; };
           s.onchange = () => {
             f[fd.key] = s.value || null;
+            if(f.type==='point'&&fd.key==='pointType'&&s.value==='references')useReferenceRelations(f);
             if(['sweep','surfSweep'].includes(f.type)&&fd.key==='profileType'){pm.sweepSlot=f.profileType==='circle'?'path':'profile';pm.sweepCanvas=true;pm.loftDraft=null;pm.loftHover=null;}
             if (['revolve','surfRevolve'].includes(f.type)&&fd.key==='axis')s.onfocus=()=>{pm.profilePick=false;pm.scopePick=false;a.updateSketchDisplay();};
           if (['revolve','surfRevolve','surfExtrude','extrude'].includes(f.type))s.dataset.featureField=fd.key;
@@ -3725,6 +3719,7 @@ export class UI {
     if (f.type === 'lpattern' || f.type === 'cpattern' || f.type === 'mirror') {
       root.appendChild(el('div', { class: 'pm-hint', style: 'padding:0 10px' }, 'Patterns and mirrors repeat the selected boss or cut feature.'));
     }
+    if(f.referenceDefinition)this.updateDatumStatus(root,f);
     void info;
   }
 
@@ -5009,39 +5004,51 @@ export class UI {
 
   // References of a reference plane: picked on the model (faces, edges, vertices), in the
   // view (planes) or in the tree (planes, axes, points). The plane type follows from them.
+  datumGeometryHint(r){return datumHint(this.app.doc,r);}
+
+  updateDatumStatus(root,f){
+    const a=this.app,info=a.result?.info?.[f.id],coordinate=f.type==='point'&&f.pointType==='coords';
+    const current=info?.datumSignature===JSON.stringify(f),datum=current?info.datum:null;
+    const status=datum?.status||(!coordinate&&!(f.refs||[]).length?'under':'checking');
+    const label={defined:'Fully Defined',under:'Under Defined',conflict:'Conflicting',checking:'Updating preview…'}[status];
+    for(const box of root.querySelectorAll('[data-datum-status]')){
+      box.dataset.datumStatus=status;box.className='pm-msg'+(status==='defined'?' ok':status==='conflict'?' err':'');
+      box.textContent=label+(datum?.message?' — '+datum.message:datum?.legacy?' — existing construction preserved; edit a relation to use the constraint definition':status==='under'?' — select references and their relations':'');
+    }
+    const ok=root.querySelector('.pm-actions button[title^="OK"]');if(ok){ok.disabled=status!=='defined';ok.setAttribute('aria-disabled',String(ok.disabled));}
+    const solution=root.querySelector('[data-datum-solution]');if(solution){solution.disabled=!(datum?.alternatives>1);solution.value=String(Math.min(f.solution||0,(datum?.alternatives||1)-1));}
+  }
+
   renderPlaneRefs(body, f, before) {
-    const a = this.app, doc = a.doc;
-    if (!f.refs?.length) f.refs = [];
-    const type = inferPlaneType(f.refs, !!f.through);
-    body.appendChild(el('div', { class: 'pm-msg' + (type ? ' ok' : '') }, type
-      ? `<b>${esc(PLANE_TYPES[type])}</b>`
-      : f.refs.length ? 'These references don’t define a plane yet.' : 'Pick references for the plane.'));
-    const name = (r) => {
-      if (r.kind === 'plane') return STD_PLANES[r.id]?.name || findFeature(doc, r.id)?.name || 'Plane';
-      if (r.kind === 'axis' || r.kind === 'point') return findFeature(doc, r.id)?.name || r.kind;
-      if (r.kind === 'sketch') { const sk = findFeature(doc, r.sketch); return `${sk ? SM.itemName(sk, r.point || r.curve) : 'Entity'} of ${sk?.name || 'a sketch'}`; }
-      return r.kind === 'face' && !r.n ? 'Cylindrical face' : { face: 'Face', edge: 'Edge', vertex: 'Vertex' }[r.kind];
-    };
-    const ic = { plane: 'plane', face: 'plane', axis: 'axis', edge: 'edge', point: 'refpoint', vertex: 'point', sketch: 'line' };
-    const ul = el('div', { class: 'pm-list' });
-    if (!f.refs.length) ul.appendChild(el('div', { class: 'li pm-hint' }, 'Nothing selected'));
-    f.refs.forEach((r, i) => {
-      const li = el('div', { class: 'li sel' }, `${icon(ic[r.kind])}<span>${esc(name(r))}</span><span class="x" title="Remove">✕</span>`);
-      li.querySelector('.x').onclick = () => { f.refs.splice(i, 1); this.renderPM(); a.updateEdgeHighlights(); a.updatePlanes(); a.preview(); };
-      ul.appendChild(li);
-    });
-    body.appendChild(ul);
-    // add a plane / axis / point feature from a list (they can also be clicked in the tree)
-    const opts = [['', '+ Add a plane, axis or point…'],
-      ...Object.entries(STD_PLANES).map(([k, p]) => [`plane:${k}`, p.name]),
-      ...before.filter((x) => !x.suppressed && ['plane', 'axis', 'point'].includes(x.type)).map((x) => [`${x.type}:${x.id}`, x.name])];
-    const s = el('select');
-    for (const [v, l] of opts) s.appendChild(el('option', { value: v }, esc(l)));
-    s.onchange = () => { if (!s.value) return; const [kind, id] = s.value.split(':'); a.togglePlaneRef({ kind, id }); };
-    const wrap = el('div', { class: 'pm-input' });
-    wrap.appendChild(s);
-    body.appendChild(wrap);
-    body.appendChild(el('div', { class: 'pm-hint' }, 'Click faces, edges or vertices on the model, or planes / axes / points in the view or tree. Click again to remove. Examples: two parallel faces → mid plane; a face and an edge → plane through the edge at an angle; an edge alone → plane normal to it.'));
+    const a=this.app,pm=a.pm;f.refs ||= [];body.classList.add('datum-definition');
+    body.appendChild(el('div',{'data-datum-status':'checking',class:'pm-msg'},'Updating preview…'));
+    const info=a.result?.info?.[f.id],resolved=info?.datumSignature===JSON.stringify(f)&&info.geometry;
+    const hints=resolved||f.refs.map(r=>this.datumGeometryHint(r)),defaults=defaultReferenceRelations(f.type,hints,f);body.dataset.geometry=resolved?JSON.stringify(resolved):'';
+    const name=r=>r.kind==='plane'?STD_PLANES[r.id]?.name||findFeature(a.doc,r.id)?.name||'(missing plane)':r.kind==='axis'||r.kind==='point'?findFeature(a.doc,r.id)?.name||'(missing reference)':r.kind==='sketch'?`${findFeature(a.doc,r.sketch)?.name||'(missing sketch)'} · ${r.point||r.curve}`:r.kind==='face'?(r.n?'Planar face':'Cylindrical / conical face'):r.kind==='edge'?'Model edge':'Model vertex';
+    for(let i=0;i<3;i++){
+      const r=f.refs[i],row=el('div',{class:'pm-row','data-datum-slot':i});
+      const pick=el('button',{class:'pm-btn'+(pm.datumSlot===i?' on':''),'data-datum-pick':i,disabled:i>f.refs.length,onclick:()=>{pm.datumSlot=pm.datumSlot===i?null:i;this.renderPM();a.updateSketchDisplay();a.updatePlanes();}},`Reference ${i+1}: ${r?esc(name(r)):'Select geometry'}`);
+      row.appendChild(pick);
+      if(r)row.appendChild(el('button',{'data-datum-remove':i,class:'pm-btn',title:'Remove reference',onclick:()=>{f.refs.splice(i,1);useReferenceRelations(f);pm.datumSlot=null;a.preview(true);a.updateSketchDisplay();a.updatePlanes();}},'✕'));
+      body.appendChild(row);
+      if(!r)continue;
+      const select=el('select',{'data-datum-relation':i,'aria-label':`Reference ${i+1} relation`});
+      select.appendChild(el('option',{value:''},'Automatic — '+(RELATION_LABELS[defaults[i]]||'Choose relation')));
+      for(const relation of referenceRelations(f.type,hints[i]))select.appendChild(el('option',{value:relation},RELATION_LABELS[relation]));
+      select.value=r.relation||'';select.onchange=()=>{if(select.value)r.relation=select.value;else delete r.relation;useReferenceRelations(f);f.solution=0;a.preview(true);};
+      body.appendChild(this.row('Relation',select));
+      const relation=r.relation||defaults[i],key=relation==='angle'?'angle':relation==='offset'?'offset':relation==='distance'?'distance':null;
+      if(key){const initial=r[key]??(f.type==='plane'?f[key]:null)??0,input=this.exprInput(initial,key==='angle'?'°':'mm',value=>{r[key]=value;useReferenceRelations(f);a.preview();});input.dataset.datumParameter=i+':'+key;body.appendChild(this.row(key==='angle'?'Angle':key==='offset'?'Distance':'Distance from start',input));}
+    }
+    const sources=el('select',{'data-datum-source':''});sources.appendChild(el('option',{value:''},'Choose a plane, axis or point…'));
+    for(const [id,p] of Object.entries(STD_PLANES))sources.appendChild(el('option',{value:'plane:'+id},esc(p.name)));
+    for(const source of before.filter(x=>!x.suppressed&&['plane','axis','point'].includes(x.type)))sources.appendChild(el('option',{value:source.type+':'+source.id},esc(source.name)));
+    sources.onchange=()=>{if(sources.value){const [kind,id]=sources.value.split(':');a.togglePlaneRef({kind,id});}};
+    body.appendChild(sources);
+    const solution=el('select',{'data-datum-solution':'','aria-label':'Geometric solution'});solution.append(el('option',{value:'0'},'Solution 1'),el('option',{value:'1'},'Solution 2'));
+    solution.value=String(f.solution||0);solution.onchange=()=>{f.solution=Number(solution.value);a.preview();};body.appendChild(this.row('Solution',solution));
+    body.appendChild(el('div',{class:'pm-hint'},'Pick references in the canvas or tree. Choose a slot to replace it. Relations constrain the resulting geometry; incomplete or conflicting definitions cannot be accepted. An alternative solution is offered when the relations define two distinct results.'));
+    this.updateDatumStatus(body,f);
   }
 
   renderFaceList(body, f, fd = {}) {

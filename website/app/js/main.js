@@ -11,6 +11,7 @@ import * as M from './model.js';
 import * as G from './geometry.js';
 import * as S from './sketchmodel.js';
 import * as LR from './loftrefs.js';
+import {useReferenceRelations} from './refgeom.js';
 import { evaluate, evalEquations, fmt } from './expr.js';
 import { KernelClient, KernelPool } from './kernelclient.js';
 import { platform } from './platform.js';
@@ -1337,7 +1338,9 @@ class App {
     let best = null, bd = 7;
     for (const [id, s] of this.result.sketches) {
       const f = s.sketch;
-      if (!(this.vis.sketches && this.sketchShown(f)) && this.hoverSketchId !== id) continue;
+      const datum=this.pickMode()==='ref';
+      if(datum&&(f.suppressed||this.result.errors.has(id)||this.doc.features.indexOf(f)>=this.doc.features.indexOf(this.pm.feature)))continue;
+      if (!datum&&!(this.vis.sketches && this.sketchShown(f)) && this.hoverSketchId !== id) continue;
       for (const q of f.points) {
         const a = vp.project(G.toWorld(s.frame, q.x, q.y)), d = Math.hypot(m.x - a.x, m.y - a.y);
         if (d < bd) { bd = d; best = { sketch: id, point: q.id }; }
@@ -1353,7 +1356,9 @@ class App {
     let best = null, bd = 6;
     for (const [id, s] of this.result.sketches) {
       const f = s.sketch;
-      if (!(this.vis.sketches && this.sketchShown(f)) && this.hoverSketchId !== id) continue;
+      const datum=this.pickMode()==='ref';
+      if(datum&&(f.suppressed||this.result.errors.has(id)||this.doc.features.indexOf(f)>=this.doc.features.indexOf(this.pm.feature)))continue;
+      if (!datum&&!(this.vis.sketches && this.sketchShown(f)) && this.hoverSketchId !== id) continue;
       for (const c of f.curves) {
         const pts = S.curvePoints(f, c, 64).map(([x, y]) => G.toWorld(s.frame, x, y));
         for (let k = 0; k < pts.length - 1; k++) {
@@ -2122,7 +2127,7 @@ class App {
     if (f.type === 'surfPlanar' && this.pm.planarEdges) return 'edge';
     if (['loft', 'surfLoft'].includes(f.type) && this.pm.loftEndSlot) return 'faces';
     if (this.loftPicking()) return 'loftContour';
-    if (f.type === 'plane') return 'ref'; // vertices, edges, faces and planes
+    if (f.type === 'plane'||f.referenceDefinition&&['axis','point'].includes(f.type)&&!(f.type==='point'&&f.pointType==='coords')) return 'ref';
     if (f.type === 'shell' || f.type === 'surfOffset' || f.type === 'surfCopy' || f.type === 'hole' || f.type === 'smClosedCorner' || f.type === 'smCrossBreak' || f.type === 'smGusset' || (f.type === 'smForm' && f.formType !== 'louver')) return 'faces';
     const scoped = (f.type === 'extrude' || f.type === 'revolve') && f.op === 'cut' && f.scopeAll === false;
     if (f.type === 'deleteBody' || f.type === 'deleteSurface') return 'body';
@@ -2228,17 +2233,24 @@ class App {
   // Add a reference to the plane being defined (or remove it if picked again). Up to three
   // references are kept; the plane type follows from them (see refgeom.js).
   togglePlaneRef(ref) {
-    const f = this.pm.feature;
+    const pm=this.pm,f = pm.feature;
+    const sourceId=ref.id||ref.sketch||(ref.body?M.bodyOwner(ref.body):null),source=sourceId&&M.findFeature(this.doc,sourceId);
+    if(source&&(source.suppressed||this.doc.features.indexOf(source)>=this.doc.features.indexOf(f))){this.toast('Choose an earlier, unsuppressed reference',true);return;}
     f.refs = f.refs?.length ? f.refs : [];
     const same = (a, b) => a.kind === b.kind && (a.kind === 'sketch' ? a.sketch === b.sketch && (a.curve ?? null) === (b.curve ?? null) && (a.point ?? null) === (b.point ?? null) : a.id ? a.id === b.id
-      : a.kind === 'edge' ? this.viewport.edgeIndexForPoint(a.p) === this.viewport.edgeIndexForPoint(b.p)
+      : a.kind === 'edge' ? (a.body||'')===(b.body||'')&&Math.hypot(...a.p.map((x,i)=>x-b.p[i]))<1e-4
         : Math.hypot(a.p[0] - b.p[0], a.p[1] - b.p[1], a.p[2] - b.p[2]) < 1e-4 || (a.kind === 'face' && a.n && b.n && Math.abs(a.n[0] * b.n[0] + a.n[1] * b.n[1] + a.n[2] * b.n[2]) > 0.9999 && Math.abs(a.n[0] * (a.p[0] - b.p[0]) + a.n[1] * (a.p[1] - b.p[1]) + a.n[2] * (a.p[2] - b.p[2])) < 1e-4));
     const i = f.refs.findIndex((r) => same(r, ref));
-    if (i >= 0) f.refs.splice(i, 1);
-    else {
-      f.refs.push(ref);
-      if (f.refs.length > 3) f.refs.shift();
+    if (i >= 0) {
+      if(pm.datumSlot!=null&&pm.datumSlot!==i){this.toast('This geometry is already used in another reference slot',true);return;}
+      f.refs.splice(i,1);
+    } else {
+      if(pm.datumSlot!=null&&pm.datumSlot<f.refs.length)f.refs[pm.datumSlot]=ref;
+      else if(f.refs.length<3)f.refs.push(ref);
+      else{this.toast('All three slots are filled. Select a reference slot to replace it.',true);return;}
     }
+    pm.datumSlot=null;
+    useReferenceRelations(f);
     this.ui.renderPM();
     this.updateEdgeHighlights();
     this.updatePlanes();
@@ -2307,6 +2319,13 @@ class App {
   // Faces and bodies picked into the open Property panel (shell faces, bodies to combine, ...).
   updatePickedHighlights() {
     const vp = this.viewport, f = this.pm?.kind === 'feature' ? this.pm.feature : null;
+    const marks=[];
+    if(f&&this.pickMode()==='ref')for(const [i,r] of (f.refs||[]).entries()){
+      let p=r.kind==='vertex'?r.p:r.kind==='point'?this.result.points?.get(r.id)?.toArray():null;
+      if(r.kind==='sketch'&&r.point){const s=this.result.sketches.get(r.sketch),q=s&&S.getPoint(s.sketch,r.point);if(q)p=G.toWorld(s.frame,q.x,q.y).toArray();}
+      if(p)marks.push({p,text:String(i+1),cls:'pick'});
+    }
+    vp.setPointMarks('reference-picks',marks.length?marks:null);
     const infos = [];
     if (this.pm?.kind === 'measure') {
       for (const r of this.pm.picks) {
@@ -2315,7 +2334,7 @@ class App {
       }
     }
     if (f) {
-      const faceRefs = [...(f.faces || []), ...(f.startFaces || []), ...(f.endFaces || []), ...(f.type === 'moveBody' ? (f.mates || []).flatMap((m) => [m.a, m.b]).filter((r) => r?.kind === 'face') : [])];
+      const faceRefs = [...(f.faces || []), ...(f.startFaces || []), ...(f.endFaces || []), ...(f.refs||[]).filter(r=>r.kind==='face'), ...(f.type === 'moveBody' ? (f.mates || []).flatMap((m) => [m.a, m.b]).filter((r) => r?.kind === 'face') : [])];
       if (((f.type === 'axis' && f.axisType === 'cylinder') || f.type === 'thread' || f.type === 'cosmeticThread' || f.type === 'wrap') && f.face) faceRefs.push(f.face);
       if (f.axis === 'face' && f.axisFace) faceRefs.push(f.axisFace);
       for (const r of faceRefs) { const i = vp.faceIndexNear(r.p); if (i >= 0) infos.push(vp.faceInfo(i)); }
@@ -2466,7 +2485,8 @@ class App {
       if (stale.has(id)) continue;
       const pmSketch = this.pm?.kind === 'feature' && (this.pm.feature.sketch === id || (['revolve','surfRevolve'].includes(this.pm.feature.type)&&this.pm.profilePick===false&&this.doc.features.findIndex(f=>f.id===id)<this.doc.features.indexOf(this.pm.feature)));
       const selected = (this.selection?.kind === 'feature' && this.selection.id === id) || this.hoverSketchId === id;
-      if ((this.vis.sketches && this.sketchShown(s.sketch)) || pmSketch || selected || loft || (referencePicking && this.doc.features.findIndex((f) => f.id === id) < this.doc.features.findIndex((f) => f.id === editing))) {
+      const datumPicking=this.pickMode()==='ref'&&this.doc.features.findIndex(f=>f.id===id)<this.doc.features.indexOf(this.pm.feature);
+      if ((this.vis.sketches && this.sketchShown(s.sketch)) || pmSketch || selected || loft || datumPicking || (referencePicking && this.doc.features.findIndex((f) => f.id === id) < this.doc.features.findIndex((f) => f.id === editing))) {
         const polylines = s.sketch.curves.filter((c) => !loft || !c.ctrlOf).map((c) => ({ pts: S.curvePoints(s.sketch, c), construction: c.construction }));
         for (const polys of Object.values(s.textPolys || {})) for (const pts of polys) polylines.push({ pts, construction: false });
         if (s.sketch.gearTrains?.length) for (const pts of S.gearPolylines(s.sketch)) polylines.push({ pts, construction: false });
@@ -2476,7 +2496,7 @@ class App {
     }
     // sketch entities picked for the dimension readout, and a reference plane's sketch references
     const picked = this.mode === 'sketch' ? [] : this.measureSel.filter((x) => x.kind === 'skcurve');
-    if (this.pm?.kind === 'feature' && this.pm.feature.type === 'plane') for (const r of this.pm.feature.refs || []) if (r.kind === 'sketch' && r.curve) picked.push({ sketch: r.sketch, curve: r.curve });
+    if (this.pm?.kind === 'feature' && ['plane','axis','point'].includes(this.pm.feature.type)) for (const r of this.pm.feature.refs || []) if (r.kind === 'sketch' && r.curve) picked.push({ sketch: r.sketch, curve: r.curve });
     for (const x of picked) {
       const s = res.sketches.get(x.sketch), c = s && S.getCurve(s.sketch, x.curve);
       if (c) list.push({ frame: s.frame, polylines: [{ pts: S.curvePoints(s.sketch, c), construction: false }], highlight: true, color: 0xf97316 });
@@ -2522,10 +2542,10 @@ class App {
       const pmPlanes = new Set();
       if (this.pm?.kind === 'feature') {
         const f = this.pm.feature;
-        if (f.type === 'plane') for (const r of f.refs || []) if (r.kind === 'plane') pmPlanes.add(r.id);
+        if (['plane','axis','point'].includes(f.type)) for (const r of f.refs || []) if (r.kind === 'plane') pmPlanes.add(r.id);
         if (f.type === 'mirror') pmPlanes.add(f.plane);
       }
-      const picking = this.pm?.kind === 'selectPlane' || (this.pm?.kind === 'feature' && this.pm.feature.type === 'plane');
+      const picking = this.pm?.kind === 'selectPlane' || this.pickMode()==='ref';
       const editing = this.pm?.kind === 'feature' && this.pm.feature.type === 'plane' ? this.pm.feature.id : null;
       const state = (id) => (id === editing ? 'preview' : sel === id || pmPlanes.has(id) ? 'selected' : this.hoverPlane === id ? 'hover' : 'normal');
       for (const key of Object.keys(G.STD_PLANES)) {
@@ -2834,7 +2854,7 @@ class App {
     if (['loft', 'surfLoft'].includes(f.type) && kind === 'axis' && this.pm.loftEndAxis) { f[this.pm.loftEndAxis] = id; this.preview(true); return true; }
     // two-slot fields (axis from two planes / two points) fill alternately
     const slot = (a, b) => { const k = this.pm.slot === a ? b : a; this.pm.slot = k; return k; };
-    if (f.type === 'plane' && (kind === 'plane' || kind === 'point' || kind === 'axis')) {
+    if ((f.type === 'plane'||f.referenceDefinition&&['axis','point'].includes(f.type)&&f.pointType!=='coords') && (kind === 'plane' || kind === 'point' || kind === 'axis')) {
       this.togglePlaneRef({ kind, id });
       return true;
     }
@@ -3000,7 +3020,7 @@ class App {
       const sp = this.allows('vertex') ? this.sketchPointAt(e) : null;
       if (sp) return this.togglePlaneRef({ kind: 'sketch', sketch: sp.sketch, point: sp.point });
       const ed = this.allows('edge') ? vp.pickEdge(e, 5) : null;
-      if (ed) return this.togglePlaneRef({ kind: 'edge', p: ed.edge.mid });
+      if (ed) return this.togglePlaneRef({ kind: 'edge', p: ed.edge.mid,...(this.result.bodies?.[vp.edgeBody[ed.index]]?.id?{body:this.result.bodies[vp.edgeBody[ed.index]].id}:{}) });
       const sc = this.allows('edge') ? this.sketchCurveAt(e) : null;
       if (sc) {
         const c = S.getCurve(this.result.sketches.get(sc.sketch)?.sketch, sc.curve);
@@ -3013,7 +3033,7 @@ class App {
         // (a curved face: a cylinder, for a tangent plane; the kernel says when it is not one)
         const body = this.result.bodies?.[vp.faceBody[p.hit.face]]?.id;
         if (!face.planar) return this.togglePlaneRef({ kind: 'face', p: p.hit.point.toArray(), ...(body ? { body } : {}) });
-        return this.togglePlaneRef({ kind: 'face', p: p.hit.point.toArray(), n: face.normal.toArray() });
+        return this.togglePlaneRef({ kind: 'face', p: p.hit.point.toArray(), n: face.normal.toArray(),...(body?{body}:{}) });
       }
       return;
     }
@@ -3761,7 +3781,7 @@ class App {
       const planeRef = sel?.kind === 'plane' ? sel.id : selF?.type === 'plane' ? selF.id : null;
       if (planeRef) props.plane = planeRef;
     }
-    if (type === 'plane') {
+    if (['plane','axis','point'].includes(type)) {
       // start from whatever is selected: a plane, a flat face, an axis or a point
       let ref = null;
       if (sel?.kind === 'plane') ref = { kind: 'plane', id: sel.id };
@@ -3772,6 +3792,9 @@ class App {
       else if (selF?.type === 'axis') ref = { kind: 'axis', id: selF.id };
       else if (selF?.type === 'point') ref = { kind: 'point', id: selF.id };
       props.refs = ref ? [ref] : [];
+      props.referenceDefinition=true;
+      if(type==='axis')props.axisType='references';
+      if(type==='point'&&ref)props.pointType='references';
     }
     if (type === 'fillet' || type === 'chamfer') {
       if (!this.result.body) { this.toast('There is no solid body to ' + type, true); return; }
@@ -3879,6 +3902,7 @@ class App {
 
   preview(rerenderPM = false) {
     if (rerenderPM) this.ui.renderPM();
+    if(this.pm?.feature?.referenceDefinition)this.ui.updatePMStatus();
     clearTimeout(this._previewTimer);
     this._previewTimer = setTimeout(() => this.rebuild(), rerenderPM ? 0 : 70); // rebuilds are incremental, so previews can follow typing closely
   }
@@ -3900,6 +3924,11 @@ class App {
       this.ui.refreshCommandStates();
       this.status('Ready');
       return;
+    }
+    if(pm.kind==='feature'&&pm.feature.referenceDefinition&&['plane','axis','point'].includes(pm.feature.type)){
+      clearTimeout(this._previewTimer);await this.rebuild();
+      if(this.pm!==pm)return;
+      const error=this.result.errors.get(pm.feature.id);if(error){this.toast(error,true);return;}
     }
     clearTimeout(this._previewTimer);
     this.pm = null;
