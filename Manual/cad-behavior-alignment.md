@@ -1,7 +1,7 @@
 # CAD command behavior alignment
 
-This tracks concrete workflows against the official Fusion and SolidWorks
-documentation. It is an implementation inventory, not a claim of complete
+This tracks concrete workflows against the documented behaviour of established
+parametric CAD programs. It is an implementation inventory, not a claim of complete
 feature parity. Geometry selection, options and result type must all work;
 matching a menu label alone is insufficient.
 
@@ -41,15 +41,6 @@ instead of changing the resulting geometry.
 | Patch | Per-edge G0/G1/G2 and connected model-edge selection already exist | Tangency weights, interior rails/points; sketch inputs need an explicit product decision (planar sketch creation currently belongs to Planar Surface) |
 | Reference geometry | Constraint definitions listed above | Arbitrary curved-surface constraints/intersections and broader combinations with tangent/midplane constructions |
 | Fillet/Chamfer, Shell, Hole, patterns, sheet metal, assemblies and drawings | Existing RazorCAD commands | Dedicated command-by-command comparison and interaction tests are still required |
-
-## Official references
-
-- [Fusion solid Revolve](https://help.autodesk.com/cloudhelp/ENU/Fusion-Model/files/GUID-D74BB28A-9570-43AD-97A4-E094021C036B.htm)
-- [Fusion surface Revolve](https://help.autodesk.com/cloudhelp/ENU/Fusion-Patch/files/SFC-REVOLVE.htm)
-- [Fusion surface Extrude](https://help.autodesk.com/cloudhelp/ENU/Fusion-Patch/files/SFC-EXTRUDE.htm)
-- [SolidWorks Revolve PropertyManager and Selected Contours](https://help.solidworks.com/2024/english/SolidWorks/sldworks/HIDD_DVE_FEAT_REV.htm)
-- [SolidWorks Planar Surface](https://help.solidworks.com/2024/english/solidworks/sldworks/HIDD_DVE_PLANAR_SURFACE.htm)
-- [Fusion Patch](https://help.autodesk.com/cloudhelp/ENU/Fusion-Patch/files/SFC-PATCH.htm)
 
 ## Validation
 

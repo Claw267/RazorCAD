@@ -6,6 +6,41 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-28 07:09 — Version 0.18.0-beta
+- Installer, user manual (93 pages) and website for 0.18.0-beta.
+
+## 2026-10-28 06:55 — PR #6's later commits: G2 loft ends and patches, sketch offsets, shared Extrude/Revolve selection, reference constraints, planes along paths
+
+Merged from Claw267's pull request #6 (16 more commits):
+
+- **Loft and Lofted Surface**: G2 (curvature) at the ends against adjacent support faces, also with a compatible
+  guide; **loft connectors** between the profiles that can be edited (start point, seam and direction) and are kept
+  with the part.
+- **Filled Surface**: G0, G1 or G2 for each boundary edge, checked on the finished faces; an option to pick a
+  connected chain of boundary edges; support faces picked where an edge has two.
+- **Planar Surface**: sketch regions (with their holes), individual sketch entities, or closed loops of model edges.
+- **Extrude and Revolve, solid and surface**: one way of picking profiles, axes, directions and operations; two
+  sides with their own depths or angles; Join, New body or Cut with a target body; an extrusion can start at an
+  offset or from a reference surface.
+- **Sweep and Surface Sweep**: profile, path and guide picked in the view, each with its own chain selection.
+- **Sketching**: offsets of chains with splines, on one or both sides, kept parametric; tangency where a line and a
+  spline meet; regions split by internal curves can be picked.
+- **Reference planes, axes and points**: shared constraint definitions (up to three references, alternative
+  solutions); planes and points at a distance along a sketch or model curve; a reference plane is drawn centred on
+  the geometry that defines it, and sketch entities are listed one by one in its selectors.
+- **Sketch tools** remember the variant used last (split buttons).
+
+## 2026-10-28 06:50 — A faster geometry kernel (the Kernel Lab kernel)
+
+- **Both geometry kernels rebuilt from source**: OpenCascade 8.0.1 with two speed fixes (the same results), a newer
+  WebAssembly toolchain with whole-program optimisation, and PR #6's guided-surface code built in from its source.
+- **Measured on 16 test parts** (Windows, against 0.17.4-beta's kernel): full rebuilds with the multi-threaded kernel
+  14.2 s → 4.7 s, edits 5.5 s → 2.4 s; with the single-thread kernel 24.5 s → 13.6 s and 13.5 s → 3.5 s.
+- Faces are meshed and read in parallel, sheet-metal folds are remembered between rebuilds, and picking a face
+  checks the nearby ones first.
+- **Cone and torus faces** are recognised as such (for mates and measuring).
+- The browser version publishes each kernel in two parts (the website's host takes files up to 25 MiB).
+
 ## 2026-10-27 16:55 — The rest of PR #6: a geometry kernel with guided-surface tools, loft end conditions, guide constraints, extrude profiles picked in the view, Shell checks
 
 Merged from Claw267's pull request #6 (the sweeps and the updater came in earlier today):
