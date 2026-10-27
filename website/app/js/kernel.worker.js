@@ -2383,7 +2383,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
     try {
       for (const [i, key] of ['start', 'end'].entries()) {
         const mode = f[key + 'Condition'] || 'none';
-        if (!['none', 'normal', 'direction', 'tangent'].includes(mode)) throw new Error('Select a supported loft endpoint condition');
+        if (!['none', 'normal', 'direction', 'tangent', 'curvature'].includes(mode)) throw new Error('Select a supported loft endpoint condition');
         const strength = mode === 'none' ? 1 : ev(f[key + 'Strength'] ?? 1);
         if (!(Number.isFinite(strength) && strength > 0)) throw new Error('Endpoint influence must be finite and greater than zero');
         let direction, faces = [];
@@ -2392,7 +2392,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
           if (!sk) throw new Error('Normal to profile requires a planar sketch; use Direction for a 3D curve');
           direction = sk.frame.n;
         } else if (mode === 'direction') direction = resolveAxis(f[key + 'Direction'] || 'y').d;
-        else if (mode === 'tangent') {
+        else if (mode === 'tangent' || mode === 'curvature') {
           const refs = f[key + 'Faces'] || [];
           if (!refs.length) throw new Error(`Select adjacent support faces for the ${key} profile`);
           faces = refs.map(ref => {
@@ -2455,7 +2455,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
         guideBase = guidedLoftWires(options.matched, options.guides, options.names, options.holesMatched || [], options.slack || 0, { open: options.open, profileWires: options.profileWires, stations: 0, includeJunctions: false, smoothPull: true, tolerance: 1e-4 });
         checkLoftEndGuides(R, options.guides, guideBase.outer, settings, options.slack || 0);
         for (const stations of [8, 16, 32, 64, 128]) {
-          const g = guidedLoftWires(options.matched, options.guides, options.names, options.holesMatched || [], options.slack || 0, { open: options.open, profileWires: options.profileWires, stations, smoothPull: true, tolerance: 1e-4 });
+          const g = guidedLoftWires(options.matched, options.guides, options.names, options.holesMatched || [], options.slack || 0, { open: options.open, profileWires: options.profileWires, stations, includeJunctions: !settings.some(c => c.mode === 'curvature'), smoothPull: true, tolerance: 1e-4 });
           let candidate;
           try {
             candidate = build(g.outer, g.holes);
@@ -2466,7 +2466,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
                 try { for (const { face, box, spline } of faces) {
                   if (boxDist(box, p) > 1e-4) continue;
                   const hit = oc.RazorCADSurfacePatch.NearPoint(face.wrapped, point, 1e-4);
-                  try { const q = [hit.X(), hit.Y(), hit.Z()]; if (q.every(Number.isFinite)) error = Math.min(error, len(sub(q, p))); else if (spline) error = Math.min(error, tensorFaceDistance(R, face, p, 1e-5)); } finally { hit.delete(); }
+                  try { const q = [hit.X(), hit.Y(), hit.Z()]; if (q.every(Number.isFinite)) error = Math.min(error, len(sub(q, p))); if (spline && error > 1e-4) error = Math.min(error, tensorFaceDistance(R, face, p, 1e-5)); } finally { hit.delete(); }
                   if (error <= 1e-4) break;
                 }} finally { point.delete(); }
                 guideError = Math.max(guideError, error); if (!(guideError <= 1e-4)) break;
@@ -2482,7 +2482,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
         if (!result) throw new Error(`The guides and endpoint conditions could not be followed within 0.0001 mm after bounded refinement (last sampled error ${Number.isFinite(guideError)?guideError.toExponential(2):'unresolved'} mm); add a profile near the tightest bend`);
       } else result = build(wires, options.holes || []);
       res.features[f.id] = { ...(res.features[f.id] || {}), startFaces: f.startFaces || [], endFaces: f.endFaces || [] };
-      res.notes[f.id] = `Endpoint CAD constraints · contact ${result.contact.toExponential(2)} mm · normal mismatch ${result.angle.toFixed(4)} deg` + (options.guides?.length ? ` · Adaptive guides: CAD contact ${guideError.toExponential(2)} mm` : '');
+      res.notes[f.id] = `Endpoint CAD constraints · contact ${result.contact.toExponential(2)} mm · normal mismatch ${result.angle.toFixed(4)} deg` + (settings.some(c => c.mode === 'curvature') ? ` · G2 curvature mismatch ${result.curvature.toExponential(2)} 1/mm` : '') + (options.guides?.length ? ` · Adaptive guides: CAD contact ${guideError.toExponential(2)} mm` : '');
       return result.shape;
     } finally {
       allocated.forEach(face => face.delete());

@@ -1,8 +1,9 @@
-// Clamped tensor cubic lofts. The endpoint derivative rows impose direction or
-// a support tangent plane; intermediate profiles are interpolated with C2
-// cubics. CAD contact and normals are checked after conversion and sewing.
+// Clamped tensor lofts: cubic for directions/G1, quintic in V for G2.
+// G2 imposes normal acceleration from the adjacent CAD second fundamental
+// form. CAD contact, normals and curvatures are checked after sewing.
 // Refinement checks are sampled numerical bounds, not a global proof.
-import {surfaceNormalAtUV} from './surfacecontinuity.js';
+import {surfaceNormalAtUV,surfaceDifferential,compareSurfaceContinuity} from './surfacecontinuity.js';
+const supported=mode=>mode==='tangent'||mode==='curvature';
 const add=(a,b)=>a.map((x,i)=>x+b[i]),sub=(a,b)=>a.map((x,i)=>x-b[i]),mul=(a,s)=>a.map(x=>x*s);
 const dot=(a,b)=>a.reduce((s,x,i)=>s+x*b[i],0),length=a=>Math.hypot(...a);
 const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
@@ -33,18 +34,61 @@ function cubicPoles(values,d0,d1){
   for(let i=1;i<n-1;i++){const f=(1/6)/diag[i-1];diag[i]-=f/6;rhs[i]=sub(rhs[i],mul(rhs[i-1],f));}
   p[n]=mul(rhs[n-2],1/diag[n-2]);for(let i=n-3;i>=0;i--)p[i+2]=mul(sub(rhs[i],mul(p[i+3],1/6)),1/diag[i]);return p;
 }
-function tensorFace(R,rows,d0,d1){
-  const oc=R.getOC(),nu=rows[0].length,nv=rows.length+2,arrays=[];
+// Quintic interpolation adds two endpoint acceleration constraints to the cubic
+// contract. Factor the collocation matrix once and reuse it for every U pole.
+function quinticInterpolator(n){
+  const degree=5,size=n+5,knots=[...Array(6).fill(0),...Array.from({length:n-1},(_,i)=>(i+1)/n),...Array(6).fill(1)];
+  const basis=(i,p,t,d=0)=>{
+    if(d>p)return 0;
+    if(!p)return (knots[i]<=t&&t<knots[i+1])||(t===1&&i===size-1)?1:0;
+    const a=knots[i+p]-knots[i],b=knots[i+p+1]-knots[i+1];
+    if(d)return (a?p/a*basis(i,p-1,t,d-1):0)-(b?p/b*basis(i+1,p-1,t,d-1):0);
+    return (a?(t-knots[i])/a*basis(i,p-1,t):0)+(b?(knots[i+p+1]-t)/b*basis(i+1,p-1,t):0);
+  };
+  const row=(t,d=0)=>Array.from({length:size},(_,i)=>basis(i,degree,t,d));
+  const matrix=[...Array.from({length:n+1},(_,i)=>row(i/n)),row(0,1),row(1,1),row(0,2),row(1,2)],swaps=[];
+  for(let k=0;k<size;k++){
+    let pivot=k;for(let i=k+1;i<size;i++)if(Math.abs(matrix[i][k])>Math.abs(matrix[pivot][k]))pivot=i;
+    if(Math.abs(matrix[pivot][k])<1e-12)throw new Error('The curvature endpoint interpolation is singular');
+    swaps.push(pivot);[matrix[k],matrix[pivot]]=[matrix[pivot],matrix[k]];
+    for(let i=k+1;i<size;i++){matrix[i][k]/=matrix[k][k];for(let j=k+1;j<size;j++)matrix[i][j]-=matrix[i][k]*matrix[k][j];}
+  }
+  return (values,d0,d1,a0,a1)=>{
+    const rhs=[...values,d0,d1,a0,a1].map(p=>[...p]);
+    for(let k=0;k<size;k++){const pivot=swaps[k];[rhs[k],rhs[pivot]]=[rhs[pivot],rhs[k]];}
+    for(let i=0;i<size;i++)for(let j=0;j<i;j++)rhs[i]=sub(rhs[i],mul(rhs[j],matrix[i][j]));
+    for(let i=size-1;i>=0;i--){for(let j=i+1;j<size;j++)rhs[i]=sub(rhs[i],mul(rhs[j],matrix[i][j]));rhs[i]=mul(rhs[i],1/matrix[i][i]);}return rhs;
+  };
+}
+function tensorFace(R,rows,d0,d1,accelerations=null){
+  const degree=accelerations?5:3,interpolate=accelerations?quinticInterpolator(rows.length-1):null;
+  const oc=R.getOC(),nu=rows[0].length,nv=rows.length+degree-1,arrays=[];
   const keep=x=>(arrays.push(x),x),points=keep(new oc.NCollection_Array2_gp_Pnt(1,nu,1,nv));
-  const knots=(n)=>{const k=keep(new oc.NCollection_Array1_double(1,n+1)),m=keep(new oc.NCollection_Array1_int(1,n+1));for(let i=0;i<=n;i++){k.SetValue(i+1,i/n);m.SetValue(i+1,i===0||i===n?4:1);}return [k,m];};
+  const knots=(n,d)=>{const k=keep(new oc.NCollection_Array1_double(1,n+1)),m=keep(new oc.NCollection_Array1_int(1,n+1));for(let i=0;i<=n;i++){k.SetValue(i+1,i/n);m.SetValue(i+1,i===0||i===n?d+1:1);}return [k,m];};
   let surface,maker;
   try{
-    for(let i=0;i<nu;i++){const poles=cubicPoles(rows.map(r=>r[i]),d0[i],d1[i]);poles.forEach((p,j)=>{const q=new oc.gp_Pnt(...p);try{points.SetValue(i+1,j+1,q);}finally{q.delete();}});}
-    const [uk,um]=knots(nu-3),[vk,vm]=knots(rows.length-1);
-    surface=new oc.Geom_BSplineSurface(points,uk,vk,um,vm,3,3,false,false);
+    for(let i=0;i<nu;i++){const values=rows.map(r=>r[i]),poles=interpolate?interpolate(values,d0[i],d1[i],accelerations[0][i],accelerations[1][i]):cubicPoles(values,d0[i],d1[i]);poles.forEach((p,j)=>{const q=new oc.gp_Pnt(...p);try{points.SetValue(i+1,j+1,q);}finally{q.delete();}});}
+    const [uk,um]=knots(nu-3,3),[vk,vm]=knots(rows.length-1,degree);
+    surface=new oc.Geom_BSplineSurface(points,uk,vk,um,vm,3,degree,false,false);
     maker=new oc.BRepBuilderAPI_MakeFace(surface,1e-7);if(!maker.IsDone())throw new Error('The constrained loft surface could not be built');
     const raw=maker.Face();try{return R.cast(raw);}finally{raw.delete();}
   }finally{maker?.delete();surface?.delete();arrays.reverse().forEach(a=>a.delete());}
+}
+// A valid topological B-rep can still contain a collapsed parameter strip.
+// Resolve abrupt normal changes on the actual surface, rather than accepting
+// a meshed pinch caused by excessive curvature/influence. This sampled check
+// detects local folds; it is not a general surface self-intersection proof.
+function checkCurvatureRegularity(R,face){
+  const normal=(u,v)=>surfaceNormalAtUV(R,face,[u,v]).normal;
+  const check=(u,a,b,na,nb,depth=0)=>{
+    if(dot(na,nb)>.5)return;
+    if(depth===24)throw new Error('The G2 loft collapses or folds between profiles; reduce Influence or add an intermediate profile');
+    const mid=(a+b)/2,n=normal(u,mid);check(u,a,mid,na,n,depth+1);check(u,mid,b,n,nb,depth+1);
+  };
+  for(const u of [.17,.5,.83]){
+    let previous=normal(u,0);
+    for(let j=1;j<=64;j++){const next=normal(u,j/64);check(u,(j-1)/64,j/64,previous,next);previous=next;}
+  }
 }
 export function hasLoftEnds(f){return [f.startCondition,f.endCondition].some(x=>x&&x!=='none');}
 export function endConstrainedLoft(R,wires,conditions,{surface=false,sew,solid,holes=[],constraintWires=wires,constraintHoles=holes}){
@@ -60,7 +104,7 @@ export function endConstrainedLoft(R,wires,conditions,{surface=false,sew,solid,h
     const edgeRows=loopRows[loopIndex],baseline=baselineRows[loopIndex];
     if(edgeRows.some(r=>r.length!==edgeRows[0].length)||baseline.some(r=>r.length!==edgeRows[0].length))throw new Error('Endpoint conditions require matching curve counts in all profiles');
     for(let edgeIndex=0;edgeIndex<edgeRows[0].length;edgeIndex++){
-      const edges=edgeRows.map(r=>r[edgeIndex]),endSupports=conditions.map((c,i)=>c.mode==='tangent'?findSupport(edges[i===0?0:edges.length-1],i):null),cache=new Map();
+      const edges=edgeRows.map(r=>r[edgeIndex]),endSupports=conditions.map((c,i)=>supported(c.mode)?findSupport(edges[i===0?0:edges.length-1],i):null),cache=new Map();
       const data=(u)=>{
         if(cache.has(u))return cache.get(u);
         const points=edges.map(e=>at(e,u)),reference=baseline.map(row=>at(row[edgeIndex],u)),derivatives=conditions.map((c,side)=>{
@@ -76,21 +120,33 @@ export function endConstrainedLoft(R,wires,conditions,{surface=false,sew,solid,h
             const j=side===0?1:i-1;return mul(side===0?sub(points[j],points[i]):sub(points[i],points[j]),edges.length-1);
           }
           let d;
-          if(c.mode==='tangent'){
+          if(supported(c.mode)){
             const n=unit(read(endSupports[side].normalAt(points[i]))),t=unit(derivative(t=>at(edges[i],t),u));d=unit(cross(t,n));
           }else d=unit(c.direction);
           const alignment=dot(d,chord);
           if(Math.abs(alignment)<1e-8*Math.max(1,length(chord)))throw new Error('The endpoint direction or support tangent plane cannot extend toward the next profile');
           if(alignment<0)d=mul(d,-1);
           return mul(d,length(chord)*(reference.length-1)*c.strength*(c.reverse?-1:1));
-        });const value={points,derivatives};cache.set(u,value);return value;
+        });
+        const accelerations=conditions.some(c=>c.mode==='curvature')?conditions.map((c,side)=>{
+          if(c.mode==='curvature'){
+            const i=side===0?0:points.length-1,d=surfaceDifferential(R,endSupports[side],points[i]);
+            return mul(d.normal,d.second(derivatives[side],derivatives[side]));
+          }
+          // Preserve the unconstrained endpoint's cubic acceleration.
+          const poles=cubicPoles(points,...derivatives),n=points.length-1;
+          const a=side===0?poles.slice(0,3):poles.slice(-3).reverse();
+          return mul(sub(mul(sub(a[2],a[1]),n===1?1:.5),sub(a[1],a[0])),6*n*n);
+        }):null;
+        const value={points,derivatives,accelerations};cache.set(u,value);return value;
       };
       let patch,quality;
       for(const count of [8,16,32,64,128]){
         const samples=Array.from({length:count+1},(_,i)=>data(i/count));
         const interpolate=fn=>cubicPoles(samples.map((_,i)=>fn(i/count)),derivative(fn,0),derivative(fn,1));
         const rows=edges.map((_,i)=>interpolate(u=>data(u).points[i])),d0=interpolate(u=>data(u).derivatives[0]),d1=interpolate(u=>data(u).derivatives[1]);
-        patch=tensorFace(R,rows,d0,d1);quality={contact:0,angle:0,jet:0};let good=true;
+        const accelerations=samples[0].accelerations?[0,1].map(side=>interpolate(u=>data(u).accelerations[side])):null;
+        patch=tensorFace(R,rows,d0,d1,accelerations);quality={contact:0,angle:0,jet:0,curvature:0};let good=true;
         // Test off-node positions at every profile and endpoint tangent planes.
         for(let j=0;j<count&&good;j++)for(const fraction of [.23,.61,.89]){
           const u=(j+fraction)/count,expected=data(u);
@@ -102,14 +158,21 @@ export function endConstrainedLoft(R,wires,conditions,{surface=false,sew,solid,h
               const target=endSupports[side]?unit(read(endSupports[side].normalAt(expected.points[k]))):unit(cross(derivative(t=>at(edges[k],t),u),expected.derivatives[side]));
               const angle=Math.acos(Math.min(1,Math.abs(dot(target,q.normal))))*180/Math.PI;quality.angle=Math.max(quality.angle,angle);
               const jetError=length(sub(q.vDerivative,expected.derivatives[side]))/length(expected.derivatives[side]);quality.jet=Math.max(quality.jet,jetError);
+              if(conditions[side].mode==='curvature'){
+                const check=compareSurfaceContinuity(R,patch,endSupports[side],expected.points[k],derivative(t=>at(edges[k],t),u),{leftUV:[u,side]});
+                quality.curvature=Math.max(quality.curvature,check.curvatureError);
+                if(check.curvatureError>.00025||check.positionError>tolerance*.25){good=false;break;}
+              }
               if(!Number.isFinite(angle)||angle>.25||!Number.isFinite(jetError)||jetError>1e-4){good=false;break;}
             }
           }
         }
         if(good)break;patch.delete();patch=null;
       }
-      if(!patch)throw new Error(`The ${loopIndex?'inner':'outer'} loft wall could not meet endpoint tolerances (contact ${quality.contact.toExponential(2)} mm, normal mismatch ${quality.angle.toFixed(4)} deg)`);
-      owned.push(patch);patches.push({face:patch,edges,endSupports,quality,data});
+      if(!patch)throw new Error(`The ${loopIndex?'inner':'outer'} loft wall could not meet endpoint tolerances (contact ${quality.contact.toExponential(2)} mm, normal mismatch ${quality.angle.toFixed(4)} deg, curvature mismatch ${quality.curvature.toExponential(2)} 1/mm)`);
+      owned.push(patch);
+      if(conditions.some(c=>c.mode==='curvature'))checkCurvatureRegularity(R,patch);
+      patches.push({face:patch,edges,endSupports,quality,data});
     }
     }
     if(supports.some(list=>list.some(s=>!s.used)))throw new Error('A selected support face is not adjacent to the endpoint profile');
@@ -121,7 +184,7 @@ export function endConstrainedLoft(R,wires,conditions,{surface=false,sew,solid,h
     const check=new (R.getOC()).BRepCheck_Analyzer(result.wrapped,true);try{if(!check.IsValid())throw new Error('The endpoint loft produced an invalid boundary representation');}finally{check.delete();}
     // Sewing may alter tolerances/topology: validate positions and normals again
     // on the final CAD faces, using their unchanged surface parameters.
-    const finalFaces=result.faces;let contact=0,angle=0;
+    const finalFaces=result.faces;let contact=0,angle=0,curvature=0;
     try{for(const p of patches){
       const probe=surfaceNormalAtUV(R,p.face,[.37,.41]).position;
       const found=finalFaces.find(face=>length(sub(surfaceNormalAtUV(R,face,[.37,.41]).position,probe))<1e-7);
@@ -133,10 +196,15 @@ export function endConstrainedLoft(R,wires,conditions,{surface=false,sew,solid,h
         const error=length(sub(q.position,point)),a=Math.acos(Math.min(1,Math.abs(dot(target,q.normal))))*180/Math.PI;
         contact=Math.max(contact,error);angle=Math.max(angle,a);
         const expected=p.data(u).derivatives[side],jetError=length(sub(q.vDerivative,expected))/length(expected);
+        if(mode==='curvature'){
+          const check=compareSurfaceContinuity(R,found,p.endSupports[side],point,derivative(t=>at(edge,t),u),{leftUV:[u,side]});
+          curvature=Math.max(curvature,check.curvatureError);
+          if(check.curvatureError>.001||check.positionError>tolerance)throw new Error('The final CAD loft failed endpoint curvature or support contact verification (G2)');
+        }
         if(!Number.isFinite(error)||!Number.isFinite(a)||error>tolerance||a>.5||!Number.isFinite(jetError)||jetError>1e-4)throw new Error('The final CAD loft failed endpoint contact or tangency verification');
       }
     }}finally{finalFaces.forEach(f=>f.delete());}
-    const out={shape:result,contact,angle};result=null;return out;
+    const out={shape:result,contact,angle,curvature};result=null;return out;
   }finally{result?.delete();sewn?.delete();owned.forEach(x=>x.delete());loopRows.flat(2).forEach(e=>e.delete());baselineRows.flat(2).forEach(e=>e.delete());supports.flat().forEach(s=>s.edges.forEach(e=>e.delete()));}
 }
 
@@ -159,7 +227,7 @@ export function checkLoftEndGuides(R,guides,wires,conditions,slack=0){
         let lo=Math.max(0,(index-1)/64),hi=Math.min(1,(index+1)/64);
         for(let j=0;j<40;j++){const a=lo+(hi-lo)/3,b=hi-(hi-lo)/3;if(length(sub(at(edge,a),p))<length(sub(at(edge,b),p)))hi=b;else lo=a;}
         const u=(lo+hi)/2,point=at(edge,u),along=unit(derivative(t=>at(edge,t),u));let direction;
-        if(c.mode==='tangent'){
+        if(supported(c.mode)){
           const faces=c.faces.filter(face=>{const es=face.edges;try{return [.19,.53,.83].every(t=>es.some(e=>distance(at(edge,t),e)<1e-4));}finally{es.forEach(e=>e.delete());}});
           if(faces.length!==1)throw new Error('A guided endpoint needs an unambiguous adjacent support face');
           direction=cross(along,unit(read(faces[0].normalAt(point))));

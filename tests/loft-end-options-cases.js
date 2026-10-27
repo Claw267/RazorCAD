@@ -16,6 +16,16 @@ export function thinTangentFixture(){
  const base=M.createFeature(d.doc,'extrude',{sketch:d.profiles[0].id,depth:20,reverse:true,merge:false,thin:true,thinT:1,thinDir:'one'});
  d.doc.features.splice(2,0,base);d.loft.startFaces=[{p:[21,-10,0],body:base.id},{p:[20,-10,0],body:base.id}];return d;
 }
+export function guidedCurvatureFixture(){
+ const d=guidedFixture();d.guide.points=[];d.guide.curves=[];d.guide.constraints=[];
+ S.addCtrlSpline(d.guide,[[20,0],[20,20],[20,40],[10,60],[10,80],[10,100]].map(([x,y])=>S.addPoint(d.guide,x,y)),5);
+ const base=M.createFeature(d.doc,'extrude',{sketch:d.profiles[0].id,depth:20,reverse:true,merge:false});
+ const cap=M.createFeature(d.doc,'extrude',{sketch:d.profiles.at(-1).id,depth:20,merge:false});
+ d.doc.features.splice(2,0,base);d.doc.features.splice(-1,0,cap);
+ d.loft.startCondition=d.loft.endCondition='curvature';
+ d.loft.startFaces=[[20,-10,0],[-20,-10,0],[0,-10,15],[0,-10,-15]].map(p=>({p}));
+ d.loft.endFaces=[[10,110,0],[-10,110,0],[0,110,10],[0,110,-10]].map(p=>({p}));return d;
+}
 export async function run({threads=1}={}){
  const k=new KernelClient({threads}),results=[];
  const cases=[
@@ -26,6 +36,9 @@ export async function run({threads=1}={}){
   {name:'open profile Thin',thin:'mid',open:true},
   {name:'G1 outer and inner walls',factory:()=>{const d=tangentFixture();d.profiles.forEach(sk=>S.addCircle(sk,'O',2));d.loft.startFaces.push({p:[2,-10,0]});return d;}},
   {name:'G1 Thin inner and outer walls',factory:thinTangentFixture},
+  {name:'G2 Thin inner and outer walls',factory:()=>{const d=thinTangentFixture();d.loft.startCondition='curvature';return d;}},
+  {name:'G2 outer and inner walls',factory:()=>{const d=tangentFixture();d.profiles.forEach(sk=>S.addCircle(sk,'O',2));d.loft.startCondition='curvature';d.loft.startFaces.push({p:[2,-10,0]});return d;}},
+  {name:'guided G2 both ends',factory:guidedCurvatureFixture},
   {name:'guided normal loft',contact:true,factory:()=>guidedFixture()},
   {name:'guided circular loft',factory:()=>guidedFixture({circle:true})},
   {name:'guided loft with a hole',factory:()=>guidedFixture({hole:true})},

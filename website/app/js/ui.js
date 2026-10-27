@@ -208,12 +208,12 @@ function thinDirOptions(f) {
 
 const LOFT_END_GROUPS = ['start', 'end'].map((key) => ({
   title: key === 'start' ? 'Start Condition' : 'End Condition', fields: [
-    { key: key + 'Condition', type: 'select', label: 'Constraint', options: [['none', 'Free'], ['normal', 'Normal to profile'], ['direction', 'Direction'], ['tangent', 'Tangent to adjacent faces (G1)']] },
+    { key: key + 'Condition', type: 'select', label: 'Constraint', options: [['none', 'Free'], ['normal', 'Normal to profile'], ['direction', 'Direction'], ['tangent', 'Tangent to adjacent faces (G1)'], ['curvature', 'Curvature to adjacent faces (G2)']] },
     { key: key + 'Direction', type: 'direction', label: 'Direction', show: (f) => f[key + 'Condition'] === 'direction' },
-    { key: key + 'Faces', type: 'faceList', loftEnd: key, show: (f) => f[key + 'Condition'] === 'tangent', hint: 'Select the adjacent side faces whose boundary coincides with this profile. Select all faces needed to cover its outer and inner edges, including Thin walls.' },
+    { key: key + 'Faces', type: 'faceList', loftEnd: key, show: (f) => ['tangent', 'curvature'].includes(f[key + 'Condition']), hint: 'Select the adjacent side faces whose boundary coincides with this profile. Select all faces needed to cover its outer and inner edges, including Thin walls.' },
     { key: key + 'Strength', type: 'expr', default: 1, label: 'Influence', show: (f) => f[key + 'Condition'] && f[key + 'Condition'] !== 'none' },
     { key: key + 'Reverse', type: 'check', label: 'Reverse tangent direction', show: (f) => f[key + 'Condition'] && f[key + 'Condition'] !== 'none' },
-    { key: key + 'Hint', type: 'hint', show: (f) => f[key + 'Condition'] && f[key + 'Condition'] !== 'none', text: 'Smooth loft with matching profile curves. Holes and Thin include their inner walls. Guides require Adaptive approximation and compatible endpoint tangents. Influence controls the endpoint derivative length (1 is the default). Contact and tangent planes are checked on the final CAD faces to 0.0001 mm and 0.5 degrees. Interior profiles use C2 interpolation.' },
+    { key: key + 'Hint', type: 'hint', show: (f) => f[key + 'Condition'] && f[key + 'Condition'] !== 'none', text: 'Smooth loft with matching profile curves. Holes and Thin include their inner walls. Guides require Adaptive approximation and compatible endpoint tangents. Influence controls the endpoint derivative length (1 is the default). Contact and tangent planes are checked on the final CAD faces to 0.0001 mm and 0.5 degrees. G2 also checks all three curvature components against the adjacent faces to 0.001 1/mm. Interior profiles use C2 interpolation.' },
   ],
 }));
 
@@ -3662,7 +3662,7 @@ export class UI {
           if (['sweep','surfSweep'].includes(f.type) && ['profile','path','guide'].includes(fd.key)) s.onfocus = () => { pm.sweepSlot = fd.key; };
           s.onchange = () => {
             f[fd.key] = s.value || null;
-            if (['loft', 'surfLoft'].includes(f.type) && /^(start|end)Condition$/.test(fd.key)) { pm.loftEndSlot = s.value === 'tangent' ? fd.key.replace('Condition', 'Faces') : null; pm.loftDraft = null; a.updateSketchDisplay(); }
+            if (['loft', 'surfLoft'].includes(f.type) && /^(start|end)Condition$/.test(fd.key)) { pm.loftEndSlot = ['tangent', 'curvature'].includes(s.value) ? fd.key.replace('Condition', 'Faces') : null; pm.loftDraft = null; a.updateSketchDisplay(); }
             if (f.type === 'extrude' && (['pointRef', 'surfaceRef'].includes(fd.type) || (fd.key === 'end' && ['upToVertex', 'upToSurface', 'offsetSurface'].includes(f.end)))) { pm.extrudePick = false; pm.loftHover = null; a.updateSketchDisplay(); }
             // an open sketch can only be extruded as a thin feature
             if (fd.type === 'sketch' && f.type === 'extrude' && SM.isOpenSketch(findFeature(doc, f.sketch))) f.thin = true;

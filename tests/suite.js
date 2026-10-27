@@ -4696,6 +4696,14 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
       await a.setDoc(JSON.parse(JSON.stringify(a.doc)));if(a.result.errors.size)return {ok:false,detail:type+': saved G1 support failed'};
       const support=M.findFeature(a.doc,tangent.supportSketch.id);await a.enterSketch(support,false);a.sketcher.f.curves[0].r=34;a.sketcher.changed();a.exitSketch(true);await a.rebuild();
       if(a.result.errors.size)return {ok:false,detail:type+': support edit failed: '+JSON.stringify([...a.result.errors])};
+      a.editFeature(tangent.loft.id);
+      if(![...field('startCondition').options].some(o=>o.value==='curvature'))return {ok:false,detail:type+': G2 option missing'};
+      field('startCondition').value='curvature';field('startCondition').dispatchEvent(new Event('change',{bubbles:true}));await settle();
+      if(a.pm.loftEndSlot!=='startFaces'||!document.querySelector('[data-loft-end-faces="startFaces"]'))return {ok:false,detail:type+': G2 support selector missing'};
+      await a.okPM();if(a.result.errors.size||!a.result.notes.get(tangent.loft.id)?.includes('G2 curvature mismatch'))return {ok:false,detail:type+': G2 edit failed: '+JSON.stringify([...a.result.errors])};
+      await a.setDoc(JSON.parse(JSON.stringify(a.doc)));if(a.result.errors.size||M.findFeature(a.doc,tangent.loft.id).startCondition!=='curvature')return {ok:false,detail:type+': G2 save/reopen failed'};
+      a.editFeature(tangent.loft.id);field('startCondition').value='tangent';field('startCondition').dispatchEvent(new Event('change',{bubbles:true}));await settle();a.cancelPM();await a.rebuild();
+      if(M.findFeature(a.doc,tangent.loft.id).startCondition!=='curvature')return {ok:false,detail:type+': G2 cancel failed'};
       a.editFeature(tangent.loft.id);document.querySelector('[data-loft-slot="profiles"]').click();
       if(!a.loftPicking())return {ok:false,detail:type+': cannot return to profile selection'};
       a.cancelPM();await a.rebuild();

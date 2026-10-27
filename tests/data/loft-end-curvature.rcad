@@ -1,0 +1,250 @@
+{
+ "version": 1,
+ "name": "Loft with G2 at both spherical supports",
+ "material": null,
+ "equations": [],
+ "features": [
+  {
+   "id": "f1",
+   "type": "plane",
+   "name": "Plane1",
+   "suppressed": false,
+   "refs": [
+    {
+     "kind": "plane",
+     "id": "top"
+    }
+   ],
+   "offset": 0,
+   "flip": false,
+   "angle": 90,
+   "flipAngle": false,
+   "position": "mid",
+   "bisector": false,
+   "through": false,
+   "along": 0,
+   "around": 0,
+   "moveBy": 0,
+   "turn": 0,
+   "reverse": false,
+   "visible": false
+  },
+  {
+   "id": "f2",
+   "type": "sketch",
+   "name": "Sketch1",
+   "suppressed": false,
+   "plane": {
+    "ref": "f1"
+   },
+   "points": [],
+   "curves": [
+    {
+     "id": "c1",
+     "type": "circle",
+     "c": "O",
+     "r": 20,
+     "construction": false
+    }
+   ],
+   "constraints": [],
+   "nextSid": 2,
+   "rev": "ytxvpazp"
+  },
+  {
+   "id": "f3",
+   "type": "plane",
+   "name": "Plane2",
+   "suppressed": false,
+   "refs": [
+    {
+     "kind": "plane",
+     "id": "top"
+    }
+   ],
+   "offset": 30,
+   "flip": false,
+   "angle": 90,
+   "flipAngle": false,
+   "position": "mid",
+   "bisector": false,
+   "through": false,
+   "along": 0,
+   "around": 0,
+   "moveBy": 0,
+   "turn": 0,
+   "reverse": false,
+   "visible": false
+  },
+  {
+   "id": "f4",
+   "type": "sketch",
+   "name": "Sketch2",
+   "suppressed": false,
+   "plane": {
+    "ref": "f3"
+   },
+   "points": [],
+   "curves": [
+    {
+     "id": "c1",
+     "type": "circle",
+     "c": "O",
+     "r": 10,
+     "construction": false
+    }
+   ],
+   "constraints": [],
+   "nextSid": 2,
+   "rev": "kajby7i2"
+  },
+  {
+   "id": "f6",
+   "type": "sketch",
+   "name": "Sketch3",
+   "suppressed": false,
+   "plane": {
+    "ref": "front"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": 0,
+     "y": -15
+    },
+    {
+     "id": "p2",
+     "x": 20,
+     "y": 0
+    },
+    {
+     "id": "p3",
+     "x": 25,
+     "y": -15
+    }
+   ],
+   "curves": [
+    {
+     "id": "c4",
+     "type": "arc",
+     "c": "p1",
+     "p1": "p3",
+     "p2": "p2",
+     "construction": false
+    }
+   ],
+   "constraints": [],
+   "nextSid": 5,
+   "rev": "kcoe7eb0"
+  },
+  {
+   "id": "f7",
+   "type": "surfRevolve",
+   "name": "Surface-Revolve1",
+   "suppressed": false,
+   "sketch": "f6",
+   "axis": "v",
+   "angle": 360
+  },
+  {
+   "id": "f8",
+   "type": "sketch",
+   "name": "Sketch4",
+   "suppressed": false,
+   "plane": {
+    "ref": "front"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": 0,
+     "y": 30
+    },
+    {
+     "id": "p2",
+     "x": 10,
+     "y": 30
+    },
+    {
+     "id": "p3",
+     "x": 8.660254037844387,
+     "y": 35
+    }
+   ],
+   "curves": [
+    {
+     "id": "c4",
+     "type": "arc",
+     "c": "p1",
+     "p1": "p2",
+     "p2": "p3",
+     "construction": false
+    }
+   ],
+   "constraints": [],
+   "nextSid": 5,
+   "rev": "hf06vbtz"
+  },
+  {
+   "id": "f9",
+   "type": "surfRevolve",
+   "name": "Surface-Revolve2",
+   "suppressed": false,
+   "sketch": "f8",
+   "axis": "v",
+   "angle": 360
+  },
+  {
+   "id": "f5",
+   "type": "loft",
+   "name": "Curvature transition G2/G2",
+   "suppressed": false,
+   "op": "add",
+   "startCondition": "curvature",
+   "endCondition": "curvature",
+   "startDirection": "y",
+   "endDirection": "y",
+   "startStrength": 1,
+   "endStrength": 1,
+   "startReverse": false,
+   "endReverse": false,
+   "startFaces": [
+    {
+     "p": [
+      23.84848003542364,
+      -7.5,
+      0
+     ],
+     "loftType": "SPHERE",
+     "loftLoop": 0
+    }
+   ],
+   "endFaces": [
+    {
+     "p": [
+      9.682458365518542,
+      32.5,
+      0
+     ],
+     "loftType": "SPHERE",
+     "loftLoop": 0
+    }
+   ],
+   "profiles": [
+    "f2",
+    "f4"
+   ],
+   "guides": [],
+   "ruled": false,
+   "continuity": "C2",
+   "smoothing": false,
+   "merge": false,
+   "thin": false,
+   "thinT": 1,
+   "thinDir": "one",
+   "scopeAll": true,
+   "scope": []
+  }
+ ],
+ "nextId": 10
+}
