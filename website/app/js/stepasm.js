@@ -340,6 +340,13 @@ export function readStepAssembly(text, onProgress = null) {
   for (const root of roots) visit(root, 0, new Set());
   // (a single part: every product with a shape is a part, in place)
   if (single) for (const pd of byType.get('PRODUCT_DEFINITION')) if (repOfPd(pd)) leafPds.add(pd);
+  // A product can contain both its own B-rep and child components (Fusion exports necks and
+  // fretboards this way). Keep that geometry as a part inside its assembly, in local coordinates.
+  const ownGeometryPds = new Set();
+  if (!single) for (const pd of assemblies.keys()) if (repOfPd(pd)) {
+    ownGeometryPds.add(pd);
+    leafPds.add(pd);
+  }
   if (!leafPds.size) return null;
   // (several top-level products: one assembly holding them all)
   let rootKey = 'a' + roots[0];
@@ -453,7 +460,7 @@ export function readStepAssembly(text, onProgress = null) {
   for (const pd of leafPds) {
     report(`Separating part ${++done} of ${leafPds.size}…`);
     const pds = pdsOf.get(pd), sdr = repOfPds.get(pds);
-    if (!sdr) { warnings.push(`${pdName(pd)}: no shape (left out)`); continue; }
+    if (!sdr) { if (!ownGeometryPds.has(pd)) warnings.push(`${pdName(pd)}: no shape (left out)`); continue; }
     const keep = new Set();
     const queue = [sdr[0]];
     const reps = [sdr[1]];
@@ -486,6 +493,8 @@ export function readStepAssembly(text, onProgress = null) {
       const st = styleOf.get(id);
       if (st && (SOLIDISH.test(ty) || FACEISH.test(ty))) styled.push({ id, face: FACEISH.test(ty), look: lookOf(st) });
     }
+    if (ownGeometryPds.has(pd) && !solids) continue;
+    if (ownGeometryPds.has(pd)) assemblies.get(pd).children.unshift({ pd, sub: false, M: IDENT() });
     // (the geometry's unit: of the representation holding the B-rep, else the part's own)
     const mm = mmPerUnit([...seenRep].find((r) => r !== sdr[1]) || sdr[1]);
     // (the points only when they are needed: the looks differ, or for placing in one part)

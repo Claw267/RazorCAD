@@ -186,3 +186,7 @@ closed seams, cusps, out-of-range values, expressions and source edits. The app
 test picks an arc in the canvas, uses the shared relation controls, verifies the
 plane origin and tangent, then saves, reopens, cancels invalid edits and changes
 the source radius. Run on both kernel configurations.
+
+`assembly-step-mixed-product` checks STEP products that contain both their own solid and child
+components, including repeated instances and pure assembly containers. `assembly-step-export` checks
+that ordinary exported part/sub-assembly structure and placements still round-trip.

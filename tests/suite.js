@@ -1969,6 +1969,36 @@ const UI = {
 
   // STEP export of an assembly with its structure: a plate, two blocks and a sub-assembly of two more blocks;
   // read back, each part is in it once, every component placed where it was, named as in the assembly
+  async 'assembly-step-mixed-product'() {
+    const { readStepAssembly } = await import('/js/stepasm.js');
+    // Structure-only fixture: a pure assembly uses a mixed product twice. Its B-rep and
+    // its child's B-rep must both survive, with no duplicate geometry in the pure parent.
+    const text = `ISO-10303-21;HEADER;ENDSEC;DATA;
+#1=PRODUCT_DEFINITION('Root','',$,$);
+#2=PRODUCT_DEFINITION('Neck','',$,$);
+#3=PRODUCT_DEFINITION('Hardware','',$,$);
+#4=NEXT_ASSEMBLY_USAGE_OCCURRENCE('','', '',#1,#2,$);
+#5=NEXT_ASSEMBLY_USAGE_OCCURRENCE('','', '',#1,#2,$);
+#6=NEXT_ASSEMBLY_USAGE_OCCURRENCE('','', '',#2,#3,$);
+#10=PRODUCT_DEFINITION_SHAPE('',$,#1);
+#11=PRODUCT_DEFINITION_SHAPE('',$,#2);
+#12=PRODUCT_DEFINITION_SHAPE('',$,#3);
+#20=SHAPE_DEFINITION_REPRESENTATION(#10,#30);
+#21=SHAPE_DEFINITION_REPRESENTATION(#11,#31);
+#22=SHAPE_DEFINITION_REPRESENTATION(#12,#32);
+#30=SHAPE_REPRESENTATION('',(),$);
+#31=SHAPE_REPRESENTATION('',(#40),$);
+#32=SHAPE_REPRESENTATION('',(#41),$);
+#40=MANIFOLD_SOLID_BREP('Neck',#50);
+#41=MANIFOLD_SOLID_BREP('Hardware',#51);
+#50=CLOSED_SHELL('',());
+#51=CLOSED_SHELL('',());
+ENDSEC;END-ISO-10303-21;`;
+    const r=readStepAssembly(text),mixed=r.assemblies.find(a=>a.name==='Neck'),root=r.assemblies.find(a=>a.key===r.root),own=r.parts.find(p=>p.name==='Neck');
+    const ok=r.parts.length===2&&r.occurrences.length===4&&root.children.length===2&&mixed.children.length===2&&own?.solids===1&&own.step.includes("MANIFOLD_SOLID_BREP('Neck'")&&!own.step.includes("MANIFOLD_SOLID_BREP('Hardware'")&&mixed.children.every(c=>c.kind==='part'&&c.pos.every(v=>v===0)&&c.rot[3]===1);
+    return {ok,detail:ok?'Mixed product retains own local solid and child; repeated instances preserved; pure assembly adds no geometry':JSON.stringify(r)};
+  },
+
   async 'assembly-step-export'() {
     const a = window.app;
     const box = (name, w, d, h) => {
