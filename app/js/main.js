@@ -11,6 +11,7 @@ import * as M from './model.js';
 import * as G from './geometry.js';
 import * as S from './sketchmodel.js';
 import * as LR from './loftrefs.js';
+import * as LC from './loftcorrespondence.js';
 import {useReferenceRelations} from './refgeom.js';
 import { evaluate, evalEquations, fmt } from './expr.js';
 import { KernelClient, KernelPool } from './kernelclient.js';
@@ -2001,6 +2002,87 @@ class App {
   }
 
   // What the open Property panel wants picked on the model: 'edge', 'vertex' or 'face'.
+  loftConnectionGraph(){
+    const f=this.pm?.kind==='feature'?this.pm.feature:null;if(!f||!['loft','surfLoft'].includes(f.type)||!LC.hasManualConnections(f))return null;
+    const graph=this.result.info?.[f.id]?.loftConnections;return graph?.signature===JSON.stringify(f)?graph:null;
+  }
+
+  activateLoftConnector(index){
+    const pm=this.pm;if(pm.loftDraft?.curves.length){this.toast('Add or clear the current contour first',true);return;}
+    pm.loftConnector={index,key:LR.refKey(pm.feature.profiles[index]),connector:0,picking:true};pm.loftEndSlot=null;pm.loftSlot='profiles';pm.loftHover=null;
+    this.ui.renderPM();this.updateSketchDisplay();this.status('Click the desired start vertex of this profile, or a point on its circle.');
+  }
+
+  setLoftConnection(ref,control,rerender=true){
+    const pm=this.pm,f=pm.feature,key=LR.refKey(ref);
+    try{
+      const source=this.result.sketches.get(LR.sourceId(ref));if(!source)throw new Error('The profile sketch is unavailable');
+      if(control)LC.connectionAnchor(source.sketch,ref,source.frame,control,x=>this.result.ev(x));
+      f.loftCorrespondence={...(f.loftCorrespondence||{})};
+      if(control)Object.defineProperty(f.loftCorrespondence,key,{value:{...control},enumerable:true,writable:true,configurable:true});else delete f.loftCorrespondence[key];
+      f.correspondenceMode='manual';pm.loftConnector=null;pm.loftHover=null;this.preview(rerender);this.updateSketchDisplay();return true;
+    }catch(e){this.toast(e.message,true);return false;}
+  }
+
+  loftConnectorTarget(e,pick=this.pm?.loftConnector){
+    if(!pick)return null;
+    const f=this.pm?.feature,ref=f?.profiles[pick.index],source=ref&&this.result.sketches.get(LR.sourceId(ref));if(!source||LR.refKey(ref)!==pick.key)return null;
+    const options=LC.profileConnectionOptions(source.sketch,ref),graph=this.loftConnectionGraph(),row=graph?.sections[pick.index],m=this.viewport.screenPos(e),control=LC.connectionFor(f,ref)||{};
+    if(options.circle){
+      const hit=this.viewport.aimRay(e).ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(source.frame.n,source.frame.o),new THREE.Vector3());if(!hit)return null;
+      const q=G.toLocal(source.frame,hit),center=options.circle.c,angle=Math.atan2(q.y-center.y,q.x-center.x),p=G.toWorld(source.frame,center.x+options.circle.r*Math.cos(angle),center.y+options.circle.r*Math.sin(angle)),screen=this.viewport.project(p);
+      if(Math.hypot(screen.x-m.x,screen.y-m.y)>12)return null;
+      const localAt=j=>{const p=row?.points[j];if(!p)return 0;const q=G.toLocal(source.frame,new THREE.Vector3(...p));return Math.atan2(q.y-center.y,q.x-center.x);};
+      const delta=angle-localAt(pick.connector||0),next={...control,circle:options.circle.curve,angle:(localAt(0)+delta)*180/Math.PI};delete next.point;
+      const origin=G.toWorld(source.frame,center.x,center.y),points=row?.points.map(p=>new THREE.Vector3(...p).sub(origin).applyAxisAngle(source.frame.n,delta).add(origin).toArray());
+      return {ref,control:next,p:p.toArray(),points};
+    }
+    let target=null,distance=12;
+    for(const point of options.points){const p=G.toWorld(source.frame,point.x,point.y),screen=this.viewport.project(p),d=Math.hypot(screen.x-m.x,screen.y-m.y);if(d<distance){target={point,p:p.toArray()};distance=d;}}
+    if(!target)return null;
+    let point=target.point,points=row?.points;
+    if(row){
+      const k=row.points.findIndex(p=>p.every((x,i)=>Math.abs(x-target.p[i])<1e-5));if(k<0)return null;
+      const shift=(k-(pick.connector||0)+row.points.length)%row.points.length,start=row.points[shift];
+      point=options.points.find(p=>G.toWorld(source.frame,p.x,p.y).distanceTo(new THREE.Vector3(...start))<1e-5);if(!point)return null;
+      points=[...row.points.slice(shift),...row.points.slice(0,shift)];
+    }else if(pick.connector)return null;
+    const next={...control,point:point.id};delete next.circle;delete next.angle;if(!options.closed)next.reverse=false;
+    return {ref,control:next,p:target.p,points};
+  }
+
+  loftConnectorDown(e){
+    if(e.button!==0||this.pm?.kind!=='feature'||this.pm.loftEndSlot||this.pm.loftDraft?.curves.length)return false;
+    if((this.pm.loftSlot||'profiles')!=='profiles')return false;
+    if(this.pm.loftConnector?.picking)return false;
+    const graph=this.loftConnectionGraph();if(!graph)return false;
+    const m=this.viewport.screenPos(e);let pick=null,distance=9;
+    graph.sections.forEach((section,index)=>{if(this.pm.loftConnector&&this.pm.loftConnector.index!==index)return;section.points.forEach((p,connector)=>{const s=this.viewport.project(new THREE.Vector3(...p)),d=Math.hypot(s.x-m.x,s.y-m.y);if(d<distance){distance=d;pick={index,connector,key:LR.refKey(section.ref)};}});});
+    if(!pick)return false;
+    this.viewport.controls.drag=null;this.pm.loftConnector=pick;this._loftConnectorDrag={pm:this.pm,pick,x:e.clientX,y:e.clientY,candidate:null};
+    try{this.viewport.canvas.setPointerCapture(e.pointerId);}catch{}
+    this.ui.renderPM();this.updateSketchDisplay();this.status('Drag this connector endpoint onto another vertex of the same profile.');return true;
+  }
+
+  loftConnectorMove(e){
+    const drag=this._loftConnectorDrag;if(!drag)return false;if(this.pm!==drag.pm)return true;
+    if(drag.cancelled)return true;
+    try{drag.candidate=this.loftConnectorTarget(e,drag.pick);}catch{drag.candidate=null;}
+    const graph=this.loftConnectionGraph(),candidate=drag.candidate;
+    if(graph){const sections=graph.sections.map((row,i)=>i===drag.pick.index&&candidate?.points?{...row,points:candidate.points}:row);this.viewport.setLoftConnections({...graph,sections},drag.pick.index);}
+    this.viewport.setPointMarks('loft-connection-target',candidate?[{p:candidate.p,text:'Attach',cls:'pick'}]:null);return true;
+  }
+
+  loftConnectorUp(e){
+    const drag=this._loftConnectorDrag;if(!drag)return false;this._loftConnectorDrag=null;if(this.pm!==drag.pm)return true;
+    const moved=Math.hypot(e.clientX-drag.x,e.clientY-drag.y)>4;
+    if(!moved&&e.target===this.viewport.canvas)this.viewport.controls.consumed=true;
+    if(drag.cancelled||!LC.hasManualConnections(this.pm.feature)){this.updateSketchDisplay();return true;}
+    if(moved&&drag.candidate)this.setLoftConnection(drag.candidate.ref,drag.candidate.control);
+    else {if(this.pm.loftConnector)this.pm.loftConnector.picking=true;if(moved)this.toast('Choose a profile vertex, or a point on its circle',true);this.updateSketchDisplay();}
+    return true;
+  }
+
   loftPicking() { return this.sweepPicking() || this.pm?.kind === 'feature' && (['loft', 'surfLoft'].includes(this.pm.feature.type) && !this.pm.loftEndSlot || (this.pm.feature.type === 'extrude' && this.pm.extrudePick !== false) || (this.pm.feature.type === 'surfPlanar' && !this.pm.planarEdges) || (['revolve','surfExtrude','surfRevolve'].includes(this.pm.feature.type) && this.pm.profilePick!==false)); }
 
   loftCandidates() {
@@ -2123,6 +2205,7 @@ class App {
     if (this.pm?.kind === 'section') return 'section';
     const f = this.pm?.kind === 'feature' ? this.pm.feature : null;
     if (!f) return null;
+    if(['loft','surfLoft'].includes(f.type)&&this.pm.loftConnector&&!this.pm.loftEndSlot)return 'loftConnector';
     if(this.pm.scopePick&&['extrude','revolve','sweep'].includes(f.type)&&f.op==='cut'&&f.scopeAll===false)return 'body';
     if (f.type === 'surfPlanar' && this.pm.planarEdges) return 'edge';
     if (['loft', 'surfLoft'].includes(f.type) && this.pm.loftEndSlot) return 'faces';
@@ -2534,6 +2617,7 @@ class App {
     }
     this.viewport.setSketches(list);
     this.viewport.setLoftTags(tags);
+    this.viewport.setLoftConnections(this.loftConnectionGraph(),this.pm?.loftConnector?.index??-1);
   }
 
   updatePlanes() {
@@ -2949,9 +3033,9 @@ class App {
     const vp = this.viewport;
     const asm = () => (this.mode === 'drawing' && this.drawing?.vpEvent ? this.drawing : null);
     const exT = () => (this.pm?.kind === 'explode' ? this.explodeTool : null);
-    vp.onPointerDown = (e) => { if (this.sectionDragDown(e) || this.filletPointDown(e)) return; if (asm()) asm().vpEvent('down', e); else if (exT()) exT().down(e); else if (this.mode === 'sketch') this.sketcher.pointerDown(e); else if (this.mode === 'sketch3d') this.sketch3d.pointerDown(e); };
-    vp.onPointerMoveImmediate = (e) => { if (this.sectionDragMove(e) || this.filletPointMove(e)) return; if (asm()) asm().vpEvent('move', e); else if (exT()?.drag) exT().move(e); else if (this.mode === 'sketch' && !this.toolWheel.isOpen) this.sketcher.pointerMove(e); else if (this.mode === 'sketch3d') this.sketch3d.pointerMove(e); };
-    vp.onPointerUp = (e) => { if (this.sectionDragUp(e) || this.filletPointUp(e)) return; if (asm()) asm().vpEvent('up', e); else if (exT()?.drag) exT().up(e); else if (this.mode === 'sketch' && e.button === 0) this.sketcher.pointerUp(e); else if (this.mode === 'sketch3d' && e.button === 0) this.sketch3d.pointerUp(e); };
+    vp.onPointerDown = (e) => { if (this.loftConnectorDown(e) || this.sectionDragDown(e) || this.filletPointDown(e)) return; if (asm()) asm().vpEvent('down', e); else if (exT()) exT().down(e); else if (this.mode === 'sketch') this.sketcher.pointerDown(e); else if (this.mode === 'sketch3d') this.sketch3d.pointerDown(e); };
+    vp.onPointerMoveImmediate = (e) => { if (this.loftConnectorMove(e) || this.sectionDragMove(e) || this.filletPointMove(e)) return; if (asm()) asm().vpEvent('move', e); else if (exT()?.drag) exT().move(e); else if (this.mode === 'sketch' && !this.toolWheel.isOpen) this.sketcher.pointerMove(e); else if (this.mode === 'sketch3d') this.sketch3d.pointerMove(e); };
+    vp.onPointerUp = (e) => { if (this.loftConnectorUp(e) || this.sectionDragUp(e) || this.filletPointUp(e)) return; if (asm()) asm().vpEvent('up', e); else if (exT()?.drag) exT().up(e); else if (this.mode === 'sketch' && e.button === 0) this.sketcher.pointerUp(e); else if (this.mode === 'sketch3d' && e.button === 0) this.sketch3d.pointerUp(e); };
     vp.onDoubleClick = (e) => { if (asm()) asm().vpEvent('dbl', e); else if (this.mode === 'sketch') this.sketcher.doubleClick(); else if (this.mode === 'sketch3d') this.sketch3d.doubleClick(); };
     vp.onLeave = () => {
       if (asm()) { asm().vpEvent('leave'); return; }
@@ -3001,6 +3085,7 @@ class App {
     }
     this.clearCycle();
     const mode = this.pickMode();
+    if(mode==='loftConnector'){try{const target=this.loftConnectorTarget(e);if(target)this.setLoftConnection(target.ref,target.control);else this.toast('Choose a start vertex on this profile, or a point on its circle',true);}catch(error){this.toast(error.message,true);}return;}
     if (mode === 'loftContour') { this.loftClick(e); return; }
     if (mode === 'section') {
       // a flat face or a plane: the section moves onto it
@@ -3174,6 +3259,7 @@ class App {
       if (on) { vp.setFaceHighlight('hover', null); this.hoverFaceKey = null; vp.canvas.style.cursor = 'grab'; return; }
     }
     const mode = this.showHiddenMode ? 'body' : this.pickMode();
+    if(mode==='loftConnector'){let target=null;try{target=this.loftConnectorTarget(e);}catch{}vp.canvas.style.cursor=target?'pointer':'default';vp.setPointMarks('loft-connection-target',target?[{p:target.p,text:'Attach',cls:'pick'}]:null);return;}
     if (mode === 'loftContour') {
       let ref = null;
       try { ref = this.pickLoftContour(e); } catch { /* ambiguous edges need a region or manual selection */ }
@@ -3938,7 +4024,7 @@ class App {
       this.status('Ready');
       return;
     }
-    if(pm.kind==='feature'&&pm.feature.referenceDefinition&&['plane','axis','point'].includes(pm.feature.type)){
+    if(pm.kind==='feature'&&(pm.feature.referenceDefinition&&['plane','axis','point'].includes(pm.feature.type)||['loft','surfLoft'].includes(pm.feature.type)&&LC.hasManualConnections(pm.feature))){
       clearTimeout(this._previewTimer);await this.rebuild();
       if(this.pm!==pm)return;
       const error=this.result.errors.get(pm.feature.id);if(error){this.toast(error,true);return;}
@@ -4685,6 +4771,7 @@ class App {
         return;
       }
       if (document.querySelector('.modal-back')) return;
+      if(e.key==='Escape'&&this.pm?.loftConnector){e.preventDefault();this.pm.loftConnector=null;if(this._loftConnectorDrag)this._loftConnectorDrag.cancelled=true;this.ui.renderPM();this.updateSketchDisplay();return;}
       if (this.loftPicking() && this.pm.loftDraft?.curves.length && ['Enter', 'Escape'].includes(e.key)) {
         e.preventDefault();
         if (e.key === 'Enter') this.finishLoftSelection();

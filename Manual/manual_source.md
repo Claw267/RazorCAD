@@ -792,6 +792,14 @@ Guide contacts are checked against the actual CAD profiles. The fit uses the ori
 
 **Guide construction → CAD constraints (two profiles)** builds patches constrained directly by the original 3D guide edges. It checks the kernel's contact error and independent distances against **0.0001 mm**. This method currently requires two profiles without holes or Thin Feature, with guides starting and ending on corresponding patches. **Across guide seams** selects C0 (contact, the default), G1 (tangent joins) or G2 (curvature-continuous joins along shared guides). Original profile corners are preserved. Unsupported or incompatible constraints report an error without falling back to approximation. **Adaptive approximation** remains available for the broader set of loft options and is the default for existing features.
 
+### Profile correspondence
+
+Enable **Edit profile connectors** to display numbered connections between matching profile vertices. Use **Pick start in canvas**, choose a start vertex in the panel, or drag a connector endpoint to another existing vertex on that profile. Moving an attachment shifts the correspondence around the contour while preserving boundary order. For circles, set the seam angle (expressions are supported) or drag the seam in the canvas. Open surface profiles use their endpoints; reversing their direction exchanges the endpoints.
+
+Settings follow the selected profile through renaming, reordering, save/reopen and source edits. A deleted attachment reports an error and must be reselected. Use a profile's **Automatic for this profile** button to clear its settings, or reset all connectors to return to automatic matching. Closed profiles must share the same traversal direction: reversing only some would fold the loft. Manual matching is passed to the CAD builder without automatic remapping and also applies when guides or endpoint conditions are used.
+
+Manual connectors currently support sketch profiles with matching segment counts, including the outer boundary of profiles with holes; inner holes remain automatically matched. Thin lofts and 3D curve profiles use automatic matching. To attach at another position on a noncircular curve, split that curve first. Arbitrary crossed vertex mappings are not supported. Surface Loft uses the same controls.
+
 ### Start and end conditions
 
 **Start Condition** and **End Condition** control the first and last section independently:

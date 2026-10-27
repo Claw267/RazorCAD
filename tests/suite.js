@@ -669,6 +669,46 @@ const UI = {
     return { ok: true, detail: 'Two rails in one multi-curve sketch, construction rail selection, unrelated geometry excluded, dependencies and measured deformation' };
   },
 
+  async 'loft-manual-correspondence'() {
+    const {run,fixture}=await import('/tests/loft-correspondence-cases.js'),LC=await import('/js/loftcorrespondence.js'),S=await import('/js/sketchmodel.js');
+    const native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
+    const a=window.app,settle=async()=>{await wait(180);await until(()=>!a.kernel.pending);};
+    const {Vector3}=await import('three'),click=async p=>{const ev=viewEvents();ev.vp.camera.updateMatrixWorld(true);await ev.click(...ev.toScreen(new Vector3(...p)));await settle();};
+    const volume=async()=>{const built=await a.kernel.rebuild(a.doc),id=built.body?.bodies?.at(-1)?.id;if(!id)throw new Error('No built loft: '+JSON.stringify(built.errors));const m=(await a.kernel.request('measure',{refs:[{kind:'body',id}]})).items[0].volume;await a.rebuild();return m;};
+    const drag=async(from,to)=>{const ev=viewEvents();ev.vp.camera.updateMatrixWorld(true);const p=ev.toScreen(new Vector3(...from)),q=ev.toScreen(new Vector3(...to));ev.fire('pointerdown',...p,{button:0,buttons:1});await wait(30);ev.fire('pointermove',...q,{button:0,buttons:1});await wait(30);ev.fire('pointerup',...q,{button:0,buttons:0});await settle();};
+    const data=fixture();data.feature.correspondenceMode='auto';await a.newDocument?.();closeModals();await a.setDoc(data.doc);a.editFeature(data.feature.id);await settle();
+    if(document.querySelector('[data-loft-manual]').checked)return {ok:false,detail:'Legacy automatic loft was changed on edit'};
+    const manual=document.querySelector('[data-loft-manual]');manual.checked=true;manual.dispatchEvent(new Event('change'));await settle();
+    let graph=a.loftConnectionGraph();if(!graph||graph.sections[0].points.length!==4||a.viewport.loftConnectionGroup.children.length<3)return {ok:false,detail:'Four numbered connector chains were not shown'};
+    const first=[...graph.sections[1].points[0]],target=[...graph.sections[1].points[1]],ref=data.profiles[1];
+    a.viewport.setStandardView('iso',false);a.viewport.zoomToFit(null,false);await wait(160);
+    document.querySelector('[data-loft-connector-pick="1"]').click();await click(target);
+    if(a.result.errors.size||a.pm.loftConnector||!LC.connectionFor(a.pm.feature,ref)?.point||Math.abs(await volume()-4000/3)>0.001)return {ok:false,detail:'Actual connector start pick did not change solid correspondence: '+JSON.stringify({errors:[...a.result.errors],feature:a.pm.feature,target})};
+    graph=a.loftConnectionGraph();await drag(graph.sections[1].points[0],first);
+    if(a.result.errors.size||Math.abs(await volume()-2000)>0.001)return {ok:false,detail:'Dragging the connector back did not restore the prism: '+JSON.stringify([...a.result.errors])};
+    const point=LC.connectionFor(a.pm.feature,ref).point;document.querySelector('[data-loft-connector-pick="1"]').click();document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));
+    if(!a.pm||a.pm.loftConnector)return {ok:false,detail:'Escape cancelled the feature instead of the connector pick'};
+    await a.okPM();a.undo();await a.rebuild();if(M.findFeature(a.doc,data.feature.id).correspondenceMode!=='auto')return {ok:false,detail:'Undo did not restore automatic mode'};a.redo();await a.rebuild();
+    await a.setDoc(JSON.parse(JSON.stringify(a.doc)));a.editFeature(data.feature.id);await settle();
+    if(LC.connectionFor(a.pm.feature,ref)?.point!==point)return {ok:false,detail:'Saved connector anchor was not restored'};
+    document.querySelector('[data-loft-list="profiles"] .li:nth-child(2) [data-loft-action="up"]').click();await settle();
+    if(LC.connectionFor(a.pm.feature,ref)?.point!==point||a.result.errors.size)return {ok:false,detail:'Reordering lost the stable profile connector'};
+    a.cancelPM();await a.rebuild();if(M.findFeature(a.doc,data.feature.id).profiles[0].sketch!==data.profiles[0].sketch)return {ok:false,detail:'Cancel did not restore profile order'};
+    const top=M.findFeature(a.doc,data.sources[1].sk.id);await a.enterSketch(top,false);for(const p of a.sketcher.f.points)p.x*=2;a.sketcher.changed();a.exitSketch(true);await a.rebuild();
+    if(a.result.errors.size||Math.abs(await volume()-3000)>0.001)return {ok:false,detail:'Source edits broke the stable connector anchor'};
+    const circle=fixture({circle:true});await a.setDoc(circle.doc);a.editFeature(circle.feature.id);await settle();
+    let input=document.querySelector('[data-loft-connector-angle="1"] input');input.value='90';input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));await settle();
+    if(a.result.errors.size||Math.abs(await volume()-4000*Math.PI/3)>0.01)return {ok:false,detail:'Circular seam angle was not applied geometrically'};
+    a.viewport.setStandardView('iso',false);a.viewport.zoomToFit(null,false);await wait(160);graph=a.loftConnectionGraph();await drag(graph.sections[1].points[0],[10,0,20]);
+    if(a.result.errors.size||Math.abs(await volume()-2000*Math.PI)>0.01)return {ok:false,detail:'Dragging a circular seam did not update its angle'};
+    a.cancelPM();await a.rebuild();
+    const surface=fixture({type:'surfLoft',open:true});await a.setDoc(surface.doc);a.editFeature(surface.feature.id);await settle();const reverse=document.querySelector('[data-loft-connector-reverse="1"]');reverse.checked=true;reverse.dispatchEvent(new Event('change'));await settle();
+    if(a.result.errors.size||a.loftConnectionGraph().sections[1].points[0][1]!==10)return {ok:false,detail:'Open surface reverse traversal failed'};
+    document.querySelector('[data-loft-connector-reset]').click();await settle();if(a.loftConnectionGraph()||document.querySelector('[data-loft-manual]').checked)return {ok:false,detail:'Reset did not restore full automatic behavior'};
+    a.cancelPM();await a.rebuild();
+    return {ok:true,detail:JSON.stringify({native,ui:'real start-point picks and endpoint drags, circle seam angle and drag, open surface reverse, reorder, source edits, undo/redo, serialization, Escape, cancel and Automatic reset'})};
+  },
+
   async 'loft-canvas-selection'() {
     const a = window.app, S = await import('/js/sketchmodel.js');
     document.querySelectorAll('.modal-back .modal-h .x').forEach((b) => b.click());

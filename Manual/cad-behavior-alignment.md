@@ -37,7 +37,7 @@ instead of changing the resulting geometry.
 | Surface Extrude | Features listed above | Start offsets/objects, To Object termination, direct model-edge/face inputs and draft |
 | Surface Revolve | Features listed above | To Object extent and direct model-edge/face inputs |
 | Sweep / Surface Sweep | Contour slots and path/guide modes listed above | Guide surfaces, broader scale/twist controls and direct model-edge/face inputs; guided solid holes/Thin remain unsupported |
-| Loft / Surface Loft | Canvas profiles, guides and separate endpoint conditions through G2 already exist | Broader guide/endpoint combinations, continuity influence controls and model-face selection workflows |
+| Loft / Surface Loft | Canvas profiles, guides, endpoint conditions through G2, and manual sketch-profile connectors (start vertex, circular seam and traversal) | Split-free interior attachments, manual hole/Thin/3D-curve correspondence and broader guide/endpoint combinations |
 | Patch | Per-edge G0/G1/G2 and connected model-edge selection already exist | Tangency weights, interior rails/points; sketch inputs need an explicit product decision (planar sketch creation currently belongs to Planar Surface) |
 | Reference geometry | Constraint definitions listed above | Arbitrary curved-surface constraints/intersections and broader combinations with tangent/midplane constructions |
 | Fillet/Chamfer, Shell, Hole, patterns, sheet metal, assemblies and drawings | Existing RazorCAD commands | Dedicated command-by-command comparison and interaction tests are still required |

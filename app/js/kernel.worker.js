@@ -13,6 +13,7 @@ import { solveSketch } from './solver.js';
 import { inferPlaneType, planeRefs } from './refgeom.js';
 import { solveReferenceDatum, defaultReferenceRelations } from './refconstraints.js';
 import {locateAlongPath,sketchPath,cadPath} from './pathlocation.js';
+import * as LC from './loftcorrespondence.js';
 import { threadList, minorDiameter, nearestThread } from './threads.js';
 import * as SM from './sheetmetal.js';
 import { holeSpec, holeProfile } from './holes.js';
@@ -2443,6 +2444,30 @@ async function rebuild(doc, previewId = null, opts = {}) {
       return {solved,geo,relations};
     }catch(e){if(!res.info?.[f.id]?.datum)(res.info ||= {})[f.id]={datum:{status:'conflict',message:e.message},datumSignature:signature};throw e;}
   };
+  const loftConnectionControls=(f,ids)=>{
+    if(!LC.hasManualConnections(f))return null;
+    if(f.thin)throw new Error('Manual connectors are not yet supported for Thin lofts; use Automatic correspondence');
+    return ids.map(ref=>{
+      const source=sketches.get(LR.sourceId(ref));if(!source||curves.has(ref))throw new Error('Manual connectors require sketch profile contours; use Automatic for 3D curve profiles');
+      const control=LC.connectionFor(f,ref);
+      return {anchor:LC.connectionAnchor(source.sk,ref,source.frame,control,ev),reverse:!!control?.reverse};
+    });
+  };
+  const loftConnectionInfo=(f,ids,sections,closed)=>{
+    if(!LC.hasManualConnections(f))return;
+    (res.info ||= {})[f.id]={...(res.info?.[f.id]||{}),loftConnections:{signature:JSON.stringify(f),closed,sections:sections.map((s,i)=>({ref:ids[i],points:closed?s.segs.map(g=>g.a):[s.segs[0].a,s.segs.at(-1).b]}))}};
+  };
+  const manualLoft=(wires,f,surface=false)=>{
+    const oc=R.getOC(),builder=new oc.BRepOffsetAPI_ThruSections(!surface,!!f.ruled,1e-6);let shape;
+    try{
+      builder.CheckCompatibility(false);
+      builder.SetMutableInput(false);
+      if(!f.ruled){builder.SetContinuity(oc.GeomAbs_Shape[f.continuity==='C1'?'GeomAbs_C1':'GeomAbs_C2']);if(f.smoothing)builder.SetSmoothing(true);}
+      for(const w of wires)builder.AddWire(w.wrapped);builder.Build();shape=R.cast(builder.Shape());
+      const validity=new oc.BRepCheck_Analyzer(shape.wrapped,true);try{if(!validity.IsValid()||!surface&&!solidsOf(shape).length)throw new Error('The manual loft correspondence creates an invalid shape; choose different connector positions or directions');}finally{validity.delete();}
+      return shape;
+    }catch(e){shape?.delete();throw e;}finally{builder.delete();}
+  };
   // axis { o, d } from X/Y/Z or a reference axis feature
   const resolveAxis = (key) => {
     if (AXES[key]) return { o: [0, 0, 0], d: AXES[key] };
@@ -3757,6 +3782,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
           // a surface through two or more profiles (open or closed chains of sketches / 3D sketches)
           const ids = (f.profiles || []).filter(Boolean);
           if (ids.length < 2) throw new Error('Select at least two profiles (in order)');
+          const connectorControls=loftConnectionControls(f,ids);
           const wires = ids.map((id) => {
             if (curves.has(id)) return curves.get(id).wire;
             const sk = sketches.get(LR.sourceId(id));
@@ -3793,7 +3819,12 @@ async function rebuild(doc, previewId = null, opts = {}) {
               const ch = S.curveChains(subset).find((c) => c.closed);
               return loftSection(sk.frame, S.chainSegs(subset, ch));
             });
-            if (secs.every(Boolean)) { closedSecs = matchLoftSections(secs, ids.map((id) => sketches.get(LR.sourceId(id)).sk.name)); list = closedSecs.map(sectionWire); }
+            if (secs.every(Boolean)) {
+              closedSecs = matchLoftSections(secs, ids.map((id) => sketches.get(LR.sourceId(id)).sk.name));
+              if(connectorControls)closedSecs=LC.applySectionConnections(closedSecs,secs,connectorControls,true);
+              list = closedSecs.map(sectionWire);
+              if(connectorControls)loftConnectionInfo(f,ids,closedSecs,true);
+            }
           } else {
             // open profiles: each one runs the same way as the one before it
             list = [wires[0]];
@@ -3802,6 +3833,21 @@ async function rebuild(doc, previewId = null, opts = {}) {
               const a = vec(prev.startPoint), b = vec(prev.endPoint);
               const same = len(sub(vec(w.startPoint), a)) + len(sub(vec(w.endPoint), b)), flipped = len(sub(vec(w.endPoint), a)) + len(sub(vec(w.startPoint), b));
               list.push(flipped < same ? R.cast(w.wrapped.Reversed()) : w);
+            }
+            if(connectorControls){
+              const sections=ids.map((ref,i)=>{
+                const source=sketches.get(LR.sourceId(ref)),subset=typeof ref==='string'?source.sk:LR.resolveContour(source.sk,ref).sketch,chain=S.curveChains(subset)[0];
+                let section=loftSection(source.frame,S.chainSegs(subset,chain));const start=vec(list[i].startPoint);
+                if(len(sub(section.segs.at(-1).b,start))<len(sub(section.segs[0].a,start)))section=LC.reverseSection(section);
+                const control=connectorControls[i];if(control.anchor){
+                  if(control.reverse)throw new Error('For an open profile choose a start endpoint or reverse traversal, not both');
+                  if(len(sub(control.anchor,section.segs.at(-1).b))<=1e-5)section=LC.reverseSection(section);
+                  else if(len(sub(control.anchor,section.segs[0].a))>1e-5)throw new Error('An open profile connector must attach to one of its endpoints');
+                }
+                return control.reverse?LC.reverseSection(section):section;
+              });
+              if(sections.some(s=>s.segs.length!==sections[0].segs.length))throw new Error('Manual connectors require matching curve counts in open profiles; split the curves so the counts match');
+              list=sections.map(sectionWire);loftConnectionInfo(f,ids,sections,false);
             }
           }
           // guide curves (as the solid loft's: sketches, contours of them or curves, each through every profile): the
@@ -3824,14 +3870,14 @@ async function rebuild(doc, previewId = null, opts = {}) {
             const names = ids.map(pname);
             // (closed sketch profiles: their matched segments; otherwise the profiles as they are, as runs of points)
             const g = buildGuidedLoft(closedSecs || wireSections(list, !closed[0]), guides, names, [], 0,
-              { surface: true, open: !closed[0], profileWires: list, constrained: f.guideMethod === 'constrained', guideContinuity: f.guideContinuity || 'C0', build: (wires) => R.loft(wires, { ruled: false }, true) });
+              { surface: true, open: !closed[0], profileWires: list, constrained: f.guideMethod === 'constrained', guideContinuity: f.guideContinuity || 'C0', build: (wires) => connectorControls?manualLoft(wires,f,true):R.loft(wires, { ruled: false }, true) });
             res.notes[f.id] = `${ids.length} profiles, ${guides.length} guide curve${guides.length === 1 ? '' : 's'}` + guideConstraintNote(g);
             surfaces.push(bodyRec(newId(f.id), g.shape, f.id));
             applied.push({ op: 'add', tool: g.shape });
             break;
           }
           let shape;
-          try { shape = R.loft(list, { ruled: !!f.ruled }, true); } catch (e) { if (isFatal(e)) throw e; throw new Error(guides.length ? 'The surface could not be lofted through these profiles and guide curves' : 'The surface could not be lofted through these profiles'); }
+          try { shape = connectorControls?manualLoft(list,f,true):R.loft(list, { ruled: !!f.ruled }, true); } catch (e) { if (isFatal(e)) throw e; throw new Error(guides.length ? 'The surface could not be lofted through these profiles and guide curves' : `The surface could not be lofted through these profiles${connectorControls?': '+e.message:''}`); }
           surfaces.push(bodyRec(newId(f.id), shape, f.id));
           applied.push({ op: 'add', tool: shape });
           break;
@@ -5023,6 +5069,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
         case 'loft': {
           const ids = (f.profiles || []).filter(Boolean);
           if (ids.length < 2) throw new Error('Select at least two profiles (in order)');
+          const connectorControls=loftConnectionControls(f,ids);
           const thin = f.thin ? { t: ev(f.thinT), dir: f.thinDir || 'one' } : null;
           // each profile: one region (outline + holes), as 3D sections
           const profs = ids.map((id) => {
@@ -5049,6 +5096,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
           });
           if (guides.length && f.ruled) throw new Error('Guide curves shape a smooth loft: untick "Straight (ruled) sides"');
           const buildLoft = (wires) => {
+            if(connectorControls)return manualLoft(wires,f);
             if (!custom) return R.loft(wires, { ruled: !!f.ruled });
             const oc = R.getOC(), mk = new oc.BRepOffsetAPI_ThruSections(true, false, 1e-6);
             try {
@@ -5064,7 +5112,8 @@ async function rebuild(doc, previewId = null, opts = {}) {
           const names = profs.map((p) => p.name);
           const nh = profs[0].holes.length;
           if (profs.some((p) => p.holes.length !== nh)) throw new Error('Every profile needs the same number of holes (inner loops)');
-          const outerM = matchLoftSections(profs.map((p) => p.outer), names);
+          let outerM = matchLoftSections(profs.map((p) => p.outer), names);
+          if(connectorControls){outerM=LC.applySectionConnections(outerM,profs.map(p=>p.outer),connectorControls,true);loftConnectionInfo(f,ids,outerM,true);}
           const holesM = Array.from({ length: nh }, (_, i) => matchLoftSections(profs.map((p) => p.holes[i]), names));
           if (hasLoftEnds(f)) {
             const endWires = outerM.map(sectionWire);

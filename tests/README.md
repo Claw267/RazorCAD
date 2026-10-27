@@ -87,6 +87,12 @@ case that previously returned the original full solid without an error.
 
 Checks signed and multiple-turn twist, analytical volumes, fixed-orientation translation on a curved path, uncapped/open surfaces, holes, Thin, cuts, nonuniform spline arc length and a 3D helix path. Includes explicit invalid-input rejection, legacy defaults and actual UI edits, expression persistence, orientation switching and cancellation. Run with both kernel configurations. Example: `tests/data/sweep-twist.rcad`.
 
+### Manual loft correspondence
+
+`python tests/run_tests.py --only loft-manual-correspondence --jobs 1`
+
+Checks native geometry changes from cyclic attachments and circular seams, open-profile direction, rejected incompatible winding, stable references, holes, guides and G2 at both ends. Exercises canvas picks and drags, reset, cancel, undo/redo, save/reopen, profile reorder and source edits.
+
 ### Loft endpoint constraints
 
 `python tests/run_tests.py --only loft-end-conditions loft-guide-edit-regeneration shell-valid-cavity --jobs 1`

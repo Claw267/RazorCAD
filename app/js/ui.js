@@ -30,6 +30,7 @@ import { lenText, lenValue, fmtLen, lenWithUnit, areaWithUnit, volWithUnit } fro
 import { groupBodies } from './bodygroups.js';
 import * as W from './wcs.js';
 import {referenceRelations,defaultReferenceRelations,RELATION_LABELS} from './refconstraints.js';
+import * as LC from './loftcorrespondence.js';
 
 function datumHint(doc,r){
   if(r.kind==='curve')return {kind:'path',curve:{type:'path'}};
@@ -668,6 +669,7 @@ const PM_SCHEMAS = {
   ],
   loft: [
     { title: 'Profiles', fields: [{ key: 'profiles', type: 'loftSelection' }] },
+    {title:'Profile Correspondence',fields:[{key:'loftCorrespondence',type:'loftCorrespondence'}]},
     ...LOFT_END_GROUPS,
     { title: 'Guide Curves', fields: [
       { key: 'guides', type: 'loftSelection', show: (f) => !f.ruled || f.guides?.length },
@@ -1024,6 +1026,7 @@ const PM_SCHEMAS = {
   ],
   surfLoft: [
     { title: 'Profiles', fields: [{ key: 'profiles', type: 'loftSelection', with3d: true }] },
+    {title:'Profile Correspondence',fields:[{key:'loftCorrespondence',type:'loftCorrespondence'}]},
     ...LOFT_END_GROUPS,
     { title: 'Guide Curves', fields: [
       { key: 'guides', type: 'loftSelection', show: (f) => !f.ruled || f.guides?.length },
@@ -3306,6 +3309,10 @@ export class UI {
     const f = pm.feature;
     let msg = root.querySelector('.pm-status');
     const err = this.app.result?.errors.get(f.id);
+    if(['loft','surfLoft'].includes(f.type)&&LC.hasManualConnections(f)){
+      const graph=this.app.result?.info?.[f.id]?.loftConnections,box=root.querySelector('[data-loft-correspondence]');
+      if(box&&box.dataset.graph===''&&graph?.signature===JSON.stringify(f)){this.renderPM();return;}
+    }
     if(f.referenceDefinition&&['plane','axis','point'].includes(f.type)){
       const info=this.app.result?.info?.[f.id],body=root.querySelector('.datum-definition');
       if(body&&info?.datumSignature===JSON.stringify(f)&&info.geometry&&body.dataset.geometry!==JSON.stringify(info.geometry)){this.renderPM();return;}
@@ -3519,6 +3526,8 @@ export class UI {
           body.appendChild(el('div', { class: 'pm-hint' }, esc(fd.text)));
         } else if(fd.type==='sweepSelection'){
           this.renderSweepSelection(body,f,before,fd);
+        } else if(fd.type==='loftCorrespondence'){
+          this.renderLoftCorrespondence(body,f);
         } else if (fd.type === 'loftSelection') {
           this.renderLoftSelection(body, f, before, fd);
         } else if (fd.type === 'sketchList') {
@@ -3709,7 +3718,7 @@ export class UI {
             if (['revolve','surfRevolve'].includes(f.type)&&fd.key==='axis')s.onfocus=()=>{pm.profilePick=false;pm.scopePick=false;a.updateSketchDisplay();};
           if (['revolve','surfRevolve','surfExtrude','extrude'].includes(f.type))s.dataset.featureField=fd.key;
           if (f.type === 'surfFill' && fd.key === 'continuity' && s.value === 'G0' && !f.edges.some(e => e.continuity && e.continuity !== 'G0')) pm.patchSupportPick = false;
-            if (['loft', 'surfLoft'].includes(f.type) && /^(start|end)Condition$/.test(fd.key)) { pm.loftEndSlot = ['tangent', 'curvature'].includes(s.value) ? fd.key.replace('Condition', 'Faces') : null; pm.loftDraft = null; a.updateSketchDisplay(); }
+            if (['loft', 'surfLoft'].includes(f.type) && /^(start|end)Condition$/.test(fd.key)) { pm.loftConnector=null; pm.loftEndSlot = ['tangent', 'curvature'].includes(s.value) ? fd.key.replace('Condition', 'Faces') : null; pm.loftDraft = null; a.updateSketchDisplay(); }
             if (f.type === 'extrude' && (['pointRef', 'surfaceRef'].includes(fd.type) || (fd.key === 'end' && ['upToVertex', 'upToSurface', 'offsetSurface'].includes(f.end)))) { pm.extrudePick = false; pm.loftHover = null; a.updateSketchDisplay(); }
             // an open sketch can only be extruded as a thin feature
             if (fd.type === 'sketch' && f.type === 'extrude' && SM.isOpenSketch(findFeature(doc, f.sketch))) f.thin = true;
@@ -5119,13 +5128,50 @@ export class UI {
   }
 
   // Loft profiles: sketches in order (the loft goes through them from first to last).
+  renderLoftCorrespondence(body,f){
+    const a=this.app,pm=a.pm,active=LC.hasManualConnections(f),refs=f.profiles||[];
+    body.classList.add('datum-definition');body.dataset.loftCorrespondence='';
+    const graph=a.result?.info?.[f.id]?.loftConnections;body.dataset.graph=graph?.signature===JSON.stringify(f)?JSON.stringify(graph):'';
+    const blocked=f.thin?'Manual connectors are not yet supported for Thin lofts.':refs.some(r=>findFeature(a.doc,LR.sourceId(r))?.type!=='sketch')?'Manual connectors currently require sketch profiles.':null;
+    const enabled=el('input',{type:'checkbox','data-loft-manual':''});enabled.checked=active;enabled.disabled=!!blocked&&!active;
+    enabled.onchange=()=>{
+      if(pm.loftDraft?.curves.length){a.toast('Add or clear the current contour before editing connectors',true);this.renderPM();return;}
+      f.correspondenceMode=enabled.checked?'manual':'auto';pm.loftConnector=null;pm.loftEndSlot=null;pm.loftSlot='profiles';a.preview(true);a.updateSketchDisplay();
+    };
+    const label=el('label');label.append(enabled,document.createTextNode(' Edit profile connectors'));body.appendChild(this.row(null,label,'check'));
+    if(blocked)body.appendChild(el('div',{class:'pm-hint'},blocked+' Choose Automatic correspondence to continue.'));
+    if(active&&!blocked){
+      body.appendChild(el('div',{class:'pm-hint'},'Drag a numbered connector endpoint onto another profile vertex, or use Pick start below. Moving one attachment shifts the cyclic correspondence of the whole contour. Circles also accept a seam angle.'));
+      refs.forEach((ref,i)=>{
+        const source=a.result.sketches.get(LR.sourceId(ref)),control=LC.connectionFor(f,ref)||{};if(!source)return;
+        const heading=el('div',{},`<b>${i+1}. ${esc(LR.describeRef(a.doc,ref))}</b>`);body.appendChild(heading);
+        try{
+          const options=LC.profileConnectionOptions(source.sketch,ref),pick=el('button',{class:'pm-btn'+(pm.loftConnector?.key===LR.refKey(ref)?' on':''),'data-loft-connector-pick':i,disabled:!options.circle&&!options.points.length,onclick:()=>a.activateLoftConnector(i)},'Pick start in canvas');body.appendChild(pick);
+          if(options.circle){
+            let angle=0;const p=graph?.signature===JSON.stringify(f)&&graph.sections[i]?.points[0];if(p){const q=G.toLocal(source.frame,source.frame.o.clone().fromArray(p));angle=Math.atan2(q.y-options.circle.c.y,q.x-options.circle.c.x)*180/Math.PI;}
+            const input=this.exprInput(control.circle?control.angle??0:angle,'°',value=>{const next={...control,circle:options.circle.curve,angle:value};delete next.point;a.setLoftConnection(ref,next,false);});input.dataset.loftConnectorAngle=i;body.appendChild(this.row('Seam angle',input));
+          }else{
+            const select=el('select',{'data-loft-connector-point':i,'aria-label':'Profile start vertex'});select.appendChild(el('option',{value:''},'Automatic start'));
+            for(const p of options.points)select.appendChild(el('option',{value:p.id},esc(SM.itemName(source.sketch,p.id))));select.value=control.point||'';
+            select.onchange=()=>{const next={...control};if(select.value){next.point=select.value;if(!options.closed)next.reverse=false;}else delete next.point;a.setLoftConnection(ref,next);};body.appendChild(this.row('Start vertex',select));
+          }
+          const reverse=el('input',{type:'checkbox','data-loft-connector-reverse':i});reverse.checked=!!control.reverse;
+          reverse.onchange=()=>{const next={...control,reverse:reverse.checked};if(!options.closed)delete next.point;a.setLoftConnection(ref,next);};
+          const label=el('label');label.append(reverse,document.createTextNode(' Reverse traversal'));body.appendChild(this.row(null,label,'check'));
+        }catch(e){body.appendChild(el('div',{class:'pm-hint'},esc(e.message)));}
+        body.appendChild(el('button',{class:'pm-btn','data-loft-connector-auto':i,onclick:()=>a.setLoftConnection(ref,null)},'Automatic for this profile'));
+      });
+    }
+    if(active||Object.keys(f.loftCorrespondence||{}).length)body.appendChild(el('button',{class:'pm-btn','data-loft-connector-reset':'',onclick:()=>{f.loftCorrespondence={};f.correspondenceMode='auto';pm.loftConnector=null;a.preview(true);a.updateSketchDisplay();}},'Reset all to Automatic'));
+  }
+
   renderLoftSelection(body, f, before, fd) {
     const a = this.app, pm = a.pm, key = fd.key, guide = key === 'guides';
     const extrude = f.type === 'extrude', planar = f.type === 'surfPlanar', common=['revolve','surfExtrude','surfRevolve'].includes(f.type), surface=['surfExtrude','surfRevolve'].includes(f.type);
     pm.loftSlot ||= 'profiles'; f[key] ||= [];
     const active = !pm.loftEndSlot && pm.loftSlot === key && (!extrude || pm.extrudePick !== false) && (!planar || !pm.planarEdges) && (!common || pm.profilePick!==false);
     body.appendChild(el('button', { class: 'pm-btn' + (active ? ' on' : ''), 'aria-pressed': String(active), disabled: guide && f.ruled, 'data-loft-slot': key, onclick: () => {
-      pm.loftEndSlot = null; pm.loftEndAxis = null; pm.scopePick=false; pm.loftSlot = key; pm.loftDraft = null; pm.loftHover = null;
+      pm.loftEndSlot = null; pm.loftEndAxis = null; pm.loftConnector=null; pm.scopePick=false; pm.loftSlot = key; pm.loftDraft = null; pm.loftHover = null;
       if (extrude) pm.extrudePick = !active;
       if (planar) pm.planarEdges = active;
       if (common) pm.profilePick=!active;
@@ -5148,7 +5194,7 @@ export class UI {
         b.onclick = () => {
           if (action === 'remove') f[key].splice(i, 1);
           else { const j = i + (action === 'up' ? -1 : 1); [f[key][i], f[key][j]] = [f[key][j], f[key][i]]; }
-          pm.loftHover = null; a.preview(true); a.updateSketchDisplay();
+          pm.loftConnector=null;pm.loftHover = null; a.preview(true); a.updateSketchDisplay();
         };
         li.appendChild(b);
       }
