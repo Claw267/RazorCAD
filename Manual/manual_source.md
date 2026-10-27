@@ -418,6 +418,10 @@ Sketches are made of points, lines, arcs and circles held in place by **relation
 - The Property panel shows the remaining degrees of freedom.
 - An under-defined sketch shows **(-)** in the tree. Construction lines only need to be positioned. To rename a sketch, right-click its tree item and choose **Rename**, including when it has the **(-)** marker.
 
+## Automatic relations
+
+With **Automatic relations while sketching** enabled, Line and Centerline infer parallel or collinear directions from other lines in the active sketch, including construction and projected lines. The reference highlights orange and the cursor identifies the proposed relation. Click to create a persistent relation. Starting near a line's extension snaps onto its supporting line; continuing along it creates Collinear. Endpoint, midpoint and on-curve snaps retain priority. Direction inference uses a 4° angular tolerance and a 9-pixel proximity limit; spline control-polygon helpers are excluded. Turning automatic relations off disables these inferences.
+
 ## Sketch orientation
 
 In the sketch Property panel, **Rotate 90°** turns the sketch axes about the sketch normal, and **Flip Side** looks at the sketch from the other side of the plane. Both are saved with the sketch. {idx:sketch orientation}
@@ -427,7 +431,7 @@ In the sketch Property panel, **Rotate 90°** turns the sketch axes about the sk
 | Tool | Key | How it works |
 |---|---|---|
 | **Select** | [[S]] | Select entities, drag geometry |
-| **Line** | [[L]] | Click a chain of points. Coincident, horizontal and vertical relations are added automatically; snapping to a midpoint or onto a curve adds those relations too. Double-click, [[Enter]] or [[Esc]] ends the chain. |
+| **Line** | [[L]] | Click a chain of points. Coincident, horizontal, vertical, parallel and collinear relations are inferred automatically; snapping to a midpoint or onto a curve adds those relations too. Double-click, [[Enter]] or [[Esc]] ends the chain. |
 | **Centerline** | | Construction line for symmetry, mirroring, gears or as a revolve axis |
 | **Midpoint Line** | | Midpoint, then one endpoint; the opposite endpoint is mirrored and a Midpoint relation preserves the centre |
 | **Corner Rectangle** | [[R]] | Built with horizontal and vertical relations |

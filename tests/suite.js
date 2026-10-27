@@ -1273,6 +1273,27 @@ const UI = {
     return { ok: source.visible === false && target.constraints.some(k => k.src?.fid === source.id && !k.src.intersection), detail: 'Hidden source selection, linked circle-plane points, repeat click, radius update, independent projection and saved visibility' };
   },
 
+  async 'sketch-auto-line-relations'() {
+    const a=window.app,S=await import('/js/sketchmodel.js'),V=await import('/js/solver.js'),{Vector3}=await import('three'),d=M.newDoc(),f=M.createFeature(d,'sketch',{plane:{ref:'front'}}),p=S.addPoint(f,0,0),q=S.addPoint(f,40,20),reference=S.addLine(f,p,q);d.features.push(f);
+    for(const id of [p,q]){const t=S.getPoint(f,id);S.addRel(f,'fix',[id],{x:t.x,y:t.y});}
+    await a.newDocument?.();closeModals();await a.setDoc(d);await a.enterSketch(f,true);const sk=a.sketcher;sk.autoRelations=true;sk.normalTo(false);a.viewport.zoomToFit(null,false);a.viewport.camera.zoom=4;a.viewport.camera.updateProjectionMatrix();a.viewport.camera.updateMatrixWorld(true);sk.setTool('line');
+    if(sk.lineInference({x:40,y:56},{x:0,y:30},9*sk.wpp()))return {ok:false,detail:'Direction far outside inference angle was snapped'};
+    if(!sk.snap({x:60,y:30.05}).extension)return {ok:false,detail:'Line extension was not inferred'};
+    if(sk.snap({x:40.01,y:20.01},{prev:{x:0,y:30}}).id!==q)return {ok:false,detail:'Directional inference displaced an endpoint snap'};
+    const ref=S.getCurve(f,reference);ref.construction=true;if(sk.lineInference({x:40,y:50.05},{x:0,y:30},9*sk.wpp())?.inferCurve!==reference)return {ok:false,detail:'Construction reference ignored'};ref.ctrlOf='helper';if(sk.lineInference({x:40,y:50.05},{x:0,y:30},9*sk.wpp()))return {ok:false,detail:'Control polygon helper used for automatic inference'};delete ref.ctrlOf;ref.construction=false;
+    sk.autoRelations=false;if(sk.snap({x:40,y:50.05},{prev:{x:0,y:30}}).inferCurve)return {ok:false,detail:'Disabled automatic relations still inferred parallel'};sk.autoRelations=true;
+    const click=async(x,y)=>{a.viewport.camera.updateMatrixWorld(true);const v=viewEvents(),xy=v.toScreen(new Vector3(x,y,0));v.fire('pointermove',...xy);await v.click(...xy);};
+    await click(0,30);await click(40,50.05);sk.setTool('select');
+    const parallel=f.constraints.find(k=>k.type==='parallel');if(!parallel||parallel.refs[0]!==reference||!sk.solveOk)return {ok:false,detail:'Real parallel drawing did not create a persistent relation'};
+    sk.setTool('line');await click(40,20);await click(70,35.05);sk.setTool('select');if(!f.constraints.some(k=>k.type==='collinear'&&k.refs[0]===reference)||!sk.solveOk)return {ok:false,detail:'Continuation did not create collinear relation'};
+    sk.setTool('line');await click(100,50.05);await click(130,65.05);sk.setTool('select');if(f.constraints.filter(k=>k.type==='collinear').length!==2||f.constraints.some(k=>k.autoExtension))return {ok:false,detail:'Extension did not become a clean collinear relation'};
+    const snapshot=sk.snapshotData();sk.undo();if(f.constraints.filter(k=>k.type==='collinear').length!==1)return {ok:false,detail:'Undo kept automatic relation'};sk.redo();if(sk.snapshotData()!==snapshot)return {ok:false,detail:'Redo changed automatic relation'};
+    const saved=JSON.parse(JSON.stringify(f));saved.constraints.find(k=>k.type==='fix'&&k.refs[0]===q).y=30;const solved=V.solveSketch(saved,Number);if(!solved.ok)return {ok:false,detail:'Source direction edit broke inferred relations'};
+    const line=id=>{const c=S.getCurve(saved,id);return [S.getPoint(saved,c.p1),S.getPoint(saved,c.p2)];},[ra,rb]=line(reference),u=[rb.x-ra.x,rb.y-ra.y];
+    for(const k of saved.constraints.filter(k=>['parallel','collinear'].includes(k.type))){const [aa,bb]=line(k.refs[1]),v=[bb.x-aa.x,bb.y-aa.y];if(Math.abs(u[0]*v[1]-u[1]*v[0])/(Math.hypot(...u)*Math.hypot(...v))>1e-6)return {ok:false,detail:'Inferred direction did not follow saved source edit'};}
+    a.exitSketch(false);return {ok:true,detail:'Actual parallel/collinear and extension drawing, automatic-relations toggle, angle rejection, undo/redo, serialization and source edits'};
+  },
+
   async 'sketch-projection-source'() {
     const a=window.app,S=await import('/js/sketchmodel.js'),{Vector3}=await import('three'),doc=M.newDoc(),sources=[];
     for(let i=0;i<2;i++){const f=M.createFeature(doc,'sketch',{name:i?'Sketch1':'Outline',visible:!i,plane:{ref:'front'}}),p=[[0,0],[40,0],[40,20],[0,20]].map(q=>S.addPoint(f,...q));S.addLine(f,p[0],p[1]);S.addLine(f,p[3],p[2]);S.addLine(f,p[0],p[3]);doc.features.push(f);sources.push(f);}

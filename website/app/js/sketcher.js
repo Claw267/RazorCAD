@@ -786,6 +786,26 @@ export class Sketcher {
   }
 
   // Snap a cursor position: existing point > line midpoint > on curve > grid.
+  lineInference(p,prev,tol){
+    let best=null;
+    for(const c of this.f.curves){
+      if(c.type!=='line'||c.ctrlOf)continue;
+      const a=S.getPoint(this.f,c.p1),b=S.getPoint(this.f,c.p2),vx=b.x-a.x,vy=b.y-a.y,L=Math.hypot(vx,vy);if(L<1e-7)continue;
+      const ux=vx/L,uy=vy/L,origin=prev||a,dx=p.x-origin.x,dy=p.y-origin.y,t=dx*ux+dy*uy,error=Math.abs(dx*uy-dy*ux);
+      if(error>tol)continue;
+      if(!prev){
+        const along=(p.x-a.x)*ux+(p.y-a.y)*uy,gap=along<0?-along:along>L?along-L:0;
+        if(!gap||gap>Math.max(2*L,50*this.wpp()))continue;
+        if(!best||error<best.error)best={x:a.x+along*ux,y:a.y+along*uy,kind:'onCurve',curve:c.id,extension:true,inferCurve:c.id,inferGuide:[[a.x,a.y],[a.x+along*ux,a.y+along*uy]],error};
+        continue;
+      }
+      if(Math.hypot(dx,dy)<3*this.wpp()||error/Math.hypot(dx,dy)>Math.sin(4*Math.PI/180))continue;
+      const distance=Math.abs((prev.x-a.x)*uy-(prev.y-a.y)*ux),infer=distance<1e-5?'collinear':'parallel',rank=infer==='collinear'?0:1,near=S.segDist(prev.x,prev.y,a.x,a.y,b.x,b.y);
+      if(!best||rank<best.rank||rank===best.rank&&(error<best.error-1e-7||Math.abs(error-best.error)<1e-7&&near<best.near))best={x:prev.x+t*ux,y:prev.y+t*uy,kind:'grid',infer,inferCurve:c.id,inferGuide:[[a.x,a.y],[b.x,b.y]],rank,error,near};
+    }
+    return best;
+  }
+
   snap(p, { exclude = new Set(), prev = null } = {}) {
     const tol = 9 * this.wpp();
     let best = null, bd = tol;
@@ -846,6 +866,8 @@ export class Sketcher {
     }
     const s = this.gridStep();
     const res = { x: r4(Math.round(p.x / s) * s), y: r4(Math.round(p.y / s) * s), kind: 'grid' };
+    const lineTool=['line','centerline'].includes(this.tool);
+    if(!prev&&this.autoRelations&&lineTool){const extension=this.lineInference(p,null,tol*.7);if(extension)return extension;}
     if (prev && this.autoRelations) {
       // horizontal / vertical inference relative to the previous point
       const dx = p.x - prev.x, dy = p.y - prev.y;
@@ -856,6 +878,7 @@ export class Sketcher {
         else if (Math.abs(ang - Math.PI / 2) < tolA) { res.x = prev.x; res.infer = 'vertical'; }
       }
     }
+    if(prev&&this.autoRelations&&lineTool){const inference=this.lineInference(p,prev,tol);if(inference&&(inference.infer==='collinear'||!res.infer))return inference;}
     return res;
   }
 
@@ -865,7 +888,7 @@ export class Sketcher {
     if (s.kind === 'model') return this.resolveModelSnap(s);
     const id = S.addPoint(this.f, s.x, s.y);
     if (s.kind === 'mid') S.addRel(this.f, 'midpoint', [id, s.curve]);
-    if (s.kind === 'onCurve' && S.getCurve(this.f, s.curve)?.type !== 'spline') S.addRel(this.f, 'onCurve', [id, s.curve]);
+    if (s.kind === 'onCurve' && S.getCurve(this.f, s.curve)?.type !== 'spline') S.addRel(this.f, 'onCurve', [id, s.curve],s.extension?{autoExtension:true}:{});
     return id;
   }
 
@@ -1059,7 +1082,8 @@ export class Sketcher {
         const pid = this.resolve(s);
         if (pid === d.last) return;
         const lid = S.addLine(this.f, d.last, pid, t === 'centerline' || this.constructionMode);
-        if (s.infer) S.addRel(this.f, s.infer, [lid]);
+        if(s.inferCurve&&s.infer==='collinear')this.f.constraints=this.f.constraints.filter(k=>!(k.autoExtension&&k.refs[0]===d.last&&k.refs[1]===s.inferCurve));
+        if (s.infer) S.addRel(this.f, s.infer, s.inferCurve?[s.inferCurve,lid]:[lid]);
         d.count++;
         const closed = s.kind === 'point' && s.id === d.start;
         d.last = pid;
@@ -2664,7 +2688,7 @@ export class Sketcher {
   // ------------------------------------------------------------ drawing
   curveColor(c) {
     if (this.sel.has(c.id)) return COL.selected;
-    if (this.hover === c.id || this.relHover?.has(c.id)) return COL.hover;
+    if (this.hover === c.id || this.relHover?.has(c.id)||['line','centerline'].includes(this.tool)&&this.cursor?.p?.inferCurve===c.id) return COL.hover;
     if (!this.solveOk) return COL.error;
     // projected (linked) geometry: purple, so it shows on the model edges it was taken from
     if (this._linked?.has(c.id)) return COL.linked;
@@ -2742,6 +2766,7 @@ export class Sketcher {
 
     // preview geometry
     const d = this.draw;
+    if(this.cursor?.p?.inferGuide&&['line','centerline'].includes(this.tool))addSegs(COL.hover,true,this.cursor.p.inferGuide);
     if (d && d.tool !== 'dim' && d.tool !== 'offset') for (const pl of this.previewPolylines(d)) addSegs(COL.preview, d.tool === 'centerline' || this.constructionMode, pl);
     if (this.tool === 'block') for (const pl of this.blockPreview()) addSegs(COL.preview, false, pl);
     if (this.trimHover?.pts) addSegs(COL.trim, false, this.trimHover.pts);
@@ -3182,11 +3207,11 @@ export class Sketcher {
 
     if (!c || !drawing) { this.snapEl.hidden = true; this.tipEl.hidden = true; return; }
     const p = c.p;
-    this.snapEl.hidden = !(p.kind === 'point' || p.kind === 'mid' || p.kind === 'onCurve' || p.kind === 'model');
+    this.snapEl.hidden = !(p.kind === 'point' || p.kind === 'mid' || p.kind === 'onCurve' || p.kind === 'model'||p.inferCurve);
     const sp = this.vp.project(G.toWorld(this.frame, p.x, p.y));
     this.snapEl.style.left = sp.x + 'px';
     this.snapEl.style.top = sp.y + 'px';
-    const infer = (p.kind === 'model' ? { point: '• Model vertex', center: '⊙ Centre', onCurve: '◦ On edge' }[p.as] : { point: '• Coincident', mid: 'M Midpoint', onCurve: '◦ On curve' }[p.kind]) || (p.infer === 'horizontal' ? 'H' : p.infer === 'vertical' ? 'V' : '');
+    const infer = p.inferCurve?`${p.extension?'≡ Extension':p.infer==='collinear'?'≡ Collinear':'∥ Parallel'} · ${S.itemName(this.f,p.inferCurve)}`:(p.kind === 'model' ? { point: '• Model vertex', center: '⊙ Centre', onCurve: '◦ On edge' }[p.as] : { point: '• Coincident', mid: 'M Midpoint', onCurve: '◦ On curve' }[p.kind]) || (p.infer === 'horizontal' ? 'H' : p.infer === 'vertical' ? 'V' : '');
     let tip = `${fmt(p.x)}, ${fmt(p.y)}`;
     const d = this.draw;
     if (d?.tool === 'spline') tip = `Point ${d.pts.length + 1}   ${tip}`;
