@@ -1273,6 +1273,23 @@ const UI = {
     return { ok: source.visible === false && target.constraints.some(k => k.src?.fid === source.id && !k.src.intersection), detail: 'Hidden source selection, linked circle-plane points, repeat click, radius update, independent projection and saved visibility' };
   },
 
+  async 'sketch-projection-source'() {
+    const a=window.app,S=await import('/js/sketchmodel.js'),{Vector3}=await import('three'),doc=M.newDoc(),sources=[];
+    for(let i=0;i<2;i++){const f=M.createFeature(doc,'sketch',{name:i?'Sketch1':'Outline',visible:!i,plane:{ref:'front'}}),p=[[0,0],[40,0],[40,20],[0,20]].map(q=>S.addPoint(f,...q));S.addLine(f,p[0],p[1]);S.addLine(f,p[3],p[2]);S.addLine(f,p[0],p[3]);doc.features.push(f);sources.push(f);}
+    const target=M.createFeature(doc,'sketch',{plane:{ref:'front'}});doc.features.push(target);await a.newDocument?.();closeModals();await a.setDoc(doc);await a.enterSketch(target,true);const sk=a.sketcher;sk.setTool('convert');sk.normalTo(false);a.viewport.zoomToFit(null,false);await wait(100);
+    const choose=value=>{const s=document.querySelector('[data-projection-source]');s.value=value;s.dispatchEvent(new Event('change'));};choose('sketch:'+sources[1].id);
+    const point=(x,y)=>{a.viewport.camera.updateMatrixWorld(true);const v=viewEvents();return {v,p:v.toScreen(new Vector3(x,y,0))};};
+    for(const y of [0,20]){const {v,p}=point(20,y);await v.click(...p);}
+    const projected=target.constraints.filter(k=>k.type==='projected');if(target.curves.length!==2||projected.length!==2||projected.some(k=>k.src.fid!==sources[1].id))return {ok:false,detail:'Overlapping source filter projected the wrong sketch or an extra connecting edge'};
+    if(sources[0].visible!==true||sources[1].visible!==false)return {ok:false,detail:'Source filtering changed saved visibility'};
+    choose('model');const {p}=point(0,10);if(sk.externalHit({clientX:p[0],clientY:p[1]},{vertices:false}))return {ok:false,detail:'Model-only mode still picked a sketch'};
+    choose('sketch:'+sources[0].id);const sourceHit=sk.externalHit({clientX:p[0],clientY:p[1]},{vertices:false});if(sourceHit?.fid!==sources[0].id)return {ok:false,detail:'Source switch did not change eligible entities'};
+    sk.setTool('intersect');if(sk.externalHit({clientX:p[0],clientY:p[1]},{vertices:false})?.fid!==sources[0].id)return {ok:false,detail:'Intersection Curve lost the source filter'};
+    sk.setTool('select');if(sources[0].visible!==true||sources[1].visible!==false)return {ok:false,detail:'Leaving projection changed source visibility'};
+    a.exitSketch(true);await a.setDoc(JSON.parse(JSON.stringify(a.doc)));const saved=M.findFeature(a.doc,target.id);if(saved.constraints.filter(k=>k.type==='projected').some(k=>k.src.fid!==sources[1].id))return {ok:false,detail:'Reopen lost the selected source reference'};
+    return {ok:true,detail:'Two real canvas picks on overlapping sketches create exactly two curves linked to the selected source; switching source/model filters, visibility and reopen'};
+  },
+
   async 'sketch-project-small-arc'() {
     const a = window.app, S = await import('/js/sketchmodel.js');
     const doc = M.newDoc(), source = M.createFeature(doc, 'sketch', { plane: { ref: 'front' }, visible: true });

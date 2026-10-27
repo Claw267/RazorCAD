@@ -87,6 +87,14 @@ case that previously returned the original full solid without an error.
 
 Checks signed and multiple-turn twist, analytical volumes, fixed-orientation translation on a curved path, uncapped/open surfaces, holes, Thin, cuts, nonuniform spline arc length and a 3D helix path. Includes explicit invalid-input rejection, legacy defaults and actual UI edits, expression persistence, orientation switching and cancellation. Run with both kernel configurations. Example: `tests/data/sweep-twist.rcad`.
 
+### Projection source selection
+
+`python tests/run_tests.py --only sketch-projection-source sketch-project-small-arc sketch-project-spline --jobs 1`
+
+Checks real clicks on overlapping sketches, exactly two selected side projections
+without their connecting edge, explicit source switching, model-only filtering,
+saved source visibility and projection references after reopening.
+
 ### Subdivided sketch regions
 
 `python tests/run_tests.py --only profile-subregion-selection planar-surface-selection loft-manual-correspondence extrusion-start-controls --jobs 1`

@@ -861,8 +861,8 @@ export class Viewport {
         const g = new THREE.BufferGeometry().setFromPoints(pts);
         const color = s.color ?? (s.highlight ? 0x0ea5e9 : 0x2563eb);
         const m = construction
-          ? new THREE.LineDashedMaterial({ color, depthTest: false, transparent: true, opacity: 0.75, dashSize: 1, gapSize: 1 })
-          : new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true, opacity: s.highlight ? 1 : 0.85 });
+          ? new THREE.LineDashedMaterial({ color, depthTest: false, transparent: !s.reference, opacity: s.reference?1:0.75, dashSize: 1, gapSize: 1 })
+          : new THREE.LineBasicMaterial({ color, depthTest: false, transparent: !s.reference, opacity: s.reference||s.highlight ? 1 : 0.85 });
         const l = new THREE.LineSegments(g, m);
         if (construction) { g.setAttribute('lineDistance', new THREE.Float32BufferAttribute(dist, 1)); this.dottedMats.push(m); }
         l.renderOrder = 5;
