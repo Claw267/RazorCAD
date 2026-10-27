@@ -3839,6 +3839,15 @@ export class UI {
       g.appendChild(this.row(null, label, 'check'));
     }
 
+    if(['convert','intersect'].includes(sk.tool)){
+      const group=this.pmGroup(root,'Projection Source','sk:projection-source'),select=el('select',{'data-projection-source':'','aria-label':'Projection source'});
+      group.classList.add('datum-definition');
+      select.append(el('option',{value:'all'},'All earlier geometry'),el('option',{value:'model'},'Model edges / sections only'));
+      const index=a.doc.features.indexOf(sk.f);
+      for(const source of a.doc.features.slice(0,index).filter(f=>f.type==='sketch'&&!f.suppressed&&a.result?.sketches.has(f.id)&&!a.result.errors.has(f.id)))select.appendChild(el('option',{value:'sketch:'+source.id},esc(source.name)));
+      select.value=sk.projectionSource||'all';select.onchange=()=>{sk.projectionSource=select.value;sk.extHover=null;sk.hover=null;a.updateSketchDisplay();sk.redraw();};
+      group.appendChild(this.row('Source',select));group.appendChild(el('div',{class:'pm-hint'},'Choose one sketch to pick overlapping entities unambiguously. Source geometry is gray; projected entities are purple. Other source sketches are temporarily hidden; their saved visibility is preserved. Only clicked entities are projected.'));
+    }
     if (sk.tool === 'offset') {
       const g = this.pmGroup(root, 'Offset Options', 'sk:offset');
       const mode=el('select',{'data-offset-mode':'',onchange:e=>{sk.offsetMode=e.target.value;sk.redraw();}});
