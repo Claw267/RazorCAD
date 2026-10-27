@@ -392,7 +392,36 @@ function seamRips(seams, t) {
 // Solid of one bend zone in the A side's flat coordinates (piece: the region's part of the strip).
 // vcuts: [{ X, top, mid, relief }] V-cutout corners at its ends: the bend is made longer there in the same
 // solid and the V is cut into it (see vcutTool), so the corner never has to be joined on afterwards.
+// (Kernel Lab) bend solids made, by their inputs written out: the same inputs, the same solid
+const LAB_BENDS = (globalThis.LAB_BENDS ??= { hits: 0, misses: 0, keyMs: 0 });
+const BEND_MEMO = new Map();
+function bendKey(b, t, piece, vcuts) {
+  const t0 = performance.now();
+  try {
+    const seen = new Set();
+    return JSON.stringify([b, t, piece, vcuts], (k, v) => {
+      if (v && typeof v === 'object') {
+        if (v.wrapped) return { brep: oc().BRepToolsWrapper.Write(v.wrapped) };
+        if (seen.has(v)) throw new Error('cycle');
+        seen.add(v);
+      }
+      return typeof v === 'function' ? undefined : v;
+    });
+  } catch { return null; } finally { LAB_BENDS.keyMs += performance.now() - t0; }
+}
 function bendSolid(b, t, piece, vcuts = null) {
+  const key = bendKey(b, t, piece, vcuts);
+  const hit = key && BEND_MEMO.get(key);
+  if (hit) { LAB_BENDS.hits++; BEND_MEMO.delete(key); BEND_MEMO.set(key, hit); return hit.clone(); }
+  LAB_BENDS.misses++;
+  const sol = bendSolidMade(b, t, piece, vcuts);
+  if (key && sol) {
+    BEND_MEMO.set(key, sol.clone());
+    while (BEND_MEMO.size > 64) { const [k0, v0] = BEND_MEMO.entries().next().value; v0.delete?.(); BEND_MEMO.delete(k0); }
+  }
+  return sol;
+}
+function bendSolidMade(b, t, piece, vcuts = null) {
   if (b.zone) return zoneBendSolid(b, t, piece);
   const full = b.w * b.ba;
   const partial = piece && Math.abs(areaOf(piece) - full) > full * 1e-6;
@@ -715,7 +744,45 @@ export function cornerAt(sheet, modelPt) {
 }
 
 // The folded (or, when unbent, flat) body in model coordinates.
+// (Kernel Lab) the last folds, by the sheet's content (tools/patch_fold_memo.py)
+const FOLD_MEMO = new Map();
+const LAB_FOLDS = (globalThis.LAB_FOLDS = { made: 0, reused: 0 });
+// (a shape in the sheet, e.g. its region face, by its content: its BREP text, kept per object; a feature makes the
+// region again each time, so the same object is rarely met twice)
+const FOLD_SHAPE_TEXT = new WeakMap();
+function foldKey(sheet) {
+  let plain = true;
+  let key = null;
+  try {
+    key = JSON.stringify(sheet, (n, v) => {
+      if (v && typeof v === 'object') {
+        if (v instanceof Map || v instanceof Set) { plain = false; return null; }
+        if ('wrapped' in v) {
+          let t = FOLD_SHAPE_TEXT.get(v);
+          if (t === undefined) { t = typeof v.serialize === 'function' ? v.serialize() : null; FOLD_SHAPE_TEXT.set(v, t); }
+          if (typeof t !== 'string') { plain = false; return null; }
+          return `[shape ${t}]`;
+        }
+        if (typeof v.delete === 'function') { plain = false; return null; }
+      }
+      return v;
+    });
+  } catch { return null; }
+  return plain ? key : null;
+}
 export function toSolid(sheet) {
+  const key = foldKey(sheet);
+  const kept = key && FOLD_MEMO.get(key);
+  if (kept) { FOLD_MEMO.delete(key); FOLD_MEMO.set(key, kept); LAB_FOLDS.reused++; return kept.clone(); }
+  const out = toSolidMade(sheet);
+  LAB_FOLDS.made++;
+  if (key) {
+    FOLD_MEMO.set(key, out.clone());
+    if (FOLD_MEMO.size > 8) FOLD_MEMO.delete(FOLD_MEMO.keys().next().value);
+  }
+  return out;
+}
+function toSolidMade(sheet) {
   const W = frameM(sheet.frame);
   const t = sheet.t;
   if (sheet.lofted && !sheet.flat) return applyM(loftedSolid(sheet), W);
