@@ -1,0 +1,399 @@
+{
+ "version": 1,
+ "name": "Guided Thin loft with endpoint conditions",
+ "material": null,
+ "equations": [],
+ "features": [
+  {
+   "id": "f1",
+   "type": "plane",
+   "name": "Plane1",
+   "suppressed": false,
+   "refs": [
+    {
+     "kind": "plane",
+     "id": "top"
+    }
+   ],
+   "offset": 0,
+   "flip": false,
+   "angle": 90,
+   "flipAngle": false,
+   "position": "mid",
+   "bisector": false,
+   "through": false,
+   "along": 0,
+   "around": 0,
+   "moveBy": 0,
+   "turn": 0,
+   "reverse": false,
+   "visible": false
+  },
+  {
+   "id": "f2",
+   "type": "sketch",
+   "name": "Start section",
+   "suppressed": false,
+   "plane": {
+    "ref": "f1"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": -20,
+     "y": -15
+    },
+    {
+     "id": "p2",
+     "x": 20,
+     "y": -15
+    },
+    {
+     "id": "p3",
+     "x": 20,
+     "y": 15
+    },
+    {
+     "id": "p4",
+     "x": -20,
+     "y": 15
+    }
+   ],
+   "curves": [
+    {
+     "id": "c5",
+     "type": "line",
+     "p1": "p1",
+     "p2": "p2",
+     "construction": false
+    },
+    {
+     "id": "c6",
+     "type": "line",
+     "p1": "p2",
+     "p2": "p3",
+     "construction": false
+    },
+    {
+     "id": "c7",
+     "type": "line",
+     "p1": "p3",
+     "p2": "p4",
+     "construction": false
+    },
+    {
+     "id": "c8",
+     "type": "line",
+     "p1": "p4",
+     "p2": "p1",
+     "construction": false
+    },
+    {
+     "id": "c13",
+     "type": "line",
+     "p1": "p1",
+     "p2": "p3",
+     "construction": true
+    },
+    {
+     "id": "c14",
+     "type": "line",
+     "p1": "p2",
+     "p2": "p4",
+     "construction": true
+    }
+   ],
+   "constraints": [
+    {
+     "id": "k9",
+     "type": "horizontal",
+     "refs": [
+      "c5"
+     ]
+    },
+    {
+     "id": "k10",
+     "type": "vertical",
+     "refs": [
+      "c6"
+     ]
+    },
+    {
+     "id": "k11",
+     "type": "horizontal",
+     "refs": [
+      "c7"
+     ]
+    },
+    {
+     "id": "k12",
+     "type": "vertical",
+     "refs": [
+      "c8"
+     ]
+    },
+    {
+     "id": "k15",
+     "type": "midpoint",
+     "refs": [
+      "O",
+      "c13"
+     ]
+    }
+   ],
+   "nextSid": 16,
+   "rev": "qk8s34mx"
+  },
+  {
+   "id": "f3",
+   "type": "plane",
+   "name": "Plane2",
+   "suppressed": false,
+   "refs": [
+    {
+     "kind": "plane",
+     "id": "top"
+    }
+   ],
+   "offset": 100,
+   "flip": false,
+   "angle": 90,
+   "flipAngle": false,
+   "position": "mid",
+   "bisector": false,
+   "through": false,
+   "along": 0,
+   "around": 0,
+   "moveBy": 0,
+   "turn": 0,
+   "reverse": false,
+   "visible": false
+  },
+  {
+   "id": "f4",
+   "type": "sketch",
+   "name": "End section",
+   "suppressed": false,
+   "plane": {
+    "ref": "f3"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": -10,
+     "y": -10
+    },
+    {
+     "id": "p2",
+     "x": 10,
+     "y": -10
+    },
+    {
+     "id": "p3",
+     "x": 10,
+     "y": 10
+    },
+    {
+     "id": "p4",
+     "x": -10,
+     "y": 10
+    }
+   ],
+   "curves": [
+    {
+     "id": "c5",
+     "type": "line",
+     "p1": "p1",
+     "p2": "p2",
+     "construction": false
+    },
+    {
+     "id": "c6",
+     "type": "line",
+     "p1": "p2",
+     "p2": "p3",
+     "construction": false
+    },
+    {
+     "id": "c7",
+     "type": "line",
+     "p1": "p3",
+     "p2": "p4",
+     "construction": false
+    },
+    {
+     "id": "c8",
+     "type": "line",
+     "p1": "p4",
+     "p2": "p1",
+     "construction": false
+    },
+    {
+     "id": "c13",
+     "type": "line",
+     "p1": "p1",
+     "p2": "p3",
+     "construction": true
+    },
+    {
+     "id": "c14",
+     "type": "line",
+     "p1": "p2",
+     "p2": "p4",
+     "construction": true
+    }
+   ],
+   "constraints": [
+    {
+     "id": "k9",
+     "type": "horizontal",
+     "refs": [
+      "c5"
+     ]
+    },
+    {
+     "id": "k10",
+     "type": "vertical",
+     "refs": [
+      "c6"
+     ]
+    },
+    {
+     "id": "k11",
+     "type": "horizontal",
+     "refs": [
+      "c7"
+     ]
+    },
+    {
+     "id": "k12",
+     "type": "vertical",
+     "refs": [
+      "c8"
+     ]
+    },
+    {
+     "id": "k15",
+     "type": "midpoint",
+     "refs": [
+      "O",
+      "c13"
+     ]
+    }
+   ],
+   "nextSid": 16,
+   "rev": "9tn459qd"
+  },
+  {
+   "id": "f6",
+   "type": "sketch",
+   "name": "Guide rail",
+   "suppressed": false,
+   "plane": {
+    "ref": "front"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": 20,
+     "y": 0
+    },
+    {
+     "id": "p2",
+     "x": 20,
+     "y": 33.333333333333336
+    },
+    {
+     "id": "p3",
+     "x": 10,
+     "y": 66.66666666666667
+    },
+    {
+     "id": "p4",
+     "x": 10,
+     "y": 100
+    }
+   ],
+   "curves": [
+    {
+     "id": "s5",
+     "type": "spline",
+     "ctrl": true,
+     "degree": 3,
+     "pts": [
+      "p1",
+      "p2",
+      "p3",
+      "p4"
+     ],
+     "p1": "p1",
+     "p2": "p4",
+     "closed": false,
+     "construction": false
+    },
+    {
+     "id": "c6",
+     "type": "line",
+     "p1": "p1",
+     "p2": "p2",
+     "construction": true,
+     "ctrlOf": "s5"
+    },
+    {
+     "id": "c7",
+     "type": "line",
+     "p1": "p2",
+     "p2": "p3",
+     "construction": true,
+     "ctrlOf": "s5"
+    },
+    {
+     "id": "c8",
+     "type": "line",
+     "p1": "p3",
+     "p2": "p4",
+     "construction": true,
+     "ctrlOf": "s5"
+    }
+   ],
+   "constraints": [],
+   "nextSid": 9,
+   "rev": "48al7ani"
+  },
+  {
+   "id": "f5",
+   "type": "loft",
+   "name": "Thin guided transition",
+   "suppressed": false,
+   "op": "add",
+   "startCondition": "normal",
+   "endCondition": "normal",
+   "startDirection": "y",
+   "endDirection": "y",
+   "startStrength": 1,
+   "endStrength": 1,
+   "startReverse": false,
+   "endReverse": false,
+   "startFaces": [],
+   "endFaces": [],
+   "profiles": [
+    "f2",
+    "f4"
+   ],
+   "guides": [
+    "f6"
+   ],
+   "ruled": false,
+   "continuity": "C2",
+   "smoothing": false,
+   "merge": false,
+   "thin": true,
+   "thinT": 2,
+   "thinDir": "one",
+   "scopeAll": true,
+   "scope": [],
+   "guideMethod": "adaptive"
+  }
+ ],
+ "nextId": 7
+}

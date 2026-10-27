@@ -1,0 +1,222 @@
+{
+ "version": 1,
+ "name": "Loft tangent to a conical face",
+ "material": null,
+ "equations": [],
+ "features": [
+  {
+   "id": "f1",
+   "type": "plane",
+   "name": "Plane1",
+   "suppressed": false,
+   "refs": [
+    {
+     "kind": "plane",
+     "id": "top"
+    }
+   ],
+   "offset": 0,
+   "flip": false,
+   "angle": 90,
+   "flipAngle": false,
+   "position": "mid",
+   "bisector": false,
+   "through": false,
+   "along": 0,
+   "around": 0,
+   "moveBy": 0,
+   "turn": 0,
+   "reverse": false,
+   "visible": false
+  },
+  {
+   "id": "f2",
+   "type": "sketch",
+   "name": "Sketch1",
+   "suppressed": false,
+   "plane": {
+    "ref": "f1"
+   },
+   "points": [],
+   "curves": [
+    {
+     "id": "c1",
+     "type": "circle",
+     "c": "O",
+     "r": 20,
+     "construction": false
+    }
+   ],
+   "constraints": [],
+   "nextSid": 2,
+   "rev": "1if59afx"
+  },
+  {
+   "id": "f6",
+   "type": "plane",
+   "name": "Plane3",
+   "suppressed": false,
+   "refs": [
+    {
+     "kind": "plane",
+     "id": "top"
+    }
+   ],
+   "offset": -50,
+   "flip": false,
+   "angle": 90,
+   "flipAngle": false,
+   "position": "mid",
+   "bisector": false,
+   "through": false,
+   "along": 0,
+   "around": 0,
+   "moveBy": 0,
+   "turn": 0,
+   "reverse": false,
+   "visible": false
+  },
+  {
+   "id": "f7",
+   "type": "sketch",
+   "name": "Sketch3",
+   "suppressed": false,
+   "plane": {
+    "ref": "f6"
+   },
+   "points": [],
+   "curves": [
+    {
+     "id": "c1",
+     "type": "circle",
+     "c": "O",
+     "r": 30,
+     "construction": false
+    }
+   ],
+   "constraints": [],
+   "nextSid": 2,
+   "rev": "ua33pg0m"
+  },
+  {
+   "id": "f8",
+   "type": "loft",
+   "name": "Conical base",
+   "suppressed": false,
+   "op": "add",
+   "startCondition": "none",
+   "endCondition": "none",
+   "startDirection": "y",
+   "endDirection": "y",
+   "startStrength": 1,
+   "endStrength": 1,
+   "startReverse": false,
+   "endReverse": false,
+   "startFaces": [],
+   "endFaces": [],
+   "profiles": [
+    "f7",
+    "f2"
+   ],
+   "guides": [],
+   "ruled": false,
+   "continuity": "C2",
+   "smoothing": false,
+   "merge": false,
+   "thin": false,
+   "thinT": 1,
+   "thinDir": "one",
+   "scopeAll": true,
+   "scope": []
+  },
+  {
+   "id": "f3",
+   "type": "plane",
+   "name": "Plane2",
+   "suppressed": false,
+   "refs": [
+    {
+     "kind": "plane",
+     "id": "top"
+    }
+   ],
+   "offset": 100,
+   "flip": false,
+   "angle": 90,
+   "flipAngle": false,
+   "position": "mid",
+   "bisector": false,
+   "through": false,
+   "along": 0,
+   "around": 0,
+   "moveBy": 0,
+   "turn": 0,
+   "reverse": false,
+   "visible": false
+  },
+  {
+   "id": "f4",
+   "type": "sketch",
+   "name": "Sketch2",
+   "suppressed": false,
+   "plane": {
+    "ref": "f3"
+   },
+   "points": [],
+   "curves": [
+    {
+     "id": "c1",
+     "type": "circle",
+     "c": "O",
+     "r": 10,
+     "construction": false
+    }
+   ],
+   "constraints": [],
+   "nextSid": 2,
+   "rev": "aw91yb9z"
+  },
+  {
+   "id": "f5",
+   "type": "loft",
+   "name": "Tangent transition",
+   "suppressed": false,
+   "op": "add",
+   "startCondition": "tangent",
+   "endCondition": "normal",
+   "startDirection": "y",
+   "endDirection": "y",
+   "startStrength": 1,
+   "endStrength": 1,
+   "startReverse": false,
+   "endReverse": false,
+   "startFaces": [
+    {
+     "p": [
+      25,
+      -25,
+      0
+     ],
+     "body": "f8",
+     "loftType": "CONE"
+    }
+   ],
+   "endFaces": [],
+   "profiles": [
+    "f2",
+    "f4"
+   ],
+   "guides": [],
+   "ruled": false,
+   "continuity": "C2",
+   "smoothing": false,
+   "merge": true,
+   "thin": false,
+   "thinT": 1,
+   "thinDir": "one",
+   "scopeAll": true,
+   "scope": []
+  }
+ ],
+ "nextId": 9
+}

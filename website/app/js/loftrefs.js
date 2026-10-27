@@ -1,4 +1,4 @@
-// Stable references to the sketch geometry chosen for a loft, shared by picker and kernel.
+// Stable sketch contour references for lofts and extrusions, shared by picker and kernel.
 import * as S from './sketchmodel.js';
 
 export const sourceId = (ref) => typeof ref === 'string' ? ref : ref?.sketch;

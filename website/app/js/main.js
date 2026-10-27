@@ -1960,7 +1960,7 @@ class App {
   }
 
   // What the open Property panel wants picked on the model: 'edge', 'vertex' or 'face'.
-  loftPicking() { return this.pm?.kind === 'feature' && ['loft', 'surfLoft'].includes(this.pm.feature.type); }
+  loftPicking() { return this.pm?.kind === 'feature' && (['loft', 'surfLoft'].includes(this.pm.feature.type) && !this.pm.loftEndSlot || (this.pm.feature.type === 'extrude' && this.pm.extrudePick !== false)); }
 
   loftCandidates() {
     if (!this.loftPicking()) return [];
@@ -2020,12 +2020,23 @@ class App {
     if (!source) throw new Error('The source sketch is unavailable');
     const result = LR.resolveContour(source.sketch, ref, guide);
     if (!guide && f.type === 'loft' && !f.thin && !result.region && !result.chain.closed) throw new Error('A solid loft needs a closed profile. Use Surface Loft for open sections');
+    if (f.type === 'extrude') {
+      const first = this.result.sketches.get(LR.sourceId(f.profiles?.[0]));
+      if (first && (Math.abs(first.frame.n.dot(source.frame.n)) < 1 - 1e-7 || Math.abs(source.frame.o.clone().sub(first.frame.o).dot(first.frame.n)) > 1e-5)) throw new Error('Extrude profiles must lie in the same plane');
+      if (!result.region && result.chain && !result.chain.closed) f.thin = true;
+    }
     f[key] ||= [];
     if (f[key].some((q) => LR.refKey(q) === LR.refKey(ref))) {
+      if (f.type === 'extrude') {
+        f[key] = f[key].filter((q) => LR.refKey(q) !== LR.refKey(ref));
+        this.pm.loftDraft = null; this.pm.loftHover = null;
+        this.preview(true); this.updateSketchDisplay(); return;
+      }
       this.pm.loftDraft = null; this.pm.loftHover = null;
       this.ui.renderPM(); this.updateSketchDisplay();
       this.status('That contour is already selected.'); return;
     }
+    if (f.type === 'extrude') f[key] = f[key].filter((q) => q !== LR.sourceId(ref));
     f[key].push(ref); this.pm.loftDraft = null; this.pm.loftHover = null;
     this.preview(true); this.updateSketchDisplay();
     this.status(`${guide ? 'Guide' : 'Profile'} ${f[key].length} selected.`);
@@ -2035,7 +2046,7 @@ class App {
     if (!this.pm?.loftDraft?.curves.length) return;
     try {
       let ref = this.pm.loftDraft;
-      if ((this.pm.loftSlot || 'profiles') === 'profiles' && this.pm.feature.type === 'loft') {
+      if ((this.pm.loftSlot || 'profiles') === 'profiles' && ['loft', 'extrude'].includes(this.pm.feature.type)) {
         const source = this.result.sketches.get(ref.sketch), subset = source && LR.contourSketch(source.sketch, ref);
         const regions = subset && S.profileRegions(subset, true);
         if (regions?.length === 1) {
@@ -2067,6 +2078,7 @@ class App {
     if (this.pm?.kind === 'section') return 'section';
     const f = this.pm?.kind === 'feature' ? this.pm.feature : null;
     if (!f) return null;
+    if (['loft', 'surfLoft'].includes(f.type) && this.pm.loftEndSlot) return 'faces';
     if (this.loftPicking()) return 'loftContour';
     if (f.type === 'plane') return 'ref'; // vertices, edges, faces and planes
     if (f.type === 'shell' || f.type === 'surfOffset' || f.type === 'surfCopy' || f.type === 'hole' || f.type === 'smClosedCorner' || f.type === 'smCrossBreak' || f.type === 'smGusset' || (f.type === 'smForm' && f.formType !== 'louver')) return 'faces';
@@ -2243,7 +2255,7 @@ class App {
       }
     }
     if (f) {
-      const faceRefs = [...(f.faces || []), ...(f.type === 'moveBody' ? (f.mates || []).flatMap((m) => [m.a, m.b]).filter((r) => r?.kind === 'face') : [])];
+      const faceRefs = [...(f.faces || []), ...(f.startFaces || []), ...(f.endFaces || []), ...(f.type === 'moveBody' ? (f.mates || []).flatMap((m) => [m.a, m.b]).filter((r) => r?.kind === 'face') : [])];
       if (((f.type === 'axis' && f.axisType === 'cylinder') || f.type === 'thread' || f.type === 'cosmeticThread' || f.type === 'wrap') && f.face) faceRefs.push(f.face);
       if (f.axis === 'face' && f.axisFace) faceRefs.push(f.axisFace);
       for (const r of faceRefs) { const i = vp.faceIndexNear(r.p); if (i >= 0) infos.push(vp.faceInfo(i)); }
@@ -2316,7 +2328,7 @@ class App {
     const res = this.result;
     const editing = this.pm?.kind === 'feature' ? this.pm.feature.id : null;
     const sel = this.selection?.kind === 'feature' ? this.selection.id : null;
-    const sweep = this.pm?.kind === 'feature' && ['sweep', 'surfSweep'].includes(this.pm.feature.type) ? this.pm.feature : null;
+    const sweep = this.pm?.kind === 'feature' && ['sweep','surfSweep'].includes(this.pm.feature.type) ? this.pm.feature : null;
     const state = (id) => (id === editing || id === sweep?.guide ? 'preview' : id === sel || id === this._hoverFeature || id === sweep?.path ? 'selected' : 'normal');
     const axes = [], points = [];
     for (const f of this.doc.features) {
@@ -2375,7 +2387,7 @@ class App {
   updateSketchDisplay() {
     const res = this.result, list = [];
     const loft = this.loftPicking(), loftFeature = loft ? this.pm.feature : null;
-    const sweepFeature = this.pm?.kind === 'feature' && ['sweep', 'surfSweep'].includes(this.pm.feature.type) ? this.pm.feature : null;
+    const sweepFeature = this.pm?.kind === 'feature' && ['sweep','surfSweep'].includes(this.pm.feature.type) ? this.pm.feature : null;
     if (!loft) this._loftPickCache = null;
     // Dependent sketches still contain the last rebuilt projections while their source is being edited.
     // Hide that stale geometry until leaving the sketch rebuilds it; keep independent references visible.
@@ -2414,7 +2426,6 @@ class App {
       const show = (ref, color, label = '') => {
         const s = res.sketches.get(LR.sourceId(ref));
         if (!s) {
-          // (a curve or helix: its label at its start)
           const cv = res.curves?.get(ref), pts = Array.isArray(cv?.[0]?.[0]) ? cv[0] : cv;
           if (label && pts?.length) tags.push({ text: label, at: new THREE.Vector3(...pts[0]), color });
           return;
@@ -2744,10 +2755,18 @@ class App {
     const target = M.findFeature(this.doc, id);
     if (target && before >= 0 && this.doc.features.indexOf(target) > before) return false; // only earlier references
     if (this.loftPicking() && kind === 'sketch') {
+      if (f.type === 'extrude') {
+        f.profiles ||= [];
+        f.profiles = f.profiles.filter((r) => LR.sourceId(r) !== id || typeof r === 'string');
+        if (!f.profiles.includes(id)) f.profiles.push(id);
+        if (S.isOpenSketch(target)) f.thin = true;
+        this.preview(true); this.updateSketchDisplay(); return true;
+      }
       this.hoverSketchId = id; this.updateSketchDisplay();
       this.status('Select the desired contour in the canvas; a sketch can contain several profiles or guides.');
       return true;
     }
+    if (['loft', 'surfLoft'].includes(f.type) && kind === 'axis' && this.pm.loftEndAxis) { f[this.pm.loftEndAxis] = id; this.preview(true); return true; }
     // two-slot fields (axis from two planes / two points) fill alternately
     const slot = (a, b) => { const k = this.pm.slot === a ? b : a; this.pm.slot = k; return k; };
     if (f.type === 'plane' && (kind === 'plane' || kind === 'point' || kind === 'axis')) {
@@ -2773,9 +2792,9 @@ class App {
       if (!f.profiles.includes(id)) f.profiles.push(id); else f.profiles = f.profiles.filter((x) => x !== id);
       this.preview(true);
       return true;
-    } else if (['sweep', 'surfSweep'].includes(f.type) && target && ['sketch', 'sketch3d', 'helix', 'compCurve', 'projCurve'].includes(target.type)) {
+    } else if (['sweep','surfSweep'].includes(f.type) && target && ['sketch','sketch3d','helix','compCurve','projCurve'].includes(target.type)) {
       if (this.pm.sweepSlot === 'profile' && target.type === 'sketch' && f.profileType !== 'circle') key = 'profile';
-      else if (this.pm.sweepSlot && ['path', 'guide'].includes(this.pm.sweepSlot)) key = this.pm.sweepSlot;
+      else if (this.pm.sweepSlot && ['path','guide'].includes(this.pm.sweepSlot)) key = this.pm.sweepSlot;
       else if (kind === 'helix') key = 'path';
       else if (f.profileType !== 'circle' && !f.profile) key = 'profile';
       else if (!f.path) key = 'path';
@@ -2785,10 +2804,9 @@ class App {
       if (fields[kind]?.includes(f.type)) key = kind;
     }
     if (!key) return false;
-    // (a sweep's profile, path and guide are three different curves)
-    if (['sweep', 'surfSweep'].includes(f.type)) {
+    if (['sweep','surfSweep'].includes(f.type)) {
       const profile = f.profileType === 'circle' ? null : f.profile;
-      if (key === 'guide' && [f.path, profile].includes(id) || key === 'path' && f.guide === id || key === 'profile' && [f.path, f.guide].includes(id)) return false;
+      if (key === 'guide' && [f.path,profile].includes(id) || key === 'path' && f.guide === id || key === 'profile' && [f.path,f.guide].includes(id)) return false;
     }
     f[key] = id;
     this.preview(true);
@@ -3009,10 +3027,12 @@ class App {
       }
       const f = this.pm.feature, vp = this.viewport, gi = fh.hit.face;
       const face = vp.faceInfo(gi);
-      f.faces ||= [];
-      const i = f.faces.findIndex((r) => vp.faceIndexNear(r.p) === gi);
-      if (i >= 0) f.faces.splice(i, 1);
-      else f.faces.push({ p: fh.hit.point.toArray(), ...(face.planar ? { n: face.normal.toArray() } : {}) });
+      const key = ['loft', 'surfLoft'].includes(f.type) ? this.pm.loftEndSlot : 'faces';
+      if (!key) return;
+      f[key] ||= [];
+      const i = f[key].findIndex((r) => vp.faceIndexNear(r.p) === gi);
+      if (i >= 0) f[key].splice(i, 1);
+      else f[key].push({ p: fh.hit.point.toArray(), ...(face.planar ? { n: face.normal.toArray() } : {}), ...(['loft', 'surfLoft'].includes(f.type) ? { body: this.result.bodies[vp.faceBody[gi]]?.id } : {}) });
       this.ui.renderPM();
       this.updateEdgeHighlights();
       this.preview();
@@ -3626,10 +3646,11 @@ class App {
     if (M.SKETCH_FEATURES.has(type)) {
       let sk = preSketch || (selF?.type === 'sketch' ? selF : null);
       if (!sk) {
-        const used = new Set(doc.features.map((f) => f.sketch).filter(Boolean));
-        sk = doc.features.slice(0, M.rollbackIndex(doc)).reverse().find((f) => f.type === 'sketch' && !used.has(f.id) && !f.suppressed) || null;
+        const used = new Set(doc.features.flatMap((f) => M.sketchesUsedBy(f)));
+        const free = doc.features.slice(0, M.rollbackIndex(doc)).filter((f) => f.type === 'sketch' && !used.has(f.id) && !f.suppressed);
+        sk = (type === 'extrude' && free.length !== 1 ? null : free[free.length - 1]) || null;
       }
-      if (!sk) {
+      if (!sk && !(type === 'extrude' && doc.features.slice(0, M.rollbackIndex(doc)).some((f) => f.type === 'sketch' && !f.suppressed))) {
         // nothing to use: sketch the profile first (on the selected plane/face, or pick one), then come back
         this.pendingFeature = { type, op, opts };
         this.startSketch();
@@ -3638,7 +3659,12 @@ class App {
       }
       props.sketch = sk?.id ?? null;
       if (type === 'extrude' && op === 'cut' && this.result.body) props.end = 'through2';
-      if (type === 'extrude' && S.isOpenSketch(sk)) props.thin = true; // open curves: a thin wall
+      if (type === 'extrude') {
+        if (sk && S.isOpenSketch(sk)) props.thin = true; // open curves: a thin wall
+        const regions = sk && LR.selectableRegions(this.result.sketches.get(sk.id)?.sketch || sk);
+        props.profiles = sk ? (preSketch || selF?.id === sk.id || !regions.length ? [sk.id] : regions.length === 1 ? [LR.regionRef(sk.id, regions[0])] : []) : [];
+        props.sketch = null;
+      }
     }
     if (type === 'sweep' || type === 'loft') {
       const ri = M.rollbackIndex(doc);
@@ -3798,7 +3824,7 @@ class App {
   }
 
   async okPM() {
-    if (this.loftPicking() && this.pm.loftDraft?.curves.length) { this.toast('Add or clear the current contour selection before accepting the loft', true); return; }
+    if (this.pm?.loftDraft?.curves.length) { this.toast(this.pm.feature.type === 'extrude' ? 'Add or clear the current contour selection before accepting the extrusion' : 'Add or clear the current contour selection before accepting the loft', true); return; }
     if (this.mode === 'sketch' && this.sketcher.patternDraft) { this.sketcher.finishPattern(true); return; }
     const pm = this.pm;
     if (!pm) return;

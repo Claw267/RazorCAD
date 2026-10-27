@@ -6,6 +6,36 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-27 16:55 — The rest of PR #6: a geometry kernel with guided-surface tools, loft end conditions, guide constraints, extrude profiles picked in the view, Shell checks
+
+Merged from Claw267's pull request #6 (the sweeps and the updater came in earlier today):
+
+- **Geometry kernel rebuilt** (replicad_single / replicad_multi, the same OpenCascade with a small native addition,
+  `tools/native/surface-patch.cpp`; how to rebuild it: `tools/native/README.md`). It adds patches built on guide
+  networks and a quick local nearest point on a face, used by the features below. Everything else builds as before
+  (the whole test suite, and the sheet-metal checks against real parts).
+- **Loft and Lofted Surface: Start and End Conditions**: Free, Normal to profile, a Direction, or Tangent to adjacent
+  faces (G1, faces picked in the view), with an Influence and Reverse; holes and Thin walls included; guide curves
+  with them use Adaptive approximation.
+- **Loft guide construction → CAD constraints (two profiles)**: the guide edges themselves bound the patches, with
+  C0, G1 or G2 across the guide seams (checked to 0.0001 mm and 0.5°).
+- **Guided lofts are checked against their guides** on the finished surface, with more sections added (16 to 128)
+  until every sampled guide point is within 0.01 mm; otherwise an error asks for a profile near the tightest bend.
+  The check measures each point against the loft's edges first (guides mostly run along them), which keeps it quick:
+  the tutorial's guided loft builds in 0.6 s (4.7 s measured against the faces alone).
+- **Extrude: profiles picked in the view** as for Loft: click inside closed regions or on contours, several coplanar
+  ones from different sketches, a ring or the disk inside it; open contours make it Thin. Clicking a sketch in the
+  tree takes all of it; parts made before extrude as they did.
+- **Shell** checks the solid it makes and refuses an offset that just returns the original body; small fillets
+  outside a thinner wall are kept with sharp corners inside (the note says so).
+- **Midpoint**: one relation button for a point on a line's midpoint and for two lines' midpoints together.
+- Measure between a point and a face uses the quick nearest point when it lands on the face.
+- Tests: loft-cad-guide-constraints, surface-cad-guide-constraints, surface-differential-analysis,
+  surface-guide-continuity, shell-valid-cavity, loft-end-guides-and-walls, loft-end-conditions,
+  loft-guide-edit-regeneration, loft-g2-difficult-guides, extrude-contour-references, extrude-canvas-selection, and
+  a stricter loft-guide-accuracy (with example parts in tests/data). The whole run takes about 85 s here (40 s
+  before); GitHub's test job may now run up to 90 minutes.
+
 ## 2026-10-27 16:09 — Sweeps: a guide curve, Parallel orientation and a twist; the updater waits for RazorCAD to close (from PR #6)
 
 From Claw267's pull request #6, taken on its own (without its rebuilt geometry kernel, the loft end conditions, the

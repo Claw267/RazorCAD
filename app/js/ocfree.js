@@ -14,7 +14,8 @@
 //      deleting destructor (vtable slot 1, checked in the binary for each of these roots);
 //    - TopoDS_Shape and its subclasses: Nullify() (drops the geometry reference and location), then free;
 //    - TopLoc_Location: Clear(), then free; TopExp_Explorer: Clear() and re-Init on a null shape, then free;
-//    - BRepExtrema_DistShapeShape (replicad's distance queries): null shapes loaded and results cleared, then free;
+//    - distance and surface projection queries: native deleting destructors when available; older
+//      distance-query bindings clear their shapes/results then free the outer object;
 //    - plain value classes (gp_*, Bnd_Box, ...): free.
 //    Anything else keeps the old behaviour (nothing freed). Classes with a real destructor (Geom_*,
 //    adaptors, NCollection lists, handles, ...) go through embind's own delete as before.
@@ -108,6 +109,7 @@ export function installRealDelete(oc, wasmExports, dataEnd, { autoFree = true } 
         else if (name === 'TopLoc_Location') k = 'location';
         else if (name === 'TopExp_Explorer') k = 'explorer';
         else if (name === 'BRepExtrema_DistShapeShape') k = 'distance';
+        else if (name === 'GeomAPI_ProjectPointOnSurf' && oc.RazorCADSurfacePatch?.DestroyProjection) k = 'projection';
         else if (PLAIN.test(name)) k = 'plain';
         else k = 'virtual';
       }
@@ -128,8 +130,10 @@ export function installRealDelete(oc, wasmExports, dataEnd, { autoFree = true } 
         obj.Clear(); obj.Init(nullShape, oc.TopAbs_ShapeEnum.TopAbs_SHAPE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
         free(p); count(kind); return;
       }
+      if (kind === 'projection') { oc.RazorCADSurfacePatch.DestroyProjection(obj); count(kind); return; }
       if (kind === 'distance') {
-        // (no vtable, so no destructor to call: its shapes and results are dropped, which is what holds memory)
+        if (oc.RazorCADSurfacePatch?.DestroyDistance) { oc.RazorCADSurfacePatch.DestroyDistance(obj); count(kind); return; }
+        // Compatibility with older kernels lacking the native destructor bridge.
         nullShape ??= new oc.TopoDS_Shape();
         obj.LoadS1(nullShape); obj.LoadS2(nullShape); obj.Perform();
         free(p); count(kind); return;
