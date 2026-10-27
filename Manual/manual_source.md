@@ -90,7 +90,9 @@ A little after it starts (at most once a day), RazorCAD asks GitHub for the newe
 
 **Help ▸ Check for Updates…** checks at once and says what it found. Its window also turns the check at start on or off. **Help ▸ About RazorCAD** shows the version you have.
 
-**Update Now** (in the notice and in Check for Updates) updates in one click: RazorCAD downloads the new setup from its GitHub release, checks it against the release (size and SHA-256), installs it into the same folder (asking for administrator rights only when it was installed for all users), closes and starts again as the new version. Unsaved work is saved first (**Save All and Update**), or the update waits. If anything goes wrong, the version you had starts again. A copy of RazorCAD that wasn't installed with the setup offers **Download** instead. {idx:Update Now}
+**Update Now** (in the notice and in Check for Updates) updates in one click: RazorCAD downloads the new setup from its GitHub release, checks it against the release (size and SHA-256), installs it into the same folder (asking for administrator rights only when it was installed for all users), closes and starts again as the new version. Unsaved work is saved first (**Save All and Update**), or the update waits. The helper waits for this installation's app and launcher processes to close, checks the installer result, verifies that the executable was replaced and that the installed version matches the download, then restarts. A failed installation shows an error and its log path instead of silently reopening the old version. A copy of RazorCAD that wasn't installed with the setup offers **Download** instead. {idx:Update Now}
+
+If updating fails, inspect `%TEMP%\RazorCAD-update\update.log` and run the downloaded setup in that folder manually after closing RazorCAD. The helper script is saved beside it as `install-update.ps1`. Fixes to the updater itself take effect once a build containing them has been installed; an older installation may need the newer setup run manually once.
 
 ## The start window
 

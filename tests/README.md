@@ -1,5 +1,18 @@
 # RazorCAD regression tests
 
+Updater handoff checks run without a desktop GUI:
+
+```
+python -m unittest discover -s tests -p test_updater.py -v
+```
+
+When `pwsh` or Windows PowerShell is available (or `RAZORCAD_TEST_PWSH` points to
+it), the tests execute the real helper against temporary files and mocked OS
+process/installer/GUI calls. They cover successful replacement, frozen-parent
+waiting, installer errors, unchanged executables, wrong versions, restart/close
+failures, UTF-8 helper files and quoted/non-ASCII paths. This does not replace a
+real Windows installer/UAC test.
+
 One command checks that the geometry kernel and the main workflows still give the same results after a change:
 
 ```

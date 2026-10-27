@@ -6109,7 +6109,7 @@ export class UI {
     }
     const res = await a.withProgress(`Downloading RazorCAD ${r.latest}…`, () => platform.startUpdate(r.setup)).catch((e) => ({ error: e.message }));
     if (!res?.ok) { a.toast(`${res?.error || 'The update could not start'}`, true); return; }
-    a.status(`Installing RazorCAD ${r.latest}… It starts again by itself in a few seconds${res.allUsers ? ' (Windows asks for permission first)' : ''}.`);
+    a.status(`Installing RazorCAD ${r.latest}… RazorCAD restarts after the update is verified${res.allUsers ? ' (Windows asks for permission first)' : ''}.`);
     setTimeout(() => platform.closeApp(), 600);
   }
 

@@ -48,3 +48,4 @@ if errorlevel 1 (
 rmdir /s /q dist build 2>nul
 echo.
 echo Built RazorCAD.exe
+exit /b 0
