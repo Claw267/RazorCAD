@@ -6,6 +6,9 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-28 07:42 — Tests: Midpoint Line and drawing in construction mode
+- `midpoint-line-construction` draws a Midpoint Line by clicks (the other end mirrored, a Midpoint relation), then turns Construction Geometry on with nothing selected and draws a Midpoint Line and a rectangle as construction geometry (requests on discussion #4).
+
 ## 2026-10-28 07:37 — Site check: a kernel published in parts
 - `tools/check_site.py` checks `replicad_multi.wasm.part0` when the kernel is published in parts (it failed on 0.18.0-beta's push, with the site working).
 

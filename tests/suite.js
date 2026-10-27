@@ -264,6 +264,48 @@ const UI = {
     return Math.abs(vol - want) < 1e-6 * want ? { ok: true, detail: `volume ${r6(vol)}` } : { ok: false, detail: `volume ${vol}, expected ${want}` };
   },
 
+  // Midpoint Line by clicks: the midpoint, then one end; the other end mirrored, a Midpoint relation. Construction
+  // Geometry turned on before drawing (nothing selected) makes the next lines construction ones, for every tool
+  // (a Midpoint Line, then a rectangle), and stays on until turned off
+  async 'midpoint-line-construction'() {
+    const a = window.app;
+    await a.newDocument?.();
+    closeModals();
+    const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'top' } });
+    a.doc.features.push(f); a.commit();
+    await a.enterSketch(f, true);
+    await wait(300);
+    const { toScreen, click, vp } = viewEvents();
+    vp.setStandardView('top', false); vp.zoomToFit(null, false); vp.camera.updateMatrixWorld(true);
+    const sk = a.sketcher, fr = sk.frame, S = await import('/js/sketchmodel.js');
+    const at = (x, y) => toScreen(fr.o.clone().addScaledVector(fr.u, x).addScaledVector(fr.v, y));
+    const ends = (c) => [S.getPoint(sk.f, c.p1), S.getPoint(sk.f, c.p2)];
+    const near = (p, x, y) => Math.hypot(p.x - x, p.y - y) < 0.5;
+    sk.setTool('midline');
+    await click(...at(30, 40)); await click(...at(50, 45));
+    const first = sk.f.curves.filter((c) => c.type === 'line');
+    if (first.length !== 1) return { ok: false, detail: `Midpoint Line: ${first.length} lines` };
+    const [p, q] = ends(first[0]);
+    const mirrored = (near(p, 10, 35) && near(q, 50, 45)) || (near(q, 10, 35) && near(p, 50, 45));
+    const rel = sk.f.constraints.some((k) => k.type === 'midpoint' && k.refs.includes(first[0].id));
+    if (!mirrored || !rel || first[0].construction) return { ok: false, detail: `Midpoint Line: ends (${p.x}, ${p.y}) (${q.x}, ${q.y}), relation ${rel}, construction ${first[0].construction}` };
+    sk.setTool('select'); sk.sel = new Set();
+    sk.toggleConstruction();
+    if (!sk.constructionMode) return { ok: false, detail: 'Construction Geometry with nothing selected did not turn the mode on' };
+    sk.setTool('midline');
+    await click(...at(-30, -40)); await click(...at(-20, -40));
+    sk.setTool('rect');
+    await click(...at(60, -60)); await click(...at(80, -50));
+    const made = sk.f.curves.filter((c) => c.type === 'line' && c !== first[0]);
+    if (made.length !== 5 || made.some((c) => !c.construction)) return { ok: false, detail: `in construction mode: ${made.length} lines, ${made.filter((c) => c.construction).length} construction` };
+    if (!sk.constructionMode) return { ok: false, detail: 'construction mode turned itself off when the tool changed' };
+    sk.setTool('select'); sk.toggleConstruction();
+    sk.setTool('select');
+    await a.exitSketch(true);
+    return sk.constructionMode ? { ok: false, detail: 'Construction Geometry did not turn the mode off' }
+      : { ok: true, detail: 'mirrored about the clicked midpoint, with a Midpoint relation; Midpoint Line and rectangle drawn as construction while the mode is on' };
+  },
+
   // a drawing of the part: three standard views with lines in them (the part the test before made; made here when
   // this test runs on its own, as in a page of its own with run_tests.py --jobs)
   async 'drawing-from-part'() {
