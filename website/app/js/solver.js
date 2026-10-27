@@ -5,6 +5,7 @@
 // The same Jacobian gives degrees of freedom and fully-defined status.
 
 import { patternEntities, updateSketchPatterns, getCurve, getPoint, curveLength, splinePieces } from './sketchmodel.js';
+import * as SO from './sketchoffset.js';
 
 const H = 1e-6;
 
@@ -29,6 +30,7 @@ export const RELATION_INFO = {
   projected: { label: 'On Edge (projected)', glyph: '⇲' },
   sketchPattern: { label: 'Sketch Pattern', glyph: '⋮' },
   offset: { label: 'Offset', glyph: '⇉' },
+  offsetGeometry: { label: 'Offset', glyph: '⇉' },
   dim: { label: 'Dimension', glyph: '↔' },
 };
 
@@ -102,6 +104,7 @@ export function makeSystem(sk, ev) {
 
   const eqs = [];
   const bad = [];
+  const validate=[];
   const push = (f, deps, k) => eqs.push({ f, deps: [...new Set(deps)], k });
 
   // internal: arc end points stay on the arc's circle
@@ -324,6 +327,22 @@ export function makeSystem(sk, ev) {
           }, deps, k);
           break;
         }
+        case 'offsetGeometry': {
+          const dimension=sk.constraints.find(q=>q.id===k.dim),value=dimension?ev(dimension.value):k.v;
+          if(!(value>0))throw new Error('The offset distance must be positive');
+          const sources=k.chain.map(it=>{const c=curves.get(it.id);if(!c)throw new Error('An offset source curve is missing');return c;});
+          const ids=[...new Set(sources.flatMap(c=>[c.p1,c.p2,c.c,c.a,...(c.pts||[]),...(c.handles||[])].filter(Boolean)))],sourcePoints=ids.map(id=>({id,...pt(id)}));
+          const radiusSources=sources.filter(c=>c.type==='circle').map(c=>({id:c.id,index:idx.get('r:'+c.id)})),deps=[...sourcePoints.flatMap(p=>p.deps),...radiusSources.map(r=>r.index)];
+          const local=Xa=>({points:sourcePoints.map(p=>{const q=p.get(Xa);return {id:p.id,x:q[0],y:q[1]};}),curves:sources.map(c=>({...c,...(c.type==='circle'?{r:Xa[idx.get('r:'+c.id)]}:{})}))});
+          let signature=null,cached=null;
+          const target=Xa=>{const key=deps.map(i=>Xa[i]).join(',');if(key!==signature){cached=SO.targets(local(Xa),k,value,false);signature=key;}return cached;};
+          SO.targets(local(X),k,value,true);validate.push(Xa=>SO.targets(local(Xa),k,value,true));
+          for(const b of k.bindings){
+            if(b.radius){const ir=idx.get('r:'+b.radius);push(Xa=>[Xa[ir]-target(Xa).radii[b.radius]],[...deps,ir],k);}
+            else{const p=pt(b.id);push(Xa=>{const a=p.get(Xa),q=target(Xa).points[b.id];return [a[0]-q[0],a[1]-q[1]];},[...deps,...p.deps],k);}
+          }
+          break;
+        }
         case 'offset': {
           // offset copy: lines stay parallel at distance v, arcs/circles concentric with radius r + s·v.
           // The distance comes from the group's offset dimension (k.dim), or k.v if that was deleted.
@@ -433,9 +452,10 @@ export function makeSystem(sk, ev) {
       }
     } catch (e) {
       bad.push(`${k.type === 'dim' ? 'Dimension' : 'Relation'}: ${e.message}`);
+      if(k.type==='offsetGeometry')push(()=>[1],[],k);
     }
   }
-  return { X: Float64Array.from(X), idx, eqs, n: X.length, bad };
+  return { X: Float64Array.from(X), idx, eqs, n: X.length, bad,validate };
 }
 
 function residuals(sys, X) {
@@ -590,8 +610,12 @@ function solveSketchBase(sk, ev, { pin = [], pinR = [] } = {}) {
     fixed.add(ir);
   }
   const err = sys.eqs.length ? lm(sys, X, fixed) : 0;
-  const ok = err < 1e-6;
-  if (ok) applyX(sk, sys, X);
+  let ok = err < 1e-6;
+  if(ok)for(const check of sys.validate){try{check(X);}catch(e){ok=false;sys.bad.push(e.message);}}
+  if (ok) {
+    applyX(sk, sys, X);
+    for(const k of sk.constraints)if(k.type==='offsetGeometry'){const d=sk.constraints.find(q=>q.id===k.dim);if(d)k.v=ev(d.value);}
+  }
   return { ok, err, bad: sys.bad };
 }
 

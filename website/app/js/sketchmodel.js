@@ -153,7 +153,7 @@ export function copyItems(sk, ids, M, { rotates = false } = {}) {
   }
   // relations and dimensions among the copied entities come along
   for (const k of [...sk.constraints]) {
-    if (k.type === 'fix' || k.type === 'projected' || k.type === 'offset' || k.type === 'sketchPattern' || k.driven) continue;
+    if (k.type === 'fix' || k.type === 'projected' || k.type === 'offset' || k.type === 'offsetGeometry' || k.offsetGroup || k.type === 'sketchPattern' || k.driven) continue;
     if (rotates && !(k.type === 'dim' ? ROT_DIMS.has(k.kind) : ROT_KEEPS.has(k.type))) continue;
     if (!k.refs.every((r) => map.has(r))) continue;
     const { id: _id, refs, ...rest } = k;
@@ -182,7 +182,7 @@ export function blockData(sk, ids) {
     if (o.handles) o.handles = o.handles.map(fixO);
     return o;
   });
-  const ks = sk.constraints.filter((k) => k.type !== 'fix' && k.type !== 'projected' && k.type !== 'offset' && k.type !== 'sketchPattern' && !k.driven && k.refs.every((r) => all.has(fixO(r))))
+  const ks = sk.constraints.filter((k) => k.type !== 'fix' && k.type !== 'projected' && k.type !== 'offset' && k.type !== 'offsetGeometry' && !k.offsetGroup && k.type !== 'sketchPattern' && !k.driven && k.refs.every((r) => all.has(fixO(r))))
     .map((k) => ({ ...JSON.parse(JSON.stringify(k)), refs: k.refs.map(fixO) }));
   return { points: P.map((q) => ({ ...q, x: +(q.x - cx).toFixed(6), y: +(q.y - cy).toFixed(6) })), curves: cs, constraints: ks };
 }
@@ -1884,6 +1884,7 @@ function circleCircle(c1, r1, c2, r2) {
 // where the offset curves meet, so they extend or trim as needed.
 // Returns { items: [{ it, type, entry, exit, a, b, c, r }], error }.
 export function offsetChain(sk, chain, d) {
+  if(!chain?.items?.length||!Number.isFinite(d))return {items:[],error:'Select a nonempty chain and a finite offset distance'};
   if (chain.items.some((it) => it.c.type === 'spline' || isEll(it.c))) return { items: [], error: 'A spline or ellipse cannot be offset (yet): offset the lines and arcs, or draw the second curve' };
   const out = chain.items.map((it) => {
     const { c, rev } = it;
@@ -1936,6 +1937,7 @@ export function offsetChain(sk, chain, d) {
 // Polylines for previewing an offset.
 export function offsetPreview(sk, chain, d) {
   const g = offsetChain(sk, chain, d);
+  if(g.error)return [];
   return g.items.map((o) => {
     if (o.type === 'line') return [o.a, o.b];
     let a0 = 0, span = TAU;
@@ -2795,6 +2797,12 @@ export function deleteItems(sk, ids) {
 
 export function cleanup(sk) {
   for (let pass = 0; pass < 5; pass++) {
+    sk.constraints=sk.constraints.filter(k=>{
+      if(!k.offsetGroup)return true;
+      const group=sk.constraints.find(q=>q.type==='offsetGeometry'&&q.dim===k.id);
+      if(!group)return false;
+      k.offsetGroup=group.id;k.refs=[group.chain[0].id,group.refs[group.chain.length]];return true;
+    });
     const used = new Set(['O']);
     for (const c of sk.curves) for (const k of ['p1', 'p2', 'c', 'a']) if (c[k]) used.add(c[k]);
     for (const c of sk.curves) for (const id of [...(c.pts || []), ...(c.handles || [])]) used.add(id);

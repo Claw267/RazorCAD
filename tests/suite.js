@@ -852,6 +852,26 @@ const UI = {
     return { ok: true, detail: 'Midpoint line, pre/post construction, five closed tangent slot variants, undo/redo, kernel rebuild and degenerate-input rejection' };
   },
 
+  async 'sketch-parametric-offset'() {
+    const {run}=await import('/tests/sketch-offset-cases.js'),math=run();if(!math.ok)return {ok:false,detail:math};
+    const a=window.app,S=await import('/js/sketchmodel.js');await a.newDocument?.();closeModals();
+    const d=M.newDoc(),f=M.createFeature(d,'sketch',{plane:{ref:'front'}}),p=[[0,0],[40,0],[40,30],[0,30]].map(q=>S.addPoint(f,...q));p.forEach((id,i)=>S.addLine(f,id,p[(i+1)%4]));d.features.push(f);await a.setDoc(d);await a.enterSketch(f,true);await wait(100);const sk=a.sketcher;sk.setTool('offset');
+    sk.offsetChain=false;if(sk.offsetSketchChain(f.curves[0].id).items.length!==1)return {ok:false,detail:'Individual selection ignored'};sk.offsetChain=true;if(sk.offsetSketchChain(f.curves[0].id).items.length!==4)return {ok:false,detail:'Chain selection failed'};
+    const mode=document.querySelector('[data-offset-mode]');mode.value='both';mode.dispatchEvent(new Event('change'));
+    sk.offsetDistance='3';sk.offsetTyped=true;const before=sk.snapshotData();sk.offsetClick({x:20,y:0});sk.offsetClick({x:20,y:3});
+    if(!sk.solveOk||f.constraints.filter(k=>k.type==='offsetGeometry').length!==2||f.constraints.filter(k=>k.kind==='offset').length!==1)return {ok:false,detail:'Both sides did not share one driving dimension'};
+    sk.closeModify();sk.undo();if(sk.snapshotData()!==before)return {ok:false,detail:'Undo did not remove offset'};sk.redo();if(f.constraints.filter(k=>k.type==='offsetGeometry').length!==2)return {ok:false,detail:'Redo lost parametric offset'};
+    const dimension=f.constraints.find(k=>k.kind==='offset');dimension.value='2+2';if(!sk.solve().ok)return {ok:false,detail:'Expression dimension failed'};
+    const group=f.constraints.find(k=>k.type==='offsetGeometry'),SO=await import('/js/sketchoffset.js'),expected=SO.targets(f,group,4);for(const [id,q] of Object.entries(expected.points)){const p=S.getPoint(f,id);if(Math.hypot(p.x-q[0],p.y-q[1])>1e-5)return {ok:false,detail:'Edited dimension did not drive both offsets'};}
+    // Publish a standalone offset contour to the native kernel and check its area.
+    const native=M.newDoc(),sf=M.createFeature(native,'sketch',{plane:{ref:'front'}}),pp=[[0,0],[40,0],[40,30],[0,30]].map(q=>S.addPoint(sf,...q));pp.forEach((id,i)=>S.addLine(sf,id,pp[(i+1)%4],true));const ch=S.chainOf(sf,sf.curves[0].id);SO.build(sf,ch,[-2],{construction:false});native.features.push(sf,M.createFeature(native,'extrude',{sketch:sf.id,depth:5}));
+    a.exitSketch(false);await a.setDoc(native);await a.rebuild();if(a.result.errors.size||!a.result.body)return {ok:false,detail:'Native offset contour rebuild failed: '+JSON.stringify([...a.result.errors])};
+    const volume=(await a.kernel.request('measure',{refs:[{kind:'body',id:a.result.bodies[0].id}]})).items[0].volume;if(Math.abs(volume-44*34*5)>.001)return {ok:false,detail:'Native offset volume '+volume};
+    const curved=M.newDoc(),cs=M.createFeature(curved,'sketch',{plane:{ref:'front'}}),cp=[[0,0],[40,0],[40,30],[0,30]].map(q=>S.addPoint(cs,...q));S.addLine(cs,cp[0],cp[1],true);S.addLine(cs,cp[1],cp[2],true);S.addCtrlSpline(cs,[cp[2],S.addPoint(cs,30,35),S.addPoint(cs,10,35),cp[3]],3,true);S.addLine(cs,cp[3],cp[0],true);SO.build(cs,SO.chainOf(cs,cs.curves[0].id),[-2],{construction:false});curved.features.push(cs,M.createFeature(curved,'extrude',{sketch:cs.id,depth:5}));await a.setDoc(curved);await a.rebuild();
+    if(a.result.errors.size||!a.result.body)return {ok:false,detail:'Native mixed spline offset extrusion failed: '+JSON.stringify([...a.result.errors])};const curvedVolume=(await a.kernel.request('measure',{refs:[{kind:'body',id:a.result.bodies[0].id}]})).items[0].volume;
+    return {ok:curvedVolume>volume&&curvedVolume<10000,detail:{math,nativeVolume:volume,curvedVolume}};
+  },
+
   async 'sketch-line-spline-tangent'() {
     const a=window.app,S=await import('/js/sketchmodel.js'),V=await import('/js/solver.js');
     const fixture=(kind='ctrl',end=0)=>{

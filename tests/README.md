@@ -87,6 +87,12 @@ case that previously returned the original full solid without an error.
 
 Checks signed and multiple-turn twist, analytical volumes, fixed-orientation translation on a curved path, uncapped/open surfaces, holes, Thin, cuts, nonuniform spline arc length and a 3D helix path. Includes explicit invalid-input rejection, legacy defaults and actual UI edits, expression persistence, orientation switching and cancellation. Run with both kernel configurations. Example: `tests/data/sweep-twist.rcad`.
 
+### Parametric sketch offsets
+
+`python tests/run_tests.py --only sketch-parametric-offset sketch-line-spline-tangent ctrl-spline sketch-fit-spline-handles --jobs 1`
+
+Checks analytic and spline offsets, rational and closed profiles, mixed chains, distance/source edits, both sides with one dimension, winding-independent inside/outside, serialization, undo/redo, collapse rejection and native extrusion volume.
+
 ### Line–spline tangency
 
 `python tests/run_tests.py --only sketch-line-spline-tangent sketch-fit-spline-handles ctrl-spline sketch-fillet-spline --jobs 1`

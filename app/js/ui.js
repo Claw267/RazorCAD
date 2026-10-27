@@ -3825,16 +3825,23 @@ export class UI {
 
     if (sk.tool === 'offset') {
       const g = this.pmGroup(root, 'Offset Options', 'sk:offset');
+      const mode=el('select',{'data-offset-mode':'',onchange:e=>{sk.offsetMode=e.target.value;sk.redraw();}});
+      for(const [value,label] of [['side','Pick side'],['inside','Inside / left'],['outside','Outside / right'],['both','Both sides']])mode.appendChild(el('option',{value,selected:sk.offsetMode===value},label));
+      g.appendChild(this.row('Direction',mode));
+      const distance=this.exprInput(sk.offsetDistance,'mm',v=>{sk.offsetDistance=v;sk.offsetTyped=true;sk.redraw();});distance.dataset.offsetDistance='';g.appendChild(this.row('Distance',distance));
+      g.appendChild(el('button',{class:'pm-btn','data-offset-mouse':'',onclick:()=>{sk.offsetTyped=false;sk.redraw();}},'Use mouse distance'));
+      g.appendChild(el('div',{class:'pm-hint'},'Inside/outside applies to closed contours; for open chains these mean left/right along the chain. Both sides uses this distance on each side.'));
       const opt = (label, key, title) => {
         const cb = el('input', { type: 'checkbox' });
         cb.checked = !!sk[key];
-        cb.onchange = () => { sk[key] = cb.checked; this.renderPM(); };
+        cb.onchange = () => { sk[key] = cb.checked; if(key==='offsetChain'&&sk.draw?.tool==='offset')sk.endDraw();sk.offHoverId=null;sk.offHover=null;sk.redraw();this.renderPM(); };
         const lab = el('label', { title });
         lab.append(cb, document.createTextNode(' ' + label));
         g.appendChild(this.row(null, lab, 'check'));
       };
       opt('Linked offset', 'offsetLinked', 'On: the offset follows its source (sketch entities or model edges) and keeps one editable offset dimension. Off: a single offset — plain geometry with no link.');
-      opt('Select chain (model edges)', 'offsetChain', 'Offset the connected model edges that lie in a plane parallel to the sketch, not just the clicked edge.');
+      opt('Select chain', 'offsetChain', 'Offset a connected chain of sketch curves or model edges. Turn off to offset only the clicked entity.');
+      g.appendChild(el('div',{class:'pm-hint'},'Spline offsets are fitted within 0.001 mm. Reduce the distance if an offset folds or collapses.'));
       g.appendChild(el('div', { class: 'pm-hint' }, sk.offsetLinked ? 'Linked: the offset updates when the source changes; its distance stays editable.' : 'Single: the offset is created once as plain geometry and does not follow the source.'));
     }
 

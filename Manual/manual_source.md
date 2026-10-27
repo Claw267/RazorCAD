@@ -498,7 +498,13 @@ Power trim: hover over a segment and it turns red; click to remove it up to the 
 
 ## Offset
 
-Click a line, arc or circle and its whole connected chain is offset. Move the mouse to the side and distance you want and click, then type the exact distance. Corners are re-trimmed or extended. {idx:Offset}
+Click a line, arc, circle or spline, choose the options in the Property panel, then click to create its offset. **Select chain** switches between the clicked entity and its connected contour, including mixed line/arc/spline chains. Corners are re-trimmed or extended; an unjoinable or collapsed offset reports an error. {idx:Offset}
+
+**Direction** offers **Pick side**, **Inside / left**, **Outside / right** and **Both sides**. Inside and outside follow the winding of a closed contour, including reversed contours. For an open chain they mean left and right along its traversal. Both sides places a copy at the specified distance on each side: one dimension drives both copies, so the total separation is twice the distance.
+
+Enter **Distance** before creating the offset; expressions and parameters are supported. **Use mouse distance** lets the pointer set the initial distance instead. The resulting offset dimension can be edited later. Linked offsets retain their source references through save/reopen and follow source edits. Constrain the source geometry to hold it in place while changing dimensions.
+
+Line and arc offsets remain analytic. Spline parallels are represented by cubic spline pieces, checked against source-curve normals at sampled parameters within **0.001 mm**; this is a sampled numerical check, not a certified global bound. Cusps, detected crossings and folds are rejected. A large source edit that exceeds the stored fit tolerance asks you to recreate that offset. Ellipses are not supported. Copies and blocks retain plain geometry rather than the offset link.
 
 - You can also click a **model edge** (with **Select chain**, the connected edges lying in a plane parallel to the sketch, such as a face outline) or a curve of another sketch.
 - **Linked offset** (default): the offset follows its source, including model edges when the model changes, and one dimension drives the chain (relation "Offset ⇉").
