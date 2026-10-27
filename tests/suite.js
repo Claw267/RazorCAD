@@ -4872,6 +4872,55 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     return {ok:true,detail:JSON.stringify({cases:native.results,health:native.health,ui:'solid and surface: expression, serialization, orientation switch, hidden twist and cancel'})};
   },
 
+  async 'sweep-canvas-selection'() {
+    const {run,fixture}=await import('/tests/sweep-selection-cases.js'),S=await import('/js/sketchmodel.js');
+    const native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
+    const a=window.app,settle=async()=>{await wait(180);await until(()=>!a.kernel.pending);};
+    const {Vector3}=await import('three'),click=async p=>{const ev=viewEvents();ev.vp.camera.updateMatrixWorld(true);await ev.click(...ev.toScreen(new Vector3(...p)));await settle();};
+    const slot=name=>document.querySelector(`[data-sweep-slot="${name}"]`).click();
+    for(const type of ['sweep','surfSweep']){
+      const data=fixture({type,open:type==='surfSweep',shared:true}),{doc,profile,path}=data;
+      doc.features.pop();const first=path.curves[0],end=first.p2,mid=S.addPoint(path,0,50);first.p2=mid;S.addLine(path,mid,end);
+      await a.newDocument?.();closeModals();await a.setDoc(doc);a.selection={kind:'feature',id:profile.id};a.startFeature(type);await settle();
+      const id=a.pm.feature.id;
+      if(type==='sweep'&&a.pm.feature.profile)return {ok:false,detail:'Sweep chose an arbitrary region from a multi-profile sketch'};
+      a.viewport.setStandardView('top',false);a.viewport.zoomToFit(null,false);await wait(160);
+      await click(type==='sweep'?[2,0,2]:[2,0,0]);
+      if(typeof a.pm.feature.profile!=='object'||!a.pm.feature.profile)return {ok:false,detail:type+': actual profile click failed'};
+      slot('path');let chain=document.querySelector('[data-sweep-chain="path"]');chain.checked=false;chain.dispatchEvent(new Event('change'));await settle();
+      a.viewport.setStandardView('front',false);a.viewport.zoomToFit(null,false);await wait(160);await click([0,25,0]);await click([0,75,0]);
+      if(a.pm.loftDraft?.curves.length!==2)return {ok:false,detail:type+': manual path selection failed'};
+      slot('guide');if(a.pm.sweepSlot!=='path'||a.pm.loftDraft?.curves.length!==2)return {ok:false,detail:'Switch discarded an unfinished contour'};
+      document.querySelector('[data-sweep-finish="path"]').click();await settle();slot('guide');await click([7.5,50,0]);
+      if(a.pm.feature.path?.curves.length!==2||a.pm.feature.guide?.sketch!==path.id)return {ok:false,detail:type+': distinct path and guide from same sketch failed'};
+      const guideMode=document.querySelector('[data-sweep-field="guideMode"]');guideMode.value='contact';guideMode.dispatchEvent(new Event('change'));await settle();
+      const savedPath=JSON.stringify(a.pm.feature.path);if(a.setSweepReference(path.id,'guide')!==false||JSON.stringify(a.pm.feature.path)!==savedPath)return {ok:false,detail:'Overlapping whole source was accepted'};
+      await a.okPM();if(a.result.errors.size)return {ok:false,detail:type+': '+JSON.stringify([...a.result.errors])};
+      const feature=M.findFeature(a.doc,id),refs=M.referencesOf(a.doc,feature);if(!refs.has(profile.id)||!refs.has(path.id))return {ok:false,detail:'Contour dependencies missing'};
+      const m=(await a.kernel.request('measure',{refs:[{kind:'body',id:a.result.body.bodies.at(-1).id}]})).items[0],value=type==='sweep'?m.volume:m.area,expected=type==='sweep'?Math.PI*100*175/3:1500;
+      if(m.solid!==(type==='sweep')||Math.abs(value-expected)/expected>2e-5)return {ok:false,detail:type+': wrong selected geometry '+JSON.stringify(m)};
+      await a.setDoc(JSON.parse(JSON.stringify(a.doc)));a.editFeature(id);await settle();slot('path');
+      if(document.querySelector('[data-sweep-chain="path"]').checked)return {ok:false,detail:'Per-role chain setting was not restored'};
+      slot('guide');if(!document.querySelector('[data-sweep-chain="guide"]').checked)return {ok:false,detail:'Guide inherited the path chain setting'};
+      document.querySelector('[data-sweep-clear="guide"]').click();await settle();if(!document.querySelector('[data-sweep-field="orientation"]'))return {ok:false,detail:'Single-path options did not return'};
+      a.cancelPM();await a.rebuild();if(!M.findFeature(a.doc,id).guide||a.result.errors.size)return {ok:false,detail:'Cancel/reopen lost selected inputs'};
+    }
+    const cut=fixture(),base=M.createFeature(cut.doc,'sketch',{plane:{ref:'top'}});S.addCircle(base,'O',20);
+    const solid=M.createFeature(cut.doc,'extrude',{sketch:base.id,depth:100});cut.doc.features.unshift(base,solid);
+    await a.setDoc(cut.doc);a.editFeature(cut.sweep.id);await settle();
+    const operation=document.querySelector('[data-solid-operation]');operation.value='cut';operation.dispatchEvent(new Event('change'));await settle();
+    const all=[...document.querySelectorAll('#pm .pm-row')].find(r=>r.querySelector('label')?.textContent.trim()==='All bodies')?.querySelector('input');
+    all.checked=false;all.dispatchEvent(new Event('change'));await settle();document.querySelector('[data-feature-scope]').click();
+    if(a.pickMode()!=='body')return {ok:false,detail:'Sweep profile picking intercepted cut targets'};
+    a.viewport.setStandardView('front',false);a.viewport.zoomToFit(null,false);await wait(160);await click([18,50,0]);
+    if(a.pm.feature.scope.length!==1)return {ok:false,detail:'Sweep cut target canvas selection failed'};
+    slot('guide');if(a.pickMode()!=='loftContour')return {ok:false,detail:'Sweep selector did not resume after body picking'};
+    await a.okPM();if(a.result.errors.size)return {ok:false,detail:'Scoped sweep cut failed: '+JSON.stringify([...a.result.errors])};
+    const cutVolume=(await a.kernel.request('measure',{refs:[{kind:'body',id:a.result.body.bodies.at(-1).id}]})).items[0].volume;
+    if(Math.abs(cutVolume-(40000*Math.PI-Math.PI*100*175/3))>0.001)return {ok:false,detail:'Wrong scoped cut volume: '+cutVolume};
+    return {ok:true,detail:JSON.stringify({cases:native.results,health:native.health,ui:'actual canvas roles, manual connected entities, same-sketch path/guide, overlap rejection, independent chain settings, dependencies, reopen, cancel and scoped cut'})};
+  },
+
   async 'surface-sweep-path-guide'() {
     const {run,fixture}=await import('/tests/surface-sweep-guide-cases.js');
     const native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};

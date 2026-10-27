@@ -620,11 +620,11 @@ const PM_SCHEMAS = {
   sweep: [
     {
       title: 'Profile, Path and Guide', fields: [
-        { key: 'profileType', type: 'select', label: 'Profile', options: [['sketch', 'A sketch'], ['circle', 'Circular (enter the diameter)']] },
-        { key: 'profile', type: 'sketch', label: 'Profile sketch', show: (f) => f.profileType !== 'circle' },
+        { key: 'profileType', type: 'select', label: 'Profile', options: [['sketch', 'Sketch profile'], ['circle', 'Circular (enter the diameter)']] },
+        { key: 'profile', type: 'sweepSelection', label: 'Profile', show: (f) => f.profileType !== 'circle' },
         { key: 'diameter', type: 'expr', label: 'Diameter', unit: 'mm', show: (f) => f.profileType === 'circle' },
-        { key: 'path', type: 'pathSel', label: 'Path' },
-        { key: 'guide', type: 'pathSel', label: 'Guide (optional)', optional: true },
+        { key: 'path', type: 'sweepSelection', label: 'Path' },
+        { key: 'guide', type: 'sweepSelection', label: 'Guide (optional)', optional: true },
         { key: 'orientation', type: 'select', label: 'Orientation', show: (f) => !f.guide, options: [['perpendicular', 'Perpendicular to path'], ['parallel', 'Parallel to initial profile']] },
         { key: 'twistAngle', type: 'expr', default: 0, label: 'Twist angle', unit: '°', show: (f) => !f.guide && f.orientation !== 'parallel' },
         { key: 'twistHint', type: 'hint', show: (f) => !f.guide && f.orientation !== 'parallel', text: 'Total rotation distributed by distance along the path. Positive angles follow the right-hand rule along the path. Twist requires an open, tangent-continuous path; zero keeps the usual sweep.' },
@@ -633,7 +633,7 @@ const PM_SCHEMAS = {
         { key: 'sweepHint', type: 'hint', text: 'The path is a sketch (one chain of lines and arcs) or a helix. A sketch profile should sit at the start of the path, across it. For a spring: a helix path and a circular profile.' },
       ],
     },
-    { title: 'Options', fields: [{ key: 'merge', type: 'check', label: 'Merge result (off: make a separate body)', show: (f) => f.op === 'add' }] },
+    { title: 'Operation', fields: [{ key: 'operation', type: 'solidOperation' }] },
     { ...THIN_GROUP, fields: THIN_GROUP.fields.map((x) => ({ ...x, show: (f) => f.profileType !== 'circle' && (!x.show || x.show(f)) })) },
     ...SCOPE_GROUP,
   ],
@@ -1019,11 +1019,11 @@ const PM_SCHEMAS = {
   ],
   surfSweep: [
     { title: 'Profile, Path and Guide', fields: [
-      { key: 'profileType', type: 'select', label: 'Profile', options: [['sketch', 'A sketch (open or closed)'], ['circle', 'Circular (enter the diameter)']] },
-      { key: 'profile', type: 'sketch', label: 'Profile sketch', show: (f) => f.profileType !== 'circle' },
+      { key: 'profileType', type: 'select', label: 'Profile', options: [['sketch', 'Sketch contour (open or closed)'], ['circle', 'Circular (enter the diameter)']] },
+      { key: 'profile', type: 'sweepSelection', label: 'Profile', show: (f) => f.profileType !== 'circle' },
       { key: 'diameter', type: 'expr', label: 'Diameter', unit: 'mm', show: (f) => f.profileType === 'circle' },
-      { key: 'path', type: 'pathSel', label: 'Path' },
-      { key: 'guide', type: 'pathSel', label: 'Guide (optional)', optional: true },
+      { key: 'path', type: 'sweepSelection', label: 'Path' },
+      { key: 'guide', type: 'sweepSelection', label: 'Guide (optional)', optional: true },
         { key: 'orientation', type: 'select', label: 'Orientation', show: (f) => !f.guide, options: [['perpendicular', 'Perpendicular to path'], ['parallel', 'Parallel to initial profile']] },
         { key: 'twistAngle', type: 'expr', default: 0, label: 'Twist angle', unit: '°', show: (f) => !f.guide && f.orientation !== 'parallel' },
         { key: 'twistHint', type: 'hint', show: (f) => !f.guide && f.orientation !== 'parallel', text: 'Total rotation distributed by distance along the path. Positive angles follow the right-hand rule along the path. Twist requires an open, tangent-continuous path; zero keeps the usual sweep.' },
@@ -3473,6 +3473,7 @@ export class UI {
   renderFeaturePM(root) {
     const a = this.app, pm = a.pm, f = pm.feature, doc = a.doc;
     const info = TYPE_INFO[f.type];
+    if(['sweep','surfSweep'].includes(f.type)){pm.sweepSlot ||= f.profileType==='circle'?'path':'profile';}
     if (f.type === 'surfFill' && f.continuity == null) f.continuity = f.tangent ? 'G1' : 'G0';
     if (['extrude','surfPlanar','revolve','surfExtrude','surfRevolve'].includes(f.type) && !Array.isArray(f.profiles)) { f.profiles = f.sketch ? [f.sketch] : []; f.sketch = null; }
     if(['revolve','surfRevolve'].includes(f.type)){if(!f.extent){try{f.extent=evaluate(f.angle??360,a.result?.vars||{})>=360?'full':'angle';}catch{f.extent='angle';}}f.end ||= 'oneway';}
@@ -3506,6 +3507,8 @@ export class UI {
         if (fd.world) { const ik = W.internalAxis(fd.world[0]); fd.key = fd.world[1]['xyz'.indexOf(ik.slice(-1))]; fd.neg = ik.startsWith('-'); }
         if (fd.type === 'hint') {
           body.appendChild(el('div', { class: 'pm-hint' }, esc(fd.text)));
+        } else if(fd.type==='sweepSelection'){
+          this.renderSweepSelection(body,f,before,fd);
         } else if (fd.type === 'loftSelection') {
           this.renderLoftSelection(body, f, before, fd);
         } else if (fd.type === 'sketchList') {
@@ -3690,6 +3693,7 @@ export class UI {
           if (['sweep','surfSweep'].includes(f.type) && ['profile','path','guide'].includes(fd.key)) s.onfocus = () => { pm.sweepSlot = fd.key; };
           s.onchange = () => {
             f[fd.key] = s.value || null;
+            if(['sweep','surfSweep'].includes(f.type)&&fd.key==='profileType'){pm.sweepSlot=f.profileType==='circle'?'path':'profile';pm.sweepCanvas=true;pm.loftDraft=null;pm.loftHover=null;}
             if (['revolve','surfRevolve'].includes(f.type)&&fd.key==='axis')s.onfocus=()=>{pm.profilePick=false;pm.scopePick=false;a.updateSketchDisplay();};
           if (['revolve','surfRevolve','surfExtrude','extrude'].includes(f.type))s.dataset.featureField=fd.key;
           if (f.type === 'surfFill' && fd.key === 'continuity' && s.value === 'G0' && !f.edges.some(e => e.continuity && e.continuity !== 'G0')) pm.patchSupportPick = false;
@@ -5041,6 +5045,35 @@ export class UI {
     if (f[key].length) body.appendChild(el('button', { class: 'pm-btn', onclick: () => { f[key].length = 0; this.renderPM(); a.updateEdgeHighlights(); a.preview(); } }, 'Clear'));
   }
 
+  renderSweepSelection(body,f,before,fd){
+    const a=this.app,pm=a.pm,slot=fd.key,active=pm.sweepSlot===slot&&pm.sweepCanvas!==false&&!pm.scopePick;
+    body.appendChild(el('button',{class:'pm-btn'+(active?' on':''),'data-sweep-slot':slot,'aria-pressed':String(active),onclick:()=>a.activateSweepSlot(slot)},`Select ${fd.label} in canvas`));
+    const current=f[slot];
+    if(current){
+      const row=el('div',{class:'li sel','data-sweep-reference':slot}),name=typeof current==='string'?findFeature(a.doc,current)?.name||'(missing)':LR.describeRef(a.doc,current);
+      row.appendChild(el('span',{},esc(name)));row.appendChild(el('button',{class:'pm-btn','data-sweep-clear':slot,onclick:()=>a.setSweepReference(null,slot)},'✕'));body.appendChild(row);
+    }
+    if(active){
+      const checkbox=el('input',{type:'checkbox','data-sweep-chain':slot});checkbox.checked=f.selectionChains?.[slot]!==false;
+      checkbox.onchange=()=>{f.selectionChains={...(f.selectionChains||{}),[slot]:checkbox.checked};pm.loftDraft=null;pm.loftHover=null;this.renderPM();a.updateSketchDisplay();};
+      const label=el('label');label.append(checkbox,document.createTextNode(' Chain selection'));body.appendChild(this.row(null,label,'check'));
+      body.appendChild(el('div',{class:'pm-hint'},slot==='profile'?'Choose a region or contour. Surface profiles may be open; solid open profiles use Thin Feature.':'Choose one connected path or guide; construction curves are allowed. Different contours from one sketch can fill different roles.'));
+      if(!checkbox.checked){
+        const count=pm.loftDraft?.curves.length||0;
+        body.appendChild(el('div',{class:'pm-hint'},`${count} entities in the current contour`));
+        body.appendChild(el('button',{class:'pm-btn','data-sweep-finish':slot,disabled:!count,onclick:()=>a.finishLoftSelection()},'Use selected contour'));
+        if(count)body.appendChild(el('button',{class:'pm-btn','data-sweep-draft-clear':slot,onclick:()=>{pm.loftDraft=null;this.renderPM();a.updateSketchDisplay();}},'Clear current selection'));
+      }
+    }
+    const details=el('details'),summary=el('summary',{},'Other sources (whole sketch / curve)');details.appendChild(summary);
+    const select=el('select',{'data-sweep-field':slot}),kinds=slot==='profile'?['sketch']:['sketch','sketch3d','helix','compCurve','projCurve'];
+    select.appendChild(el('option',{value:''},slot==='guide'?'— no guide —':'— select a source —'));
+    for(const source of before.filter(s=>kinds.includes(s.type)&&!s.suppressed&&!['profile','path','guide'].some(other=>other!==slot&&!(other==='profile'&&f.profileType==='circle')&&LR.overlappingRefs(s.id,f[other]))))select.appendChild(el('option',{value:source.id},esc(source.name)));
+    select.value=typeof current==='string'?current:'';
+    select.onchange=()=>a.setSweepReference(select.value||null,slot);
+    details.appendChild(select);body.appendChild(details);
+  }
+
   // Loft profiles: sketches in order (the loft goes through them from first to last).
   renderLoftSelection(body, f, before, fd) {
     const a = this.app, pm = a.pm, key = fd.key, guide = key === 'guides';
@@ -5123,7 +5156,7 @@ export class UI {
   // Bodies (as they are before this feature) with tick boxes; they can also be clicked on the model.
   renderBodyList(body, f, fd) {
     const a = this.app;
-    if(fd.key==='scope'&&['extrude','revolve'].includes(f.type))body.appendChild(el('button',{class:'pm-btn','data-feature-scope':'',onclick:()=>{a.pm.scopePick=true;a.pm.profilePick=false;a.pm.extrudePick=false;this.renderPM();a.updateSketchDisplay();}},'Select target bodies in canvas'));
+    if(fd.key==='scope'&&['extrude','revolve','sweep'].includes(f.type))body.appendChild(el('button',{class:'pm-btn','data-feature-scope':'',onclick:()=>{a.pm.scopePick=true;a.pm.sweepCanvas=false;a.pm.profilePick=false;a.pm.extrudePick=false;this.renderPM();a.updateSketchDisplay();}},'Select target bodies in canvas'));
     if (!Array.isArray(f[fd.key])) f[fd.key] = [];
     const list = (a.result?.bodies || []).filter((b) => (fd.kinds.includes(b.kind) || (b.sheet && fd.kinds.includes('sheet'))) && !(fd.kinds.length === 1 && fd.kinds[0] === 'sheet' && !b.sheet) && (!fd.exclude || b.id !== f[fd.exclude]));
     if (fd.hint) body.appendChild(el('div', { class: 'pm-hint' }, esc(fd.hint)));

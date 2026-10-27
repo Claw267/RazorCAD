@@ -765,8 +765,8 @@ Choose **Select axis in canvas** separately from the profiles. The axis may be a
 
 Sweeps a profile along a path. {idx:sweep}
 
-- **Profile**: a sketch, or **Circular** with a diameter (useful for springs).
-- **Path**: a sketch chain, 3D sketch, curve or helix.
+- **Profile**: a selected sketch region or contour, or **Circular** with a diameter (useful for springs).
+- **Path**: a selected sketch chain, 3D sketch, curve or helix.
 - Without a guide, **Orientation → Perpendicular to path** keeps the section normal to the path. **Twist angle** adds a total signed rotation, distributed by arc length. Positive rotation follows the right-hand rule along the path; negative values reverse it. Equations are supported. Zero retains the previous sweep algorithm.
 - **Orientation → Parallel to initial profile** translates the section along the path while preserving its initial orientation. The retained twist value is inactive in this mode. Tight bends or overlapping sections can make the sweep invalid.
 - Nonzero twist currently requires an **open, tangent-continuous path** and a profile in its initial normal plane. Round sharp path corners first. The moving frame minimizes incidental rotation; a bounded, refined CAD auxiliary curve controls the requested twist. Frame/interpolation convergence and final CAD face contact are checked numerically to **0.0001 mm**; this is not a certified global error bound. Failure reports an error instead of silently removing twist.
@@ -775,6 +775,10 @@ Sweeps a profile along a path. {idx:sweep}
 - **Guide controls → Section size** uniformly scales the profile so the guide lies on its boundary. The guide must start on the profile boundary and meet every normal plane of the path once. The native sweep uses a bounded interpolated scale law in arc-length coordinates. Its contact is checked on the CAD faces to **0.0001 mm**, including independent samples; this is a numerical check, not a certified global bound.
 - A guided sweep currently requires one closed profile without holes or Thin Feature, an open path and an open guide. The profile must lie in the normal plane at the path start. Both curves must span the same endpoint normal planes and remain separate. Incompatible geometry reports an error without switching to an ordinary sweep. Guide direction is reversed automatically when its endpoint planes are reversed.
 - **Thin** option for sweeps without a guide.
+
+**Select Profile / Path / Guide in canvas** activates one role at a time. Click inside a closed profile or on its contour; click path and guide curves directly. Each role has its own **Chain selection** checkbox. Turn it off to pick individual connected entities from one sketch, then choose **Use selected contour** or press Enter. Add or clear an unfinished contour before switching roles. Paths and guides may include construction curves. Different contours from the same sketch can be used in different roles, but the same entities cannot be reused across roles. Unrelated sketch geometry is ignored by selected contour references; missing selected curves report an error. **Other sources (whole sketch / curve)** retains explicit whole-sketch and supported derived-curve selection, including existing files.
+
+Solid Sweep uses the same **Join / New body / Cut** operation control as Extrude and Revolve. Cut supports explicit target-body selection. Without a guide, selected regions retain internal holes and open profiles can use Thin Feature.
 
 ## Loft and Loft Cut
 
@@ -994,6 +998,8 @@ The **Surfaces** tab builds surface bodies (zero-thickness faces), listed under 
 {idx:Lofted Surface}{idx:Swept Surface}{idx:Filled Surface}{idx:Boundary Surface}{idx:Ruled Surface}{idx:Copy Surface}
 
 ### Guide control for Swept Surface
+
+Swept Surface uses the same separate canvas selectors and per-role Chain selection as solid Sweep. Choose one open or closed profile contour without holes; a region with inner loops must be reduced to the desired contour. Whole-sketch sources remain available explicitly for older workflows.
 
 Without a guide, **Orientation** and **Twist angle** work as in solid Sweep: perpendicular sections with an optional signed total twist, or sections parallel to the initial profile. Open and closed profiles remain uncapped. The same open, tangent-continuous path restriction and numerical checks apply to nonzero twist.
 

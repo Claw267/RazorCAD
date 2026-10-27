@@ -63,7 +63,7 @@ the circular section size.
 For guided swept surfaces, run:
 
 ```sh
-python tests/run_tests.py --only surface-sweep-path-guide sweep-path-guide --jobs 1
+python tests/run_tests.py --only sweep-canvas-selection surface-sweep-path-guide sweep-path-guide --jobs 1
 ```
 
 This checks open, polyline and closed profiles, uncapped circular shells, analytic

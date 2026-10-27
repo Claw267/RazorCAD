@@ -2267,6 +2267,21 @@ async function rebuild(doc, previewId = null, opts = {}) {
     } else solids = parts.map((shape, i) => bodyRec(solids[i]?.id ?? newId(cur.id), shape, cur.id));
     body = compoundOf(solids);
   };
+  const sweepWire=(ref,label,owned)=>{
+    if(!ref)throw new Error(`Select the sweep ${label}`);
+    if(typeof ref==='string'&&curves.has(ref)){const curve=curves.get(ref);return {wire:curve.wire,helical:!curve.route};}
+    const source=sketches.get(LR.sourceId(ref));
+    if(!source)throw new Error(`The sweep ${label} is missing, suppressed or has errors`);
+    const subset=typeof ref==='string'?source.sk:LR.resolveContour(source.sk,ref,true).sketch;
+    const wires=sketchWires(subset,source.frame);owned.push(...wires);
+    if(wires.length!==1)throw new Error(`The sweep ${label} must be one connected chain of curves`);
+    return {wire:wires[0],helical:false};
+  };
+  const checkSweepRefs=f=>{
+    if(f.profileType!=='circle'&&LR.overlappingRefs(f.profile,f.path))throw new Error('Choose different entities for the sweep profile and path');
+    if(f.guide&&(LR.overlappingRefs(f.guide,f.path)||f.profileType!=='circle'&&LR.overlappingRefs(f.guide,f.profile)))throw new Error('Choose different sources or entities for the sweep profile, path and guide');
+  };
+
   // thin: { t, dir } makes walls along the sketch curves instead of filling closed profiles
   // drawing: the 2D profile (closed regions, with any text) to extrude / revolve / project
   const getSketch = (id, thin = null) => {
@@ -3756,41 +3771,25 @@ async function rebuild(doc, previewId = null, opts = {}) {
           break;
         }
         case 'surfSweep': {
-          // a surface swept along a path: an open or closed sketch chain, or a circle
-          let spine, helical = false;
-          if (curves.has(f.path)) { spine = curves.get(f.path).wire; helical = !curves.get(f.path).route; }
-          else {
-            const ps = f.path && sketches.get(f.path);
-            if (!ps) throw new Error('Select the path: a sketch (one chain of curves), a 3D sketch or a helix');
-            const ws = sketchWires(ps.sk, ps.frame);
-            if (ws.length !== 1) throw new Error('The path sketch must be one connected chain of curves');
-            spine = ws[0];
-          }
+          const owned=[];
+          try{
+          checkSweepRefs(f);
+          const {wire:spine,helical}=sweepWire(f.path,'path',owned);
           let profile;
           if (f.profileType === 'circle') {
             const dia = ev(f.diameter);
             if (!(dia > 0)) throw new Error('The diameter must be greater than zero');
-            profile = R.assembleWire([R.makeCircle(dia / 2, vec(spine.startPoint), unit(vec(spine.tangentAt(0))))]);
+            profile = R.assembleWire([R.makeCircle(dia / 2, vec(spine.startPoint), unit(vec(spine.tangentAt(0))))]);owned.push(profile);
           } else {
-            if (!f.profile || f.profile === f.path) throw new Error('Select a profile sketch (different from the path)');
-            const ps = sketches.get(f.profile);
-            if (!ps) throw new Error('The profile sketch is missing, suppressed or has errors');
-            const ws = sketchWires(ps.sk, ps.frame);
-            if (ws.length !== 1) throw new Error('The profile sketch must be one connected chain of curves');
-            profile = ws[0];
+            if(!f.profile)throw new Error('Select a surface sweep profile');
+            const ps=sketches.get(LR.sourceId(f.profile));
+            if(!ps)throw new Error('The profile sketch is missing, suppressed or has errors');
+            const subset=typeof f.profile==='string'?ps.sk:LR.resolveContour(ps.sk,f.profile).sketch;
+            const ws=sketchWires(subset,ps.frame);owned.push(...ws);
+            if(ws.length!==1)throw new Error('The surface profile must be one connected chain of curves without holes');
+            profile=ws[0];
           }
-          let guide;
-          if (f.guide) {
-            if (f.guide === f.path || f.profileType !== 'circle' && f.guide === f.profile) throw new Error('Choose different sources for the sweep profile, path and guide');
-            if (curves.has(f.guide)) guide = curves.get(f.guide).wire;
-            else {
-              const gs = sketches.get(f.guide);
-              if (!gs) throw new Error('The sweep guide is missing, suppressed or has errors');
-              const wires = sketchWires(gs.sk, gs.frame);
-              if (wires.length !== 1) throw new Error('The sweep guide must be one connected chain of curves');
-              guide = wires[0];
-            }
-          }
+          const guide=f.guide?sweepWire(f.guide,'guide',owned).wire:null;
           const orientation = f.orientation || 'perpendicular', twist = guide || orientation === 'parallel' ? 0 : ev(f.twistAngle ?? 0);
           const oriented = !guide && (orientation !== 'perpendicular' || twist !== 0);
           let shape = guide ? sweepWithGuide(profile, spine, guide, f.guideMode || 'orientation', true) : oriented ? sweepWithOrientation(R, profile, spine, orientation, twist, true, nearFacePoint) : null;
@@ -3801,6 +3800,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
           if (!shape) throw new Error('The profile could not be swept along the path (place it at the start of the path, across it)');
           surfaces.push(bodyRec(newId(f.id), shape, f.id));
           applied.push({ op: 'add', tool: shape });
+          }finally{owned.reverse().forEach(w=>w.delete());}
           break;
         }
         case 'surfFill': {
@@ -4914,16 +4914,10 @@ async function rebuild(doc, previewId = null, opts = {}) {
           break;
         }
         case 'sweep': {
-          // the path: a helix or a 3D sketch, or one connected chain of curves in a sketch
-          let spine, helical = false;
-          if (curves.has(f.path)) { spine = curves.get(f.path).wire; helical = !curves.get(f.path).route; }
-          else {
-            const ps = f.path && sketches.get(f.path);
-            if (!ps) throw new Error('Select the path: a sketch (one chain of curves) or a helix');
-            const ws = sketchWires(ps.sk, ps.frame);
-            if (ws.length !== 1) throw new Error('The path sketch must be one connected chain of curves');
-            spine = ws[0];
-          }
+          const owned=[];
+          try{
+          checkSweepRefs(f);
+          const {wire:spine,helical}=sweepWire(f.path,'path',owned);
           const start = vec(spine.startPoint), tan0 = unit(vec(spine.tangentAt(0)));
           let profiles;
           if (f.profileType === 'circle') {
@@ -4931,23 +4925,12 @@ async function rebuild(doc, previewId = null, opts = {}) {
             if (!(dia > 0)) throw new Error('The diameter must be greater than zero');
             profiles = [{ outer: R.assembleWire([R.makeCircle(dia / 2, start, tan0)]), holes: [] }];
           } else {
-            if (f.profile === f.path) throw new Error('The profile and the path must be different sketches');
             const sk = getSketch(f.profile, f.thin ? { t: ev(f.thinT), dir: f.thinDir || 'one' } : null);
             profiles = sk.regions.map((rg) => ({ outer: loopWire(sk.frame, rg.outer.segs), holes: rg.holes.map((h) => loopWire(sk.frame, h.segs)) }));
           }
-          let guide;
-          if (f.guide) {
-            if (f.guide === f.path || f.profileType !== 'circle' && f.guide === f.profile) throw new Error('Choose different sources for the sweep profile, path and guide');
-            if (f.profileType !== 'circle' && f.thin || profiles.length !== 1 || profiles[0].holes.length) throw new Error('A guided sweep requires one closed profile without holes or Thin Feature');
-            if (curves.has(f.guide)) guide = curves.get(f.guide).wire;
-            else {
-              const gs = sketches.get(f.guide);
-              if (!gs) throw new Error('The sweep guide is missing, suppressed or has errors');
-              const wires = sketchWires(gs.sk, gs.frame);
-              if (wires.length !== 1) throw new Error('The sweep guide must be one connected chain of curves');
-              guide = wires[0];
-            }
-          }
+          profiles.forEach(p=>owned.push(p.outer,...p.holes));
+          const guide=f.guide?sweepWire(f.guide,'guide',owned).wire:null;
+          if(guide&&(f.profileType!=='circle'&&f.thin||profiles.length!==1||profiles[0].holes.length))throw new Error('A guided sweep requires one closed profile without holes or Thin Feature');
           const orientation = f.orientation || 'perpendicular', twist = guide || orientation === 'parallel' ? 0 : ev(f.twistAngle ?? 0);
           const sweepOne = (w) => {
             if (guide) return sweepWithGuide(w, spine, guide, f.guideMode || 'orientation');
@@ -4968,6 +4951,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
           const scope = f.op === 'cut' && f.scopeAll === false ? f.scope || [] : null;
           tools.set(f.id, { shape: tool, op: f.op, merge: f.merge !== false, scope });
           apply(f.op, tool, f.merge !== false, scope);
+          }finally{owned.reverse().forEach(w=>w.delete());}
           break;
         }
         case 'loft': {

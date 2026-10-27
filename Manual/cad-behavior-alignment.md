@@ -14,6 +14,7 @@ matching a menu label alone is insufficient.
 | Surface Extrude | Selected regions or open/closed contours; manual entity selection | One side, symmetric or two independent depths; reverse; produces surface geometry rather than a capped solid |
 | Surface Revolve | Selected regions or open/closed contours; profile and axis picking are separate | Same Full/Angle and directional controls as solid Revolve, optional axis projection; keeps a surface result |
 | Planar Surface | Previously added canvas regions, individual sketch entities and closed model-edge loops | Preserves region holes, rejects open/nonplanar model boundaries; explicit whole-sketch fallback |
+| Sweep / Surface Sweep | Separate canvas profile/path/guide roles; per-role chain or individual-entity selection; disjoint contours from the same sketch; explicit whole-source fallback | Existing guide modes, orientation and twist retained; solid Join/New/Cut and target scope; open surface profiles remain uncapped |
 
 Sketch/reference/model axes remain supported. A picked sketch axis may come
 from another earlier sketch; the profile subset does not discard its axis.
@@ -34,7 +35,7 @@ instead of changing the resulting geometry.
 | Revolve | Features listed above | To Object extent; direct planar-face inputs; additional component-level operations |
 | Surface Extrude | Features listed above | Start offsets/objects, To Object termination, direct model-edge/face inputs and draft |
 | Surface Revolve | Features listed above | To Object extent and direct model-edge/face inputs |
-| Sweep / Surface Sweep | Path/guide modes, parallel/perpendicular orientation and twist already exist | Replace remaining whole-sketch profile/path fields with explicit contour slots; compare guide-surface and scale/twist controls |
+| Sweep / Surface Sweep | Contour slots and path/guide modes listed above | Guide surfaces, broader scale/twist controls and direct model-edge/face inputs; guided solid holes/Thin remain unsupported |
 | Loft / Surface Loft | Canvas profiles, guides and separate endpoint conditions through G2 already exist | Broader guide/endpoint combinations, continuity influence controls and model-face selection workflows |
 | Patch | Per-edge G0/G1/G2 and connected model-edge selection already exist | Tangency weights, interior rails/points; sketch inputs need an explicit product decision (planar sketch creation currently belongs to Planar Surface) |
 | Fillet/Chamfer, Shell, Hole, patterns, sheet metal, assemblies and drawings | Existing RazorCAD commands | Dedicated command-by-command comparison and interaction tests are still required |
@@ -57,3 +58,10 @@ independent/projected axes, Thin, invalid angles and axis crossings. The
 picks, edits the shared controls and operations, selects a cut target body,
 saves/reopens and cancels edits. Run it on both kernel configurations, alongside
 the existing Extrude, Loft, Planar Surface, Patch and saved-part regressions.
+
+`sweep-canvas-selection` adds native analytical volume/area cases for selected
+references, construction curves, shared-sketch roles, missing/overlapping inputs
+and surface result types. Its app workflow uses actual viewport clicks and
+manual connected-entity selection, checks role-switch guards, independent chain
+settings, dependency tracking, reopening and cancel. Existing guide/orientation
+tests cover legacy whole-source documents and retained options.

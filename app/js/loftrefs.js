@@ -7,6 +7,14 @@ const boundaryIds = (loop) => sorted(loop.segs.map((g) => g.sourceCurve));
 export const regionKey = (region) => JSON.stringify([boundaryIds(region.outer), region.holes.map(boundaryIds).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))]);
 export const refKey = (ref) => !ref || typeof ref === 'string' ? ref : JSON.stringify([ref.sketch, sorted(ref.curves || []), ref.region || null]);
 
+// Sweep roles may use different contours from one sketch, but must not reuse
+// the same entities. A whole-sketch reference includes every contour in it.
+export function overlappingRefs(a,b){
+  if(!a||!b||sourceId(a)!==sourceId(b))return false;
+  if(typeof a==='string'||typeof b==='string')return true;
+  const ids=new Set(a.curves||[]);return (b.curves||[]).some(id=>ids.has(id));
+}
+
 export function regionRef(sketch, region) {
   return { kind: 'sketchContour', sketch, curves: sorted([region.outer, ...region.holes].flatMap(boundaryIds)), region: regionKey(region) };
 }

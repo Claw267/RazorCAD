@@ -33,7 +33,7 @@ export async function run({threads=1}={}){
     {name:'missing guide',reject:/guide is missing/,edit:({sweep})=>{sweep.guide='missing';}},
     {name:'guide misses profile',reject:/profile curve/,edit:({guide})=>{guide.points[0].x=6;}},
     {name:'guide crosses path',reject:/crosses|separate|closely/,edit:({guide})=>{guide.points[1].x=-5;}},
-    {name:'multiple profile chains',reject:/profile sketch must be one connected chain/,edit:({profile})=>{S.addLine(profile,S.addPoint(profile,20,0),S.addPoint(profile,30,0));}},
+    {name:'multiple profile chains',reject:/profile must be one connected chain/,edit:({profile})=>{S.addLine(profile,S.addPoint(profile,20,0),S.addPoint(profile,30,0));}},
     {name:'unknown mode',reject:/Select Orientation/,edit:({sweep})=>{sweep.guideMode='unknown';}},
   ];
   try{

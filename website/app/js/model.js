@@ -421,7 +421,7 @@ export function referencesOf(doc, f) {
   const addId = (v) => { if (typeof v === 'string' && ids.has(v)) out.add(v); };
   const addBody = (v) => { if (typeof v === 'string' && v) addId(bodyOwner(v)); };
   for (const k of ['sketch', 'feature', 'base', 'toPoint', 'toPlane', 'planeA', 'planeB', 'pointA', 'pointB', 'axis', 'dir1', 'dir2', 'rotAxis', 'parent', 'profile', 'path', 'guide', 'startDirection', 'endDirection']) addId(f[k]);
-  for (const ref of [...(f.profiles || []), ...(f.guides || [])]) addId(typeof ref === 'string' ? ref : ref?.sketch);
+  for (const ref of [f.profile,f.path,f.guide,...(f.profiles || []), ...(f.guides || [])]) addId(typeof ref === 'string' ? ref : ref?.sketch);
   for (const id of expandFeatureRefs(doc, f.features)) addId(id);
   if (f.type !== 'sketch' && typeof f.plane === 'string') addId(f.plane);
   if (f.plane?.ref) addId(f.plane.ref);
