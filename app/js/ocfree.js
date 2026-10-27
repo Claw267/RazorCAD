@@ -200,6 +200,13 @@ export function installRealDelete(oc, wasmExports, dataEnd, { autoFree = true } 
       }
       return origDelete.call(this);
     };
+    // (a kernel with real destructors frees an object itself on its last delete(): counted, so freeStats.freed still
+    // says how many objects were freed)
+    else base.delete = function () {
+      const r = this?.[recKey];
+      if (r?.[ptrKey] && r.count?.value === 1) freeStats.freed++;
+      return origDelete.call(this);
+    };
     freeStats.installed = true;
   } catch (e) {
     console.warn('RazorCAD: kernel objects are not freed on delete():', e?.message || e);

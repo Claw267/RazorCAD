@@ -8281,8 +8281,12 @@ function nearFacePoint(face, point, tol = 1e-7) {
 }
 // A face of any body near a picked point (faces of dense STL bodies are not searched).
 function findFaceAny(bodies, ref) {
-  // (Kernel Lab) the search below, first with quick boxes (the smallest distance), then with precise boxes for the
-  // faces that can matter only: the same face (tools/patch_findface_quick.py)
+  // (Kernel Lab) the faces are tried in order of the distance to their precise boxes (ties: as listed), until no
+  // remaining box is nearer than the best distance. A precise box is worked out only when needed: a face's quick box
+  // holds its precise one, so its quick distance is never more than its precise one, and faces are taken from the
+  // quick order until none can come before the next precise one. The same faces in the same order as boxing every
+  // face precisely first (a big import: 6486 precise boxes for one face), so the same face, whatever the boxes are
+  // worth as bounds (a point on a guide edge can lie just outside its face's box).
   const entries = [];
   for (const b of bodies) {
     if (b.dense) continue;
@@ -8301,26 +8305,36 @@ function findFaceAny(bodies, ref) {
     }
     return d;
   };
-  const search = (cands) => {
-    cands.sort((x, y) => x[0] - y[0]);
-    let best = null, bd = Infinity;
-    for (const [lb, b, x] of cands) {
-      if (lb > bd + 1e-9) break; // no remaining face can be nearer
-      const d = distOf(x);
-      // (faces on top of each other, e.g. a copied surface on its solid: the body that was clicked)
-      if (d < bd - 1e-9 || (Math.abs(d - bd) <= 1e-9 && ref.body && b.id === ref.body)) { bd = d; best = { body: b, face: x.face }; }
-    }
-    return { best, bd };
-  };
   let best = null, bd = Infinity;
   try {
     labPrefetchQuick(entries.map(([, x]) => x)); // (k10)
-    const quick = entries.map(([b, x]) => [boxDist(labQuickBox(x), ref.p), b, x]);
-    const first = search(quick.slice());
-    const near = quick.filter(([lb]) => lb <= first.bd + 2e-9);
-    // (their precise boxes in one call, when there are several to work out)
-    { const fs = near.filter(([, , x]) => x.precise === undefined).map(([, , x]) => x.face.wrapped); if (fs.length >= 8) labPrefetchBoxes(fs); }
-    ({ best, bd } = search(near.map(([, b, x]) => [boxDist(x.box, ref.p), b, x])));
+    const byQuick = entries.map(([b, x], i) => ({ b, x, i, q: boxDist(labQuickBox(x), ref.p), p: 0 }))
+      .sort((u, v) => u.q - v.q || u.i - v.i);
+    let next = 0;
+    const known = []; // (faces whose precise distance is worked out, not tried yet)
+    const resolveUpTo = (v) => {
+      const batch = [];
+      while (next < byQuick.length && byQuick[next].q <= v) batch.push(byQuick[next++]);
+      { const fs = batch.filter((e) => e.x.precise === undefined).map((e) => e.x.face.wrapped); if (fs.length >= 8) labPrefetchBoxes(fs); }
+      for (const e of batch) { e.p = boxDist(e.x.box, ref.p); known.push(e); }
+    };
+    // the next face in the precise order (null: none left)
+    const take = () => {
+      for (;;) {
+        if (!known.length) { if (next >= byQuick.length) return null; resolveUpTo(byQuick[next].q); continue; }
+        let k = 0;
+        for (let j = 1; j < known.length; j++) if (known[j].p < known[k].p || (known[j].p === known[k].p && known[j].i < known[k].i)) k = j;
+        // (a face not worked out yet could still come first: its quick distance is no more than this one)
+        if (next < byQuick.length && byQuick[next].q <= known[k].p) { resolveUpTo(known[k].p); continue; }
+        return known.splice(k, 1)[0];
+      }
+    };
+    for (let e = take(); e; e = take()) {
+      if (e.p > bd + 1e-9) break; // no remaining face can be nearer
+      const d = distOf(e.x);
+      // (faces on top of each other, e.g. a copied surface on its solid: the body that was clicked)
+      if (d < bd - 1e-9 || (Math.abs(d - bd) <= 1e-9 && ref.body && e.b.id === ref.body)) { bd = d; best = { body: e.b, face: e.x.face }; }
+    }
   } finally { q?.delete(); }
   if (best && bd < Math.max(1e-3, bbox(best.body.shape).diag * 2e-3)) return refFound(ref, best, false);
   // a planar face that moved (a dimension before it changed): the face facing the same way clearly
