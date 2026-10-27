@@ -9,6 +9,10 @@ for %%I in ("%ROOT%\..\RazorCAD Install") do set "OUT=%%~fI"
 
 echo Building RazorCAD.exe ...
 call "%ROOT%\build.bat"
+if errorlevel 1 (
+  echo Application build failed - refusing to package the previous RazorCAD.exe.
+  exit /b 1
+)
 if not exist "%ROOT%\RazorCAD.exe" (
   echo RazorCAD.exe is missing - the application build failed.
   exit /b 1

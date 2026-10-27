@@ -199,18 +199,71 @@ def download_verified(url, path, size=None, digest=None, timeout=60):
     return n
 
 
-def update_script(setup, folder, all_users, log, pid):
-    """PowerShell that runs the setup silently into folder (asking for administrator rights for an installation
-    for all users), waits for it, then starts RazorCAD again (also when the setup failed or was refused)."""
-    q = lambda s: "'" + str(s).replace("'", "''") + "'"
+def update_script(setup, folder, all_users, log, pid, expected_version=''):
+    """Wait for this installation to close, install and verify replacement before restarting.
+
+    PyInstaller's one-file parent can outlive the Python process. Waiting only for
+    pid races that parent's executable lock and extraction-directory cleanup.
+    """
+    q = lambda value: "'" + str(value).replace("'", "''") + "'"
     args = ["'/S'", q('"/D=' + folder + '"')] + (["'/ALLUSERS'"] if all_users else [])
     run = 'Start-Process -FilePath %s -ArgumentList %s -Wait -PassThru%s' % (q(setup), ','.join(args), ' -Verb RunAs' if all_users else '')
-    return ('$ErrorActionPreference = "Stop"; '
-            'try { Get-Process -Id %d -ErrorAction SilentlyContinue | Wait-Process -Timeout 120 -ErrorAction Stop } '
-            'catch { Add-Content -Path %s -Value ("RazorCAD did not close: " + $_); exit 1 }; '
-            'try { $p = %s; Add-Content -Path %s -Value ("setup exit " + $p.ExitCode) } '
-            'catch { Add-Content -Path %s -Value ("setup not run: " + $_) }; '
-            'Start-Sleep -Milliseconds 400; Start-Process -FilePath %s') % (int(pid), q(log), run, q(log), q(log), q(os.path.join(folder, APP_NAME + '.exe')))
+    template = r'''$ErrorActionPreference = 'Stop'
+$log = __LOG__
+$application = __APPLICATION__
+$versionFile = __VERSION_FILE__
+$expected = __EXPECTED__
+function Write-UpdateLog($text) {
+    Add-Content -LiteralPath $log -Value ((Get-Date -Format o) + ' ' + $text) -Encoding UTF8 -ErrorAction SilentlyContinue
+}
+function Fail-Update($message) {
+    Write-UpdateLog ('FAILED: ' + $message)
+    try {
+        Add-Type -AssemblyName PresentationFramework
+        [System.Windows.MessageBox]::Show($message + "`n`nUpdate log: " + $log, 'RazorCAD update failed') | Out-Null
+    } catch { }
+    exit 1
+}
+Write-UpdateLog ('Starting update to ' + $expected + ' in ' + $application)
+try {
+    Get-Process -Id __PID__ -ErrorAction SilentlyContinue | Wait-Process -Timeout 120 -ErrorAction Stop
+} catch { Fail-Update ('RazorCAD did not close: ' + $_) }
+try {
+    $deadline = (Get-Date).AddSeconds(120)
+    while ($true) {
+        $running = @(Get-Process -Name __PROCESS_NAME__ -ErrorAction SilentlyContinue | Where-Object {
+            try { !$_.Path -or $_.Path -eq $application } catch { $true }
+        })
+        if ($running.Count -eq 0) { break }
+        if ((Get-Date) -gt $deadline) { Fail-Update ('RazorCAD is still running. Close its other windows and run setup again.') }
+        Start-Sleep -Milliseconds 200
+    }
+} catch { Fail-Update ('Could not wait for RazorCAD to close: ' + $_) }
+try {
+    $before = (Get-FileHash -LiteralPath $application -Algorithm SHA256).Hash
+    $env:PYINSTALLER_RESET_ENVIRONMENT = '1'
+    $p = __RUN__
+    Write-UpdateLog ('setup exit ' + $p.ExitCode)
+    if ($p.ExitCode -ne 0) { Fail-Update ('The installer failed with exit code ' + $p.ExitCode + '. Run the downloaded setup manually for more details.') }
+    if (!(Test-Path -LiteralPath $application -PathType Leaf)) { Fail-Update 'The installer did not create RazorCAD.exe.' }
+    $after = (Get-FileHash -LiteralPath $application -Algorithm SHA256).Hash
+    if ($before -eq $after) { Fail-Update 'The installer left the application executable unchanged. The update was not applied.' }
+    if ($expected) {
+        $installed = (Get-Content -LiteralPath $versionFile -Raw).Trim() -replace '^v', ''
+        if ($installed -ne $expected) { Fail-Update ('Installed version ' + $installed + ' differs from expected version ' + $expected + '.') }
+    }
+} catch { Fail-Update ('The update could not be installed: ' + $_) }
+try {
+    $env:PYINSTALLER_RESET_ENVIRONMENT = '1'
+    Start-Process -FilePath $application -WorkingDirectory __FOLDER__
+    Write-UpdateLog ('Verified replacement and restarted version ' + $expected)
+} catch { Fail-Update ('The update was installed, but RazorCAD could not restart: ' + $_) }
+'''
+    values = {'__LOG__': q(log), '__APPLICATION__': q(os.path.join(folder, APP_NAME + '.exe')),
+              '__VERSION_FILE__': q(os.path.join(folder, 'version.txt')), '__EXPECTED__': q(expected_version),
+              '__PID__': str(int(pid)), '__PROCESS_NAME__': q(APP_NAME), '__RUN__': run, '__FOLDER__': q(folder)}
+    # One substitution pass: path text is data even if it contains a placeholder.
+    return re.sub(r'__[A-Z_]+__', lambda match: values[match.group()], template)
 
 
 def issue_url(title, body):
@@ -1173,13 +1226,18 @@ class Api:
             download_verified(url, path, size, digest)
         except Exception as e:
             return {'error': 'Download failed: %s' % getattr(e, 'reason', e)}
-        script = update_script(path, info['folder'], info['allUsers'], os.path.join(folder, 'update.log'), os.getpid())
+        expected = name[len('RazorCAD-Setup-'):-4].lstrip('vV')
+        script = update_script(path, info['folder'], info['allUsers'], os.path.join(folder, 'update.log'), os.getpid(), expected)
+        helper = os.path.join(folder, 'install-update.ps1')
         # The helper outlives this one-file application. On restart PyInstaller must extract the new
         # executable, rather than reuse this process's old (or already removed) _MEI directory.
         env = dict(os.environ, PYINSTALLER_RESET_ENVIRONMENT='1')
         flags = getattr(subprocess, 'DETACHED_PROCESS', 0) | getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0) | NO_WINDOW
         try:
-            subprocess.Popen(['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-Command', script],
+            # Windows PowerShell 5 reads non-ASCII paths correctly with a UTF-8 BOM.
+            with open(helper, 'w', encoding='utf-8-sig') as stream:
+                stream.write(script)
+            subprocess.Popen(['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', helper],
                              env=env, creationflags=flags, close_fds=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except OSError as e:
             return {'error': 'The update helper could not start: %s' % e}

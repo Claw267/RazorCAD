@@ -20,6 +20,8 @@ jobs:
           python-version: '3.12'
       - name: Install Playwright
         run: python -m pip install --upgrade pip playwright
+      - name: Check updater handoff
+        run: python -m unittest discover -s tests -p test_updater.py -v
       # (the test times of earlier runs, so slowdowns are reported; each run stores its own)
       - uses: actions/cache@v4
         with:
