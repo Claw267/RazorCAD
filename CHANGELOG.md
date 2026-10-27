@@ -6,6 +6,18 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-28 11:12 — From Claw267's pull requests #7, #8 and #9: automatic parallel and collinear relations, a steadier updater, STEP products with their own geometry
+- **Sketching (#7)**: with automatic relations on, Line and Centerline infer **parallel** and **collinear** from
+  other lines in the sketch (construction and projected lines too): the reference line is highlighted and a click
+  keeps the relation. Starting near a line's extension snaps onto it. **Project / Intersect: Projection Source**
+  limits picking to one earlier sketch or to model edges when several overlap in the view.
+- **Updating (#8)**: the update waits until every copy of this RazorCAD has closed (the one-file program's launcher
+  can outlive it), checks that the new program was really installed (its version) before starting it again, and
+  says why when it fails, with a log in `%TEMP%\RazorCAD-update`. A fix to the updater works from the update after
+  the one that brings it.
+- **STEP assemblies (#9)**: a product with both its own solids and child components keeps its own geometry, as a
+  part inside its assembly (it was left out).
+
 ## 2026-10-28 11:09 — Browser version: never an older cached kernel after an update
 - The browser keeps the kernel's files a day (and so, for a while after a deploy, did the website's cache): after an
   update the new kernel worker could get the older kernel, and parts didn't build (0.18.1-beta's site check saw it:
