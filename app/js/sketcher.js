@@ -108,6 +108,7 @@ export class Sketcher {
 
   // ------------------------------------------------------------ lifecycle
   enter(feature, frame, isNew) {
+    this.projectionSource='all';
     this.f = feature;
     this.frame = frame;
     this.isNew = isNew;
@@ -2166,10 +2167,12 @@ export class Sketcher {
   // Pick something outside this sketch: points/curves of earlier sketches, then model vertices/edges.
   externalHit(ev, { vertices = true } = {}) {
     const vp = this.vp, m = vp.screenPos(ev), doc = this.app.doc;
+    const projection=['convert','intersect'].includes(this.tool),source=projection?this.projectionSource||'all':'all';
     const myIdx = doc.features.indexOf(this.f);
     const others = [];
     for (const [fid, s] of this.app.result.sketches) {
       if (fid === this.f.id) continue;
+      if(source==='model'||source.startsWith('sketch:')&&fid!==source.slice(7))continue;
       const i = doc.features.findIndex((x) => x.id === fid);
       if (myIdx >= 0 && i > myIdx) continue;
       if (!['convert', 'intersect'].includes(this.tool) && this.app.result.consumed.has(fid) && !this.app.showAbsorbed) {
@@ -2199,6 +2202,7 @@ export class Sketcher {
       }
     }
     if (best) return best;
+    if(source.startsWith('sketch:'))return null;
     const v = vertices ? vp.pickVertex(ev) : null;
     if (v) return { kind: 'extVertex', p: v.point.toArray() };
     const e = this.tool === 'intersect' ? null : vp.pickEdge(ev);
@@ -2734,7 +2738,7 @@ export class Sketcher {
       for (const pl of this.textPolys?.[t.id] || []) addSegs(col, false, pl);
     }
     // where the sketch plane cuts the model (Project Edges / Offset can pick these)
-    if (this.sectionPrims && (['convert', 'intersect', 'offset'].includes(this.tool))) for (const g of this.sectionPrims) addSegs(0x0891b2, true, primPolyline(g));
+    if (this.sectionPrims && (['convert', 'intersect', 'offset'].includes(this.tool))&&!(this.tool!=='offset'&&this.projectionSource?.startsWith('sketch:'))) for (const g of this.sectionPrims) addSegs(0x0891b2, true, primPolyline(g));
 
     // preview geometry
     const d = this.draw;

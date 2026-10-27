@@ -2570,6 +2570,7 @@ class App {
     }
     for (const [id, s] of res.sketches) {
       if (stale.has(id)) continue;
+      if(referencePicking&&(this.sketcher.projectionSource==='model'||this.sketcher.projectionSource?.startsWith('sketch:')&&id!==this.sketcher.projectionSource.slice(7)))continue;
       const pmSketch = this.pm?.kind === 'feature' && (this.pm.feature.sketch === id || (['revolve','surfRevolve'].includes(this.pm.feature.type)&&this.pm.profilePick===false&&this.doc.features.findIndex(f=>f.id===id)<this.doc.features.indexOf(this.pm.feature)));
       const selected = (this.selection?.kind === 'feature' && this.selection.id === id) || this.hoverSketchId === id;
       const datumPicking=this.pickMode()==='ref'&&this.doc.features.findIndex(f=>f.id===id)<this.doc.features.indexOf(this.pm.feature);
@@ -2578,7 +2579,7 @@ class App {
         for (const polys of Object.values(s.textPolys || {})) for (const pts of polys) polylines.push({ pts, construction: false });
         if (s.sketch.gearTrains?.length) for (const pts of S.gearPolylines(s.sketch)) polylines.push({ pts, construction: false });
         if (s.sketch.airfoils?.length) for (const pts of S.airfoilPolylines(s.sketch)) polylines.push({ pts, construction: false });
-        list.push({ frame: s.frame, polylines, highlight: pmSketch || selected });
+        list.push({ frame: s.frame, polylines, highlight: pmSketch || selected,...(referencePicking?{color:0x94a3b8,reference:true}:{}) });
       }
     }
     // sketch entities picked for the dimension readout, and a reference plane's sketch references

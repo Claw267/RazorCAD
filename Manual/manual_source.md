@@ -525,6 +525,8 @@ Click a model edge, or an entity of an earlier sketch, to project it into this s
 
 While editing a sketch, activate **Project Edges** or **Intersection Curve**. Earlier independent sketches are temporarily shown, including hidden and absorbed sketches; their saved visibility does not change. Click the source curves in the canvas (orbit the view if they overlap). Project creates linked projected geometry. Intersection creates linked points where source lines, arcs or circles cross the active plane; coplanar curves retain their geometry. Use the points as guide endpoints. Non-coplanar spline intersections are not yet supported. For solid/surface sections, click the displayed section outline. Escape returns to Select.
 
+**Projection Source → Source** can restrict picking to one earlier sketch or to model edges/sections. Choose the intended sketch when several sources overlap in the view. Other source sketches are temporarily hidden; leaving the tool restores their saved visibility. Source geometry is gray, while projected entities are purple. A visible source edge joining two projected sides is not automatically added to the active sketch.
+
 ## Spline
 
 New **Fit Point Splines** include a tangent handle at each fit point. Drag a handle to change tangent direction and strength; adjacent pieces keep the same tangent through their shared fit point. Dragging a fit point carries its handle with it. Handle lines are construction geometry and accept ordinary line constraints and dimensions (for example horizontal, parallel, length or angle). Their remaining freedoms count towards sketch definition. Copies, mirrors, blocks, patterns and linked projections preserve the handles. Existing saved splines retain their previous representation.
