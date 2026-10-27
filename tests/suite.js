@@ -264,6 +264,48 @@ const UI = {
     return Math.abs(vol - want) < 1e-6 * want ? { ok: true, detail: `volume ${r6(vol)}` } : { ok: false, detail: `volume ${vol}, expected ${want}` };
   },
 
+  // Midpoint Line by clicks: the midpoint, then one end; the other end mirrored, a Midpoint relation. Construction
+  // Geometry turned on before drawing (nothing selected) makes the next lines construction ones, for every tool
+  // (a Midpoint Line, then a rectangle), and stays on until turned off
+  async 'midpoint-line-construction'() {
+    const a = window.app;
+    await a.newDocument?.();
+    closeModals();
+    const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'top' } });
+    a.doc.features.push(f); a.commit();
+    await a.enterSketch(f, true);
+    await wait(300);
+    const { toScreen, click, vp } = viewEvents();
+    vp.setStandardView('top', false); vp.zoomToFit(null, false); vp.camera.updateMatrixWorld(true);
+    const sk = a.sketcher, fr = sk.frame, S = await import('/js/sketchmodel.js');
+    const at = (x, y) => toScreen(fr.o.clone().addScaledVector(fr.u, x).addScaledVector(fr.v, y));
+    const ends = (c) => [S.getPoint(sk.f, c.p1), S.getPoint(sk.f, c.p2)];
+    const near = (p, x, y) => Math.hypot(p.x - x, p.y - y) < 0.5;
+    sk.setTool('midline');
+    await click(...at(30, 40)); await click(...at(50, 45));
+    const first = sk.f.curves.filter((c) => c.type === 'line');
+    if (first.length !== 1) return { ok: false, detail: `Midpoint Line: ${first.length} lines` };
+    const [p, q] = ends(first[0]);
+    const mirrored = (near(p, 10, 35) && near(q, 50, 45)) || (near(q, 10, 35) && near(p, 50, 45));
+    const rel = sk.f.constraints.some((k) => k.type === 'midpoint' && k.refs.includes(first[0].id));
+    if (!mirrored || !rel || first[0].construction) return { ok: false, detail: `Midpoint Line: ends (${p.x}, ${p.y}) (${q.x}, ${q.y}), relation ${rel}, construction ${first[0].construction}` };
+    sk.setTool('select'); sk.sel = new Set();
+    sk.toggleConstruction();
+    if (!sk.constructionMode) return { ok: false, detail: 'Construction Geometry with nothing selected did not turn the mode on' };
+    sk.setTool('midline');
+    await click(...at(-30, -40)); await click(...at(-20, -40));
+    sk.setTool('rect');
+    await click(...at(60, -60)); await click(...at(80, -50));
+    const made = sk.f.curves.filter((c) => c.type === 'line' && c !== first[0]);
+    if (made.length !== 5 || made.some((c) => !c.construction)) return { ok: false, detail: `in construction mode: ${made.length} lines, ${made.filter((c) => c.construction).length} construction` };
+    if (!sk.constructionMode) return { ok: false, detail: 'construction mode turned itself off when the tool changed' };
+    sk.setTool('select'); sk.toggleConstruction();
+    sk.setTool('select');
+    await a.exitSketch(true);
+    return sk.constructionMode ? { ok: false, detail: 'Construction Geometry did not turn the mode off' }
+      : { ok: true, detail: 'mirrored about the clicked midpoint, with a Midpoint relation; Midpoint Line and rectangle drawn as construction while the mode is on' };
+  },
+
   // a drawing of the part: three standard views with lines in them (the part the test before made; made here when
   // this test runs on its own, as in a page of its own with run_tests.py --jobs)
   async 'drawing-from-part'() {
@@ -1286,7 +1328,7 @@ const UI = {
     await click(0,30);await click(40,50.05);sk.setTool('select');
     const parallel=f.constraints.find(k=>k.type==='parallel');if(!parallel||parallel.refs[0]!==reference||!sk.solveOk)return {ok:false,detail:'Real parallel drawing did not create a persistent relation'};
     sk.setTool('line');await click(40,20);await click(70,35.05);sk.setTool('select');if(!f.constraints.some(k=>k.type==='collinear'&&k.refs[0]===reference)||!sk.solveOk)return {ok:false,detail:'Continuation did not create collinear relation'};
-    sk.setTool('line');await click(100,50.05);await click(130,65.05);sk.setTool('select');if(f.constraints.filter(k=>k.type==='collinear').length!==2||f.constraints.some(k=>k.autoExtension))return {ok:false,detail:'Extension did not become a clean collinear relation'};
+    sk.setTool('line');await click(100,50.05);const extension=f.constraints.find(k=>k.autoExtension&&k.refs[0]===sk.draw.last),start=S.getPoint(f,sk.draw.last);if(!extension||sk.lineInference({x:start.x+30,y:start.y+15},start,9*sk.wpp())?.inferCurve!==extension.refs[1])return {ok:false,detail:'Collinear continuation changed its extension source'};await click(130,65.05);sk.setTool('select');if(f.constraints.filter(k=>k.type==='collinear').length!==2||f.constraints.some(k=>k.autoExtension))return {ok:false,detail:'Extension did not become a clean collinear relation'};
     const snapshot=sk.snapshotData();sk.undo();if(f.constraints.filter(k=>k.type==='collinear').length!==1)return {ok:false,detail:'Undo kept automatic relation'};sk.redo();if(sk.snapshotData()!==snapshot)return {ok:false,detail:'Redo changed automatic relation'};
     const saved=JSON.parse(JSON.stringify(f));saved.constraints.find(k=>k.type==='fix'&&k.refs[0]===q).y=30;const solved=V.solveSketch(saved,Number);if(!solved.ok)return {ok:false,detail:'Source direction edit broke inferred relations'};
     const line=id=>{const c=S.getCurve(saved,id);return [S.getPoint(saved,c.p1),S.getPoint(saved,c.p2)];},[ra,rb]=line(reference),u=[rb.x-ra.x,rb.y-ra.y];

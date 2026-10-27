@@ -6,6 +6,38 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-28 10:01 — Version 0.18.1-beta
+- Installer, user manual (93 pages) and website for 0.18.1-beta. The manual's kernel paragraphs (threads per kernel, how the kernels are built and published) brought up to date.
+
+## 2026-10-28 08:55 — PCs with 4 or 5 processor threads: the open part's geometry kernel multi-threaded
+- On a PC with 4 or 5 threads the first part's kernel now runs on all threads but one (it was the single-thread
+  kernel below 6); the other kernels (more parts, assemblies, drawings) keep one thread. Held to 4 threads, one a
+  core: the check set's full rebuilds 16.3 s → 9.2 s, edits 3.8 s → 2.8 s (the golf ball 5.8 → 2.6 s); on 2
+  cores with 4 threads 17.7 s → 11.7 s. The same geometry and meshes (compared to the last digit); the test suite
+  passes run as a 4-thread PC.
+
+## 2026-10-28 08:37 — RazorCAD starts reliably on PCs with few processor threads
+- **Start-up**: the desktop app's own web server let at most 5 connections wait, and Windows refuses the next ones;
+  the window asks for RazorCAD's hundred or so script files at once. On a PC with 4 processor threads, busy
+  compiling the geometry kernel, a start now and then got no part and no kernel (held to 4 threads here: 5 starts
+  in 10 failed, 1 in 4 with 40 s to start). It now lets 128 wait: 10 starts in 10. `serve.py` the same.
+- `tools/native`'s probes read and write their text files as UTF-8 (on Windows they read the worker with the
+  system's code page and failed).
+
+## 2026-10-28 08:00 — Guided lofts with CAD guide constraints built up to 16 times faster
+- **The final guide check** of a loft with CAD guide constraints measured every check point (65 or more on each
+  guide) against every face with OpenCascade's general distance search: 16 of 17 s on a tight G2 spline loft. A
+  point now passes as soon as it is shown to be within 0.0001 mm of a face: first against the faces' edges (the guide
+  points lie on the seams; each edge's own tolerance is added), then by the local search on the face; only the rest
+  get the general search, as before, so a loft passes or fails as before. The tight G2 spline lofts of the hard-case
+  tests: 16.1 s → 1.0 s and 16.7 s → 1.0 s (multi-threaded), about 52 s → 3.6 and 6.5 s single-threaded; a
+  curved circular one 3.2 s → 0.4 s. `loft-g2-difficult-guides` 57 s → 20 s.
+- **Lofts with guides and end conditions** (Adaptive approximation) skip faces far from each check point by their
+  quick boxes, not their precise ones (a quick box holds its face, so no face the precise box keeps is skipped).
+
+## 2026-10-28 07:42 — Tests: Midpoint Line and drawing in construction mode
+- `midpoint-line-construction` draws a Midpoint Line by clicks (the other end mirrored, a Midpoint relation), then turns Construction Geometry on with nothing selected and draws a Midpoint Line and a rectangle as construction geometry (requests on discussion #4).
+
 ## 2026-10-28 07:37 — Site check: a kernel published in parts
 - `tools/check_site.py` checks `replicad_multi.wasm.part0` when the kernel is published in parts (it failed on 0.18.0-beta's push, with the site working).
 

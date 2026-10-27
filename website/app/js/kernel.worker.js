@@ -2896,7 +2896,9 @@ async function rebuild(doc, previewId = null, opts = {}) {
           let candidate;
           try {
             candidate = build(g.outer, g.holes);
-            const faces = candidate.shape.faces.map(face => ({ face, box: bbox(face), spline: face.geomType === 'BSPLINE_SURFACE' })), oc = R.getOC(); guideError = 0;
+            // (Kernel Lab) the faces skipped by their quick boxes (labQuickBox: they hold the face, so a face the precise box
+            // keeps is kept), not their precise ones: those took 5.7 of 23.5 s in loft-end-options-cases
+            const faces = candidate.shape.faces.map(face => { const e = { face, quick: undefined, precise: undefined }; Object.defineProperty(e, 'box', { get() { if (this.precise === undefined) this.precise = bbox(face); return this.precise; } }); return { face, box: labQuickBox(e), spline: face.geomType === 'BSPLINE_SURFACE' }; }), oc = R.getOC(); guideError = 0;
             try {
               for (const { p } of g.checkPoints) {
                 const point = new oc.gp_Pnt(...p); let error = Infinity;
@@ -8312,10 +8314,26 @@ function constrainedGuideLoft(matched, guides, names, holeSets, slack, options) 
       }
     }
     // Independent face-distance checks catch incompatible/ignored constraints and trimming problems.
-    for (const { p, name } of contact.checkPoints) {
-      const error = Math.min(...resultFaces.map((face) => distance(p, face)));
-      if (!Number.isFinite(error) || error > CONSTRAINED_GUIDE_TOLERANCE) throw new Error(`The guide ${name} failed the final CAD constraint check (${error} mm)`);
-    }
+    // (Kernel Lab) a point passes as soon as it is shown to be within the tolerance of a face: first of an edge of the
+    // faces (the guide points lie on the seams; an edge is within its own tolerance of its faces, so that is added),
+    // then by the local contact search (nearFacePoint: only ever a point on the face), nearest by box first; otherwise
+    // the general distance to every face, as before. The same verdicts: the general queries took 16 of 17 s on a
+    // tight G2 spline loft.
+    const oc = R.getOC(), seamEdges = [];
+    try {
+      for (const face of resultFaces) for (const edge of face.edges) {
+        if (seamEdges.some((x) => x.edge.isSame(edge))) { edge.delete(); continue; }
+        seamEdges.push({ edge, box: bbox(edge), tol: oc.BRep_Tool.Tolerance(edge.wrapped) });
+      }
+      const boxes = resultFaces.map((face) => bbox(face));
+      const nearest = (items, p) => items.map((x, i) => [boxDist(x.box ?? x, p), i]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+      for (const { p, name } of contact.checkPoints) {
+        if (nearest(seamEdges, p).some(([d, i]) => d <= CONSTRAINED_GUIDE_TOLERANCE && distance(p, seamEdges[i].edge) + seamEdges[i].tol <= CONSTRAINED_GUIDE_TOLERANCE)) continue;
+        if (nearest(boxes, p).some(([, i]) => { const q = nearFacePoint(resultFaces[i], p, CONSTRAINED_GUIDE_TOLERANCE); return !!q && len(sub(q, p)) <= CONSTRAINED_GUIDE_TOLERANCE; })) continue;
+        const error = Math.min(...resultFaces.map((face) => distance(p, face)));
+        if (!Number.isFinite(error) || error > CONSTRAINED_GUIDE_TOLERANCE) throw new Error(`The guide ${name} failed the final CAD constraint check (${error} mm)`);
+      }
+    } finally { seamEdges.forEach((x) => x.edge.delete()); }
     return { shape: result, holes: [], constraintError, guideQuality: { continuity, seams: joined.length, maxAngle, maxCurvature } };
   } catch (e) { result?.delete(); if (isFatal(e) || e?.message) throw e; throw new Error(`${continuity} guide construction failed while ${stage}; the constraints could not be computed`); }
   finally {

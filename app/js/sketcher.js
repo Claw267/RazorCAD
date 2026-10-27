@@ -788,6 +788,7 @@ export class Sketcher {
   // Snap a cursor position: existing point > line midpoint > on curve > grid.
   lineInference(p,prev,tol){
     let best=null;
+    const extensionSource=prev&&this.f.constraints.find(k=>k.autoExtension&&k.refs[0]===prev.id)?.refs[1];
     for(const c of this.f.curves){
       if(c.type!=='line'||c.ctrlOf)continue;
       const a=S.getPoint(this.f,c.p1),b=S.getPoint(this.f,c.p2),vx=b.x-a.x,vy=b.y-a.y,L=Math.hypot(vx,vy);if(L<1e-7)continue;
@@ -800,7 +801,7 @@ export class Sketcher {
         continue;
       }
       if(Math.hypot(dx,dy)<3*this.wpp()||error/Math.hypot(dx,dy)>Math.sin(4*Math.PI/180))continue;
-      const distance=Math.abs((prev.x-a.x)*uy-(prev.y-a.y)*ux),infer=distance<1e-5?'collinear':'parallel',rank=infer==='collinear'?0:1,near=S.segDist(prev.x,prev.y,a.x,a.y,b.x,b.y);
+      const distance=Math.abs((prev.x-a.x)*uy-(prev.y-a.y)*ux),infer=distance<1e-5?'collinear':'parallel',rank=infer==='collinear'?(c.id===extensionSource?-1:0):1,near=S.segDist(prev.x,prev.y,a.x,a.y,b.x,b.y);
       if(!best||rank<best.rank||rank===best.rank&&(error<best.error-1e-7||Math.abs(error-best.error)<1e-7&&near<best.near))best={x:prev.x+t*ux,y:prev.y+t*uy,kind:'grid',infer,inferCurve:c.id,inferGuide:[[a.x,a.y],[b.x,b.y]],rank,error,near};
     }
     return best;

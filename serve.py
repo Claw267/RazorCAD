@@ -31,6 +31,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 # threaded: a browser keeps idle connections open, which would block a single-threaded server
 socketserver.ThreadingTCPServer.allow_reuse_address = True
 socketserver.ThreadingTCPServer.daemon_threads = True
+# (the page opens its hundred or so script files at once: 5 waiting connections at most, the default, and Windows
+# refuses the next ones; razorcad.py does the same for the desktop app's server)
+socketserver.ThreadingTCPServer.request_queue_size = 128
 
 
 class Server6(socketserver.ThreadingTCPServer):
