@@ -1116,7 +1116,7 @@ export function pointInPoly(pt, poly) {
 
 // Like profileLoops, but each loop also carries its exact boundary as line /
 // arc / circle segments, and loops are grouped into regions (outer + holes).
-export function profileRegions(sk, withSources = false) {
+export function profileRegions(sk, withSources = false, boundedFaces = false) {
   const segs = [];
   for (const c of sk.curves) {
     if (c.construction) continue;
@@ -1197,11 +1197,13 @@ export function profileRegions(sk, withSources = false) {
       comp.push(i);
       for (const j of nodes[i].adj) if (!seen[j]) { seen[j] = 1; q.push(j); }
     }
-    const seq = outerBoundary(nodes, comp, true);
-    if (!seq || seq.length < 2) continue;
-    const poly = seq.map((i) => [nodes[i].x, nodes[i].y]);
-    if (Math.abs(signedArea(poly)) < 1e-9) continue;
-    loops.push({ poly, segs: loopSegments(sk, nodes, edges, seq, withSources) });
+    const sequences=boundedFaces?boundedBoundaries(nodes,comp):[outerBoundary(nodes,comp,true)];
+    for(const seq of sequences){
+      if (!seq || seq.length < 2) continue;
+      const poly = seq.map((i) => [nodes[i].x, nodes[i].y]);
+      if (Math.abs(signedArea(poly)) < 1e-9) continue;
+      loops.push({ poly, segs: loopSegments(sk, nodes, edges, seq, withSources) });
+    }
   }
   // nesting: even depth = material, odd depth = hole of its immediate parent
   const items = loops.map((l) => ({ ...l, area: Math.abs(signedArea(l.poly)) }));
@@ -1218,6 +1220,26 @@ export function profileRegions(sk, withSources = false) {
     }
   }
   return regions.map((r) => ({ outer: { poly: r.outer.poly, segs: r.outer.segs }, holes: r.holes.map((h) => ({ poly: h.poly, segs: h.segs })) }));
+}
+
+// Walk both directions of every graph edge, retaining the bounded faces on
+// the left. Split repeated-vertex walks so bridges do not become fake borders.
+function boundedBoundaries(nodes,comp){
+  const neighbors=new Map(comp.map(i=>[i,[...nodes[i].adj].sort((a,b)=>Math.atan2(nodes[a].y-nodes[i].y,nodes[a].x-nodes[i].x)-Math.atan2(nodes[b].y-nodes[i].y,nodes[b].x-nodes[i].x))])),seen=new Set(),loops=[];
+  for(const a of comp)for(const b of neighbors.get(a)){
+    if(seen.has(`${a}>${b}`))continue;
+    let u=a,v=b;const walk=[];
+    while(!seen.has(`${u}>${v}`)){
+      seen.add(`${u}>${v}`);walk.push(u);const around=neighbors.get(v),next=around[(around.indexOf(u)+around.length-1)%around.length];u=v;v=next;
+    }
+    if(u!==a||v!==b)continue;
+    const stack=[],positions=new Map();
+    for(const id of [...walk,walk[0]]){
+      if(positions.has(id)){const at=positions.get(id),cycle=stack.slice(at);if(cycle.length>=3&&signedArea(cycle.map(i=>[nodes[i].x,nodes[i].y]))>1e-9)loops.push(cycle);for(const gone of stack.slice(at+1))positions.delete(gone);stack.length=at+1;}
+      else{positions.set(id,stack.length);stack.push(id);}
+    }
+  }
+  return loops;
 }
 
 // The parameter range that comes round to its start: circles 2π, closed splines their piece count.
@@ -1273,7 +1295,7 @@ function loopSegments(sk, nodes, edges, seq, withSources = false) {
   };
   return pieces.flatMap((p) => {
     const result = [segmentsOf(p)].flat();
-    return withSources ? result.map((g) => ({ ...g, sourceCurve: p.cid })) : result;
+    return withSources ? result.map((g) => ({ ...g, sourceCurve: p.cid,sourceDirection:Math.sign(p.u1-p.u0) })) : result;
   });
 }
 

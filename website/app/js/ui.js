@@ -3314,6 +3314,9 @@ export class UI {
     const f = pm.feature;
     let msg = root.querySelector('.pm-status');
     const err = this.app.result?.errors.get(f.id);
+    const note=this.app.result?.notes?.get(f.id);let noteBox=root.querySelector('[data-pm-note]');
+    if(err||!note)noteBox?.remove();
+    else{if(!noteBox){noteBox=el('div',{class:'pm-msg ok','data-pm-note':''});root.querySelector('.pm-actions')?.after(noteBox);}noteBox.textContent=note;}
     if(['loft','surfLoft'].includes(f.type)&&LC.hasManualConnections(f)){
       const graph=this.app.result?.info?.[f.id]?.loftConnections,box=root.querySelector('[data-loft-correspondence]');
       if(box&&box.dataset.graph===''&&graph?.signature===JSON.stringify(f)){this.renderPM();return;}
@@ -3512,7 +3515,7 @@ export class UI {
     else if (pm.isNew && !waitingForRefs) root.appendChild(el('div', { class: 'pm-msg pm-status' }, 'Set the parameters. The model previews live. Click ✔ to accept.'));
 
     const note = a.result?.notes?.get(f.id);
-    if (note && !err) root.appendChild(el('div', { class: 'pm-msg ok' }, esc(note)));
+    if (note && !err) root.appendChild(el('div', { class: 'pm-msg ok','data-pm-note':'' }, esc(note)));
     const idx = doc.features.indexOf(f);
     const before = doc.features.slice(0, idx < 0 ? doc.features.length : idx);
     const schema = PM_SCHEMAS[f.type] || [];

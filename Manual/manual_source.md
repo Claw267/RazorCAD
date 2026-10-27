@@ -576,6 +576,8 @@ Relations are shown as small green glyphs next to the geometry. Click a glyph to
 
 Profiles are found automatically from all non-construction geometry and sent to the kernel as exact lines, arcs and circles. Intersections are split, dangling lines are ignored and nested loops become holes. A full circle (or arcs that make one) becomes a single closed curve, so an extruded circle has one continuous cylindrical face. {idx:profiles}
 
+For canvas region selection, connected lines, arcs and splines can divide a closed outline into separate selectable cells within the same sketch. Click inside the desired cell; shared boundary edges may belong to several cells. Holes remain attached to their enclosing cell and can also be selected as disks. New cell references preserve boundary direction so regions sharing the same source curve IDs remain distinct. Existing whole-sketch and saved outline selections retain their previous extent. Construction geometry does not subdivide regions.
+
 ## Showing and hiding sketches
 
 Sketches absorbed by a feature are hidden by default. Right-click a sketch in the tree ▸ **Show / Hide**, or use its eye in the tree. {idx:sketch, show/hide}

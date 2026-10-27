@@ -5,7 +5,13 @@ export const sourceId = (ref) => typeof ref === 'string' ? ref : ref?.sketch;
 const sorted = (ids) => [...new Set(ids)].sort();
 const boundaryIds = (loop) => sorted(loop.segs.map((g) => g.sourceCurve));
 export const regionKey = (region) => JSON.stringify([boundaryIds(region.outer), region.holes.map(boundaryIds).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))]);
-export const refKey = (ref) => !ref || typeof ref === 'string' ? ref : JSON.stringify([ref.sketch, sorted(ref.curves || []), ref.region || null]);
+export const refKey = (ref) => !ref || typeof ref === 'string' ? ref : JSON.stringify([ref.sketch, sorted(ref.curves || []), ref.region || null,...(ref.face?[ref.face]:[])]);
+const loopFaceKey=loop=>{
+  const items=[],same=(a,b)=>a&&b&&a[0]===b[0]&&a[1]===b[1];for(const g of loop.segs){const key=[g.sourceCurve,g.sourceDirection||1];if(!same(items.at(-1),key))items.push(key);}
+  if(items.length>1&&same(items[0],items.at(-1)))items.pop();
+  return JSON.parse(items.map((_,i)=>JSON.stringify([...items.slice(i),...items.slice(0,i)])).sort()[0]||'[]');
+};
+const faceKey=region=>JSON.stringify([loopFaceKey(region.outer),region.holes.map(loopFaceKey).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)))]);
 
 // Sweep roles may use different contours from one sketch, but must not reuse
 // the same entities. A whole-sketch reference includes every contour in it.
@@ -16,12 +22,12 @@ export function overlappingRefs(a,b){
 }
 
 export function regionRef(sketch, region) {
-  return { kind: 'sketchContour', sketch, curves: sorted([region.outer, ...region.holes].flatMap(boundaryIds)), region: regionKey(region) };
+  return { kind: 'sketchContour', sketch, curves: sorted([region.outer, ...region.holes].flatMap(boundaryIds)), region: regionKey(region),face:faceKey(region) };
 }
 
 // Every bounded face is pickable, including the disk inside an annular profile's hole.
 export function selectableRegions(sk) {
-  const loops = S.profileRegions(sk, true).flatMap((r) => [r.outer, ...r.holes]);
+  const loops = S.profileRegions(sk, true,true).flatMap((r) => [r.outer, ...r.holes]);
   const area = (loop) => Math.abs(loop.poly.reduce((a, p, i) => { const q = loop.poly[(i + 1) % loop.poly.length]; return a + p[0] * q[1] - q[0] * p[1]; }, 0));
   const areas = loops.map(area), parent = loops.map((loop, i) => {
     let best = -1;
@@ -43,7 +49,7 @@ export function contourSketch(sk, ref, guide = false) {
 export function resolveContour(sk, ref, guide = false) {
   const subset = contourSketch(sk, ref, guide);
   if (ref?.region) {
-    const matches = S.profileRegions(subset, true).filter((r) => regionKey(r) === ref.region);
+    const matches = S.profileRegions(subset, true,!!ref.face).filter((r) => regionKey(r) === ref.region&&(!ref.face||faceKey(r)===ref.face));
     if (matches.length !== 1) throw new Error(`${sk.name}: the selected region changed or became ambiguous; reselect it`);
     return { sketch: subset, region: matches[0] };
   }

@@ -4837,6 +4837,16 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     return {ok:true,detail:JSON.stringify({cases:native.results,health:native.health,ui:'actual profile/axis picks, shared two-sided controls, operation, scoped body picking, save/reopen and cancel'})};
   },
 
+  async 'profile-subregion-selection'() {
+    const {run,fixture}=await import('/tests/profile-cell-cases.js'),native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:native};
+    const a=window.app,{Vector3}=await import('three');await a.newDocument?.();closeModals();const {doc,sk}=fixture('circle');await a.setDoc(doc);a.selection=null;a.startFeature('surfPlanar');a.viewport.setStandardView('front',false);a.viewport.zoomToFit(null,false);await wait(160);
+    const click=async x=>{a.viewport.camera.updateMatrixWorld(true);const v=viewEvents();await v.click(...v.toScreen(new Vector3(x,0,0)));await wait(180);await until(()=>!a.kernel.pending);};await click(-5);await click(5);
+    if(a.pm.feature.profiles.length!==2||a.pm.feature.profiles.some(r=>!r.face)||a.result.errors.size)return {ok:false,detail:'Shared circle/line boundaries did not select two independent cells'};
+    const id=a.pm.feature.id;await a.okPM();await a.setDoc(JSON.parse(JSON.stringify(a.doc)));a.editFeature(id);await wait(180);await until(()=>!a.kernel.pending);if(a.pm.feature.profiles.length!==2||a.result.errors.size)return {ok:false,detail:'Reopen lost cell identity'};
+    a.pm.feature.profiles=[];a.preview(true);await wait(180);await until(()=>!a.kernel.pending);if(document.querySelector('[data-pm-note]'))return {ok:false,detail:'Failed selection retained the previous green success note'};a.cancelPM();await a.rebuild();
+    return {ok:true,detail:{native,ui:'Actual independent picks for two cells sharing the same source curve IDs and save/reopen'}};
+  },
+
   async 'planar-surface-selection'() {
     const {run,fixture,edgeFixture}=await import('/tests/planar-surface-cases.js');
     const native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
