@@ -44,3 +44,32 @@ export function planeRefs(f) {
   if (Array.isArray(f.refs) && (f.refs.length || !f.base)) return f.refs;
   return [{ kind: 'plane', id: f.base || 'front' }];
 }
+
+// Upgrade only when opening the Property panel; unchanged older documents still
+// replay through their original kernel paths. Cancel restores the original fields.
+export function legacyDatumRefs(f){
+  if(Array.isArray(f.refs))return f.refs;
+  if(f.type==='plane')return planeRefs(f);
+  if(f.type==='axis'){
+    if(f.axisType==='twoPlanes')return [f.planeA,f.planeB].filter(Boolean).map(id=>({kind:'plane',id}));
+    if(f.axisType==='twoPoints')return [f.pointA,f.pointB].filter(Boolean).map(id=>({kind:'point',id}));
+    if(f.axisType==='edge')return f.edge?[{kind:'edge',...f.edge}]:[];
+    if(f.axisType==='cylinder')return f.face?[{kind:'face',...f.face}]:[];
+    if(f.axisType==='sketchLine'){const [sketch,curve]=String(f.sketchLine||'').split(':');return sketch&&curve?[{kind:'sketch',sketch,curve}]:[];}
+  }
+  if(f.type==='point'){
+    if(f.pointType==='vertex')return f.vertex?[{kind:'vertex',...f.vertex}]:[];
+    if(f.edge)return [{kind:'edge',...f.edge,relation:f.pointType==='arcCenter'?'center':'midpoint'}];
+  }
+  return [];
+}
+
+export function useReferenceRelations(f){
+  delete f.referenceLegacy;f.referenceDefinition=true;
+  if(f.type==='plane')delete f.base;
+  if(f.type==='axis'){
+    f.axisType='references';
+    for(const key of ['planeA','planeB','pointA','pointB','edge','face','sketchLine'])delete f[key];
+  }
+  if(f.type==='point'){f.pointType='references';delete f.vertex;delete f.edge;}
+}

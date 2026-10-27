@@ -883,6 +883,25 @@ export class Viewport {
     });
   }
 
+  setLoftConnections(info,active=-1){
+    const key=JSON.stringify([info,active]);if(this._loftConnectionKey===key)return;this._loftConnectionKey=key;
+    if(!this.loftConnectionGroup){this.loftConnectionGroup=new THREE.Group();this.scene.add(this.loftConnectionGroup);}
+    for(const child of [...this.loftConnectionGroup.children]){this.loftConnectionGroup.remove(child);child.geometry.dispose();child.material.dispose();}
+    this.setPointMarks('loft-connection-labels',null);this.setPointMarks('loft-connection-target',null);
+    if(!info?.sections?.length)return;
+    const vertices=[],labels=[];
+    info.sections.forEach((section,i)=>{
+      const points=section.points.map(p=>new THREE.Vector3(...p)),geometry=new THREE.BufferGeometry().setFromPoints(points);
+      this.loftConnectionGroup.add(new THREE.Points(geometry,new THREE.PointsMaterial({size:i===active?10:7,sizeAttenuation:false,color:i===active?0xf59e0b:0x0891b2,depthTest:false})));
+      if(i)for(let j=0;j<section.points.length;j++){
+        const a=info.sections[i-1].points[j],b=section.points[j];if(!a)continue;vertices.push(new THREE.Vector3(...a),new THREE.Vector3(...b));
+        if(i===1)labels.push({p:a.map((x,k)=>(x+b[k])/2),text:'C'+(j+1),cls:'pick'});
+      }
+    });
+    this.loftConnectionGroup.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(vertices),new THREE.LineBasicMaterial({color:0x0891b2,transparent:true,opacity:.85,depthTest:false})));
+    this.setPointMarks('loft-connection-labels',labels);
+  }
+
   // Reference planes: list of {id, name, frame, state: 'normal'|'hover'|'selected'}
   setPlanes(list) {
     for (const c of [...this.planeGroup.children]) { this.planeGroup.remove(c); c.traverse((o) => o.geometry?.dispose()); }
@@ -894,10 +913,10 @@ export class Viewport {
       grp.matrixAutoUpdate = false;
       grp.matrix.copy(m);
       const col = p.state === 'selected' ? 0x2b7de9 : p.state === 'hover' || p.state === 'preview' ? 0xf59e0b : 0x7f9cc4;
-      // reference planes are drawn around the model (standard planes around the origin)
+      // Display defined planes near their references, without moving sketch frames.
       let cx = 0, cy = 0;
       if (!G.STD_PLANES[p.id]) {
-        const d = this.rotationPivot().sub(p.frame.o);
+        const d = (p.displayAnchor?new THREE.Vector3(...p.displayAnchor):this.rotationPivot()).sub(p.frame.o);
         cx = d.dot(p.frame.u); cy = d.dot(p.frame.v);
       }
       const fill = new THREE.Mesh(

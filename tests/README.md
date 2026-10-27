@@ -63,7 +63,7 @@ the circular section size.
 For guided swept surfaces, run:
 
 ```sh
-python tests/run_tests.py --only surface-sweep-path-guide sweep-path-guide --jobs 1
+python tests/run_tests.py --only sweep-canvas-selection surface-sweep-path-guide sweep-path-guide --jobs 1
 ```
 
 This checks open, polyline and closed profiles, uncapped circular shells, analytic
@@ -87,18 +87,102 @@ case that previously returned the original full solid without an error.
 
 Checks signed and multiple-turn twist, analytical volumes, fixed-orientation translation on a curved path, uncapped/open surfaces, holes, Thin, cuts, nonuniform spline arc length and a 3D helix path. Includes explicit invalid-input rejection, legacy defaults and actual UI edits, expression persistence, orientation switching and cancellation. Run with both kernel configurations. Example: `tests/data/sweep-twist.rcad`.
 
+### Subdivided sketch regions
+
+`python tests/run_tests.py --only profile-subregion-selection planar-surface-selection loft-manual-correspondence extrusion-start-controls --jobs 1`
+
+Checks native areas for line/spline dividers, circle halves sharing source IDs,
+holes connected by bridges, construction exclusions, stable face references,
+legacy outlines, actual canvas picks, save/reopen and stale status-note removal.
+
+### Extrusion start conditions
+
+`python tests/run_tests.py --only extrusion-start-controls loft-canvas-selection standard-feature-workflows --jobs 1`
+
+Checks legacy starts, signed/expression offsets, independent parallel/inclined start and end planes, reverse, symmetric/two-sided extents, through cuts, Thin, model-face starts, rejected crossings and linked source edits. UI checks independent pick slots, actual canvas face selection and save/reopen.
+
+### Parametric sketch offsets
+
+`python tests/run_tests.py --only sketch-parametric-offset sketch-line-spline-tangent ctrl-spline sketch-fit-spline-handles --jobs 1`
+
+Checks analytic and spline offsets, rational and closed profiles, mixed chains, distance/source edits, both sides with one dimension, winding-independent inside/outside, serialization, undo/redo, collapse rejection and native extrusion volume.
+
+### Line–spline tangency
+
+`python tests/run_tests.py --only sketch-line-spline-tangent sketch-fit-spline-handles ctrl-spline sketch-fillet-spline --jobs 1`
+
+Checks both endpoints of control-point/rational, fit-point and legacy splines, the Property panel Tangent action, stable endpoint references, serialization, undo/redo, ambiguous selections and atomic conflict rejection.
+
+### Manual loft correspondence
+
+`python tests/run_tests.py --only loft-manual-correspondence --jobs 1`
+
+Checks native geometry changes from cyclic attachments and circular seams, open-profile direction, rejected incompatible winding, stable references, holes, guides and G2 at both ends. Exercises canvas picks and drags, reset, cancel, undo/redo, save/reopen, profile reorder and source edits.
+
 ### Loft endpoint constraints
 
 `python tests/run_tests.py --only loft-end-conditions loft-guide-edit-regeneration shell-valid-cavity --jobs 1`
 
-Checks normal/direction/G1 endpoint construction for solids and surfaces, intermediate profile interpolation, analytical box/cylinder volumes, reference axes, open/reversed profiles, influence, real adjacent cone and rectangular faces, both endpoints and explicit rejection of missing/nonadjacent supports or unsupported combinations. The app test picks actual CAD support faces in the viewport, confirms influence expressions, saves/reopens and cancels edits. Run for both kernel configurations. Example: `tests/data/loft-end-tangent.rcad`.
+Checks normal/direction/G1/G2 endpoint construction for solids and surfaces, intermediate profile interpolation, analytical box/cylinder volumes, reference axes, open/reversed profiles, influence, real adjacent cone, sphere, torus and rectangular faces, both endpoints and explicit rejection of missing/nonadjacent supports or unsupported combinations. The app test picks actual CAD support faces in the viewport, confirms influence expressions, saves/reopens and cancels edits, switches G1/G2 and persists G2 support references. Curvature is checked on the final CAD surfaces, including both G2 endpoints and mixed G1/G2 conditions. Run for both kernel configurations. Examples: `tests/data/loft-end-tangent.rcad` and `tests/data/loft-end-curvature.rcad` (G2 at both spherical supports).
 
 ### Loft endpoints with guides, holes and Thin
 
 `python tests/run_tests.py --only loft-end-guides-and-walls loft-end-conditions loft-guide-edit-regeneration --jobs 1`
 
-Checks analytic volumes for holes and all three Thin directions, open Thin profiles, circular and rectangular walls, G1 inner/outer supports, guide reversal, multiple guides/sections, open and closed surfaces, guided holes and Thin, and incompatible guide tangents/directions. Guide checks use bounded projections on the final CAD side surfaces. Native CAD guide-seam construction with constrained endpoints is rejected explicitly; this combination uses Adaptive approximation. Example: `tests/data/loft-guided-thin-ends.rcad`.
+Checks analytic volumes for holes and all three Thin directions, open Thin profiles, circular and rectangular walls, G1/G2 inner/outer supports, G2 with a compatible guide, guide reversal, multiple guides/sections, open and closed surfaces, guided holes and Thin, and incompatible guide tangents/directions. Guide checks use bounded projections on the final CAD side surfaces. Native CAD guide-seam construction with constrained endpoints is rejected explicitly; this combination uses Adaptive approximation. Example: `tests/data/loft-guided-thin-ends.rcad`.
 
 `tests/test_updater.py` checks the desktop app's hand-over to the setup when it updates itself (no window needed). The
 whole run includes it; on its own: `python tests/run_tests.py --only updater`, or
 `python -m unittest discover -s tests -p test_updater.py`.
+
+### Surface Patch continuity
+
+`python tests/run_tests.py --only surface-patch-chain-selection surface-patch-continuity surface-differential-analysis --jobs 1`
+
+Checks G0/G1/G2 on planar, circular, spherical and cylindrical boundaries; mixed edge conditions; explicit and ambiguous supports; legacy Tangent files; knitting and solid closure; missing/disconnected/duplicate boundaries; and incompatible requests without a G0 fallback. The UI test picks a real support face, switches boundary and face selection, overrides an individual edge, saves/reopens and cancels an edit. Final CAD checks use native trimming curves and independent differential comparisons. Run on both kernels. Example: `tests/data/surface-patch-g2.rcad`.
+
+Patch chain selection additionally checks native inner/outer loops, circular rims without cylinder/sphere seams, solid branches and explicit support-face loops. Real viewport clicks exercise chain toggling, individual picking, partial-chain completion, per-edge continuity retention, save/reopen and cancel.
+
+### Planar Surface profile and entity selection
+
+`python tests/run_tests.py --only planar-surface-selection surface-patch-chain-selection --jobs 1`
+
+Checks individual sketch regions, holes, multiple regions, whole-sketch compatibility, manual entity contours, dimensional edits, construction/unselected geometry, missing/deleted/open entities, model boundary edges and rejection of duplicate/nonplanar loops. The app test starts from a sketch with several regions, clicks a region and individual sketch entities in the viewport, picks model boundary edges, saves/reopens, cancels edits and migrates a legacy whole-sketch feature. Run on both kernels.
+
+### Common Extrude/Revolve workflows
+
+`python tests/run_tests.py --only standard-feature-workflows extrude-canvas-selection loft-canvas-selection planar-surface-selection surface-patch-continuity --jobs 1`
+
+Checks selected solid/surface profiles, analytical volumes and areas, directional native contact probes, two-sided/symmetric/reversed extents, Full with inactive stored angles, legacy whole sketches and clamped angles, independent/projected sketch axes, Thin, solid Join/New body/Cut, invalid angles and axis crossings. The app test uses actual profile/axis picks and cut-target body picks, edits operation/direction controls, saves/reopens and cancels. Run on both kernels. The implementation/reference inventory is in `Manual/cad-behavior-alignment.md`.
+
+## Reference geometry constraints
+
+`python tests/run_tests.py --only reference-entity-list reference-datum-workflows plane-sketch-refs plane-more-types --jobs 1`
+
+`reference-entity-list` checks named sketch entities in the shared panel list,
+explicit slot replacement, spline compatibility, origin points, hidden sources,
+suppression/order filtering and stable references after reopening.
+
+`reference-plane-display-anchor` checks that the displayed rectangle stays on an
+offset defining line as its angle changes, independently of the model pivot,
+while preserving the geometric plane and saved sketch coordinate frame.
+
+The shared datum test checks affine/unit-direction constraints for planes, axes and
+points; underdefinition, conflicts, alternate angular planes/bisectors, tangent
+cylinders, circular edge centres, expressions, incremental replay and downstream
+extrusion after source edits. Its UI workflow uses real canvas clicks, replaces
+numbered slots, rejects a fourth reference and incomplete acceptance, switches
+solutions, and checks cancel, source visibility, legacy editing and reopening.
+Run on both kernel configurations.
+
+## Plane and point along path
+
+`python tests/run_tests.py --only reference-along-path reference-datum-workflows --jobs 1`
+
+`path-location-cases.js` checks arc-length positions against analytic arcs,
+nonuniform quintics and weighted rational circles, including derivative normals,
+3D helices, composite-route boundaries, model circle/spline edges, reversal,
+closed seams, cusps, out-of-range values, expressions and source edits. The app
+test picks an arc in the canvas, uses the shared relation controls, verifies the
+plane origin and tangent, then saves, reopens, cancels invalid edits and changes
+the source radius. Run on both kernel configurations.

@@ -17,7 +17,7 @@ import * as LR from './loftrefs.js';
 import { axisCandidates, PATTERN_SKIP, fileStem, folderOfFeature, newFeatureFolder, putFeatureInFolder } from './model.js';
 import { BUILTIN_TEMPLATES, DEFAULT_TEMPLATE_ID, templateSummary, isTemplate } from './drawtemplates.js';
 import { SHEET_SIZES as DW_SIZES } from './drawingformats.js';
-import { inferPlaneType, planeRefs, PLANE_TYPES } from './refgeom.js';
+import { inferPlaneType, planeRefs, legacyDatumRefs, useReferenceRelations } from './refgeom.js';
 import * as G from './geometry.js';
 import { platform } from './platform.js';
 import { threadList } from './threads.js';
@@ -29,6 +29,36 @@ import { CLAUDE_MODELS } from './claudespec.js';
 import { lenText, lenValue, fmtLen, lenWithUnit, areaWithUnit, volWithUnit } from './units.js';
 import { groupBodies } from './bodygroups.js';
 import * as W from './wcs.js';
+import {referenceRelations,defaultReferenceRelations,RELATION_LABELS} from './refconstraints.js';
+import * as LC from './loftcorrespondence.js';
+
+function datumHint(doc,r){
+  if(r.kind==='curve')return {kind:'path',curve:{type:'path'}};
+  if(r.kind==='plane'||r.kind==='face'&&r.n)return {kind:'plane'};
+  if(r.kind==='face')return {kind:'cylinder'};
+  if(r.kind==='point'||r.kind==='vertex'||r.kind==='sketch'&&r.point)return {kind:'point'};
+  const source=r.kind==='sketch'?findFeature(doc,r.sketch):null,c=source&&SM.getCurve(source,r.curve);
+  if(c?.type==='spline')return {kind:'path',curve:{type:'path'}};
+  return {kind:'line',...(r.kind==='edge'||c?{curve:{type:c?.type||'unknown'}}:{})};
+}
+function resolvedDatumHint(doc,r,g,type){
+  if(g.kind!=='path')return g;
+  if(r.kind==='sketch')return datumHint(doc,r);
+  if(r.kind==='edge'&&(type==='point'||['line','circle','arc'].includes(g.curve?.type)))return {kind:'line',curve:g.curve};
+  return g;
+}
+function hasPlaneRelation(f,a,relation){
+  const refs=f.refs||[],info=a.result?.info?.[f.id],geo=info?.datumSignature===JSON.stringify(f)&&info.geometry?info.geometry:refs.map(r=>datumHint(a.doc,r)),defaults=defaultReferenceRelations('plane',geo,f);
+  return refs.some((r,i)=>(r.relation||defaults[i])===relation);
+}
+
+const SKETCH_TOOL_GROUPS = [
+  ['line', 'Line', ['line', 'centerline', 'midline']],
+  ['rectangle', 'Rectangle', ['rect', 'crect']],
+  ['arc', 'Arc', ['arc', 'arc3', 'tarc']],
+  ['spline', 'Spline', ['spline', 'cspline']],
+  ['slot', 'Slot', ['slot', 'cslot', 'oslot', 'arcslot3', 'arcslot']],
+];
 
 // Draw DXF entities (flat pattern) on a canvas: CAD colours on dark, line types as dash patterns.
 // view: { zoom, px, py } on top of the fit-to-window placement (zoom / pan in the preview);
@@ -208,15 +238,27 @@ function thinDirOptions(f) {
 
 const LOFT_END_GROUPS = ['start', 'end'].map((key) => ({
   title: key === 'start' ? 'Start Condition' : 'End Condition', fields: [
-    { key: key + 'Condition', type: 'select', label: 'Constraint', options: [['none', 'Free'], ['normal', 'Normal to profile'], ['direction', 'Direction'], ['tangent', 'Tangent to adjacent faces (G1)']] },
+    { key: key + 'Condition', type: 'select', label: 'Constraint', options: [['none', 'Free'], ['normal', 'Normal to profile'], ['direction', 'Direction'], ['tangent', 'Tangent to adjacent faces (G1)'], ['curvature', 'Curvature to adjacent faces (G2)']] },
     { key: key + 'Direction', type: 'direction', label: 'Direction', show: (f) => f[key + 'Condition'] === 'direction' },
-    { key: key + 'Faces', type: 'faceList', loftEnd: key, show: (f) => f[key + 'Condition'] === 'tangent', hint: 'Select the adjacent side faces whose boundary coincides with this profile. Select all faces needed to cover its outer and inner edges, including Thin walls.' },
+    { key: key + 'Faces', type: 'faceList', loftEnd: key, show: (f) => ['tangent', 'curvature'].includes(f[key + 'Condition']), hint: 'Select the adjacent side faces whose boundary coincides with this profile. Select all faces needed to cover its outer and inner edges, including Thin walls.' },
     { key: key + 'Strength', type: 'expr', default: 1, label: 'Influence', show: (f) => f[key + 'Condition'] && f[key + 'Condition'] !== 'none' },
     { key: key + 'Reverse', type: 'check', label: 'Reverse tangent direction', show: (f) => f[key + 'Condition'] && f[key + 'Condition'] !== 'none' },
-    { key: key + 'Hint', type: 'hint', show: (f) => f[key + 'Condition'] && f[key + 'Condition'] !== 'none', text: 'Smooth loft with matching profile curves. Holes and Thin include their inner walls. Guides require Adaptive approximation and compatible endpoint tangents. Influence controls the endpoint derivative length (1 is the default). Contact and tangent planes are checked on the final CAD faces to 0.0001 mm and 0.5 degrees. Interior profiles use C2 interpolation.' },
+    { key: key + 'Hint', type: 'hint', show: (f) => f[key + 'Condition'] && f[key + 'Condition'] !== 'none', text: 'Smooth loft with matching profile curves. Holes and Thin include their inner walls. Guides require Adaptive approximation and compatible endpoint tangents. Influence controls the endpoint derivative length (1 is the default). Contact and tangent planes are checked on the final CAD faces to 0.0001 mm and 0.5 degrees. G2 also checks all three curvature components against the adjacent faces to 0.001 1/mm. Interior profiles use C2 interpolation.' },
   ],
 }));
 
+const REVOLUTION_AXIS = {title:'Axis of Revolution',fields:[
+  {key:'axis',type:'axis',label:'Axis'},
+  {key:'axisPick',type:'axisPick'},
+  {key:'projectAxis',type:'check',label:'Project axis into profile plane'},
+]};
+const REVOLUTION_DIRECTIONS = {title:'Revolution',fields:[
+  {key:'extent',type:'select',label:'Extent',options:[['full','Full (360°)'],['angle','Angle']]},
+  {key:'end',type:'select',label:'Direction',show:f=>f.extent!=='full',options:[['oneway','One side'],['twoSides','Two sides'],['midplane','Symmetric']]},
+  {key:'angle',type:'expr',label:'Angle',unit:'°',show:f=>f.extent!=='full'},
+  {key:'angle2',type:'expr',label:'Second angle',unit:'°',default:0,show:f=>f.extent!=='full'&&f.end==='twoSides'},
+  {key:'reverse',type:'check',label:'Reverse direction',show:f=>f.extent!=='full'&&f.end!=='midplane'},
+]};
 const THIN_GROUP = {
   title: 'Thin Feature', fields: [
     { key: 'thin', type: 'check', label: 'Thin feature (a wall along the sketch curves)' },
@@ -608,11 +650,11 @@ const PM_SCHEMAS = {
   sweep: [
     {
       title: 'Profile, Path and Guide', fields: [
-        { key: 'profileType', type: 'select', label: 'Profile', options: [['sketch', 'A sketch'], ['circle', 'Circular (enter the diameter)']] },
-        { key: 'profile', type: 'sketch', label: 'Profile sketch', show: (f) => f.profileType !== 'circle' },
+        { key: 'profileType', type: 'select', label: 'Profile', options: [['sketch', 'Sketch profile'], ['circle', 'Circular (enter the diameter)']] },
+        { key: 'profile', type: 'sweepSelection', label: 'Profile', show: (f) => f.profileType !== 'circle' },
         { key: 'diameter', type: 'expr', label: 'Diameter', unit: 'mm', show: (f) => f.profileType === 'circle' },
-        { key: 'path', type: 'pathSel', label: 'Path' },
-        { key: 'guide', type: 'pathSel', label: 'Guide (optional)', optional: true },
+        { key: 'path', type: 'sweepSelection', label: 'Path' },
+        { key: 'guide', type: 'sweepSelection', label: 'Guide (optional)', optional: true },
         { key: 'orientation', type: 'select', label: 'Orientation', show: (f) => !f.guide, options: [['perpendicular', 'Perpendicular to path'], ['parallel', 'Parallel to initial profile']] },
         { key: 'twistAngle', type: 'expr', default: 0, label: 'Twist angle', unit: '°', show: (f) => !f.guide && f.orientation !== 'parallel' },
         { key: 'twistHint', type: 'hint', show: (f) => !f.guide && f.orientation !== 'parallel', text: 'Total rotation distributed by distance along the path. Positive angles follow the right-hand rule along the path. Twist requires an open, tangent-continuous path; zero keeps the usual sweep.' },
@@ -621,12 +663,13 @@ const PM_SCHEMAS = {
         { key: 'sweepHint', type: 'hint', text: 'The path is a sketch (one chain of lines and arcs) or a helix. A sketch profile should sit at the start of the path, across it. For a spring: a helix path and a circular profile.' },
       ],
     },
-    { title: 'Options', fields: [{ key: 'merge', type: 'check', label: 'Merge result (off: make a separate body)', show: (f) => f.op === 'add' }] },
+    { title: 'Operation', fields: [{ key: 'operation', type: 'solidOperation' }] },
     { ...THIN_GROUP, fields: THIN_GROUP.fields.map((x) => ({ ...x, show: (f) => f.profileType !== 'circle' && (!x.show || x.show(f)) })) },
     ...SCOPE_GROUP,
   ],
   loft: [
     { title: 'Profiles', fields: [{ key: 'profiles', type: 'loftSelection' }] },
+    {title:'Profile Correspondence',fields:[{key:'loftCorrespondence',type:'loftCorrespondence'}]},
     ...LOFT_END_GROUPS,
     { title: 'Guide Curves', fields: [
       { key: 'guides', type: 'loftSelection', show: (f) => !f.ruled || f.guides?.length },
@@ -753,16 +796,22 @@ const PM_SCHEMAS = {
   ],
   extrude: [
     { title: 'Profiles', fields: [{ key: 'profiles', type: 'loftSelection' }] },
+    { title:'Start',fields:[
+      {key:'startFrom',type:'select',label:'Start from',default:'profile',options:[['profile','Profile plane'],['offset','Offset from profile'],['surface','Plane / planar face']]},
+      {key:'startOffset',type:'expr',label:'Start offset',unit:'mm',show:f=>f.startFrom==='offset'},
+      {key:'startPlane',type:'surfaceRef',label:'Start surface',show:f=>f.startFrom==='surface'},
+    ]},
     {
-      title: 'Direction 1', fields: [
-        { key: 'end', type: 'select', label: 'End condition', options: ENDS_REF },
-        { key: 'depth', type: 'expr', label: 'Depth', unit: 'mm', show: (f) => ['blind', 'midplane'].includes(f.end) },
+      title: 'End', fields: [
+        { key: 'end', type: 'select', label: 'End condition', options: [...ENDS_REF,['twoSides','Two sides']] },
+        { key: 'depth', type: 'expr', label: 'Depth', unit: 'mm', show: (f) => ['blind', 'midplane', 'twoSides'].includes(f.end) },
+        { key: 'depth2', type: 'expr', label: 'Second depth', unit: 'mm', default: 0, show: f => f.end === 'twoSides' },
         { key: 'toPoint', type: 'pointRef', label: 'Vertex', show: (f) => f.end === 'upToVertex' },
         { key: 'toPlane', type: 'surfaceRef', label: 'Surface', show: isSurfEnd },
         { key: 'toOffset', type: 'expr', label: 'Offset', unit: 'mm', show: (f) => f.end === 'offsetSurface' },
         { key: 'toFlip', type: 'check', label: 'Reverse offset (past the surface)', show: (f) => f.end === 'offsetSurface' },
-        { key: 'reverse', type: 'check', label: 'Reverse direction', show: (f) => ['blind', 'through'].includes(f.end) },
-        { key: 'merge', type: 'check', label: 'Merge result (off: make a separate body)', show: (f) => f.op === 'add' },
+        { key: 'reverse', type: 'check', label: 'Reverse direction', show: (f) => ['blind', 'through', 'twoSides'].includes(f.end) },
+        { key: 'operation', type: 'solidOperation' },
       ],
     },
     {
@@ -775,44 +824,25 @@ const PM_SCHEMAS = {
     ...SCOPE_GROUP,
   ],
   revolve: [
-    { title: 'From', fields: [{ key: 'sketch', type: 'sketch', label: 'Sketch' }] },
-    { title: 'Axis of Revolution', fields: [{ key: 'axis', type: 'axis', label: 'Axis' }, { key: 'axisHint', type: 'hint', text: 'Or click the axis in the view: a line of the sketch, a straight model edge or a cylindrical face (its centre line).' }] },
-    {
-      title: 'Direction 1', fields: [
-        { key: 'end', type: 'select', label: 'Type', options: [['oneway', 'Blind'], ['midplane', 'Mid Plane']] },
-        { key: 'angle', type: 'expr', label: 'Angle', unit: '°' },
-        { key: 'reverse', type: 'check', label: 'Reverse direction', show: (f) => f.end === 'oneway' },
-        { key: 'merge', type: 'check', label: 'Merge result (off: make a separate body)', show: (f) => f.op === 'add' },
-      ],
-    },
-    ...SCOPE_GROUP,
+    {title:'Profiles',fields:[{key:'profiles',type:'loftSelection'}]},
+    REVOLUTION_AXIS,REVOLUTION_DIRECTIONS,
+    {title:'Operation',fields:[{key:'operation',type:'solidOperation'}]},
+    THIN_GROUP,...SCOPE_GROUP,
   ],
   plane: [
-    { title: 'References', fields: [{ key: 'refs', type: 'planeRefs' }] },
-    {
-      title: 'Options', fields: [
-        { key: 'offset', type: 'expr', label: 'Distance', unit: 'mm', show: (f) => inferPlaneType(planeRefs(f)) === 'offset' },
-        { key: 'flip', type: 'check', label: 'Flip side', show: (f) => inferPlaneType(planeRefs(f)) === 'offset' },
-        { key: 'angle', type: 'expr', label: 'Angle', unit: '°', show: (f) => inferPlaneType(planeRefs(f)) === 'atAngle' },
-        { key: 'angle', type: 'angleQuick', show: (f) => inferPlaneType(planeRefs(f)) === 'atAngle' },
-        { key: 'flipAngle', type: 'check', label: 'Flip angle direction', show: (f) => inferPlaneType(planeRefs(f)) === 'atAngle' },
-        { key: 'through', type: 'check', label: 'Through the edge and the point (not normal to the edge)', show: (f) => { const r = planeRefs(f); return r.length === 2 && r.some((x) => x.kind === 'edge' || x.kind === 'axis') && r.some((x) => x.kind === 'point' || x.kind === 'vertex'); } },
-        { key: 'position', type: 'select', label: 'Position on edge', options: [['start', 'Start'], ['mid', 'Midpoint'], ['end', 'End'], ['distance', 'At a distance from the start']], show: (f) => inferPlaneType(planeRefs(f)) === 'normalToEdge' && planeRefs(f).length === 1 },
-        { key: 'bisector', type: 'check', label: 'Use the other bisector (angled faces)', show: (f) => inferPlaneType(planeRefs(f)) === 'midPlane' },
-        { key: 'along', type: 'expr', label: 'Distance along the edge', unit: 'mm', show: (f) => inferPlaneType(planeRefs(f)) === 'normalToEdge' && f.position === 'distance' && planeRefs(f).length === 1 },
-        { key: 'around', type: 'expr', label: 'Angle round the cylinder', unit: '°', show: (f) => inferPlaneType(planeRefs(f)) === 'tangent' && planeRefs(f).length === 1 },
-        { key: 'flip', type: 'check', label: 'The other side of the cylinder', show: (f) => inferPlaneType(planeRefs(f)) === 'tangent' && planeRefs(f).length === 2 },
-      ],
-    },
-    {
-      // (any type: placed exactly, and turned for the sketches made on it)
-      title: 'Placement', fields: [
-        { key: 'moveBy', type: 'expr', label: 'Move along its normal', unit: 'mm', show: (f) => !!inferPlaneType(planeRefs(f), f.through) && inferPlaneType(planeRefs(f), f.through) !== 'offset' },
-        { key: 'turn', type: 'expr', label: 'Turn its axes in the plane', unit: '°', show: (f) => !!inferPlaneType(planeRefs(f), f.through) },
-        { key: 'reverse', type: 'check', label: 'Reverse its normal', show: (f) => !!inferPlaneType(planeRefs(f), f.through) },
-        { key: 'plHint', type: 'hint', text: 'Move it by a distance along its normal, turn its horizontal and vertical directions (how a sketch on it lies), or turn it to face the other way.', show: (f) => !!inferPlaneType(planeRefs(f), f.through) },
-      ],
-    },
+    {title:'References and Relations',fields:[{key:'refs',type:'planeRefs'}]},
+    {title:'Options',fields:[
+      {key:'flip',type:'check',label:'Flip offset direction',show:(f,a)=>hasPlaneRelation(f,a,'offset')},
+      {key:'position',type:'select',label:'Position on edge',options:[['start','Start'],['mid','Midpoint'],['end','End'],['distance','At a distance from the start']],show:(f,a)=>hasPlaneRelation(f,a,'normal')&&f.refs?.length===1&&f.refs[0].kind!=='axis'},
+      {key:'along',type:'expr',label:'Distance along the edge',unit:'mm',show:(f,a)=>hasPlaneRelation(f,a,'normal')&&f.position==='distance'&&f.refs?.length===1&&f.refs[0].kind!=='axis'},
+      {key:'around',type:'expr',label:'Angle round the cylinder',unit:'°',show:(f,a)=>hasPlaneRelation(f,a,'tangent')&&f.refs?.length===1},
+    ]},
+    {title:'Placement',fields:[
+      {key:'moveBy',type:'expr',label:'Move along its normal',unit:'mm',show:(f,a)=>!hasPlaneRelation(f,a,'offset')},
+      {key:'turn',type:'expr',label:'Turn its axes in the plane',unit:'°'},
+      {key:'reverse',type:'check',label:'Reverse its normal'},
+      {key:'plHint',type:'hint',text:'Placement transforms the constructed plane after solving its reference relations. Reverse changes its orientation; Turn changes the axes of sketches attached to it.'},
+    ]},
   ],
   lpattern: [
     patternSources('Features to Pattern'),
@@ -983,19 +1013,25 @@ const PM_SCHEMAS = {
     { title: 'Mates', fields: [{ key: 'mates', type: 'mates', show: (f) => f.mode === 'mates' }] },
   ],
   surfExtrude: [
-    { title: 'From', fields: [{ key: 'sketch', type: 'sketch', label: 'Sketch' }] },
-    { title: 'Direction 1', fields: [{ key: 'end', type: 'select', label: 'End condition', options: [['blind', 'Blind'], ['midplane', 'Mid Plane']] }, { key: 'depth', type: 'expr', label: 'Depth', unit: 'mm' }, { key: 'reverse', type: 'check', label: 'Reverse direction', show: (f) => f.end === 'blind' }] },
+    {title:'Contours',fields:[{key:'profiles',type:'loftSelection'}]},
+    {title:'Direction',fields:[
+      {key:'end',type:'select',label:'Direction',options:[['blind','One side'],['twoSides','Two sides'],['midplane','Symmetric']]},
+      {key:'depth',type:'expr',label:'Depth',unit:'mm'},
+      {key:'depth2',type:'expr',label:'Second depth',unit:'mm',default:0,show:f=>f.end==='twoSides'},
+      {key:'reverse',type:'check',label:'Reverse direction',show:f=>f.end!=='midplane'},
+    ]},
   ],
   surfRevolve: [
-    { title: 'From', fields: [{ key: 'sketch', type: 'sketch', label: 'Sketch' }] },
-    { title: 'Axis of Revolution', fields: [{ key: 'axis', type: 'axis', label: 'Axis' }] },
-    { title: 'Direction 1', fields: [{ key: 'angle', type: 'expr', label: 'Angle', unit: '°' }] },
+    {title:'Contours',fields:[{key:'profiles',type:'loftSelection'}]},
+    REVOLUTION_AXIS,REVOLUTION_DIRECTIONS,
   ],
   surfPlanar: [
-    { title: 'Bounding Entities', fields: [{ key: 'sketch', type: 'sketch', label: 'Sketch (closed)' }] },
+    { title: 'Sketch Profiles', fields: [{ key: 'profiles', type: 'loftSelection' }] },
+    { title: 'Model Boundary Edges', fields: [{ key: 'edges', type: 'edges' }] },
   ],
   surfLoft: [
     { title: 'Profiles', fields: [{ key: 'profiles', type: 'loftSelection', with3d: true }] },
+    {title:'Profile Correspondence',fields:[{key:'loftCorrespondence',type:'loftCorrespondence'}]},
     ...LOFT_END_GROUPS,
     { title: 'Guide Curves', fields: [
       { key: 'guides', type: 'loftSelection', show: (f) => !f.ruled || f.guides?.length },
@@ -1008,11 +1044,11 @@ const PM_SCHEMAS = {
   ],
   surfSweep: [
     { title: 'Profile, Path and Guide', fields: [
-      { key: 'profileType', type: 'select', label: 'Profile', options: [['sketch', 'A sketch (open or closed)'], ['circle', 'Circular (enter the diameter)']] },
-      { key: 'profile', type: 'sketch', label: 'Profile sketch', show: (f) => f.profileType !== 'circle' },
+      { key: 'profileType', type: 'select', label: 'Profile', options: [['sketch', 'Sketch contour (open or closed)'], ['circle', 'Circular (enter the diameter)']] },
+      { key: 'profile', type: 'sweepSelection', label: 'Profile', show: (f) => f.profileType !== 'circle' },
       { key: 'diameter', type: 'expr', label: 'Diameter', unit: 'mm', show: (f) => f.profileType === 'circle' },
-      { key: 'path', type: 'pathSel', label: 'Path' },
-      { key: 'guide', type: 'pathSel', label: 'Guide (optional)', optional: true },
+      { key: 'path', type: 'sweepSelection', label: 'Path' },
+      { key: 'guide', type: 'sweepSelection', label: 'Guide (optional)', optional: true },
         { key: 'orientation', type: 'select', label: 'Orientation', show: (f) => !f.guide, options: [['perpendicular', 'Perpendicular to path'], ['parallel', 'Parallel to initial profile']] },
         { key: 'twistAngle', type: 'expr', default: 0, label: 'Twist angle', unit: '°', show: (f) => !f.guide && f.orientation !== 'parallel' },
         { key: 'twistHint', type: 'hint', show: (f) => !f.guide && f.orientation !== 'parallel', text: 'Total rotation distributed by distance along the path. Positive angles follow the right-hand rule along the path. Twist requires an open, tangent-continuous path; zero keeps the usual sweep.' },
@@ -1024,10 +1060,11 @@ const PM_SCHEMAS = {
   surfFill: [
     { title: 'Patch Boundary', fields: [
       { key: 'edges', type: 'edges' },
-      { key: 'tangent', type: 'check', label: 'Tangent to the faces round the hole' },
+      { key: 'continuity', type: 'select', label: 'Boundary continuity', options: [['G0', 'Contact (G0)'], ['G1', 'Tangent (G1)'], ['G2', 'Curvature (G2)']] },
+      { key: 'supportFaces', type: 'faceList', patchSupport: true, show: f => (f.continuity ?? (f.tangent ? 'G1' : 'G0')) !== 'G0' || f.edges.some(e => e.continuity && e.continuity !== 'G0'), hint: 'Open boundary edges infer their adjacent face. Select support faces explicitly when an edge has two adjacent faces. Each G1/G2 edge needs exactly one support.' },
       { key: 'merge', type: 'check', default: true, label: 'Knit into the surface (when the edges are all on one surface body)' },
       { key: 'solid', type: 'check', label: 'Make a solid when that closes it', show: (f) => f.merge !== false },
-      { key: 'fHint', type: 'hint', text: 'Click the edges round a hole (one closed loop) of a surface or a solid: a smooth patch fills it. A flat loop gives a flat patch.' },
+      { key: 'fHint', type: 'hint', text: 'Select one closed loop. Set G0, G1 or G2 for the boundary, or override individual edges. Contact, tangency and curvature are checked on CAD surfaces; incompatible constraints report an error without lowering continuity.' },
     ] },
   ],
   surfTrim: [
@@ -1200,31 +1237,11 @@ const PM_SCHEMAS = {
       { key: 'mtHint', type: 'hint', show: (f) => f.format !== 'step', text: 'Big meshes (e.g. 3D printing models) are simplified on import: the triangles that change the shape least are merged. Around 80,000 keeps the detail and stays quick; much more gets slow and can run out of memory.' },
     ] },
   ],
-  axis: [
-    {
-      title: 'Selections', fields: [
-        { key: 'axisType', type: 'select', label: 'Defined by', options: [['twoPlanes', 'Two planes'], ['twoPoints', 'Two points'], ['edge', 'Model edge (straight or circular)'], ['cylinder', 'Cylindrical / conical face (its centre line)'], ['sketchLine', 'Sketch line']] },
-        { key: 'planeA', type: 'plane', label: 'Plane 1', show: (f) => f.axisType === 'twoPlanes' },
-        { key: 'planeB', type: 'plane', label: 'Plane 2', show: (f) => f.axisType === 'twoPlanes' },
-        { key: 'pointA', type: 'pointSel', label: 'Point 1', show: (f) => f.axisType === 'twoPoints' },
-        { key: 'pointB', type: 'pointSel', label: 'Point 2', show: (f) => f.axisType === 'twoPoints' },
-        { key: 'edge', type: 'pick', label: 'Edge', what: 'edge', show: (f) => f.axisType === 'edge' },
-        { key: 'face', type: 'pick', label: 'Face', what: 'face', show: (f) => f.axisType === 'cylinder' },
-        { key: 'sketchLine', type: 'sketchLineSel', label: 'Line', show: (f) => f.axisType === 'sketchLine' },
-      ],
-    },
-  ],
+  axis: [{title:'References and Relations',fields:[{key:'refs',type:'planeRefs'}]}],
   point: [
-    {
-      title: 'Selections', fields: [
-        { key: 'pointType', type: 'select', label: 'Defined by', options: [['coords', 'Coordinates'], ['vertex', 'Model vertex'], ['arcCenter', 'Arc / circle center'], ['edgeMid', 'Edge midpoint']] },
-        { key: 'x', world: ['x', ['x', 'y', 'z']], type: 'expr', label: 'X', unit: 'mm', show: (f) => f.pointType === 'coords' },
-        { key: 'y', world: ['y', ['x', 'y', 'z']], type: 'expr', label: 'Y', unit: 'mm', show: (f) => f.pointType === 'coords' },
-        { key: 'z', world: ['z', ['x', 'y', 'z']], type: 'expr', label: 'Z', unit: 'mm', show: (f) => f.pointType === 'coords' },
-        { key: 'vertex', type: 'pick', label: 'Vertex', what: 'vertex', show: (f) => f.pointType === 'vertex' },
-        { key: 'edge', type: 'pick', label: 'Edge', what: 'edge', show: (f) => f.pointType === 'arcCenter' || f.pointType === 'edgeMid' },
-      ],
-    },
+    {title:'Definition',fields:[{key:'pointType',type:'select',label:'Defined by',options:[['coords','Coordinates'],['references','Reference geometry']]}]},
+    {title:'References and Relations',show:f=>f.pointType!=='coords',fields:[{key:'refs',type:'planeRefs',show:f=>f.pointType!=='coords'}]},
+    {title:'Coordinates',fields:['x','y','z'].map(k=>({key:k,world:[k,['x','y','z']],type:'expr',label:k.toUpperCase(),unit:'mm',show:f=>f.pointType==='coords'}))},
   ],
 };
 
@@ -1550,7 +1567,7 @@ export class UI {
     cm.style.top = Math.min(y, innerHeight - h - 4) + 'px';
   }
 
-  closeContext() { $('#ctxmenu').hidden = true; }
+  closeContext() { $('#ctxmenu').hidden = true; document.querySelectorAll('[data-sketch-variants][aria-expanded="true"]').forEach(b=>b.setAttribute('aria-expanded','false')); }
 
   // ------------------------------------------------------------ Command ribbon
   commandDefs() {
@@ -1791,12 +1808,14 @@ export class UI {
         `<span class="cm-ic">${icon(d.icon)}${d.key ? `<span class="cm-key">${esc(d.key)}</span>` : ''}</span><span>${esc(tr(d.label))}</span>`);
       b.dataset.key = cmdKey(d);
       if (d.children) {
-        b.classList.add('cm-flyout'); b.dataset.group = d.id;
-        b.setAttribute('aria-haspopup', 'menu');
-        b.lastElementChild.appendChild(document.createTextNode(' ▾'));
-        b.onclick = () => { const r = b.getBoundingClientRect(); this.showContext(r.left, r.bottom, d.children); };
-        b.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showToolbarCustomize('sketch'); });
-        btns.appendChild(b); continue;
+        const group=el('div',{class:'cm-split'+(d.active?' active':''),role:'group','aria-label':tr(d.groupLabel),'data-group':d.id});
+        group.dataset.key=cmdKey(d);b.dataset.sketchPrimary=d.primary.id;
+        b.onclick=(e)=>{if(this._tbJustDragged){e.preventDefault();return;}this.app.macros?.note(d.primary.label);d.primary.action();};
+        const arrow=el('button',{class:'cm-split-arrow',title:tr(d.groupLabel)+' variants','aria-label':tr(d.groupLabel)+' variants','aria-haspopup':'menu','aria-expanded':'false',disabled:d.disabled,'data-sketch-variants':d.id},'▾');
+        const open=()=>{this.closeContext();const r=group.getBoundingClientRect();this.showContext(r.left,r.bottom,d.children);arrow.setAttribute('aria-expanded','true');};
+        arrow.onclick=open;b.onkeydown=e=>{if(e.key==='ArrowDown'){e.preventDefault();open();}};
+        group.addEventListener('contextmenu',(e)=>{e.preventDefault();this.showToolbarCustomize('sketch');});
+        group.append(b,arrow);btns.appendChild(group);continue;
       }
       // (the click that ends a drag is not a press)
       b.addEventListener('click', (e) => { if (this._tbJustDragged) { e.preventDefault(); return; } this.app.macros?.note(d.label); d.action(); });
@@ -1831,22 +1850,22 @@ export class UI {
   }
 
   groupSketchTools(items) {
-    const groups = [
-      ['line', 'Line', 'line', ['tool-line', 'tool-centerline', 'tool-midline']],
-      ['rectangle', 'Rectangle', 'rect', ['tool-rect', 'tool-crect']],
-      ['arc', 'Arc', 'arc', ['tool-arc', 'tool-arc3', 'tool-tarc']],
-      ['spline', 'Spline', 'spline', ['tool-spline', 'tool-cspline']],
-      ['slot', 'Slot', 'slot', ['tool-slot', 'tool-cslot', 'tool-oslot', 'tool-arcslot3', 'tool-arcslot']],
-    ];
     const emitted = new Set();
     return items.flatMap((d) => {
-      const group = groups.find((g) => g[3].includes(d.id));
+      const group = SKETCH_TOOL_GROUPS.find((g) => g[2].some(t=>'tool-'+t===d.id));
       if (!group) return [d];
       if (emitted.has(group[0])) return [];
       emitted.add(group[0]);
-      const children = items.filter((q) => group[3].includes(q.id));
-      return [{ id: 'sketch-group-' + group[0], label: group[1], icon: group[2], children, active: children.some((q) => q.active), disabled: children.every((q) => q.disabled) }];
+      const children = items.filter((q) => group[2].some(t=>'tool-'+t===q.id));
+      const primary=children.find(q=>q.active&&!q.disabled)||children.find(q=>q.id==='tool-'+this.tbPrefs().sketchVariants?.[group[0]]&&!q.disabled)||children.find(q=>!q.disabled)||children[0];
+      return [{ ...primary, id: 'sketch-group-' + group[0], groupLabel:group[1], primary, children, active: children.some((q) => q.active), disabled: children.every((q) => q.disabled) }];
     });
+  }
+
+  rememberSketchTool(tool){
+    const group=SKETCH_TOOL_GROUPS.find(g=>g[2].includes(tool));if(!group)return;
+    const prefs=this.tbPrefs();prefs.sketchVariants ||= {};
+    if(prefs.sketchVariants[group[0]]!==tool){prefs.sketchVariants[group[0]]=tool;this.savePrefs();}
   }
   // The browser version's notice above the window (closed for good with ✕).
   showWebNotice() {
@@ -3295,7 +3314,18 @@ export class UI {
     const f = pm.feature;
     let msg = root.querySelector('.pm-status');
     const err = this.app.result?.errors.get(f.id);
-    if (f.type === 'plane' && !inferPlaneType(planeRefs(f), f.through)) { msg?.remove(); return; } // References box explains
+    const note=this.app.result?.notes?.get(f.id);let noteBox=root.querySelector('[data-pm-note]');
+    if(err||!note)noteBox?.remove();
+    else{if(!noteBox){noteBox=el('div',{class:'pm-msg ok','data-pm-note':''});root.querySelector('.pm-actions')?.after(noteBox);}noteBox.textContent=note;}
+    if(['loft','surfLoft'].includes(f.type)&&LC.hasManualConnections(f)){
+      const graph=this.app.result?.info?.[f.id]?.loftConnections,box=root.querySelector('[data-loft-correspondence]');
+      if(box&&box.dataset.graph===''&&graph?.signature===JSON.stringify(f)){this.renderPM();return;}
+    }
+    if(f.referenceDefinition&&['plane','axis','point'].includes(f.type)){
+      const info=this.app.result?.info?.[f.id],body=root.querySelector('.datum-definition');
+      if(body&&info?.datumSignature===JSON.stringify(f)&&info.geometry&&body.dataset.geometry!==JSON.stringify(info.geometry)){this.renderPM();return;}
+      this.updateDatumStatus(root,f);msg?.remove();return;
+    }
     if (!msg) {
       msg = el('div', { class: 'pm-msg pm-status' });
       root.querySelector('.pm-actions')?.after(msg);
@@ -3461,11 +3491,23 @@ export class UI {
   renderFeaturePM(root) {
     const a = this.app, pm = a.pm, f = pm.feature, doc = a.doc;
     const info = TYPE_INFO[f.type];
-    if (f.type === 'extrude' && !Array.isArray(f.profiles)) { f.profiles = f.sketch ? [f.sketch] : []; f.sketch = null; }
+    if(['plane','axis','point'].includes(f.type)&&!f.referenceDefinition){
+      f.refs=legacyDatumRefs(f);f.referenceDefinition=true;
+      if(['plane','axis'].includes(f.type))f.referenceLegacy=true;
+      if(f.type==='point'&&f.pointType!=='coords')f.pointType='references';
+      a.preview();
+    }
+    if(['sweep','surfSweep'].includes(f.type)){pm.sweepSlot ||= f.profileType==='circle'?'path':'profile';}
+    if (f.type === 'surfFill' && f.continuity == null) f.continuity = f.tangent ? 'G1' : 'G0';
+    if (['extrude','surfPlanar','revolve','surfExtrude','surfRevolve'].includes(f.type) && !Array.isArray(f.profiles)) { f.profiles = f.sketch ? [f.sketch] : []; f.sketch = null; }
+    if(['revolve','surfRevolve'].includes(f.type)){if(!f.extent){try{f.extent=evaluate(f.angle??360,a.result?.vars||{})>=360?'full':'angle';}catch{f.extent='angle';}}f.end ||= 'oneway';}
+    if (f.type === 'surfPlanar') f.edges ||= [];
+    if (f.type === 'surfPlanar' && pm.planarEdges === undefined) pm.planarEdges = !!f.edges?.length && !f.profiles.length;
     this.pmHeader(root, iconFor(f), f.name);
+    if(f.type==='point'&&f.pointType==='coords')root.appendChild(el('div',{'data-datum-status':'checking',class:'pm-msg'},'Updating preview…'));
     const err = a.result?.errors.get(f.id);
     if (f.type === 'loft' && f.ruled && pm.loftSlot === 'guides') { pm.loftSlot = 'profiles'; pm.loftDraft = null; pm.loftHover = null; }
-    const waitingForRefs = f.type === 'plane' && !inferPlaneType(planeRefs(f), f.through); // the References box explains this
+    const waitingForRefs = f.referenceDefinition || f.type === 'plane' && !inferPlaneType(planeRefs(f), f.through);
     const waitingForProfiles = ['loft', 'surfLoft'].includes(f.type) && (f.profiles || []).length < 2;
     if (waitingForProfiles) root.appendChild(el('div', { class: 'pm-msg' }, 'Select two or more section profiles in the canvas.'));
     else if (f.type === 'extrude' && !f.profiles.length) root.appendChild(el('div', { class: 'pm-msg' }, 'Select one or more profiles in the canvas, or select a whole sketch in the tree.'));
@@ -3473,7 +3515,7 @@ export class UI {
     else if (pm.isNew && !waitingForRefs) root.appendChild(el('div', { class: 'pm-msg pm-status' }, 'Set the parameters. The model previews live. Click ✔ to accept.'));
 
     const note = a.result?.notes?.get(f.id);
-    if (note && !err) root.appendChild(el('div', { class: 'pm-msg ok' }, esc(note)));
+    if (note && !err) root.appendChild(el('div', { class: 'pm-msg ok','data-pm-note':'' }, esc(note)));
     const idx = doc.features.indexOf(f);
     const before = doc.features.slice(0, idx < 0 ? doc.features.length : idx);
     const schema = PM_SCHEMAS[f.type] || [];
@@ -3490,6 +3532,10 @@ export class UI {
         if (fd.world) { const ik = W.internalAxis(fd.world[0]); fd.key = fd.world[1]['xyz'.indexOf(ik.slice(-1))]; fd.neg = ik.startsWith('-'); }
         if (fd.type === 'hint') {
           body.appendChild(el('div', { class: 'pm-hint' }, esc(fd.text)));
+        } else if(fd.type==='sweepSelection'){
+          this.renderSweepSelection(body,f,before,fd);
+        } else if(fd.type==='loftCorrespondence'){
+          this.renderLoftCorrespondence(body,f);
         } else if (fd.type === 'loftSelection') {
           this.renderLoftSelection(body, f, before, fd);
         } else if (fd.type === 'sketchList') {
@@ -3498,6 +3544,14 @@ export class UI {
           this.renderVertexRadii(body, f);
         } else if (fd.type === 'edgePoints') {
           this.renderEdgePoints(body, f);
+        } else if(fd.type==='solidOperation'){
+          const select=el('select',{'data-solid-operation':''});
+          for(const [value,label] of [['join','Join'],['new','New body'],['cut','Cut']])select.appendChild(el('option',{value},label));
+          select.value=f.op==='cut'?'cut':f.merge===false?'new':'join';
+          select.onchange=()=>{f.op=select.value==='cut'?'cut':'add';f.merge=select.value!=='new';pm.scopePick=false;a.preview(true);};
+          body.appendChild(this.row('Operation',select));
+        } else if(fd.type==='axisPick'){
+          body.appendChild(el('button',{class:'pm-btn'+(pm.profilePick===false&&!pm.scopePick?' on':''),'data-profile-axis':'',onclick:()=>{pm.profilePick=false;pm.scopePick=false;pm.loftDraft=null;this.renderPM();a.updateSketchDisplay();}},'Select axis in canvas'));
         } else if (fd.type === 'edges') {
           this.renderEdgeList(body, f);
         } else if (fd.type === 'points3d') {
@@ -3629,7 +3683,8 @@ export class UI {
           if (fd.type === 'sketch') options = [['', '— select a sketch —'], ...before.filter((x) => x.type === 'sketch').map((x) => [x.id, x.name])];
           if (fd.type === 'feature') options = [['', '— select a feature —'], ...before.filter((x) => !PATTERN_SKIP.has(x.type) && !x.suppressed).map((x) => [x.id, x.name])];
           if (fd.type === 'axis') {
-            options = [['v', 'Sketch vertical axis'], ['u', 'Sketch horizontal axis'], ...axisCandidates(findFeature(doc, f.sketch))];
+            options = [['v', 'Sketch vertical axis'], ['u', 'Sketch horizontal axis'], ...axisCandidates(findFeature(doc, f.sketch || LR.sourceId(f.profiles?.[0])))];
+            if (f.axis === 'sketchLine') options.push(['sketchLine','✔ Sketch line (picked in canvas)']);
             if (f.axis === 'edge') options.push(['edge', '✔ Model edge (picked on the model)']);
             if (f.axis === 'face') options.push(['face', '✔ Cylindrical face (picked on the model)']);
           }
@@ -3640,7 +3695,7 @@ export class UI {
           if (fd.type === 'direction') options = [...(fd.none ? [['none', 'None']] : []), ...axisChoices(f[fd.key]), ...axisFeats];
           if (fd.type === 'pointSel') options = [['', '— select a reference point —'], ...pointFeats];
           if (fd.type === 'pointRef') options = [['', f.toVertex ? '✔ Vertex picked on the model' : '— click a vertex on the model —'], ...pointFeats];
-          if (fd.type === 'surfaceRef') options = [['', f.toFace ? '✔ Face picked on the model' : '— click a flat face on the model —'], ...Object.entries(STD_PLANES).map(([k, p]) => [k, p.name]), ...before.filter((x) => x.type === 'plane' && !x.suppressed).map((x) => [x.id, x.name])];
+          if (fd.type === 'surfaceRef') options = [['', (fd.key==='startPlane'?f.startFace:f.toFace) ? '✔ Face picked on the model' : '— click a flat face on the model —'], ...Object.entries(STD_PLANES).map(([k, p]) => [k, p.name]), ...before.filter((x) => x.type === 'plane' && !x.suppressed).map((x) => [x.id, x.name])];
           if (fd.type === 'pathSel') options = [['', fd.optional ? '— None —' : '— a sketch, 3D sketch, curve or helix —'], ...before.filter((x) => ['sketch', 'helix', 'sketch3d', 'compCurve', 'projCurve'].includes(x.type) && !x.suppressed && (['sweep','surfSweep'].includes(f.type) && f.profileType === 'circle' || x.id !== f.profile) && !(['sweep','surfSweep'].includes(f.type) && x.id === (fd.key === 'guide' ? f.path : f.guide))).map((x) => [x.id, x.name])];
           if (fd.type === 'threadSize') {
             options = [['auto', 'Automatic (the size that fits the face)'], ...threadList(f.system || 'metric').map((t) => [t.id, t.label]), ['custom', 'Custom…']];
@@ -3659,10 +3714,26 @@ export class UI {
           }
           if (['sweep','surfSweep'].includes(f.type)) s.dataset.sweepField = fd.key;
           if (['loft', 'surfLoft'].includes(f.type) && /^(start|end)/.test(fd.key)) { s.dataset.loftEndField = fd.key; if (fd.type === 'direction') s.onfocus = () => { pm.loftEndAxis = fd.key; }; }
+          if (['revolve','surfRevolve'].includes(f.type)&&fd.key==='axis')s.onfocus=()=>{pm.profilePick=false;pm.scopePick=false;a.updateSketchDisplay();};
+          if (['revolve','surfRevolve','surfExtrude','extrude'].includes(f.type))s.dataset.featureField=fd.key;
+          if(f.referenceDefinition)s.dataset.datumField=fd.key;
+          if (f.type === 'surfFill' && fd.key === 'continuity') s.dataset.patchContinuity = '';
           if (['sweep','surfSweep'].includes(f.type) && ['profile','path','guide'].includes(fd.key)) s.onfocus = () => { pm.sweepSlot = fd.key; };
+          if(f.type==='extrude'&&fd.type==='surfaceRef')s.onfocus=()=>{pm.extrudeSurfaceSlot=fd.key==='startPlane'?'start':'end';pm.extrudePick=false;pm.scopePick=false;a.updateSketchDisplay();};
+          if(f.type==='extrude'&&fd.type==='pointRef')s.onfocus=()=>{pm.extrudeSurfaceSlot='end';pm.extrudePick=false;pm.scopePick=false;a.updateSketchDisplay();};
           s.onchange = () => {
             f[fd.key] = s.value || null;
-            if (['loft', 'surfLoft'].includes(f.type) && /^(start|end)Condition$/.test(fd.key)) { pm.loftEndSlot = s.value === 'tangent' ? fd.key.replace('Condition', 'Faces') : null; pm.loftDraft = null; a.updateSketchDisplay(); }
+            if(f.type==='extrude'){
+              if(fd.key==='startFrom'&&f.startFrom==='surface'){pm.extrudeSurfaceSlot='start';pm.extrudePick=false;pm.scopePick=false;}
+              if(fd.type==='surfaceRef'){pm.extrudeSurfaceSlot=fd.key==='startPlane'?'start':'end';f[fd.key==='startPlane'?'startFace':'toFace']=null;}
+              if(fd.key==='end')pm.extrudeSurfaceSlot='end';
+            }
+            if(f.type==='point'&&fd.key==='pointType'&&s.value==='references')useReferenceRelations(f);
+            if(['sweep','surfSweep'].includes(f.type)&&fd.key==='profileType'){pm.sweepSlot=f.profileType==='circle'?'path':'profile';pm.sweepCanvas=true;pm.loftDraft=null;pm.loftHover=null;}
+            if (['revolve','surfRevolve'].includes(f.type)&&fd.key==='axis')s.onfocus=()=>{pm.profilePick=false;pm.scopePick=false;a.updateSketchDisplay();};
+          if (['revolve','surfRevolve','surfExtrude','extrude'].includes(f.type))s.dataset.featureField=fd.key;
+          if (f.type === 'surfFill' && fd.key === 'continuity' && s.value === 'G0' && !f.edges.some(e => e.continuity && e.continuity !== 'G0')) pm.patchSupportPick = false;
+            if (['loft', 'surfLoft'].includes(f.type) && /^(start|end)Condition$/.test(fd.key)) { pm.loftConnector=null; pm.loftEndSlot = ['tangent', 'curvature'].includes(s.value) ? fd.key.replace('Condition', 'Faces') : null; pm.loftDraft = null; a.updateSketchDisplay(); }
             if (f.type === 'extrude' && (['pointRef', 'surfaceRef'].includes(fd.type) || (fd.key === 'end' && ['upToVertex', 'upToSurface', 'offsetSurface'].includes(f.end)))) { pm.extrudePick = false; pm.loftHover = null; a.updateSketchDisplay(); }
             // an open sketch can only be extruded as a thin feature
             if (fd.type === 'sketch' && f.type === 'extrude' && SM.isOpenSketch(findFeature(doc, f.sketch))) f.thin = true;
@@ -3671,6 +3742,7 @@ export class UI {
           const wrap = el('div', { class: 'pm-input' });
           wrap.appendChild(s);
           body.appendChild(this.row(fd.label, wrap));
+          if(f.type==='extrude'&&fd.type==='surfaceRef')body.appendChild(el('button',{class:'pm-btn'+(pm.extrudeSurfaceSlot===(fd.key==='startPlane'?'start':'end')?' on':''),'data-extrude-surface-pick':fd.key,onclick:()=>{pm.extrudeSurfaceSlot=fd.key==='startPlane'?'start':'end';pm.extrudePick=false;pm.scopePick=false;this.renderPM();a.updateSketchDisplay();a.updatePlanes();a.status('Select a plane or planar face for the '+pm.extrudeSurfaceSlot+' of the extrusion.');}},fd.key==='startPlane'?'Pick start surface in canvas':'Pick end surface in canvas'));
         }
       }
     }
@@ -3680,6 +3752,7 @@ export class UI {
     if (f.type === 'lpattern' || f.type === 'cpattern' || f.type === 'mirror') {
       root.appendChild(el('div', { class: 'pm-hint', style: 'padding:0 10px' }, 'Patterns and mirrors repeat the selected boss or cut feature.'));
     }
+    if(f.referenceDefinition)this.updateDatumStatus(root,f);
     void info;
   }
 
@@ -3739,6 +3812,13 @@ export class UI {
     const a = this.app, sk = a.sketcher, f = sk.f;
     if (sk.patternDraft) { this.renderSketchPatternPM(root); return; }
     this.pmHeader(root, 'sketch', f.name);
+    const variants=SKETCH_TOOL_GROUPS.find(g=>g[2].includes(sk.tool));
+    if(variants){
+      const group=this.pmGroup(root,tr(variants[1])+' type','sk:tool-variant'),select=el('select',{'data-sketch-tool-variant':variants[0],'aria-label':tr(variants[1])+' type'});
+      for(const tool of variants[2])select.appendChild(el('option',{value:tool},esc(tr(SKETCH_TOOLS[tool].label))));
+      select.value=sk.tool;select.onchange=()=>a.sketchTool(select.value);
+      group.appendChild(this.row('Type',select));
+    }
     const st = sk.statusText();
     if (st.text) root.appendChild(el('div', { class: 'pm-msg ' + st.cls }, esc(st.text)));
     if (f.patterns?.length) {
@@ -3761,16 +3841,23 @@ export class UI {
 
     if (sk.tool === 'offset') {
       const g = this.pmGroup(root, 'Offset Options', 'sk:offset');
+      const mode=el('select',{'data-offset-mode':'',onchange:e=>{sk.offsetMode=e.target.value;sk.redraw();}});
+      for(const [value,label] of [['side','Pick side'],['inside','Inside / left'],['outside','Outside / right'],['both','Both sides']])mode.appendChild(el('option',{value,selected:sk.offsetMode===value},label));
+      g.appendChild(this.row('Direction',mode));
+      const distance=this.exprInput(sk.offsetDistance,'mm',v=>{sk.offsetDistance=v;sk.offsetTyped=true;sk.redraw();});distance.dataset.offsetDistance='';g.appendChild(this.row('Distance',distance));
+      g.appendChild(el('button',{class:'pm-btn','data-offset-mouse':'',onclick:()=>{sk.offsetTyped=false;sk.redraw();}},'Use mouse distance'));
+      g.appendChild(el('div',{class:'pm-hint'},'Inside/outside applies to closed contours; for open chains these mean left/right along the chain. Both sides uses this distance on each side.'));
       const opt = (label, key, title) => {
         const cb = el('input', { type: 'checkbox' });
         cb.checked = !!sk[key];
-        cb.onchange = () => { sk[key] = cb.checked; this.renderPM(); };
+        cb.onchange = () => { sk[key] = cb.checked; if(key==='offsetChain'&&sk.draw?.tool==='offset')sk.endDraw();sk.offHoverId=null;sk.offHover=null;sk.redraw();this.renderPM(); };
         const lab = el('label', { title });
         lab.append(cb, document.createTextNode(' ' + label));
         g.appendChild(this.row(null, lab, 'check'));
       };
       opt('Linked offset', 'offsetLinked', 'On: the offset follows its source (sketch entities or model edges) and keeps one editable offset dimension. Off: a single offset — plain geometry with no link.');
-      opt('Select chain (model edges)', 'offsetChain', 'Offset the connected model edges that lie in a plane parallel to the sketch, not just the clicked edge.');
+      opt('Select chain', 'offsetChain', 'Offset a connected chain of sketch curves or model edges. Turn off to offset only the clicked entity.');
+      g.appendChild(el('div',{class:'pm-hint'},'Spline offsets are fitted within 0.001 mm. Reduce the distance if an offset folds or collapses.'));
       g.appendChild(el('div', { class: 'pm-hint' }, sk.offsetLinked ? 'Linked: the offset updates when the source changes; its distance stays editable.' : 'Single: the offset is created once as plain geometry and does not follow the source.'));
     }
 
@@ -4957,45 +5044,81 @@ export class UI {
 
   // References of a reference plane: picked on the model (faces, edges, vertices), in the
   // view (planes) or in the tree (planes, axes, points). The plane type follows from them.
+  datumGeometryHint(r){return datumHint(this.app.doc,r);}
+
+  updateDatumStatus(root,f){
+    const a=this.app,info=a.result?.info?.[f.id],coordinate=f.type==='point'&&f.pointType==='coords';
+    const current=info?.datumSignature===JSON.stringify(f),datum=current?info.datum:null;
+    const status=datum?.status||(!coordinate&&!(f.refs||[]).length?'under':'checking');
+    const label={defined:'Fully Defined',under:'Under Defined',conflict:'Conflicting',checking:'Updating preview…'}[status];
+    for(const box of root.querySelectorAll('[data-datum-status]')){
+      box.dataset.datumStatus=status;box.className='pm-msg'+(status==='defined'?' ok':status==='conflict'?' err':'');
+      box.textContent=label+(datum?.message?' — '+datum.message:datum?.legacy?' — existing construction preserved; edit a relation to use the constraint definition':status==='under'?' — select references and their relations':'');
+    }
+    const ok=root.querySelector('.pm-actions button[title^="OK"]');if(ok){ok.disabled=status!=='defined';ok.setAttribute('aria-disabled',String(ok.disabled));}
+    const solution=root.querySelector('[data-datum-solution]');if(solution){solution.disabled=!(datum?.alternatives>1);solution.value=String(Math.min(f.solution||0,(datum?.alternatives||1)-1));}
+    for(const node of root.querySelectorAll('[data-datum-path-info]')){const sample=current&&info.pathLocations?.[Number(node.dataset.datumPathInfo)];node.textContent=sample?`Length: ${lenWithUnit(sample.length,a.units)} · Distance: ${lenWithUnit(sample.distance,a.units)}`:'The path length will appear after preview.';}
+  }
+
   renderPlaneRefs(body, f, before) {
-    const a = this.app, doc = a.doc;
-    if (!f.refs?.length) f.refs = [];
-    const type = inferPlaneType(f.refs, !!f.through);
-    body.appendChild(el('div', { class: 'pm-msg' + (type ? ' ok' : '') }, type
-      ? `<b>${esc(PLANE_TYPES[type])}</b>`
-      : f.refs.length ? 'These references don’t define a plane yet.' : 'Pick references for the plane.'));
-    const name = (r) => {
-      if (r.kind === 'plane') return STD_PLANES[r.id]?.name || findFeature(doc, r.id)?.name || 'Plane';
-      if (r.kind === 'axis' || r.kind === 'point') return findFeature(doc, r.id)?.name || r.kind;
-      if (r.kind === 'sketch') { const sk = findFeature(doc, r.sketch); return `${sk ? SM.itemName(sk, r.point || r.curve) : 'Entity'} of ${sk?.name || 'a sketch'}`; }
-      return r.kind === 'face' && !r.n ? 'Cylindrical face' : { face: 'Face', edge: 'Edge', vertex: 'Vertex' }[r.kind];
+    const a=this.app,pm=a.pm;f.refs ||= [];body.classList.add('datum-definition');
+    body.appendChild(el('div',{'data-datum-status':'checking',class:'pm-msg'},'Updating preview…'));
+    const info=a.result?.info?.[f.id],resolved=info?.datumSignature===JSON.stringify(f)&&info.geometry;
+    const hints=resolved?resolved.map((g,i)=>resolvedDatumHint(a.doc,f.refs[i],g,f.type)):f.refs.map(r=>this.datumGeometryHint(r)),defaults=defaultReferenceRelations(f.type,hints,f);body.dataset.geometry=resolved?JSON.stringify(resolved):'';
+    const name=r=>{
+      if(r.kind==='sketch'){const sk=a.result?.sketches.get(r.sketch)?.sketch||findFeature(a.doc,r.sketch),id=r.point||r.curve;return `${sk?.name||'(missing sketch)'} · ${sk?SM.itemName(sk,id):id} (${id})`;}
+      return r.kind==='plane'?STD_PLANES[r.id]?.name||findFeature(a.doc,r.id)?.name||'(missing plane)':['axis','point','curve'].includes(r.kind)?findFeature(a.doc,r.id)?.name||'(missing reference)':r.kind==='face'?(r.n?'Planar face':'Cylindrical / conical face'):r.kind==='edge'?'Model edge':'Model vertex';
     };
-    const ic = { plane: 'plane', face: 'plane', axis: 'axis', edge: 'edge', point: 'refpoint', vertex: 'point', sketch: 'line' };
-    const ul = el('div', { class: 'pm-list' });
-    if (!f.refs.length) ul.appendChild(el('div', { class: 'li pm-hint' }, 'Nothing selected'));
-    f.refs.forEach((r, i) => {
-      const li = el('div', { class: 'li sel' }, `${icon(ic[r.kind])}<span>${esc(name(r))}</span><span class="x" title="Remove">✕</span>`);
-      li.querySelector('.x').onclick = () => { f.refs.splice(i, 1); this.renderPM(); a.updateEdgeHighlights(); a.updatePlanes(); a.preview(); };
-      ul.appendChild(li);
-    });
-    body.appendChild(ul);
-    // add a plane / axis / point feature from a list (they can also be clicked in the tree)
-    const opts = [['', '+ Add a plane, axis or point…'],
-      ...Object.entries(STD_PLANES).map(([k, p]) => [`plane:${k}`, p.name]),
-      ...before.filter((x) => !x.suppressed && ['plane', 'axis', 'point'].includes(x.type)).map((x) => [`${x.type}:${x.id}`, x.name])];
-    const s = el('select');
-    for (const [v, l] of opts) s.appendChild(el('option', { value: v }, esc(l)));
-    s.onchange = () => { if (!s.value) return; const [kind, id] = s.value.split(':'); a.togglePlaneRef({ kind, id }); };
-    const wrap = el('div', { class: 'pm-input' });
-    wrap.appendChild(s);
-    body.appendChild(wrap);
-    body.appendChild(el('div', { class: 'pm-hint' }, 'Click faces, edges or vertices on the model, or planes / axes / points in the view or tree. Click again to remove. Examples: two parallel faces → mid plane; a face and an edge → plane through the edge at an angle; an edge alone → plane normal to it.'));
+    for(let i=0;i<3;i++){
+      const r=f.refs[i],row=el('div',{class:'pm-row','data-datum-slot':i});
+      const pick=el('button',{class:'pm-btn'+(pm.datumSlot===i?' on':''),'data-datum-pick':i,disabled:i>f.refs.length,onclick:()=>{pm.datumSlot=pm.datumSlot===i?null:i;this.renderPM();a.updateSketchDisplay();a.updatePlanes();}},`Reference ${i+1}: ${r?esc(name(r)):'Select geometry'}`);
+      row.appendChild(pick);
+      if(r)row.appendChild(el('button',{'data-datum-remove':i,class:'pm-btn',title:'Remove reference',onclick:()=>{f.refs.splice(i,1);useReferenceRelations(f);pm.datumSlot=null;a.preview(true);a.updateSketchDisplay();a.updatePlanes();}},'✕'));
+      body.appendChild(row);
+      if(!r)continue;
+      const select=el('select',{'data-datum-relation':i,'aria-label':`Reference ${i+1} relation`});
+      select.appendChild(el('option',{value:''},'Automatic — '+(RELATION_LABELS[defaults[i]]||'Choose relation')));
+      for(const relation of referenceRelations(f.type,hints[i]))select.appendChild(el('option',{value:relation},RELATION_LABELS[relation]));
+      select.value=r.relation||'';select.onchange=()=>{if(select.value)r.relation=select.value;else delete r.relation;useReferenceRelations(f);f.solution=0;a.preview(true);};
+      body.appendChild(this.row('Relation',select));
+      const relation=r.relation||defaults[i],key=relation==='angle'?'angle':relation==='offset'?'offset':relation==='distance'?'distance':null;
+      if(key){const initial=r[key]??(f.type==='plane'?f[key]:null)??0,input=this.exprInput(initial,key==='angle'?'°':'mm',value=>{r[key]=value;useReferenceRelations(f);a.preview();});input.dataset.datumParameter=i+':'+key;body.appendChild(this.row(key==='angle'?'Angle':key==='offset'?'Distance':'Distance from start',input));}
+      if(relation==='alongPath'){
+        const mode=el('select',{'data-datum-path-mode':i,'aria-label':'Position along path'});
+        for(const [value,label] of [['fraction','Fraction (0–1)'],['distance','Distance along curve'],['start','Start'],['mid','Half arc length'],['end','End']])mode.appendChild(el('option',{value},label));
+        mode.value=r.positionMode||'fraction';mode.onchange=()=>{r.positionMode=mode.value;useReferenceRelations(f);a.preview(true);};body.appendChild(this.row('Position',mode));
+        if(['fraction','distance'].includes(mode.value)){
+          const field=mode.value,initial=r[field]??(field==='fraction'?.5:0),input=this.exprInput(initial,field==='fraction'?'#':'mm',value=>{r[field]=value;useReferenceRelations(f);a.preview();});input.dataset.datumParameter=i+':'+field;body.appendChild(this.row(field==='fraction'?'Fraction':'Arc distance',input));
+        }
+        const reverse=el('input',{type:'checkbox','data-datum-path-reverse':i});reverse.checked=!!r.reversePath;reverse.onchange=()=>{r.reversePath=reverse.checked;useReferenceRelations(f);a.preview();};
+        const label=el('label');label.append(reverse,document.createTextNode(' Reverse path direction'));body.appendChild(this.row(null,label,'check'));
+        body.appendChild(el('div',{'data-datum-path-info':i,class:'pm-hint'},''));
+      }
+    }
+    const sources=el('select',{'data-datum-source':'','aria-label':'Reference geometry'}),entities=[];sources.appendChild(el('option',{value:''},'Choose reference geometry…'));
+    for(const [id,p] of Object.entries(STD_PLANES))sources.appendChild(el('option',{value:'plane:'+id},esc(p.name)));
+    for(const source of before.filter(x=>!x.suppressed&&(['plane','axis','point'].includes(x.type)||f.type!=='axis'&&['helix','sketch3d','compCurve','projCurve'].includes(x.type))))sources.appendChild(el('option',{value:(['plane','axis','point'].includes(source.type)?source.type:'curve')+':'+source.id},esc(source.name)));
+    for(const source of before.filter(x=>x.type==='sketch'&&!x.suppressed&&!a.result?.errors.has(x.id))){
+      const sk=a.result?.sketches.get(source.id)?.sketch;if(!sk)continue;
+      const group=el('optgroup',{label:source.name});
+      const add=(kind,id)=>{const ref={kind:'sketch',sketch:source.id,[kind]:id},value='entity:'+entities.length;entities.push(ref);group.appendChild(el('option',{value,'data-datum-sketch':source.id,['data-datum-'+kind]:id},`${SM.itemName(sk,id)} (${id})`));};
+      for(const c of sk.curves)if(['line','arc','circle'].includes(c.type)||f.type!=='axis'&&c.type==='spline')add('curve',c.id);
+      add('point','O');for(const p of sk.points)add('point',p.id);
+      sources.appendChild(group);
+    }
+    sources.onchange=()=>{if(sources.value){const [kind,id]=sources.value.split(':');a.togglePlaneRef(kind==='entity'?{...entities[Number(id)]}:{kind,id});}};
+    body.appendChild(sources);
+    const solution=el('select',{'data-datum-solution':'','aria-label':'Geometric solution'});solution.append(el('option',{value:'0'},'Solution 1'),el('option',{value:'1'},'Solution 2'));
+    solution.value=String(f.solution||0);solution.onchange=()=>{f.solution=Number(solution.value);a.preview();};body.appendChild(this.row('Solution',solution));
+    body.appendChild(el('div',{class:'pm-hint'},'Pick references in the canvas or tree. Choose a slot to replace it. Relations constrain the resulting geometry; incomplete or conflicting definitions cannot be accepted. An alternative solution is offered when the relations define two distinct results.'));
+    this.updateDatumStatus(body,f);
   }
 
   renderFaceList(body, f, fd = {}) {
     const a = this.app;
     const key = fd.key || 'faces', pm = a.pm;
     if (!Array.isArray(f[key])) f[key] = [];
+    if (fd.patchSupport) body.appendChild(el('button', { class: 'pm-btn' + (pm.patchSupportPick ? ' on' : ''), 'data-patch-support': '', onclick: () => { pm.patchSupportPick = !pm.patchSupportPick; this.renderPM(); a.updateEdgeHighlights(); } }, 'Select support faces'));
     if (fd.loftEnd) body.appendChild(el('button', { class: 'pm-btn' + (pm.loftEndSlot === key ? ' on' : ''), 'data-loft-end-faces': key, onclick: () => { pm.loftEndSlot = pm.loftEndSlot === key ? null : key; pm.loftDraft = null; this.renderPM(); a.updateSketchDisplay(); a.updateEdgeHighlights(); } }, `Select ${fd.loftEnd} support faces`));
     body.appendChild(el('div', { class: 'pm-hint' }, esc(fd.hint || 'Click faces on the model to add or remove them.')));
     const ul = el('div', { class: 'pm-list' });
@@ -5009,15 +5132,83 @@ export class UI {
     if (f[key].length) body.appendChild(el('button', { class: 'pm-btn', onclick: () => { f[key].length = 0; this.renderPM(); a.updateEdgeHighlights(); a.preview(); } }, 'Clear'));
   }
 
+  renderSweepSelection(body,f,before,fd){
+    const a=this.app,pm=a.pm,slot=fd.key,active=pm.sweepSlot===slot&&pm.sweepCanvas!==false&&!pm.scopePick;
+    body.appendChild(el('button',{class:'pm-btn'+(active?' on':''),'data-sweep-slot':slot,'aria-pressed':String(active),onclick:()=>a.activateSweepSlot(slot)},`Select ${fd.label} in canvas`));
+    const current=f[slot];
+    if(current){
+      const row=el('div',{class:'li sel','data-sweep-reference':slot}),name=typeof current==='string'?findFeature(a.doc,current)?.name||'(missing)':LR.describeRef(a.doc,current);
+      row.appendChild(el('span',{},esc(name)));row.appendChild(el('button',{class:'pm-btn','data-sweep-clear':slot,onclick:()=>a.setSweepReference(null,slot)},'✕'));body.appendChild(row);
+    }
+    if(active){
+      const checkbox=el('input',{type:'checkbox','data-sweep-chain':slot});checkbox.checked=f.selectionChains?.[slot]!==false;
+      checkbox.onchange=()=>{f.selectionChains={...(f.selectionChains||{}),[slot]:checkbox.checked};pm.loftDraft=null;pm.loftHover=null;this.renderPM();a.updateSketchDisplay();};
+      const label=el('label');label.append(checkbox,document.createTextNode(' Chain selection'));body.appendChild(this.row(null,label,'check'));
+      body.appendChild(el('div',{class:'pm-hint'},slot==='profile'?'Choose a region or contour. Surface profiles may be open; solid open profiles use Thin Feature.':'Choose one connected path or guide; construction curves are allowed. Different contours from one sketch can fill different roles.'));
+      if(!checkbox.checked){
+        const count=pm.loftDraft?.curves.length||0;
+        body.appendChild(el('div',{class:'pm-hint'},`${count} entities in the current contour`));
+        body.appendChild(el('button',{class:'pm-btn','data-sweep-finish':slot,disabled:!count,onclick:()=>a.finishLoftSelection()},'Use selected contour'));
+        if(count)body.appendChild(el('button',{class:'pm-btn','data-sweep-draft-clear':slot,onclick:()=>{pm.loftDraft=null;this.renderPM();a.updateSketchDisplay();}},'Clear current selection'));
+      }
+    }
+    const details=el('details'),summary=el('summary',{},'Other sources (whole sketch / curve)');details.appendChild(summary);
+    const select=el('select',{'data-sweep-field':slot}),kinds=slot==='profile'?['sketch']:['sketch','sketch3d','helix','compCurve','projCurve'];
+    select.appendChild(el('option',{value:''},slot==='guide'?'— no guide —':'— select a source —'));
+    for(const source of before.filter(s=>kinds.includes(s.type)&&!s.suppressed&&!['profile','path','guide'].some(other=>other!==slot&&!(other==='profile'&&f.profileType==='circle')&&LR.overlappingRefs(s.id,f[other]))))select.appendChild(el('option',{value:source.id},esc(source.name)));
+    select.value=typeof current==='string'?current:'';
+    select.onchange=()=>a.setSweepReference(select.value||null,slot);
+    details.appendChild(select);body.appendChild(details);
+  }
+
   // Loft profiles: sketches in order (the loft goes through them from first to last).
+  renderLoftCorrespondence(body,f){
+    const a=this.app,pm=a.pm,active=LC.hasManualConnections(f),refs=f.profiles||[];
+    body.classList.add('datum-definition');body.dataset.loftCorrespondence='';
+    const graph=a.result?.info?.[f.id]?.loftConnections;body.dataset.graph=graph?.signature===JSON.stringify(f)?JSON.stringify(graph):'';
+    const blocked=f.thin?'Manual connectors are not yet supported for Thin lofts.':refs.some(r=>findFeature(a.doc,LR.sourceId(r))?.type!=='sketch')?'Manual connectors currently require sketch profiles.':null;
+    const enabled=el('input',{type:'checkbox','data-loft-manual':''});enabled.checked=active;enabled.disabled=!!blocked&&!active;
+    enabled.onchange=()=>{
+      if(pm.loftDraft?.curves.length){a.toast('Add or clear the current contour before editing connectors',true);this.renderPM();return;}
+      f.correspondenceMode=enabled.checked?'manual':'auto';pm.loftConnector=null;pm.loftEndSlot=null;pm.loftSlot='profiles';a.preview(true);a.updateSketchDisplay();
+    };
+    const label=el('label');label.append(enabled,document.createTextNode(' Edit profile connectors'));body.appendChild(this.row(null,label,'check'));
+    if(blocked)body.appendChild(el('div',{class:'pm-hint'},blocked+' Choose Automatic correspondence to continue.'));
+    if(active&&!blocked){
+      body.appendChild(el('div',{class:'pm-hint'},'Drag a numbered connector endpoint onto another profile vertex, or use Pick start below. Moving one attachment shifts the cyclic correspondence of the whole contour. Circles also accept a seam angle.'));
+      refs.forEach((ref,i)=>{
+        const source=a.result.sketches.get(LR.sourceId(ref)),control=LC.connectionFor(f,ref)||{};if(!source)return;
+        const heading=el('div',{},`<b>${i+1}. ${esc(LR.describeRef(a.doc,ref))}</b>`);body.appendChild(heading);
+        try{
+          const options=LC.profileConnectionOptions(source.sketch,ref),pick=el('button',{class:'pm-btn'+(pm.loftConnector?.key===LR.refKey(ref)?' on':''),'data-loft-connector-pick':i,disabled:!options.circle&&!options.points.length,onclick:()=>a.activateLoftConnector(i)},'Pick start in canvas');body.appendChild(pick);
+          if(options.circle){
+            let angle=0;const p=graph?.signature===JSON.stringify(f)&&graph.sections[i]?.points[0];if(p){const q=G.toLocal(source.frame,source.frame.o.clone().fromArray(p));angle=Math.atan2(q.y-options.circle.c.y,q.x-options.circle.c.x)*180/Math.PI;}
+            const input=this.exprInput(control.circle?control.angle??0:angle,'°',value=>{const next={...control,circle:options.circle.curve,angle:value};delete next.point;a.setLoftConnection(ref,next,false);});input.dataset.loftConnectorAngle=i;body.appendChild(this.row('Seam angle',input));
+          }else{
+            const select=el('select',{'data-loft-connector-point':i,'aria-label':'Profile start vertex'});select.appendChild(el('option',{value:''},'Automatic start'));
+            for(const p of options.points)select.appendChild(el('option',{value:p.id},esc(SM.itemName(source.sketch,p.id))));select.value=control.point||'';
+            select.onchange=()=>{const next={...control};if(select.value){next.point=select.value;if(!options.closed)next.reverse=false;}else delete next.point;a.setLoftConnection(ref,next);};body.appendChild(this.row('Start vertex',select));
+          }
+          const reverse=el('input',{type:'checkbox','data-loft-connector-reverse':i});reverse.checked=!!control.reverse;
+          reverse.onchange=()=>{const next={...control,reverse:reverse.checked};if(!options.closed)delete next.point;a.setLoftConnection(ref,next);};
+          const label=el('label');label.append(reverse,document.createTextNode(' Reverse traversal'));body.appendChild(this.row(null,label,'check'));
+        }catch(e){body.appendChild(el('div',{class:'pm-hint'},esc(e.message)));}
+        body.appendChild(el('button',{class:'pm-btn','data-loft-connector-auto':i,onclick:()=>a.setLoftConnection(ref,null)},'Automatic for this profile'));
+      });
+    }
+    if(active||Object.keys(f.loftCorrespondence||{}).length)body.appendChild(el('button',{class:'pm-btn','data-loft-connector-reset':'',onclick:()=>{f.loftCorrespondence={};f.correspondenceMode='auto';pm.loftConnector=null;a.preview(true);a.updateSketchDisplay();}},'Reset all to Automatic'));
+  }
+
   renderLoftSelection(body, f, before, fd) {
     const a = this.app, pm = a.pm, key = fd.key, guide = key === 'guides';
-    const extrude = f.type === 'extrude';
+    const extrude = f.type === 'extrude', planar = f.type === 'surfPlanar', common=['revolve','surfExtrude','surfRevolve'].includes(f.type), surface=['surfExtrude','surfRevolve'].includes(f.type);
     pm.loftSlot ||= 'profiles'; f[key] ||= [];
-    const active = !pm.loftEndSlot && pm.loftSlot === key && (!extrude || pm.extrudePick !== false);
+    const active = !pm.loftEndSlot && pm.loftSlot === key && (!extrude || pm.extrudePick !== false) && (!planar || !pm.planarEdges) && (!common || pm.profilePick!==false);
     body.appendChild(el('button', { class: 'pm-btn' + (active ? ' on' : ''), 'aria-pressed': String(active), disabled: guide && f.ruled, 'data-loft-slot': key, onclick: () => {
-      pm.loftEndSlot = null; pm.loftEndAxis = null; pm.loftSlot = key; pm.loftDraft = null; pm.loftHover = null;
+      pm.loftEndSlot = null; pm.loftEndAxis = null; pm.loftConnector=null; pm.scopePick=false; pm.loftSlot = key; pm.loftDraft = null; pm.loftHover = null;
       if (extrude) pm.extrudePick = !active;
+      if (planar) pm.planarEdges = active;
+      if (common) pm.profilePick=!active;
       this.renderPM(); a.updateSketchDisplay(); a.status(guide ? 'Click the guide curves in the canvas.' : 'Click the section contours or inside closed profiles in the canvas.');
     } }, guide ? 'Select guides in canvas' : 'Select profiles in canvas'));
     if (!guide) {
@@ -5026,18 +5217,18 @@ export class UI {
       const label = el('label'); label.append(cb, document.createTextNode(' Chain selection'));
       body.appendChild(this.row(null, label, 'check'));
     }
-    body.appendChild(el('div', { class: 'pm-hint' }, extrude ? 'Click inside closed regions or select contours. Click again to remove a profile. Profiles must be coplanar; open contours enable Thin Feature. Turn off canvas profile selection to pick end references or bodies.' : guide ? f.ruled ? 'Guide curves require a smooth loft. Remove the guides or untick straight (ruled) sides.' : 'Pick guide curves or connected chains, including construction curves. Guides must meet every section.' : f.type === 'loft' ? 'Pick closed contours or click inside regions. Each selection adds one section.' : 'Pick open or closed contours. All sections must be open, or all closed.'));
+    body.appendChild(el('div', { class: 'pm-hint' }, common ? (surface?'Select open or closed contours, regions or individual sketch entities. Closed contours stay uncapped. For Revolve, select the axis separately.':'Select closed profiles or enable Thin Feature for open contours. Select the revolution axis separately.') : planar ? 'Click inside closed regions or select sketch contours. Turn off Chain selection to pick individual entities, then add the closed contour. Select model edges in the section below.' : extrude ? 'Click inside closed regions or select contours. Click again to remove a profile. Profiles must be coplanar; open contours enable Thin Feature. Turn off canvas profile selection to pick end references or bodies.' : guide ? f.ruled ? 'Guide curves require a smooth loft. Remove the guides or untick straight (ruled) sides.' : 'Pick guide curves or connected chains, including construction curves. Guides must meet every section.' : f.type === 'loft' ? 'Pick closed contours or click inside regions. Each selection adds one section.' : 'Pick open or closed contours. All sections must be open, or all closed.'));
     const ul = el('div', { class: 'pm-list', 'data-loft-list': key });
     if (!f[key].length) ul.appendChild(el('div', { class: 'li pm-hint' }, guide ? 'No guides selected' : 'No profiles selected'));
     f[key].forEach((ref, i) => {
       const li = el('div', { class: 'li sel' });
       li.appendChild(el('span', {}, `${i + 1}. ${LR.describeRef(a.doc, ref)}`));
-      for (const [label, action] of (extrude ? [['✕', 'remove']] : [['▲', 'up'], ['▼', 'down'], ['✕', 'remove']])) {
+      for (const [label, action] of (extrude || planar || common ? [['✕', 'remove']] : [['▲', 'up'], ['▼', 'down'], ['✕', 'remove']])) {
         const b = el('button', { class: 'pm-btn', title: action === 'up' ? 'Move up' : action === 'down' ? 'Move down' : 'Remove', 'data-loft-action': action, disabled: action === 'up' ? i === 0 : action === 'down' ? i === f[key].length - 1 : false }, label);
         b.onclick = () => {
           if (action === 'remove') f[key].splice(i, 1);
           else { const j = i + (action === 'up' ? -1 : 1); [f[key][i], f[key][j]] = [f[key][j], f[key][i]]; }
-          pm.loftHover = null; a.preview(true); a.updateSketchDisplay();
+          pm.loftConnector=null;pm.loftHover = null; a.preview(true); a.updateSketchDisplay();
         };
         li.appendChild(b);
       }
@@ -5057,7 +5248,7 @@ export class UI {
     const kinds = guide ? ['sketch', 'sketch3d', 'compCurve', 'projCurve', 'helix'] : fd.with3d ? ['sketch', 'sketch3d', 'compCurve', 'projCurve'] : ['sketch'];
     for (const source of before.filter((s) => kinds.includes(s.type) && !s.suppressed && !f[key].includes(s.id))) select.appendChild(el('option', { value: source.id }, esc(source.name)));
     select.onchange = () => { if (select.value) {
-      if (extrude) { f[key] = f[key].filter((r) => LR.sourceId(r) !== select.value); if (SM.isOpenSketch(findFeature(a.doc, select.value))) f.thin = true; }
+      if (extrude || planar || common) { f[key] = f[key].filter((r) => LR.sourceId(r) !== select.value); if (extrude && SM.isOpenSketch(findFeature(a.doc, select.value))) f.thin = true; }
       f[key].push(select.value); a.preview(true); a.updateSketchDisplay();
     } };
     details.appendChild(select); body.appendChild(details);
@@ -5089,6 +5280,7 @@ export class UI {
   // Bodies (as they are before this feature) with tick boxes; they can also be clicked on the model.
   renderBodyList(body, f, fd) {
     const a = this.app;
+    if(fd.key==='scope'&&['extrude','revolve','sweep'].includes(f.type))body.appendChild(el('button',{class:'pm-btn','data-feature-scope':'',onclick:()=>{a.pm.scopePick=true;a.pm.sweepCanvas=false;a.pm.profilePick=false;a.pm.extrudePick=false;this.renderPM();a.updateSketchDisplay();}},'Select target bodies in canvas'));
     if (!Array.isArray(f[fd.key])) f[fd.key] = [];
     const list = (a.result?.bodies || []).filter((b) => (fd.kinds.includes(b.kind) || (b.sheet && fd.kinds.includes('sheet'))) && !(fd.kinds.length === 1 && fd.kinds[0] === 'sheet' && !b.sheet) && (!fd.exclude || b.id !== f[fd.exclude]));
     if (fd.hint) body.appendChild(el('div', { class: 'pm-hint' }, esc(fd.hint)));
@@ -5303,11 +5495,28 @@ export class UI {
 
     const a = this.app;
     const n = f.edges.length;
+    if(['surfFill','surfPlanar'].includes(f.type)){
+      const label=el('label'),checkbox=el('input',{type:'checkbox','data-patch-chain':''});checkbox.checked=!!f.chainSelection;
+      checkbox.onchange=()=>{f.chainSelection=checkbox.checked;this.renderPM();};
+      label.append(checkbox,document.createTextNode(' Chain selection'));body.appendChild(this.row(null,label,'check'));
+      body.appendChild(el('div',{class:'pm-hint'},'Chain selection follows connected boundary edges on the clicked body and stops at branches. Turn it off to pick individual edges. Existing edge continuity settings are preserved.'));
+    }
+    if(f.type==='surfPlanar')body.appendChild(el('button',{class:'pm-btn'+(a.pm.planarEdges?' on':''),'data-planar-edges':'',onclick:()=>{a.pm.planarEdges=true;this.renderPM();a.updateSketchDisplay();}},'Select model edges'));
+    if (f.type === 'surfFill') body.appendChild(el('button', { class: 'pm-btn' + (!a.pm.patchSupportPick ? ' on' : ''), 'data-patch-edges': '', onclick: () => { a.pm.patchSupportPick = false; this.renderPM(); a.updateEdgeHighlights(); } }, 'Select boundary edges'));
     body.appendChild(el('div', { class: 'pm-hint' }, 'Click edges on the model to add or remove them. The preview shows material removed in <b style="color:#c62828">red</b> and added in <b style="color:#a37f00">yellow</b>.'));
     const ul = el('div', { class: 'pm-list' });
     if (!n) ul.appendChild(el('div', { class: 'li pm-hint' }, 'No edges selected'));
     f.edges.forEach((e, i) => {
       const li = el('div', { class: 'li' }, `${icon('edge')}<span>Edge&lt;${i + 1}&gt;</span><span class="x" title="Remove">✕</span>`);
+      if(f.type==='surfFill')li.dataset.patchEdgeRow=i;
+      if(f.type==='surfFill'){
+        const select=el('select',{'data-patch-edge':i,'aria-label':`Edge ${i+1} continuity`});
+        for(const [value,label] of [['','Use boundary setting'],['G0','G0 Contact'],['G1','G1 Tangent'],['G2','G2 Curvature']]){
+          const option=el('option',{value},label);option.selected=(e.continuity||'')===value;select.appendChild(option);
+        }
+        select.onchange=()=>{if(select.value)e.continuity=select.value;else delete e.continuity;this.renderPM();a.preview();};
+        li.insertBefore(select,li.querySelector('.x'));
+      }
       li.querySelector('.x').onclick = () => { f.edges.splice(i, 1); this.renderPM(); a.updateEdgeHighlights(); a.preview(); };
       li.onpointerenter = () => { a.hoverEdge = a.viewport.edgeIndexForPoint(e.p); a.updateEdgeHighlights(); };
       li.onpointerleave = () => { a.hoverEdge = null; a.updateEdgeHighlights(); };

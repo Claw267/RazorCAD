@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import * as G from './geometry.js';
 import * as S from './sketchmodel.js';
+import * as SO from './sketchoffset.js';
 import { solveSketch, analyzeSketch, sketchRank, RELATION_INFO, relationDiagnosis } from './solver.js';
 import { evaluate, fmt, isNumeric, normalizeValue } from './expr.js';
 import { fmtLen, lenText, lenValue } from './units.js';
@@ -68,7 +69,7 @@ export const SKETCH_TOOLS = {
   extend: { label: 'Extend', hint: 'Click a line or arc near the end to extend: it runs on to the first entity in its way (and stays on it).' },
   split: { label: 'Split', hint: 'Click a line or arc where it should be split into two joined pieces.' },
   block: { label: 'Insert Block', hint: 'Click where the block goes (its centre). Click again for more copies; Esc ends.' },
-  offset: { label: 'Offset', hint: 'Click a line, arc or circle — or a model edge (its chain of edges in a plane parallel to the sketch) — then move to the side and distance you want and click, and type the exact distance. Choose a linked or a single offset in the Property panel.' },
+  offset: { label: 'Offset', hint: 'Click a line, arc, circle or spline, choose the distance and direction, then click to create the offset. Select one entity or its chain; Both sides shares one editable dimension. Linked offset keeps the parametric relation.' },
   intersect: { label: 'Intersection Curve', hint: 'Click curves of earlier sketches to intersect them with this sketch plane, or click a model section. References remain linked. Esc exits.' },
   convert: { label: 'Project Edges', hint: 'Click model edges, vertices or entities of other sketches to project them into this sketch. Projected geometry stays linked and updates when its source changes.' },
   text: { label: 'Text', hint: 'Click where the text should start. Type it and choose the font, height, bold and italic in the Property panel. Text makes closed outlines for extruded bosses and cuts (and Wrap).' },
@@ -88,7 +89,8 @@ export class Sketcher {
     this.polySides = 6;
     this.splineDegree = 3;   // the degree a Control-Point Spline is drawn with (chosen in the panel before drawing)
     this.offsetLinked = true; // offsets stay linked to their source (off: plain geometry)
-    this.offsetChain = true;  // model edges: offset the connected chain of edges
+    this.offsetChain = true;  // sketch entities and model edges: select connected chains
+    this.offsetMode='side';this.offsetDistance=5;this.offsetTyped=true;
     this.filletR = 5;         // Sketch Fillet radius
     this.chamferD = 2;        // Sketch Chamfer distance
     this.dimPool = [];
@@ -231,6 +233,7 @@ export class Sketcher {
     if (['convert', 'intersect', 'offset'].includes(t)) { this.tool = t; this.loadSection(); }
     else this.clearSection();
     this.tool = t;
+    this.app.ui.rememberSketchTool(t);
     this.app.updateSketchDisplay();
     if (t !== 'select') this.sel.clear();
     if (dimPicks.length && dimPicks.length <= 2) {
@@ -1196,11 +1199,11 @@ export class Sketcher {
     }
     if (t === 'offset') {
       this.vp.canvas.style.cursor = CURSORS.offset;
-      if (this.draw?.tool === 'offset') this.draw.dist = S.chainSide(this.f, this.draw.chain, raw.x, raw.y);
+      if (this.draw?.tool === 'offset') this.draw.dist = SO.side(this.f, this.draw.chain, raw.x, raw.y);
       else {
         const hit = this.hitTest(raw, { points: false });
         const id = hit && S.getCurve(this.f, hit.id) ? hit.id : null;
-        if (id !== this.offHoverId) { this.offHoverId = id; this.offHover = id ? S.chainOf(this.f, id) : null; }
+        if (id !== this.offHoverId) { this.offHoverId = id; this.offHover = id ? this.offsetSketchChain(id) : null; }
         const now = performance.now();
         if (id) this.extHover = null;
         else if (now - (this._extT || 0) > 30) {
@@ -1540,6 +1543,7 @@ export class Sketcher {
     if (n === 2 && pts.length === 1 && (lines.length === 1 || rounds.length === 1)) out.push('onCurve');
     if (n === 2 && pts.length === 1 && (lines.length === 1 || (rounds.length === 1 && rounds[0].kind === 'arc'))) out.push('midpoint');
     if (n === 2 && lines.length === 1 && rounds.length === 1) out.push('tangent');
+    if ((n===2||n===3&&pts.length===1)&&lines.length===1&&items.some(i=>i.kind==='spline'&&!S.getCurve(this.f,i.id)?.closed)) out.push('tangent');
     if (n === 3 && pts.length === 2 && lines.length === 1) out.push('symmetric');
     if (n === 3 && lines.length === 3) out.push('symmetric');
     return [...new Set(out)];
@@ -1574,7 +1578,12 @@ export class Sketcher {
         break;
       case 'midpointCoincident': list.push(['midpointCoincident', lines]); break;
       case 'tangent': {
-        if (lines.length) list.push(['tangent', [lines[0], rounds[0]], { s: S.tangentSign(sk, lines[0], rounds[0]) }]);
+        const spline=items.find(i=>i.kind==='spline');
+        if(lines.length&&spline){
+          try{list.push(['tangent',[lines[0],spline.id,S.lineSplineTangentEnd(sk,lines[0],spline.id,pts[0])]]);}
+          catch(e){this.app.toast(e.message,true);return;}
+        }
+        else if (lines.length) list.push(['tangent', [lines[0], rounds[0]], { s: S.tangentSign(sk, lines[0], rounds[0]) }]);
         else {
           const a = S.getCurve(sk, rounds[0]), b = S.getCurve(sk, rounds[1]);
           const ca = S.getPoint(sk, a.c), cb = S.getPoint(sk, b.c);
@@ -1624,7 +1633,7 @@ export class Sketcher {
     if (k?.kind === 'offset') {
       let v = 0;
       try { v = this.ev(k.value); } catch { /* keep the stored value */ }
-      for (const r of this.f.constraints) if (r.type === 'offset' && r.dim === id) { r.v = v; delete r.dim; }
+      for (const r of this.f.constraints) if (['offset','offsetGeometry'].includes(r.type) && r.dim === id) { r.v = v; delete r.dim; }
     }
     S.deleteItems(this.f, [id]);
     this.sel.delete(id);
@@ -1931,7 +1940,7 @@ export class Sketcher {
     if (ext.kind === 'extCurve') {
       // a curve of another sketch, with the curves chained to it in that sketch
       const other = this.app.result.sketches.get(ext.fid);
-      const chain = other && this.offsetChain ? S.chainOf(other.sketch, ext.cid) : null;
+      const chain = other && this.offsetChain ? SO.chainOf(other.sketch, ext.cid) : null;
       if (!chain) return [{ src: this.externalSrc(ext), prims: S.projectCurve(fr, ext.geom) }];
       return chain.items.map(({ c }) => ({ src: { kind: 'sketch', fid: ext.fid, cid: c.id }, prims: S.projectCurve(fr, S.curve3D(other.sketch, c, this.frameArr(other.frame))) }));
     }
@@ -1970,11 +1979,16 @@ export class Sketcher {
     return out;
   }
 
+  offsetSketchChain(id) {
+    const c=S.getCurve(this.f,id);if(!c)return null;
+    return SO.chainOf(this.f,id,this.offsetChain);
+  }
+
   offsetClick(raw, ev) {
     const d = this.draw;
     if (d?.tool !== 'offset') {
       const hit = this.hitTest(raw, { points: false });
-      let chain = hit && S.getCurve(this.f, hit.id) ? S.chainOf(this.f, hit.id) : null;
+      let chain = hit && S.getCurve(this.f, hit.id) ? this.offsetSketchChain(hit.id) : null;
       let ext = [];
       if (!chain && ev) {
         // a model edge or another sketch's curve: bring it in as linked construction geometry
@@ -1991,33 +2005,35 @@ export class Sketcher {
           if (a && b && Math.hypot(a.x - b.x, a.y - b.y) < tol) S.mergePoints(this.f, pids[j], pids[i]);
         }
         const first = curves.find((id) => S.getCurve(this.f, id));
-        chain = first ? S.chainOf(this.f, first) : null;
+        chain = first ? SO.chainOf(this.f, first) : null;
         ext = [...curves, ...this.f.constraints.filter((k) => k.type === 'projected' && curves.includes(k.refs[0])).map((k) => k.id)];
         this.extHover = null;
         if (!chain) { S.deleteItems(this.f, ext); return; }
       }
       if (!chain) return;
+      try{SO.geometry(this.f,chain,0);}catch(e){if(ext.length)S.deleteItems(this.f,ext);this.extHover=null;this.app.toast(e.message,true);this.redraw();return;}
       this.draw = { tool: 'offset', chain, dist: 0, ext, fromModel: ext.length > 0 };
       this.offHover = null; this.offHoverId = null;
       this.app.status(`Offsetting ${chain.items.length} entit${chain.items.length === 1 ? 'y' : 'ies'}: move to the side and distance you want and click (Esc cancels).`);
       this.redraw();
       return;
     }
-    const dist = r4(S.chainSide(this.f, d.chain, raw.x, raw.y));
+    let dist;
+    try{const side=SO.side(this.f,d.chain,raw.x,raw.y),value=this.offsetTyped?this.ev(this.offsetDistance):Math.abs(r4(side));if(!Number.isFinite(value)||value<1e-6)throw new Error('Enter a positive offset distance');dist=value*(side<0?-1:1);}catch(e){this.app.toast(e.message,true);return;}
     if (Math.abs(dist) < 1e-6) return;
     const before = this.snapshotData();
     try {
       // offsets of model edges are regular geometry (their projected source stays as construction);
       // so are offsets of construction lines that are projected model edges
       const projectedSrc = d.chain.items.every((it) => this.f.constraints.some((k) => k.type === 'projected' && k.refs[0] === it.c.id));
-      const { dim } = S.buildOffset(this.f, d.chain, dist, d.fromModel || projectedSrc ? { construction: false } : {});
+      const values=SO.distances(this.f,d.chain,dist,this.offsetMode),{dim,groups}=SO.build(this.f,d.chain,values,{...(d.fromModel||projectedSrc?{construction:false}:{}),value:this.offsetTyped?this.offsetDistance:null});
       this.draw = null;
       if (!this.offsetLinked) {
         // single offset: plain geometry, no link to the source
-        const rels = this.f.constraints.filter((k) => k.type === 'offset' && k.dim === dim.id).map((k) => k.id);
+        const rels = groups.map(k=>k.id);
         S.deleteItems(this.f, [dim.id, ...rels, ...(d.ext || [])]);
       }
-      if (!this.solve().ok) throw new Error('The offset could not be solved with the existing relations');
+      const solved=this.solve();if(!solved.ok||solved.bad.length)throw new Error(solved.bad[0]||'The offset could not be solved with the existing relations');
       this.changed();
       if (this.offsetLinked) {
         const idx = this.dims.findIndex((x) => x.k.id === dim.id);
@@ -2530,7 +2546,9 @@ export class Sketcher {
           } else {
             // offset: across from the first source curve to its copy
             const c1 = S.getCurve(sk, k.refs[0]), c2 = S.getCurve(sk, k.refs[1]);
-            if (c1.type === 'line') {
+            const group=k.offsetGroup&&sk.constraints.find(q=>q.id===k.offsetGroup);
+            if(group){[pA,pB]=SO.dimensionPair(sk,group,this.ev(k.value));}
+            else if (c1.type === 'line') {
               const A = P(c1.p1), B = P(c1.p2), Q1 = P(c2.p1), Q2 = P(c2.p2);
               const M = [(Q1.x + Q2.x) / 2, (Q1.y + Q2.y) / 2];
               const dx = B.x - A.x, dy = B.y - A.y, L2 = dx * dx + dy * dy || 1;
@@ -2726,7 +2744,7 @@ export class Sketcher {
     if (this.tool === 'offset') {
       const ch = d?.tool === 'offset' ? d.chain : this.offHover;
       if (ch) for (const it of ch.items) addSegs(COL.hover, false, S.curvePoints(sk, it.c));
-      if (d?.tool === 'offset' && Math.abs(d.dist) > 1e-9) for (const pl of S.offsetPreview(sk, d.chain, d.dist)) addSegs(COL.preview, false, pl);
+      if(d?.tool==='offset')try{const value=this.offsetTyped?Math.abs(this.ev(this.offsetDistance))*(d.dist<0?-1:1):d.dist;if(Math.abs(value)>1e-9)for(const distance of SO.distances(sk,d.chain,value,this.offsetMode))for(const pl of SO.polylines(SO.geometry(sk,d.chain,distance).pieces))addSegs(COL.preview,false,pl);d.error=null;}catch(e){d.error=e.message;}
     }
     if (this.extHover) {
       for (const g of this.extHover.prims) {
@@ -3039,7 +3057,7 @@ export class Sketcher {
         if (a && b) place((a.x + b.x) / 2 + 6 * wpp, (a.y + b.y) / 2 - 6 * wpp, k, glyph);
         continue;
       }
-      const refs = k.type === 'symmetric' ? [k.refs[0], k.refs[1]] : k.refs;
+      const refs = k.type === 'symmetric' ? [k.refs[0], k.refs[1]] : k.type==='offsetGeometry'?[k.chain[0].id,k.refs[k.chain.length]]:k.refs;
       for (const r of refs) {
         const c = S.getCurve(sk, r);
         if (c) { const [x, y] = curveAnchor(c); place(x, y, k, glyph); }
@@ -3150,7 +3168,8 @@ export class Sketcher {
     const drawing = !['select', 'trim', 'dim', 'convert', 'intersect', 'offset', 'extend', 'split'].includes(this.tool);
     if (this.tool === 'offset' && this.draw?.tool === 'offset' && c) {
       this.tipEl.hidden = false;
-      this.tipEl.textContent = `Offset ${fmt(Math.abs(this.draw.dist))}`;
+      let value=Math.abs(this.draw.dist);try{if(this.offsetTyped)value=this.ev(this.offsetDistance);}catch{}
+      this.tipEl.textContent = this.draw.error||`Offset ${fmt(value)}${this.offsetMode==='both'?' each side':''}`;
       this.tipEl.style.left = c.screen.x + 'px';
       this.tipEl.style.top = c.screen.y + 'px';
       this.snapEl.hidden = true;

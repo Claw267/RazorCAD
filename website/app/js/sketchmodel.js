@@ -153,7 +153,7 @@ export function copyItems(sk, ids, M, { rotates = false } = {}) {
   }
   // relations and dimensions among the copied entities come along
   for (const k of [...sk.constraints]) {
-    if (k.type === 'fix' || k.type === 'projected' || k.type === 'offset' || k.type === 'sketchPattern' || k.driven) continue;
+    if (k.type === 'fix' || k.type === 'projected' || k.type === 'offset' || k.type === 'offsetGeometry' || k.offsetGroup || k.type === 'sketchPattern' || k.driven) continue;
     if (rotates && !(k.type === 'dim' ? ROT_DIMS.has(k.kind) : ROT_KEEPS.has(k.type))) continue;
     if (!k.refs.every((r) => map.has(r))) continue;
     const { id: _id, refs, ...rest } = k;
@@ -182,7 +182,7 @@ export function blockData(sk, ids) {
     if (o.handles) o.handles = o.handles.map(fixO);
     return o;
   });
-  const ks = sk.constraints.filter((k) => k.type !== 'fix' && k.type !== 'projected' && k.type !== 'offset' && k.type !== 'sketchPattern' && !k.driven && k.refs.every((r) => all.has(fixO(r))))
+  const ks = sk.constraints.filter((k) => k.type !== 'fix' && k.type !== 'projected' && k.type !== 'offset' && k.type !== 'offsetGeometry' && !k.offsetGroup && k.type !== 'sketchPattern' && !k.driven && k.refs.every((r) => all.has(fixO(r))))
     .map((k) => ({ ...JSON.parse(JSON.stringify(k)), refs: k.refs.map(fixO) }));
   return { points: P.map((q) => ({ ...q, x: +(q.x - cx).toFixed(6), y: +(q.y - cy).toFixed(6) })), curves: cs, constraints: ks };
 }
@@ -440,6 +440,20 @@ export function splinePieces(sk, c) {
   const P = c.pts.map((id) => { const q = getPoint(sk, id); return [q.x, q.y]; });
   const H = c.handles?.map((id) => { const q = getPoint(sk, id); return [q.x, q.y]; });
   return c.ctrl ? ctrlSplineBeziers(P, c.degree ?? 3, !!c.closed, c.weights) : splineBeziers(P, !!c.closed, H);
+}
+
+// Persist the chosen endpoint as a point reference, so edits never switch ends.
+export function lineSplineTangentEnd(sk, lineId, splineId, selectedEnd = null) {
+  const l=getCurve(sk,lineId),s=getCurve(sk,splineId);
+  if(l?.type!=='line'||s?.type!=='spline'||s.closed)throw new Error('Select a line and an open spline');
+  const ends=[s.p1,s.p2];
+  if(selectedEnd){if(!ends.includes(selectedEnd))throw new Error('Select an endpoint of the spline');return selectedEnd;}
+  const shared=ends.filter(id=>id===l.p1||id===l.p2);if(shared.length===1)return shared[0];
+  const a=getPoint(sk,l.p1),b=getPoint(sk,l.p2),dx=b.x-a.x,dy=b.y-a.y,n=Math.hypot(dx,dy);
+  if(n<1e-9)throw new Error('The tangent line must have a nonzero length');
+  const distances=ends.map(id=>{const p=getPoint(sk,id);return Math.abs((p.x-a.x)*dy-(p.y-a.y)*dx)/n;});
+  if(Math.abs(distances[0]-distances[1])<1e-7)throw new Error('Both spline ends are equally close: also select the desired spline endpoint');
+  return ends[distances[0]<distances[1]?0:1];
 }
 
 export function fitSplineHandles(P, closed = false) {
@@ -1102,7 +1116,7 @@ export function pointInPoly(pt, poly) {
 
 // Like profileLoops, but each loop also carries its exact boundary as line /
 // arc / circle segments, and loops are grouped into regions (outer + holes).
-export function profileRegions(sk, withSources = false) {
+export function profileRegions(sk, withSources = false, boundedFaces = false) {
   const segs = [];
   for (const c of sk.curves) {
     if (c.construction) continue;
@@ -1183,11 +1197,13 @@ export function profileRegions(sk, withSources = false) {
       comp.push(i);
       for (const j of nodes[i].adj) if (!seen[j]) { seen[j] = 1; q.push(j); }
     }
-    const seq = outerBoundary(nodes, comp, true);
-    if (!seq || seq.length < 2) continue;
-    const poly = seq.map((i) => [nodes[i].x, nodes[i].y]);
-    if (Math.abs(signedArea(poly)) < 1e-9) continue;
-    loops.push({ poly, segs: loopSegments(sk, nodes, edges, seq, withSources) });
+    const sequences=boundedFaces?boundedBoundaries(nodes,comp):[outerBoundary(nodes,comp,true)];
+    for(const seq of sequences){
+      if (!seq || seq.length < 2) continue;
+      const poly = seq.map((i) => [nodes[i].x, nodes[i].y]);
+      if (Math.abs(signedArea(poly)) < 1e-9) continue;
+      loops.push({ poly, segs: loopSegments(sk, nodes, edges, seq, withSources) });
+    }
   }
   // nesting: even depth = material, odd depth = hole of its immediate parent
   const items = loops.map((l) => ({ ...l, area: Math.abs(signedArea(l.poly)) }));
@@ -1204,6 +1220,26 @@ export function profileRegions(sk, withSources = false) {
     }
   }
   return regions.map((r) => ({ outer: { poly: r.outer.poly, segs: r.outer.segs }, holes: r.holes.map((h) => ({ poly: h.poly, segs: h.segs })) }));
+}
+
+// Walk both directions of every graph edge, retaining the bounded faces on
+// the left. Split repeated-vertex walks so bridges do not become fake borders.
+function boundedBoundaries(nodes,comp){
+  const neighbors=new Map(comp.map(i=>[i,[...nodes[i].adj].sort((a,b)=>Math.atan2(nodes[a].y-nodes[i].y,nodes[a].x-nodes[i].x)-Math.atan2(nodes[b].y-nodes[i].y,nodes[b].x-nodes[i].x))])),seen=new Set(),loops=[];
+  for(const a of comp)for(const b of neighbors.get(a)){
+    if(seen.has(`${a}>${b}`))continue;
+    let u=a,v=b;const walk=[];
+    while(!seen.has(`${u}>${v}`)){
+      seen.add(`${u}>${v}`);walk.push(u);const around=neighbors.get(v),next=around[(around.indexOf(u)+around.length-1)%around.length];u=v;v=next;
+    }
+    if(u!==a||v!==b)continue;
+    const stack=[],positions=new Map();
+    for(const id of [...walk,walk[0]]){
+      if(positions.has(id)){const at=positions.get(id),cycle=stack.slice(at);if(cycle.length>=3&&signedArea(cycle.map(i=>[nodes[i].x,nodes[i].y]))>1e-9)loops.push(cycle);for(const gone of stack.slice(at+1))positions.delete(gone);stack.length=at+1;}
+      else{positions.set(id,stack.length);stack.push(id);}
+    }
+  }
+  return loops;
 }
 
 // The parameter range that comes round to its start: circles 2π, closed splines their piece count.
@@ -1259,7 +1295,7 @@ function loopSegments(sk, nodes, edges, seq, withSources = false) {
   };
   return pieces.flatMap((p) => {
     const result = [segmentsOf(p)].flat();
-    return withSources ? result.map((g) => ({ ...g, sourceCurve: p.cid })) : result;
+    return withSources ? result.map((g) => ({ ...g, sourceCurve: p.cid,sourceDirection:Math.sign(p.u1-p.u0) })) : result;
   });
 }
 
@@ -1870,6 +1906,7 @@ function circleCircle(c1, r1, c2, r2) {
 // where the offset curves meet, so they extend or trim as needed.
 // Returns { items: [{ it, type, entry, exit, a, b, c, r }], error }.
 export function offsetChain(sk, chain, d) {
+  if(!chain?.items?.length||!Number.isFinite(d))return {items:[],error:'Select a nonempty chain and a finite offset distance'};
   if (chain.items.some((it) => it.c.type === 'spline' || isEll(it.c))) return { items: [], error: 'A spline or ellipse cannot be offset (yet): offset the lines and arcs, or draw the second curve' };
   const out = chain.items.map((it) => {
     const { c, rev } = it;
@@ -1922,6 +1959,7 @@ export function offsetChain(sk, chain, d) {
 // Polylines for previewing an offset.
 export function offsetPreview(sk, chain, d) {
   const g = offsetChain(sk, chain, d);
+  if(g.error)return [];
   return g.items.map((o) => {
     if (o.type === 'line') return [o.a, o.b];
     let a0 = 0, span = TAU;
@@ -2781,6 +2819,12 @@ export function deleteItems(sk, ids) {
 
 export function cleanup(sk) {
   for (let pass = 0; pass < 5; pass++) {
+    sk.constraints=sk.constraints.filter(k=>{
+      if(!k.offsetGroup)return true;
+      const group=sk.constraints.find(q=>q.type==='offsetGeometry'&&q.dim===k.id);
+      if(!group)return false;
+      k.offsetGroup=group.id;k.refs=[group.chain[0].id,group.refs[group.chain.length]];return true;
+    });
     const used = new Set(['O']);
     for (const c of sk.curves) for (const k of ['p1', 'p2', 'c', 'a']) if (c[k]) used.add(c[k]);
     for (const c of sk.curves) for (const id of [...(c.pts || []), ...(c.handles || [])]) used.add(id);

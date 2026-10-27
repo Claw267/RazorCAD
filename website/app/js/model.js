@@ -209,8 +209,8 @@ export function createFeature(doc, type, props = {}) {
     // thin: a wall of thickness thinT along the sketch curves (open sketches are always thin);
     // thinDir: 'one' (outside a closed profile / left of an open one), 'other' or 'mid'.
     // scopeAll: a cut acts on every body it reaches (off: only the bodies in scope)
-    extrude: { sketch: null, op: 'add', merge: true, end: 'blind', depth: 10, reverse: false, toPoint: null, toVertex: null, toPlane: null, toFace: null, toOffset: 5, toFlip: false, thin: false, thinT: 2, thinDir: 'one', scopeAll: true, scope: [] },
-    revolve: { sketch: null, op: 'add', merge: true, axis: 'v', end: 'oneway', angle: 360, reverse: false, axisEdge: null, axisFace: null, scopeAll: true, scope: [] },
+    extrude: { sketch: null, op: 'add', merge: true, startFrom:'profile',startOffset:0,startPlane:null,startFace:null,end: 'blind', depth: 10, depth2: 0, reverse: false, toPoint: null, toVertex: null, toPlane: null, toFace: null, toOffset: 5, toFlip: false, thin: false, thinT: 2, thinDir: 'one', scopeAll: true, scope: [] },
+    revolve: { sketch: null, profiles: null, extent: 'angle', angle2: 0, projectAxis: false, axisSketch: null, thin: false, thinT: 2, thinDir: 'one', op: 'add', merge: true, axis: 'v', end: 'oneway', angle: 360, reverse: false, axisEdge: null, axisFace: null, scopeAll: true, scope: [] },
     // axis: 'v' (sketch vertical), 'u' (sketch horizontal), the id of a line in the sketch, an axis
     // feature, or 'edge' / 'face' (a straight model edge / cylindrical face picked on the model)
     // refs: up to three references (see refgeom.js); the plane type is inferred from them
@@ -262,16 +262,16 @@ export function createFeature(doc, type, props = {}) {
     // mode 'translate': rotate about rotAxis by angle (about the origin or the bodies' center), then move dx/dy/dz;
     // mode 'mates': mates [{ type, a, b, value, flip }] between the moving bodies and fixed geometry
     moveBody: { bodies: [], copy: false, copies: 1, mode: 'translate', dx: 0, dy: 0, dz: 0, rotAxis: 'none', angle: 0, rotCenter: 'origin', mates: [] },
-    surfExtrude: { sketch: null, end: 'blind', depth: 10, reverse: false },
-    surfRevolve: { sketch: null, axis: 'v', angle: 360 },
-    surfPlanar: { sketch: null },
+    surfExtrude: { sketch: null, profiles: null, depth2: 0, end: 'blind', depth: 10, reverse: false },
+    surfRevolve: { sketch: null, profiles: null, end: 'oneway', extent: 'angle', angle2: 0, reverse: false, projectAxis: false, axisSketch: null, axis: 'v', angle: 360 },
+    surfPlanar: { sketch: null, profiles: null, edges: [], chainSelection: true },
     surfOffset: { faces: [], distance: 5, flip: false },
     // profiles: sketches / 3D sketches (one chain each, all open or all closed), in order; guides: guide curves
     // (sketches or curves) the surface follows, each through every profile
     surfLoft: { profiles: [], guides: [], ruled: false, startCondition: 'none', endCondition: 'none', startDirection: 'y', endDirection: 'y', startStrength: 1, endStrength: 1, startReverse: false, endReverse: false, startFaces: [], endFaces: [] },
     surfSweep: { profileType: 'sketch', profile: null, diameter: 10, path: null, guide: null, guideMode: 'orientation', orientation: 'perpendicular', twistAngle: 0 },
-    // edges round a hole; tangent: G1 to the faces round it; merge: knit into that surface; solid: close it
-    surfFill: { edges: [], tangent: false, merge: true, solid: false },
+    // Patch continuity: G0/G1/G2, with optional per-edge overrides and support faces. Legacy tangent means G1.
+    surfFill: { edges: [], chainSelection: true, continuity: null, supportFaces: [], merge: true, solid: false },
     // tool: a plane, surface body or sketch; faces: points on the pieces; mode 'keep' | 'remove'
     surfTrim: { tool: '', faces: [], mode: 'keep', mutual: false },
     surfExtend: { edges: [], distance: 10 },
@@ -421,14 +421,17 @@ export function referencesOf(doc, f) {
   const addId = (v) => { if (typeof v === 'string' && ids.has(v)) out.add(v); };
   const addBody = (v) => { if (typeof v === 'string' && v) addId(bodyOwner(v)); };
   for (const k of ['sketch', 'feature', 'base', 'toPoint', 'toPlane', 'planeA', 'planeB', 'pointA', 'pointB', 'axis', 'dir1', 'dir2', 'rotAxis', 'parent', 'profile', 'path', 'guide', 'startDirection', 'endDirection']) addId(f[k]);
-  for (const ref of [...(f.profiles || []), ...(f.guides || [])]) addId(typeof ref === 'string' ? ref : ref?.sketch);
+  if(f.type==='extrude'&&f.startFrom==='surface')addId(f.startPlane);
+  for (const ref of [f.profile,f.path,f.guide,...(f.profiles || []), ...(f.guides || [])]) addId(typeof ref === 'string' ? ref : ref?.sketch);
   for (const id of expandFeatureRefs(doc, f.features)) addId(id);
   if (f.type !== 'sketch' && typeof f.plane === 'string') addId(f.plane);
   if (f.plane?.ref) addId(f.plane.ref);
   if (f.type === 'split') { addId(f.tool); addBody(f.tool); }
+  if (f.axis === 'sketchLine' && f.axisSketch?.sketch) addId(f.axisSketch.sketch);
   if (f.sketchLine) addId(String(f.sketchLine).split(':')[0]);
-  for (const r of [...(f.startFaces || []), ...(f.endFaces || [])]) addBody(r.body);
-  for (const r of f.refs || []) { addId(r?.id); if (r?.kind === 'sketch') addId(r.sketch); }
+  for (const r of [...(f.startFaces || []), ...(f.endFaces || []), ...(f.supportFaces || [])]) addBody(r.body);
+  if (['surfFill','surfPlanar'].includes(f.type)) for (const r of f.edges || []) addBody(r.body);
+  for (const r of f.type==='point'&&f.referenceDefinition&&f.pointType==='coords'?[]:f.refs||[]) { addId(r?.id); if (r?.kind === 'sketch') addId(r.sketch); addBody(r?.body); }
   for (const b of [...(f.bodies || []), ...(f.scope || []), f.main, f.body]) addBody(b);
   for (const m of f.mates || []) { addId(m.a?.id); addId(m.b?.id); }
   // projected (converted) sketch geometry

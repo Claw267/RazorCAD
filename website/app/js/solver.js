@@ -4,7 +4,8 @@
 // drives them to zero while moving geometry as little as possible.
 // The same Jacobian gives degrees of freedom and fully-defined status.
 
-import { patternEntities, updateSketchPatterns, getCurve, getPoint, curveLength } from './sketchmodel.js';
+import { patternEntities, updateSketchPatterns, getCurve, getPoint, curveLength, splinePieces } from './sketchmodel.js';
+import * as SO from './sketchoffset.js';
 
 const H = 1e-6;
 
@@ -29,6 +30,7 @@ export const RELATION_INFO = {
   projected: { label: 'On Edge (projected)', glyph: '⇲' },
   sketchPattern: { label: 'Sketch Pattern', glyph: '⋮' },
   offset: { label: 'Offset', glyph: '⇉' },
+  offsetGeometry: { label: 'Offset', glyph: '⇉' },
   dim: { label: 'Dimension', glyph: '↔' },
 };
 
@@ -102,6 +104,7 @@ export function makeSystem(sk, ev) {
 
   const eqs = [];
   const bad = [];
+  const validate=[];
   const push = (f, deps, k) => eqs.push({ f, deps: [...new Set(deps)], k });
 
   // internal: arc end points stay on the arc's circle
@@ -238,6 +241,20 @@ export function makeSystem(sk, ev) {
           break;
         }
         case 'tangent': {
+          if(kindOf(R[0])==='line'&&kindOf(R[1])==='spline'){
+            const sp=curves.get(R[1]),end=R[2],L=line(R[0]);
+            if(sp.closed||![sp.p1,sp.p2].includes(end))throw new Error('The tangent relation needs an endpoint of an open spline');
+            const atStart=end===sp.p1,T=pt(end),handle=sp.ctrl?sp.pts[atStart?1:sp.pts.length-2]:sp.handles?.[atStart?0:sp.handles.length-1];
+            const points=[...new Set(sp.pts)].map(id=>({id,...pt(id)})),HP=handle?pt(handle):null;
+            const tangent=Xa=>{
+              const t=T.get(Xa);if(HP){const h=HP.get(Xa);return [h[0]-t[0],h[1]-t[1]];}
+              const local={points:points.map(p=>{const q=p.get(Xa);return {id:p.id,x:q[0],y:q[1]};})},pieces=splinePieces(local,sp),piece=atStart?pieces[0]:pieces.at(-1),h=atStart?piece.c1:piece.c2;
+              return [h[0]-t[0],h[1]-t[1]];
+            };
+            if(Math.hypot(...tangent(X))<1e-9||dist(L.a(X),L.b(X))<1e-9)throw new Error('A tangent needs a nonzero line and spline endpoint direction');
+            push(Xa=>{const h=tangent(Xa),d=dir(L,Xa);return [(h[0]*d[1]-h[1]*d[0])/(Math.hypot(...h)||1e-12)];},[...L.deps,...T.deps,...(HP?HP.deps:points.flatMap(p=>p.deps))],k);
+            break;
+          }
           const s = k.s || 1;
           // Tangency at a shared end point is written as "radius ⊥ line" (or collinear
           // centers for two arcs); the distance form is degenerate there.
@@ -308,6 +325,22 @@ export function makeSystem(sk, ev) {
             for (const [i, v] of sizes) out.push(Xa[i] - v);
             return out;
           }, deps, k);
+          break;
+        }
+        case 'offsetGeometry': {
+          const dimension=sk.constraints.find(q=>q.id===k.dim),value=dimension?ev(dimension.value):k.v;
+          if(!(value>0))throw new Error('The offset distance must be positive');
+          const sources=k.chain.map(it=>{const c=curves.get(it.id);if(!c)throw new Error('An offset source curve is missing');return c;});
+          const ids=[...new Set(sources.flatMap(c=>[c.p1,c.p2,c.c,c.a,...(c.pts||[]),...(c.handles||[])].filter(Boolean)))],sourcePoints=ids.map(id=>({id,...pt(id)}));
+          const radiusSources=sources.filter(c=>c.type==='circle').map(c=>({id:c.id,index:idx.get('r:'+c.id)})),deps=[...sourcePoints.flatMap(p=>p.deps),...radiusSources.map(r=>r.index)];
+          const local=Xa=>({points:sourcePoints.map(p=>{const q=p.get(Xa);return {id:p.id,x:q[0],y:q[1]};}),curves:sources.map(c=>({...c,...(c.type==='circle'?{r:Xa[idx.get('r:'+c.id)]}:{})}))});
+          let signature=null,cached=null;
+          const target=Xa=>{const key=deps.map(i=>Xa[i]).join(',');if(key!==signature){cached=SO.targets(local(Xa),k,value,false);signature=key;}return cached;};
+          SO.targets(local(X),k,value,true);validate.push(Xa=>SO.targets(local(Xa),k,value,true));
+          for(const b of k.bindings){
+            if(b.radius){const ir=idx.get('r:'+b.radius);push(Xa=>[Xa[ir]-target(Xa).radii[b.radius]],[...deps,ir],k);}
+            else{const p=pt(b.id);push(Xa=>{const a=p.get(Xa),q=target(Xa).points[b.id];return [a[0]-q[0],a[1]-q[1]];},[...deps,...p.deps],k);}
+          }
           break;
         }
         case 'offset': {
@@ -419,9 +452,10 @@ export function makeSystem(sk, ev) {
       }
     } catch (e) {
       bad.push(`${k.type === 'dim' ? 'Dimension' : 'Relation'}: ${e.message}`);
+      if(k.type==='offsetGeometry')push(()=>[1],[],k);
     }
   }
-  return { X: Float64Array.from(X), idx, eqs, n: X.length, bad };
+  return { X: Float64Array.from(X), idx, eqs, n: X.length, bad,validate };
 }
 
 function residuals(sys, X) {
@@ -576,8 +610,12 @@ function solveSketchBase(sk, ev, { pin = [], pinR = [] } = {}) {
     fixed.add(ir);
   }
   const err = sys.eqs.length ? lm(sys, X, fixed) : 0;
-  const ok = err < 1e-6;
-  if (ok) applyX(sk, sys, X);
+  let ok = err < 1e-6;
+  if(ok)for(const check of sys.validate){try{check(X);}catch(e){ok=false;sys.bad.push(e.message);}}
+  if (ok) {
+    applyX(sk, sys, X);
+    for(const k of sk.constraints)if(k.type==='offsetGeometry'){const d=sk.constraints.find(q=>q.id===k.dim);if(d)k.v=ev(d.value);}
+  }
   return { ok, err, bad: sys.bad };
 }
 

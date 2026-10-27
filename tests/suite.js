@@ -669,6 +669,46 @@ const UI = {
     return { ok: true, detail: 'Two rails in one multi-curve sketch, construction rail selection, unrelated geometry excluded, dependencies and measured deformation' };
   },
 
+  async 'loft-manual-correspondence'() {
+    const {run,fixture}=await import('/tests/loft-correspondence-cases.js'),LC=await import('/js/loftcorrespondence.js'),S=await import('/js/sketchmodel.js');
+    const native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
+    const a=window.app,settle=async()=>{await wait(180);await until(()=>!a.kernel.pending);};
+    const {Vector3}=await import('three'),click=async p=>{const ev=viewEvents();ev.vp.camera.updateMatrixWorld(true);await ev.click(...ev.toScreen(new Vector3(...p)));await settle();};
+    const volume=async()=>{const built=await a.kernel.rebuild(a.doc),id=built.body?.bodies?.at(-1)?.id;if(!id)throw new Error('No built loft: '+JSON.stringify(built.errors));const m=(await a.kernel.request('measure',{refs:[{kind:'body',id}]})).items[0].volume;await a.rebuild();return m;};
+    const drag=async(from,to)=>{const ev=viewEvents();ev.vp.camera.updateMatrixWorld(true);const p=ev.toScreen(new Vector3(...from)),q=ev.toScreen(new Vector3(...to));ev.fire('pointerdown',...p,{button:0,buttons:1});await wait(30);ev.fire('pointermove',...q,{button:0,buttons:1});await wait(30);ev.fire('pointerup',...q,{button:0,buttons:0});await settle();};
+    const data=fixture();data.feature.correspondenceMode='auto';await a.newDocument?.();closeModals();await a.setDoc(data.doc);a.editFeature(data.feature.id);await settle();
+    if(document.querySelector('[data-loft-manual]').checked)return {ok:false,detail:'Legacy automatic loft was changed on edit'};
+    const manual=document.querySelector('[data-loft-manual]');manual.checked=true;manual.dispatchEvent(new Event('change'));await settle();
+    let graph=a.loftConnectionGraph();if(!graph||graph.sections[0].points.length!==4||a.viewport.loftConnectionGroup.children.length<3)return {ok:false,detail:'Four numbered connector chains were not shown'};
+    const first=[...graph.sections[1].points[0]],target=[...graph.sections[1].points[1]],ref=data.profiles[1];
+    a.viewport.setStandardView('iso',false);a.viewport.zoomToFit(null,false);await wait(160);
+    document.querySelector('[data-loft-connector-pick="1"]').click();await click(target);
+    if(a.result.errors.size||a.pm.loftConnector||!LC.connectionFor(a.pm.feature,ref)?.point||Math.abs(await volume()-4000/3)>0.001)return {ok:false,detail:'Actual connector start pick did not change solid correspondence: '+JSON.stringify({errors:[...a.result.errors],feature:a.pm.feature,target})};
+    graph=a.loftConnectionGraph();await drag(graph.sections[1].points[0],first);
+    if(a.result.errors.size||Math.abs(await volume()-2000)>0.001)return {ok:false,detail:'Dragging the connector back did not restore the prism: '+JSON.stringify([...a.result.errors])};
+    const point=LC.connectionFor(a.pm.feature,ref).point;document.querySelector('[data-loft-connector-pick="1"]').click();document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));
+    if(!a.pm||a.pm.loftConnector)return {ok:false,detail:'Escape cancelled the feature instead of the connector pick'};
+    await a.okPM();a.undo();await a.rebuild();if(M.findFeature(a.doc,data.feature.id).correspondenceMode!=='auto')return {ok:false,detail:'Undo did not restore automatic mode'};a.redo();await a.rebuild();
+    await a.setDoc(JSON.parse(JSON.stringify(a.doc)));a.editFeature(data.feature.id);await settle();
+    if(LC.connectionFor(a.pm.feature,ref)?.point!==point)return {ok:false,detail:'Saved connector anchor was not restored'};
+    document.querySelector('[data-loft-list="profiles"] .li:nth-child(2) [data-loft-action="up"]').click();await settle();
+    if(LC.connectionFor(a.pm.feature,ref)?.point!==point||a.result.errors.size)return {ok:false,detail:'Reordering lost the stable profile connector'};
+    a.cancelPM();await a.rebuild();if(M.findFeature(a.doc,data.feature.id).profiles[0].sketch!==data.profiles[0].sketch)return {ok:false,detail:'Cancel did not restore profile order'};
+    const top=M.findFeature(a.doc,data.sources[1].sk.id);await a.enterSketch(top,false);for(const p of a.sketcher.f.points)p.x*=2;a.sketcher.changed();a.exitSketch(true);await a.rebuild();
+    if(a.result.errors.size||Math.abs(await volume()-3000)>0.001)return {ok:false,detail:'Source edits broke the stable connector anchor'};
+    const circle=fixture({circle:true});await a.setDoc(circle.doc);a.editFeature(circle.feature.id);await settle();
+    let input=document.querySelector('[data-loft-connector-angle="1"] input');input.value='90';input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));await settle();
+    if(a.result.errors.size||Math.abs(await volume()-4000*Math.PI/3)>0.01)return {ok:false,detail:'Circular seam angle was not applied geometrically'};
+    a.viewport.setStandardView('iso',false);a.viewport.zoomToFit(null,false);await wait(160);graph=a.loftConnectionGraph();await drag(graph.sections[1].points[0],[10,0,20]);
+    if(a.result.errors.size||Math.abs(await volume()-2000*Math.PI)>0.01)return {ok:false,detail:'Dragging a circular seam did not update its angle'};
+    a.cancelPM();await a.rebuild();
+    const surface=fixture({type:'surfLoft',open:true});await a.setDoc(surface.doc);a.editFeature(surface.feature.id);await settle();const reverse=document.querySelector('[data-loft-connector-reverse="1"]');reverse.checked=true;reverse.dispatchEvent(new Event('change'));await settle();
+    if(a.result.errors.size||a.loftConnectionGraph().sections[1].points[0][1]!==10)return {ok:false,detail:'Open surface reverse traversal failed'};
+    document.querySelector('[data-loft-connector-reset]').click();await settle();if(a.loftConnectionGraph()||document.querySelector('[data-loft-manual]').checked)return {ok:false,detail:'Reset did not restore full automatic behavior'};
+    a.cancelPM();await a.rebuild();
+    return {ok:true,detail:JSON.stringify({native,ui:'real start-point picks and endpoint drags, circle seam angle and drag, open surface reverse, reorder, source edits, undo/redo, serialization, Escape, cancel and Automatic reset'})};
+  },
+
   async 'loft-canvas-selection'() {
     const a = window.app, S = await import('/js/sketchmodel.js');
     document.querySelectorAll('.modal-back .modal-h .x').forEach((b) => b.click());
@@ -716,8 +756,9 @@ const UI = {
   },
 
   async 'sketch-grouped-tools'() {
-    const a = window.app, prefs = a.ui.tbPrefs(), previous = prefs.sketchLayout;
+    const a = window.app, prefs = a.ui.tbPrefs(), previous = prefs.sketchLayout, previousVariants=structuredClone(prefs.sketchVariants);
     try {
+      prefs.sketchVariants={};
       await a.newDocument?.(); closeModals();
       const f = M.createFeature(a.doc, 'sketch', { plane: { ref: 'front' } }); a.doc.features.push(f); a.commit(); await a.enterSketch(f, true);
       a.ui.showToolbarCustomize('sketch');
@@ -727,15 +768,40 @@ const UI = {
       select.value = 'grouped'; select.dispatchEvent(new Event('change'));
       document.querySelector('.modal-back .modal-h .x').click();
       if (document.querySelectorAll('#cm-buttons [data-group]').length !== 5 || document.querySelector('#cm-buttons [data-key="tool-midline"]')) return { ok: false, detail: 'Tools were not grouped' };
-      document.querySelector('[data-group="sketch-group-slot"]').click();
+      const primary=group=>document.querySelector(`[data-group="sketch-group-${group}"] [data-sketch-primary]`),arrow=group=>document.querySelector(`[data-sketch-variants="sketch-group-${group}"]`);
+      a.ui.closeContext();primary('line').click();
+      if(a.sketcher.tool!=='line'||!document.querySelector('#ctxmenu').hidden)return {ok:false,detail:'Primary click opened a menu instead of starting the tool'};
+      arrow('slot').click();
       if (document.querySelectorAll('#ctxmenu .mi').length !== 5) return { ok: false, detail: 'Slot flyout did not expose five variants' };
-      document.querySelector('[data-group="sketch-group-line"]').click();
+      if(a.sketcher.tool!=='line')return {ok:false,detail:'Arrow changed the active tool'};
+      arrow('line').click();
       [...document.querySelectorAll('#ctxmenu .mi')].find((q) => q.textContent.includes('Midpoint Line')).click();
       if (a.sketcher.tool !== 'midline' || !document.querySelector('[data-group="sketch-group-line"]').classList.contains('active')) return { ok: false, detail: 'Flyout did not activate the variant' };
+      a.sketcher.setTool('select');primary('line').click();
+      if(a.sketcher.tool!=='midline'||!primary('line').textContent.includes('Midpoint Line')||!document.querySelector('#ctxmenu').hidden)return {ok:false,detail:'Primary did not reuse the last variant'};
+      for(const [group,tool] of [['line','centerline'],['rectangle','crect'],['arc','arc3'],['spline','cspline'],['slot','arcslot3']]){
+        arrow(group).click();const label=(await import('/js/sketcher.js')).SKETCH_TOOLS[tool].label;
+        [...document.querySelectorAll('#ctxmenu .mi')].find(q=>q.textContent.includes(label)).click();
+        const variant=document.querySelector(`[data-sketch-tool-variant="${group}"]`);
+        if(variant?.value!==tool||prefs.sketchVariants[group]!==tool)return {ok:false,detail:group+': menu and Property Panel disagree'};
+        const other=[...variant.options].find(o=>o.value!==tool).value;variant.value=other;variant.dispatchEvent(new Event('change'));
+        a.sketcher.setTool('select');primary(group).click();
+        if(a.sketcher.tool!==other||document.querySelector(`[data-sketch-tool-variant="${group}"]`)?.value!==other)return {ok:false,detail:group+': Property Panel choice was not reused'};
+      }
+      a.sketcher.setTool('midline');a.sketcher.setTool('select');primary('line').click();
+      if(a.sketcher.tool!=='midline')return {ok:false,detail:'Activation outside the flyout was not remembered'};
+      primary('line').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true}));
+      if(document.querySelector('#ctxmenu').hidden||document.querySelectorAll('#ctxmenu .mi').length!==3)return {ok:false,detail:'Keyboard menu access failed'};a.ui.closeContext();
+      const {platform}=await import('/js/platform.js');await platform.setPrefs(a.ui.prefs);const saved=await platform.getPrefs();
+      if(saved.toolbars?.sketchVariants?.line!=='midline')return {ok:false,detail:'Last variant was not saved in preferences'};
+      const filtered=a.ui.groupSketchTools([{id:'tool-line',label:'Line',icon:'line'},{id:'tool-midline',label:'Midpoint Line',icon:'line',disabled:true}]);
+      if(filtered[0].primary.id!=='tool-line')return {ok:false,detail:'A disabled remembered variant blocked the default tool'};
       prefs.sketchLayout = 'expanded'; a.ui.renderCommandManager();
       if (!document.querySelector('#cm-buttons [data-key="tool-midline"]') || a.ui.currentKeys('sketch').join(',') !== keys) return { ok: false, detail: 'Switching layout changed toolbar customization' };
-      return { ok: true, detail: 'Layout option, five flyouts, variant selection, active state and preserved expanded ordering' };
-    } finally { prefs.sketchLayout = previous; a.ui.savePrefs(); a.ui.renderCommandManager(); }
+      const variant=document.querySelector('[data-sketch-tool-variant="line"]');variant.value='centerline';variant.dispatchEvent(new Event('change'));
+      if(a.sketcher.tool!=='centerline'||prefs.sketchVariants.line!=='centerline')return {ok:false,detail:'Property Panel selector failed in expanded layout'};
+      return { ok: true, detail: 'Split primary/arrow behavior, five variant families, Property Panel synchronization, saved last choice, keyboard access, disabled fallback and preserved expanded ordering' };
+    } finally { prefs.sketchLayout = previous; prefs.sketchVariants=previousVariants;a.ui.savePrefs(); a.ui.renderCommandManager(); }
   },
 
   async 'sketch-new-drawing-tools'() {
@@ -784,6 +850,58 @@ const UI = {
     if (S.slotLayout('oslot', [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 5, y: 6 }]) || S.slotLayout('arcslot3', [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 2 }])) return { ok: false, detail: 'Invalid slot accepted' };
     if (S.slotLayout('arcslot', [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 9.99, y: 0.1 }, { x: 12, y: 0 }], -6.27)) return { ok: false, detail: 'Overlapping major-arc caps accepted' };
     return { ok: true, detail: 'Midpoint line, pre/post construction, five closed tangent slot variants, undo/redo, kernel rebuild and degenerate-input rejection' };
+  },
+
+  async 'sketch-parametric-offset'() {
+    const {run}=await import('/tests/sketch-offset-cases.js'),math=run();if(!math.ok)return {ok:false,detail:math};
+    const a=window.app,S=await import('/js/sketchmodel.js');await a.newDocument?.();closeModals();
+    const d=M.newDoc(),f=M.createFeature(d,'sketch',{plane:{ref:'front'}}),p=[[0,0],[40,0],[40,30],[0,30]].map(q=>S.addPoint(f,...q));p.forEach((id,i)=>S.addLine(f,id,p[(i+1)%4]));d.features.push(f);await a.setDoc(d);await a.enterSketch(f,true);await wait(100);const sk=a.sketcher;sk.setTool('offset');
+    sk.offsetChain=false;if(sk.offsetSketchChain(f.curves[0].id).items.length!==1)return {ok:false,detail:'Individual selection ignored'};sk.offsetChain=true;if(sk.offsetSketchChain(f.curves[0].id).items.length!==4)return {ok:false,detail:'Chain selection failed'};
+    const mode=document.querySelector('[data-offset-mode]');mode.value='both';mode.dispatchEvent(new Event('change'));
+    sk.offsetDistance='3';sk.offsetTyped=true;const before=sk.snapshotData();sk.offsetClick({x:20,y:0});sk.offsetClick({x:20,y:3});
+    if(!sk.solveOk||f.constraints.filter(k=>k.type==='offsetGeometry').length!==2||f.constraints.filter(k=>k.kind==='offset').length!==1)return {ok:false,detail:'Both sides did not share one driving dimension'};
+    sk.closeModify();sk.undo();if(sk.snapshotData()!==before)return {ok:false,detail:'Undo did not remove offset'};sk.redo();if(f.constraints.filter(k=>k.type==='offsetGeometry').length!==2)return {ok:false,detail:'Redo lost parametric offset'};
+    const dimension=f.constraints.find(k=>k.kind==='offset');dimension.value='2+2';if(!sk.solve().ok)return {ok:false,detail:'Expression dimension failed'};
+    const group=f.constraints.find(k=>k.type==='offsetGeometry'),SO=await import('/js/sketchoffset.js'),expected=SO.targets(f,group,4);for(const [id,q] of Object.entries(expected.points)){const p=S.getPoint(f,id);if(Math.hypot(p.x-q[0],p.y-q[1])>1e-5)return {ok:false,detail:'Edited dimension did not drive both offsets'};}
+    // Publish a standalone offset contour to the native kernel and check its area.
+    const native=M.newDoc(),sf=M.createFeature(native,'sketch',{plane:{ref:'front'}}),pp=[[0,0],[40,0],[40,30],[0,30]].map(q=>S.addPoint(sf,...q));pp.forEach((id,i)=>S.addLine(sf,id,pp[(i+1)%4],true));const ch=S.chainOf(sf,sf.curves[0].id);SO.build(sf,ch,[-2],{construction:false});native.features.push(sf,M.createFeature(native,'extrude',{sketch:sf.id,depth:5}));
+    a.exitSketch(false);await a.setDoc(native);await a.rebuild();if(a.result.errors.size||!a.result.body)return {ok:false,detail:'Native offset contour rebuild failed: '+JSON.stringify([...a.result.errors])};
+    const volume=(await a.kernel.request('measure',{refs:[{kind:'body',id:a.result.bodies[0].id}]})).items[0].volume;if(Math.abs(volume-44*34*5)>.001)return {ok:false,detail:'Native offset volume '+volume};
+    const curved=M.newDoc(),cs=M.createFeature(curved,'sketch',{plane:{ref:'front'}}),cp=[[0,0],[40,0],[40,30],[0,30]].map(q=>S.addPoint(cs,...q));S.addLine(cs,cp[0],cp[1],true);S.addLine(cs,cp[1],cp[2],true);S.addCtrlSpline(cs,[cp[2],S.addPoint(cs,30,35),S.addPoint(cs,10,35),cp[3]],3,true);S.addLine(cs,cp[3],cp[0],true);SO.build(cs,SO.chainOf(cs,cs.curves[0].id),[-2],{construction:false});curved.features.push(cs,M.createFeature(curved,'extrude',{sketch:cs.id,depth:5}));await a.setDoc(curved);await a.rebuild();
+    if(a.result.errors.size||!a.result.body)return {ok:false,detail:'Native mixed spline offset extrusion failed: '+JSON.stringify([...a.result.errors])};const curvedVolume=(await a.kernel.request('measure',{refs:[{kind:'body',id:a.result.bodies[0].id}]})).items[0].volume;
+    return {ok:curvedVolume>volume&&curvedVolume<10000,detail:{math,nativeVolume:volume,curvedVolume}};
+  },
+
+  async 'sketch-line-spline-tangent'() {
+    const a=window.app,S=await import('/js/sketchmodel.js'),V=await import('/js/solver.js');
+    const fixture=(kind='ctrl',end=0)=>{
+      const d=M.newDoc(),f=M.createFeature(d,'sketch',{plane:{ref:'front'}});d.features.push(f);
+      const p=[[0,0],[10,4],[20,14],[30,20]].map(q=>S.addPoint(f,...q));
+      const sp=kind==='ctrl'?S.addCtrlSpline(f,p,3,false,false,[1,2,3,1]):kind==='fit'?S.addFitSpline(f,p):S.addSpline(f,p);
+      const endpoint=p[end?3:0],q=S.getPoint(f,endpoint),lp=S.addPoint(f,q.x-20,q.y),line=S.addLine(f,lp,endpoint);
+      for(const id of [lp,endpoint]){const t=S.getPoint(f,id);S.addRel(f,'fix',[id],{x:t.x,y:t.y});}
+      return {d,f,sp,line,endpoint};
+    };
+    const parallel=(f,sp,line,end)=>{const c=S.getCurve(f,sp),pieces=S.splinePieces(f,c),g=end===c.p1?pieces[0]:pieces.at(-1),u=end===c.p1?[g.c1[0]-g.a[0],g.c1[1]-g.a[1]]:[g.b[0]-g.c2[0],g.b[1]-g.c2[1]],l=S.getCurve(f,line),p=S.getPoint(f,l.p1),q=S.getPoint(f,l.p2);return Math.hypot(...u)>1e-6&&Math.abs(u[0]*(q.y-p.y)-u[1]*(q.x-p.x))/(Math.hypot(...u)*Math.hypot(q.x-p.x,q.y-p.y))<1e-6;};
+    for(const kind of ['ctrl','fit','legacy'])for(const end of [0,1]){
+      const {f,sp,line,endpoint}=fixture(kind,end);S.addRel(f,'tangent',[line,sp,endpoint]);
+      const r=V.solveSketch(f,Number);if(!r.ok||!parallel(f,sp,line,endpoint))return {ok:false,detail:{kind,end,r}};
+      const saved=JSON.parse(JSON.stringify(f));if(!V.solveSketch(saved,Number).ok||!parallel(saved,sp,line,endpoint))return {ok:false,detail:'Serialization lost tangent'};
+      const fixedLine=S.getCurve(saved,line),source=saved.constraints.find(k=>k.type==='fix'&&k.refs[0]===fixedLine.p1);source.y-=8;
+      if(!V.solveSketch(saved,Number).ok||!parallel(saved,sp,line,endpoint)||saved.constraints.find(k=>k.type==='tangent').refs[2]!==endpoint)return {ok:false,detail:'Tangent did not follow line edits with a stable endpoint'};
+    }
+    await a.newDocument?.();closeModals();const {d,f,sp,line,endpoint}=fixture();await a.setDoc(d);await a.enterSketch(f,true);await wait(100);
+    const sk=a.sketcher;sk.sel=new Set([sp,line]);a.ui.renderPM();
+    const button=[...document.querySelectorAll('#pm button')].find(b=>b.title==='Tangent');if(!button)return {ok:false,detail:'Line + control spline did not offer Tangent'};
+    const before=sk.snapshotData();button.click();if(!sk.solveOk||!parallel(f,sp,line,endpoint)||!f.constraints.some(k=>k.type==='tangent'&&k.refs[2]===endpoint))return {ok:false,detail:'UI tangent failed'};
+    sk.undo();if(sk.snapshotData()!==before)return {ok:false,detail:'Undo changed original spline'};sk.redo();if(!parallel(f,sp,line,endpoint))return {ok:false,detail:'Redo lost tangent'};
+    // A fixed incompatible endpoint handle must be refused without changing the sketch.
+    sk.undo();const c=S.getCurve(f,sp),h=S.getPoint(f,c.pts[1]);S.addRel(f,'fix',[h.id],{x:h.x,y:h.y});sk.solve();const locked=sk.snapshotData();
+    if(sk.tryAddConstraints([['tangent',[line,sp,endpoint]]],{quiet:true})||sk.snapshotData()!==locked)return {ok:false,detail:'Conflicting tangent was not rejected atomically'};
+    const ambiguous=fixture(),l=S.getCurve(ambiguous.f,ambiguous.line);l.p1=S.addPoint(ambiguous.f,-10,10);l.p2=S.addPoint(ambiguous.f,40,10);
+    let rejected=false;try{S.lineSplineTangentEnd(ambiguous.f,ambiguous.line,ambiguous.sp);}catch{rejected=true;}
+    if(!rejected||S.lineSplineTangentEnd(ambiguous.f,ambiguous.line,ambiguous.sp,ambiguous.endpoint)!==ambiguous.endpoint)return {ok:false,detail:'Ambiguous endpoint not handled'};
+    a.exitSketch(false);return {ok:true,detail:'Control/rational, fit and legacy spline tangents at both ends; Property panel command, stable endpoint refs, persistence, undo/redo, ambiguity and conflict rejection'};
   },
 
   async 'sketch-fit-spline-handles'() {
@@ -3938,6 +4056,131 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
   // (y 10, x 30 to 60). Normal to the first line: its normal along y; through the first line and the second's end
   // point, and through both lines: the front plane (normal along z); the sketch changed (the first line's top end
   // moved to x 40): the normal plane turns with it
+  async 'reference-along-path'() {
+    const {run,fixture}=await import('/tests/path-location-cases.js'),S=await import('/js/sketchmodel.js');
+    const native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
+    const a=window.app,settle=async()=>{await wait(180);await until(()=>!a.kernel.pending);};
+    const state=()=>document.querySelector('[data-datum-status]')?.dataset.datumStatus;
+    const relation=async value=>{const s=document.querySelector('[data-datum-relation="0"]');s.value=value;s.dispatchEvent(new Event('change'));await settle();};
+    const mode=async value=>{const s=document.querySelector('[data-datum-path-mode="0"]');s.value=value;s.dispatchEvent(new Event('change'));await settle();};
+    const parameter=async(key,value)=>{const input=document.querySelector(`[data-datum-parameter="0:${key}"] input`);input.value=value;input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));await settle();};
+    const {Vector3}=await import('three'),click=async p=>{const ev=viewEvents();ev.vp.camera.updateMatrixWorld(true);await ev.click(...ev.toScreen(new Vector3(...p)));await settle();};
+    const data=fixture(),{doc,sk}=data;doc.features.pop();await a.newDocument?.();closeModals();await a.setDoc(doc);a.selection=null;a.startFeature('plane');await settle();
+    a.viewport.setStandardView('front',false);a.viewport.zoomToFit(null,false);await wait(160);await click([Math.sqrt(50),Math.sqrt(50),0]);
+    if(a.pm.feature.refs[0]?.curve!==data.curve)return {ok:false,detail:'Actual arc selection failed'};
+    await relation('alongPath');await mode('distance');await parameter('distance','10*pi/6');
+    if(![...document.querySelector('[data-datum-relation="0"]').options].some(o=>o.value==='coincident'))return {ok:false,detail:'Along path hid the other valid arc relations'};
+    const id=a.pm.feature.id;let n=a.result.planes.get(id)?.n;
+    if(state()!=='defined'||!n||n.distanceTo(new Vector3(-.5,Math.sqrt(3)/2,0))>1e-6)return {ok:false,detail:'Plane was not normal to the arc tangent'};
+    if(a.result.planes.get(id).o.distanceTo(new Vector3(5*Math.sqrt(3),5,0))>1e-6)return {ok:false,detail:'Plane sketch origin was not placed on the curve'};
+    await relation('coincident');if(state()!=='defined'||Math.abs(a.result.planes.get(id).n.z)<1-1e-7)return {ok:false,detail:'Switching back to the arc plane failed'};
+    await relation('alongPath');if(state()!=='defined'||a.result.planes.get(id).n.distanceTo(n)>1e-6)return {ok:false,detail:'Switching back to along path lost the stored position'};
+    const reverse=document.querySelector('[data-datum-path-reverse="0"]');reverse.checked=true;reverse.dispatchEvent(new Event('change'));await settle();
+    n=a.result.planes.get(id).n;if(n.distanceTo(new Vector3(Math.sqrt(3)/2,-.5,0))>1e-6)return {ok:false,detail:'Reverse did not change distance origin and tangent direction'};
+    if(!document.querySelector('[data-datum-path-info]').textContent.includes('Length:'))return {ok:false,detail:'Path length feedback missing'};
+    await a.okPM();await a.setDoc(JSON.parse(JSON.stringify(a.doc)));a.editFeature(id);await settle();
+    if(!document.querySelector('[data-datum-path-reverse="0"]').checked||document.querySelector('[data-datum-path-mode="0"]').value!=='distance')return {ok:false,detail:'Path settings lost on reopen'};
+    await parameter('distance','100');await a.okPM();if(!a.pm||state()!=='conflict')return {ok:false,detail:'Outside-path plane was accepted'};
+    a.cancelPM();await a.rebuild();
+    const source=M.findFeature(a.doc,sk.id);await a.enterSketch(source,false);const c=S.getCurve(a.sketcher.f,data.curve);S.getPoint(a.sketcher.f,c.p1).x=20;S.getPoint(a.sketcher.f,c.p2).y=20;a.sketcher.changed();a.exitSketch(true);await a.rebuild();
+    const p=[20*Math.cos(5*Math.PI/12),20*Math.sin(5*Math.PI/12),0],plane=a.result.planes.get(id);
+    if(a.result.errors.size||Math.abs(plane.n.dot(new Vector3(...p).sub(plane.o)))>1e-6)return {ok:false,detail:'Source radius edit did not retain the physical arc distance'};
+    const point=fixture('quintic','point');await a.setDoc(point.doc);a.editFeature(point.feature.id);await settle();
+    await parameter('fraction','.371');if(Math.abs(a.result.points.get(point.feature.id).x-3.71)>2e-7)return {ok:false,detail:'Point used the spline parameter instead of arc length'};
+    await a.okPM();await a.setDoc(JSON.parse(JSON.stringify(a.doc)));
+    if(a.result.errors.size||!M.referencesOf(a.doc,M.findFeature(a.doc,point.feature.id)).has(point.sk.id))return {ok:false,detail:'Point path dependency or reopening failed'};
+    return {ok:true,detail:JSON.stringify({native,ui:'actual arc pick, along-path plane and point, distance expressions, reversal, length feedback, invalid acceptance guard, save/reopen/cancel and source edits'})};
+  },
+
+  async 'reference-plane-display-anchor'() {
+    const a=window.app,S=await import('/js/sketchmodel.js'),{Vector3}=await import('three'),{fixture}=await import('/tests/reference-datum-cases.js'),data=fixture(),{doc,sk,line,feature}=data;
+    const source=S.getCurve(sk,line);Object.assign(S.getPoint(sk,source.p1),{x:100,y:30});Object.assign(S.getPoint(sk,source.p2),{x:300,y:30});
+    feature.refs=[{kind:'sketch',sketch:sk.id,curve:line,relation:'coincident'},{kind:'plane',id:'front',relation:'angle',angle:45}];
+    await a.newDocument?.();closeModals();await a.setDoc(doc);a.editFeature(feature.id);
+    const settle=async()=>{await wait(180);await until(()=>!a.kernel.pending);};await settle();
+    const center=()=>{const group=a.viewport.planeGroup.children.find(g=>g.userData.planeId===feature.id),geometry=group.children[0].geometry;geometry.computeBoundingBox();return geometry.boundingBox.getCenter(new Vector3()).applyMatrix4(group.matrix);};
+    const expected=new Vector3(200,30,0);
+    for(const angle of [15,45,75]){
+      const input=document.querySelector('[data-datum-parameter="1:angle"] input');input.value=String(angle);input.dispatchEvent(new Event('input',{bubbles:true}));await settle();
+      const frame=a.result.planes.get(feature.id);if(!frame||center().distanceTo(expected)>1e-5)return {ok:false,detail:'Displayed plane moved off its defining line at '+angle};
+      for(const p of [new Vector3(100,30,0),new Vector3(300,30,0)])if(Math.abs(p.sub(frame.o).dot(frame.n))>1e-7)return {ok:false,detail:'Geometric plane lost the reference line'};
+      if(Math.abs(Math.abs(frame.n.z)-Math.cos(angle*Math.PI/180))>1e-7)return {ok:false,detail:'Geometric angle changed'};
+    }
+    const pivot=a.viewport.rotationPivot;a.viewport.rotationPivot=()=>new Vector3(900,-800,100);try{a.updatePlanes();if(center().distanceTo(expected)>1e-5)return {ok:false,detail:'Unrelated model center displaced the plane display'};}finally{a.viewport.rotationPivot=pivot;}
+    await a.okPM();await a.setDoc(JSON.parse(JSON.stringify(a.doc)));a.editFeature(feature.id);await settle();if(center().distanceTo(expected)>1e-5)return {ok:false,detail:'Reopen lost display anchor'};a.cancelPM();await a.rebuild();
+    return {ok:true,detail:'Plane rectangle stays centered on an offset defining line at 15/45/75 degrees, independently of model pivot; plane equations and saved sketch frame remain unchanged'};
+  },
+
+  async 'reference-entity-list'() {
+    const a=window.app,S=await import('/js/sketchmodel.js'),{fixture}=await import('/tests/reference-datum-cases.js');
+    const settle=async()=>{await wait(180);await until(()=>!a.kernel.pending);};
+    const pick=async(sketch,kind,id)=>{const select=document.querySelector('[data-datum-source]'),option=[...select.options].find(o=>o.dataset.datumSketch===sketch&&o.dataset['datum'+(kind==='curve'?'Curve':'Point')]===id);if(!option)throw new Error('Missing '+kind+' '+id);select.value=option.value;select.dispatchEvent(new Event('change'));await settle();};
+    await a.newDocument?.();closeModals();
+    for(const type of ['plane','axis','point']){
+      const data=fixture(type),{doc,sk,feature,line}=data,spline=S.addCtrlSpline(sk,[[30,0],[35,0],[40,10],[45,10]].map(q=>S.addPoint(sk,...q)));
+      const suppressed=M.createFeature(doc,'sketch',{suppressed:true});S.addLine(suppressed,S.addPoint(suppressed,0,0),S.addPoint(suppressed,10,0));doc.features.unshift(suppressed);
+      const later=M.createFeature(doc,'sketch');S.addLine(later,S.addPoint(later,0,0),S.addPoint(later,10,0));doc.features.push(later);
+      await a.setDoc(doc);a.editFeature(feature.id);await settle();
+      if(document.querySelector(`[data-datum-sketch="${suppressed.id}"], [data-datum-sketch="${later.id}"]`))return {ok:false,detail:'Suppressed or later sketch offered'};
+      if(!!document.querySelector(`[data-datum-curve="${spline}"]`)!==(type!=='axis'))return {ok:false,detail:'Incompatible spline list for '+type};
+      await pick(sk.id,'curve',line);
+      if(a.pm.feature.refs[0]?.curve!==line||document.querySelector('[data-datum-status]')?.dataset.datumStatus!=='defined'||!document.querySelector('[data-datum-pick="0"]').textContent.includes('Line1'))return {ok:false,detail:'List did not create named linked '+type+' reference'};
+      const id=feature.id;await a.okPM();await a.setDoc(JSON.parse(JSON.stringify(a.doc)));a.editFeature(id);await settle();
+      if(a.pm.feature.refs[0]?.curve!==line||M.findFeature(a.doc,sk.id).visible!==false)return {ok:false,detail:'Reopen lost stable reference or hidden source visibility'};
+      if(type==='plane'){
+        document.querySelector('[data-datum-pick="0"]').click();await pick(sk.id,'curve',spline);if(a.pm.feature.refs.length!==1||a.pm.feature.refs[0].curve!==spline)return {ok:false,detail:'Active slot did not replace with spline'};
+        document.querySelector('[data-datum-pick="0"]').click();await pick(sk.id,'point','O');if(a.pm.feature.refs[0]?.point!=='O'||!document.querySelector('[data-datum-pick="0"]').textContent.includes('Origin'))return {ok:false,detail:'Origin point selection failed'};
+      }
+      a.cancelPM();await a.rebuild();
+    }
+    return {ok:true,detail:'Named curves and points grouped by sketch for planes, axes and points; spline compatibility, explicit slot replacement, hidden sources, suppression/order filtering and save/reopen'};
+  },
+
+  async 'reference-datum-workflows'() {
+    const {run,fixture}=await import('/tests/reference-datum-cases.js');const native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
+    const a=window.app,settle=async()=>{await wait(180);await until(()=>!a.kernel.pending);};
+    const state=()=>document.querySelector('[data-datum-status]')?.dataset.datumStatus;
+    const relation=async(i,value)=>{const s=document.querySelector(`[data-datum-relation="${i}"]`);s.value=value;s.dispatchEvent(new Event('change'));await settle();};
+    const parameter=async(i,key,value)=>{const input=document.querySelector(`[data-datum-parameter="${i}:${key}"] input`);input.value=value;input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));await settle();};
+    const {Vector3}=await import('three'),click=async p=>{const ev=viewEvents();ev.vp.camera.updateMatrixWorld(true);await ev.click(...ev.toScreen(new Vector3(...p)));await settle();};
+    const data=fixture(),{doc,sk,points}=data;doc.features.pop();
+    await a.newDocument?.();closeModals();await a.setDoc(doc);a.selection=null;a.startFeature('plane');await settle();
+    if(state()!=='under'||document.querySelectorAll('[data-datum-pick]').length!==3)return {ok:false,detail:'Missing three slots or initial Under Defined status'};
+    a.viewport.setStandardView('front',false);a.viewport.zoomToFit(null,false);await wait(160);await click([5,0,0]);
+    if(a.pm.feature.refs[0]?.curve!==data.line||state()!=='defined')return {ok:false,detail:'Actual hidden sketch line pick or normal plane preview failed: '+state()};
+    await relation(0,'coincident');if(state()!=='under')return {ok:false,detail:'A plane through a line was incorrectly fully defined'};
+    a.pmPick('plane','front');await settle();await relation(1,'angle');await parameter(1,'angle','30');
+    if(state()!=='defined'||document.querySelector('[data-datum-solution]').disabled)return {ok:false,detail:'Two angular solutions were not exposed'};
+    const id=a.pm.feature.id,first=a.result.planes.get(id).n.clone(),solution=document.querySelector('[data-datum-solution]');solution.value='1';solution.dispatchEvent(new Event('change'));await settle();
+    const second=a.result.planes.get(id).n;if(first.distanceTo(second)<.1||Math.abs(second.z-Math.sqrt(3)/2)>1e-7)return {ok:false,detail:'Alternate solution failed its angular relation'};
+    document.querySelector('[data-datum-remove="1"]').click();await settle();await a.okPM();
+    if(!a.pm||state()!=='under')return {ok:false,detail:'An incomplete plane was accepted'};
+    a.cancelPM();await a.rebuild();if(a.doc.features.some(f=>f.id===id)||M.findFeature(a.doc,sk.id).visible!==false)return {ok:false,detail:'Cancel changed source visibility or kept the new plane'};
+    a.selection=null;a.startFeature('plane');await settle();
+    for(const p of points){a.pmPick('point',p.id);await settle();}
+    if(state()!=='defined'||a.pm.feature.refs.length!==3)return {ok:false,detail:'Three-point definition failed'};
+    const original=JSON.stringify(a.pm.feature.refs);a.pmPick('plane','right');await settle();if(JSON.stringify(a.pm.feature.refs)!==original)return {ok:false,detail:'A fourth reference silently replaced a slot'};
+    document.querySelector('[data-datum-pick="1"]').click();a.pmPick('plane','right');await settle();
+    if(a.pm.feature.refs[1]?.id!=='right'||a.pm.feature.refs[0]?.id!==points[0].id)return {ok:false,detail:'Explicit slot replacement changed other references'};
+    a.cancelPM();await a.rebuild();
+    a.selection=null;a.startFeature('axis');await settle();a.pmPick('plane','front');a.pmPick('plane','right');await settle();
+    if(state()!=='defined'||Math.abs(a.result.axes.get(a.pm.feature.id).d.y)<1-1e-7)return {ok:false,detail:'Axis did not use shared plane-reference slots'};
+    const axisId=a.pm.feature.id;await a.okPM();await a.setDoc(JSON.parse(JSON.stringify(a.doc)));a.editFeature(axisId);await settle();
+    await relation(0,'perpendicular');if(state()!=='under')return {ok:false,detail:'Free axis position was hidden'};
+    a.cancelPM();await a.rebuild();if(M.findFeature(a.doc,axisId).refs[0].relation)return {ok:false,detail:'Cancel failed to restore axis relations'};
+    a.selection=null;a.startFeature('point');await settle();const source=document.querySelector('[data-datum-field="pointType"]');source.value='references';source.dispatchEvent(new Event('change'));await settle();
+    a.viewport.setStandardView('front',false);a.viewport.zoomToFit(null,false);await wait(160);await click([5,0,0]);
+    if(state()!=='defined'||Math.abs(a.result.points.get(a.pm.feature.id).x-5)>1e-7)return {ok:false,detail:'Reference point did not select a sketch midpoint'};
+    await relation(0,'distance');await parameter(0,'distance','2+1');
+    if(state()!=='defined'||Math.abs(a.result.points.get(a.pm.feature.id).x-3)>1e-7)return {ok:false,detail:'Reference distance expression failed'};
+    const pointId=a.pm.feature.id;await a.okPM();await a.setDoc(JSON.parse(JSON.stringify(a.doc)));
+    if(a.result.errors.size||Math.abs(a.result.points.get(pointId).x-3)>1e-7||!M.referencesOf(a.doc,M.findFeature(a.doc,pointId)).has(sk.id))return {ok:false,detail:'Reopening lost point definition or dependencies'};
+    const legacy=M.createFeature(a.doc,'axis',{axisType:'twoPlanes',planeA:'front',planeB:'right'});a.doc.features.push(legacy);await a.rebuild();const before=a.result.axes.get(legacy.id).d.clone();a.editFeature(legacy.id);await settle();
+    if(state()!=='defined'||Math.abs(before.dot(a.result.axes.get(legacy.id).d))<1-1e-7)return {ok:false,detail:'Legacy axis upgrade changed geometry'};
+    a.cancelPM();await a.rebuild();if(legacy.referenceDefinition)return {ok:false,detail:'Cancel persisted the legacy upgrade'};
+    return {ok:true,detail:JSON.stringify({native,ui:'three shared slots, actual canvas selection, per-reference relations and expressions, underdefinition, alternate solutions, no silent replacement, accept/cancel, source visibility, legacy upgrade and reopen'})};
+  },
+
   async 'plane-sketch-refs'() {
     const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient();
     try {
@@ -4535,6 +4778,160 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     return { ok: true, detail: `Nonplanar open surface / two native spline guides (${worst.toExponential(3)} mm), uncapped circular surface, panel method selection and cancel` };
   },
 
+  async 'extrusion-start-controls'() {
+    const {run,fixture,base}=await import('/tests/extrusion-start-cases.js'),native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:native};
+    const a=window.app;await a.newDocument?.();closeModals();const d=fixture();await a.setDoc(d.doc);a.editFeature(d.feature.id);const settle=async()=>{await wait(180);await until(()=>!a.kernel.pending);};await settle();
+    const field=key=>document.querySelector(`[data-feature-field="${key}"]`),start=field('startFrom');start.value='surface';start.dispatchEvent(new Event('change'));await settle();
+    document.querySelector('[data-extrude-surface-pick="startPlane"]').click();a.pmPick('plane',d.plane.id);await settle();if(a.pm.feature.startPlane!==d.plane.id||a.pm.feature.toPlane)return {ok:false,detail:'Start picker overwrote end'};
+    const end=field('end');end.value='upToSurface';end.dispatchEvent(new Event('change'));await settle();document.querySelector('[data-extrude-surface-pick="toPlane"]').click();a.pmPick('plane','front');await settle();
+    if(a.pm.feature.startPlane!==d.plane.id||a.pm.feature.toPlane!=='front')return {ok:false,detail:'End picker overwrote start'};
+    const id=d.feature.id;await a.okPM();await a.setDoc(JSON.parse(JSON.stringify(a.doc)));a.editFeature(id);await settle();if(a.pm.feature.startPlane!==d.plane.id||a.pm.feature.toPlane!=='front')return {ok:false,detail:'Reopen lost independent bounds'};a.cancelPM();await a.rebuild();
+    const faced=fixture({startFrom:'surface',merge:false});base(faced);await a.setDoc(faced.doc);a.editFeature(faced.feature.id);await settle();document.querySelector('[data-extrude-surface-pick="startPlane"]').click();a.viewport.setStandardView('front',false);a.viewport.zoomToFit(null,false);a.viewport.camera.updateMatrixWorld(true);const {Vector3}=await import('three'),v=viewEvents();await v.click(...v.toScreen(new Vector3(4,4,20)));await settle();
+    if(!a.pm.feature.startFace||a.pm.feature.toFace)return {ok:false,detail:'Canvas face pick did not bind the start independently'};a.cancelPM();await a.rebuild();
+    return {ok:true,detail:{native,ui:'Independent start/end plane slots, real start face pick and persistence'}};
+  },
+
+  async 'standard-feature-workflows'() {
+    const {run,fixture,withBase}=await import('/tests/standard-feature-cases.js');const S=await import('/js/sketchmodel.js');
+    const native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
+    const a=window.app,settle=async()=>{await wait(180);await until(()=>!a.kernel.pending);};
+    const field=key=>document.querySelector(`[data-feature-field="${key}"]`);
+    const expr=async(label,value)=>{const row=[...document.querySelectorAll('#pm .pm-row')].find(r=>r.querySelector('label')?.textContent.trim()===label),input=row?.querySelector('input');if(!input)throw new Error('Missing '+label);input.value=value;input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));await settle();};
+    const {Vector3}=await import('three'),click=async p=>{const ev=viewEvents();ev.vp.camera.updateMatrixWorld(true);await ev.click(...ev.toScreen(new Vector3(...p)));await settle();};
+    for(const type of ['revolve','surfExtrude','surfRevolve']){
+      const data=fixture({type,open:type!=='revolve'});data.doc.features.pop();
+      S.addLine(data.sk,S.addPoint(data.sk,0,-5),S.addPoint(data.sk,0,15),true);
+      await a.newDocument?.();closeModals();await a.setDoc(data.doc);a.selection={kind:'feature',id:data.sk.id};a.startFeature(type);await a.rebuild();await settle();
+      if(a.pm.feature.profiles.length)return {ok:false,detail:type+': arbitrary whole sketch was chosen'};
+      const id=a.pm.feature.id;a.viewport.setStandardView('front',false);a.viewport.zoomToFit(null,false);await wait(160);await click([15,5,0]);
+      if(a.pm.feature.profiles.length!==1||typeof a.pm.feature.profiles[0]==='string')return {ok:false,detail:type+': profile/curve pick failed'};
+      if(type!=='surfExtrude'){
+        document.querySelector('[data-profile-axis]').click();if(a.pickMode()!=='revaxis')return {ok:false,detail:'Axis picker did not activate'};
+        await click([0,5,0]);if(a.pm.feature.axis!=='sketchLine'||!a.pm.feature.axisSketch?.curve)return {ok:false,detail:'Actual sketch axis pick failed'};
+        field('end').value='twoSides';field('end').dispatchEvent(new Event('change',{bubbles:true}));await settle();await expr('Angle','60');await expr('Second angle','30');
+      }else{field('end').value='twoSides';field('end').dispatchEvent(new Event('change',{bubbles:true}));await settle();await expr('Second depth','5');}
+      if(type==='revolve'){const operation=document.querySelector('[data-solid-operation]');operation.value='new';operation.dispatchEvent(new Event('change',{bubbles:true}));await settle();}
+      await a.okPM();if(a.result.errors.size)return {ok:false,detail:type+': '+JSON.stringify([...a.result.errors])};
+      const b=a.result.body.bodies.at(-1),m=(await a.kernel.request('measure',{refs:[{kind:'body',id:b.id}]})).items[0];
+      const value=type==='revolve'?m.volume:m.area,expected=type==='revolve'?750*Math.PI:type==='surfExtrude'?150:75*Math.PI;
+      if(m.solid!==(type==='revolve')||Math.abs(value-expected)/expected>2e-5)return {ok:false,detail:type+': unexpected geometry '+JSON.stringify(m)};
+      await a.setDoc(JSON.parse(JSON.stringify(a.doc)));if(a.result.errors.size)return {ok:false,detail:type+': save/reopen failed'};
+      a.editFeature(id);field('end').value='midplane';field('end').dispatchEvent(new Event('change',{bubbles:true}));await settle();a.cancelPM();await a.rebuild();
+      if(M.findFeature(a.doc,id).end!=='twoSides'||a.result.errors.size)return {ok:false,detail:type+': cancel failed'};
+    }
+    const legacy=fixture({legacy:true});legacy.feature.angle=400;await a.setDoc(legacy.doc);a.editFeature(legacy.feature.id);await a.rebuild();
+    if(field('extent')?.value!=='full')return {ok:false,detail:'Legacy clamped revolve did not migrate to Full'};
+    await a.okPM();if(a.result.errors.size)return {ok:false,detail:'Legacy revolve edit failed'};
+    let legacyVolume=0;for(const b of a.result.body.bodies)legacyVolume+=(await a.kernel.request('measure',{refs:[{kind:'body',id:b.id}]})).items[0].volume;
+    if(Math.abs(legacyVolume-(3000*Math.PI+280*Math.PI**2))>1e-3)return {ok:false,detail:'Legacy revolve geometry changed on edit'};
+    const cut=fixture();withBase(cut);await a.setDoc(cut.doc);a.editFeature(cut.feature.id);await a.rebuild();
+    const operation=document.querySelector('[data-solid-operation]');operation.value='cut';operation.dispatchEvent(new Event('change',{bubbles:true}));await settle();
+    const scope=[...document.querySelectorAll('#pm .pm-row')].find(r=>r.querySelector('label')?.textContent.trim()==='All bodies')?.querySelector('input');
+    scope.checked=false;scope.dispatchEvent(new Event('change',{bubbles:true}));await settle();document.querySelector('[data-feature-scope]').click();
+    if(a.pickMode()!=='body')return {ok:false,detail:'Cut scope is intercepted by the axis/profile picker'};
+    a.viewport.setStandardView('front',false);a.viewport.zoomToFit(null,false);await wait(160);await click([24,5,0]);
+    if(a.pm.feature.scope.length!==1)return {ok:false,detail:'Cut target body selection failed'};
+    await a.okPM();if(a.result.errors.size)return {ok:false,detail:'Scoped revolve cut failed'};
+    let volume=0;for(const b of a.result.body.bodies)volume+=(await a.kernel.request('measure',{refs:[{kind:'body',id:b.id}]})).items[0].volume;
+    if(Math.abs(volume-3250*Math.PI)>1e-3)return {ok:false,detail:'Scoped cut volume is wrong: '+volume};
+    return {ok:true,detail:JSON.stringify({cases:native.results,health:native.health,ui:'actual profile/axis picks, shared two-sided controls, operation, scoped body picking, save/reopen and cancel'})};
+  },
+
+  async 'profile-subregion-selection'() {
+    const {run,fixture}=await import('/tests/profile-cell-cases.js'),native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:native};
+    const a=window.app,{Vector3}=await import('three');await a.newDocument?.();closeModals();const {doc,sk}=fixture('circle');await a.setDoc(doc);a.selection=null;a.startFeature('surfPlanar');a.viewport.setStandardView('front',false);a.viewport.zoomToFit(null,false);await wait(160);
+    const click=async x=>{a.viewport.camera.updateMatrixWorld(true);const v=viewEvents();await v.click(...v.toScreen(new Vector3(x,0,0)));await wait(180);await until(()=>!a.kernel.pending);};await click(-5);await click(5);
+    if(a.pm.feature.profiles.length!==2||a.pm.feature.profiles.some(r=>!r.face)||a.result.errors.size)return {ok:false,detail:'Shared circle/line boundaries did not select two independent cells'};
+    const id=a.pm.feature.id;await a.okPM();await a.setDoc(JSON.parse(JSON.stringify(a.doc)));a.editFeature(id);await wait(180);await until(()=>!a.kernel.pending);if(a.pm.feature.profiles.length!==2||a.result.errors.size)return {ok:false,detail:'Reopen lost cell identity'};
+    a.pm.feature.profiles=[];a.preview(true);await wait(180);await until(()=>!a.kernel.pending);if(document.querySelector('[data-pm-note]'))return {ok:false,detail:'Failed selection retained the previous green success note'};a.cancelPM();await a.rebuild();
+    return {ok:true,detail:{native,ui:'Actual independent picks for two cells sharing the same source curve IDs and save/reopen'}};
+  },
+
+  async 'planar-surface-selection'() {
+    const {run,fixture,edgeFixture}=await import('/tests/planar-surface-cases.js');
+    const native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
+    const a=window.app,settle=async()=>{await wait(180);await until(()=>!a.kernel.pending&&!a.pm?.patchChainBusy);};
+    const area=async()=>{const b=a.result.body.bodies.at(-1),m=await a.kernel.request('measure',{refs:[{kind:'body',id:b.id}]});return m.items[0].area;};
+    const {Vector3}=await import('three'),click=async p=>{const ev=viewEvents();ev.vp.camera.updateMatrixWorld(true);await ev.click(...ev.toScreen(new Vector3(...p)));await settle();};
+    const data=fixture();data.doc.features.pop();await a.newDocument?.();closeModals();await a.setDoc(data.doc);
+    a.selection={kind:'feature',id:data.sk.id};a.startFeature('surfPlanar');await a.rebuild();await settle();
+    if(a.pm.feature.profiles.length)return {ok:false,detail:'A whole multi-profile sketch was selected automatically'};
+    const id=a.pm.feature.id;
+    a.viewport.setStandardView('top',false);a.viewport.zoomToFit(null,false);await wait(160);
+    await click([5,0,0]);
+    if(a.pm.feature.profiles.length!==1||typeof a.pm.feature.profiles[0]==='string')return {ok:false,detail:'Canvas region selection failed'};
+    await a.okPM();if(a.result.errors.size||Math.abs(await area()-200)>1e-4)return {ok:false,detail:'Unselected sketch region was included'};
+    await a.setDoc(JSON.parse(JSON.stringify(a.doc)));if(a.result.errors.size||Math.abs(await area()-200)>1e-4)return {ok:false,detail:'Selected region failed save/reopen'};
+    a.editFeature(id);await a.rebuild();
+    document.querySelector('[data-loft-action="remove"]').click();await settle();
+    let checkbox=document.querySelector('[data-loft-chain]');checkbox.checked=false;checkbox.dispatchEvent(new Event('change',{bubbles:true}));
+    for(const p of [[10,0,0],[0,0,5],[-10,0,0],[0,0,-5]])await click(p);
+    if(a.pm.loftDraft?.curves.length!==4)return {ok:false,detail:'Individual sketch entities did not accumulate'};
+    document.querySelector('[data-loft-finish]').click();await settle();await a.okPM();
+    if(a.result.errors.size||Math.abs(await area()-200)>1e-4)return {ok:false,detail:'Individual closed contour failed: '+JSON.stringify([...a.result.errors])};
+    a.editFeature(id);document.querySelector('[data-loft-action="remove"]').click();await settle();a.cancelPM();await a.rebuild();
+    if(a.result.errors.size||M.findFeature(a.doc,id).profiles.length!==1)return {ok:false,detail:'Profile edit cancel failed'};
+    const legacy=fixture({legacy:true});await a.setDoc(legacy.doc);a.editFeature(legacy.planar.id);await a.rebuild();await a.okPM();
+    if(a.result.errors.size||Math.abs(await area()-(200+9*Math.PI))>1e-4)return {ok:false,detail:'Legacy whole-sketch edit changed the surface'};
+    const model=edgeFixture();model.planar.edges=[];await a.setDoc(model.doc);a.editFeature(model.planar.id);await a.rebuild();
+    document.querySelector('[data-planar-edges]').click();if(a.pickMode()!=='edge')return {ok:false,detail:'Model edge picker unavailable'};
+    checkbox=document.querySelector('[data-patch-chain]');checkbox.checked=false;checkbox.dispatchEvent(new Event('change',{bubbles:true}));
+    a.viewport.setStandardView('trimetric',false);a.viewport.zoomToFit(null,false);await wait(160);
+    for(const p of [[10,10,0],[0,10,5],[-10,10,0],[0,10,-5]])await click(p);
+    if(a.pm.feature.edges.length!==4)return {ok:false,detail:'Model boundary edge picking failed: '+a.pm.feature.edges.length};
+    await a.okPM();if(a.result.errors.size||Math.abs(await area()-200)>1e-4)return {ok:false,detail:'Selected model boundary failed'};
+    return {ok:true,detail:JSON.stringify({cases:native.results,health:native.health,ui:'multi-region source, actual region and entity picks, save/reopen, cancel, legacy migration and model edge picks'})};
+  },
+
+  async 'surface-patch-chain-selection'() {
+    const {runChains,fixture}=await import('/tests/surface-patch-cases.js');
+    const native=await runChains({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
+    const a=window.app,{doc,patch}=fixture(),settle=async()=>{await wait(180);await until(()=>!a.kernel.pending&&!a.pm?.patchChainBusy);};
+    patch.edges=[];await a.newDocument?.();closeModals();await a.setDoc(doc);a.editFeature(patch.id);await a.rebuild();
+    a.viewport.setStandardView('top',false);a.viewport.zoomToFit(null,false);await wait(160);
+    const {Vector3}=await import('three'),click=async p=>{const ev=viewEvents();ev.vp.camera.updateMatrixWorld(true);await ev.click(...ev.toScreen(new Vector3(...p)));await settle();};
+    const checkbox=()=>document.querySelector('[data-patch-chain]');
+    if(!checkbox()?.checked)return {ok:false,detail:'New Patch chain checkbox is missing or off'};
+    await click([10,0,0]);if(a.pm.feature.edges.length!==4)return {ok:false,detail:'One click did not select the inner loop: '+a.pm.feature.edges.length};
+    a.pm.feature.edges[0].continuity='G2';a.ui.renderPM();
+    checkbox().checked=false;checkbox().dispatchEvent(new Event('change',{bubbles:true}));
+    await click([0,0,5]);if(a.pm.feature.edges.length!==3)return {ok:false,detail:'Single-edge mode did not remove just one edge'};
+    checkbox().checked=true;checkbox().dispatchEvent(new Event('change',{bubbles:true}));
+    await click([0,0,5]);if(a.pm.feature.edges.length!==4||!a.pm.feature.edges.some(e=>e.continuity==='G2'))return {ok:false,detail:'Chain completion duplicated edges or lost continuity'};
+    await click([10,0,0]);if(a.pm.feature.edges.length!==0)return {ok:false,detail:'Clicking the selected chain did not remove it'};
+    checkbox().checked=false;checkbox().dispatchEvent(new Event('change',{bubbles:true}));
+    for(const p of [[10,0,0],[0,0,5],[-10,0,0],[0,0,-5]])await click(p);
+    if(a.pm.feature.edges.length!==4)return {ok:false,detail:'Individual edge selection failed'};
+    await a.okPM();if(a.result.errors.size)return {ok:false,detail:JSON.stringify([...a.result.errors])};
+    await a.setDoc(JSON.parse(JSON.stringify(a.doc)));if(M.findFeature(a.doc,patch.id).chainSelection!==false)return {ok:false,detail:'Checkbox did not persist'};
+    a.editFeature(patch.id);checkbox().checked=true;checkbox().dispatchEvent(new Event('change',{bubbles:true}));a.cancelPM();await a.rebuild();
+    if(M.findFeature(a.doc,patch.id).chainSelection!==false)return {ok:false,detail:'Cancel did not restore chain selection'};
+    return {ok:true,detail:JSON.stringify({native,ui:'actual chain and individual picks, no duplicates, continuity preservation, serialization and cancel'})};
+  },
+
+  async 'surface-patch-continuity'() {
+    const {run,fixture}=await import('/tests/surface-patch-cases.js');
+    const native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
+    const a=window.app,{doc,patch}=fixture(),settle=async()=>{await wait(160);await until(()=>!a.kernel.pending);};
+    await a.newDocument?.();closeModals();await a.setDoc(doc);a.editFeature(patch.id);await a.rebuild();
+    const field=()=>document.querySelector('[data-patch-continuity]');
+    if(field()?.value!=='G0')return {ok:false,detail:'Patch default continuity is missing'};
+    field().value='G2';field().dispatchEvent(new Event('change',{bubbles:true}));await settle();
+    const support=document.querySelector('[data-patch-support]');if(!support)return {ok:false,detail:'Patch support selector missing'};support.click();
+    if(a.pickMode()!=='faces')return {ok:false,detail:'Patch cannot select support faces'};
+    a.viewport.setStandardView('trimetric',false);a.viewport.zoomToFit(null,false);await wait(160);
+    const {Vector3}=await import('three'),ev=viewEvents();ev.vp.camera.updateMatrixWorld(true);await ev.click(...ev.toScreen(new Vector3(20,0,0)));await settle();
+    if(a.pm.feature.supportFaces.length!==1||!a.pm.feature.supportFaces[0].body)return {ok:false,detail:'Canvas patch support selection failed'};
+    document.querySelector('[data-patch-edges]').click();if(a.pickMode()!=='edge')return {ok:false,detail:'Cannot return to patch boundary selection'};
+    const edge=document.querySelector('[data-patch-edge="0"]');edge.value='G0';edge.dispatchEvent(new Event('change',{bubbles:true}));await settle();await a.okPM();
+    if(a.result.errors.size)return {ok:false,detail:JSON.stringify([...a.result.errors])};
+    await a.setDoc(JSON.parse(JSON.stringify(a.doc)));const saved=M.findFeature(a.doc,patch.id);
+    if(a.result.errors.size||saved.continuity!=='G2'||saved.edges[0].continuity!=='G0'||saved.supportFaces.length!==1)return {ok:false,detail:'Mixed patch settings failed to serialize'};
+    a.editFeature(patch.id);field().value='G1';field().dispatchEvent(new Event('change',{bubbles:true}));await settle();a.cancelPM();await a.rebuild();
+    if(M.findFeature(a.doc,patch.id).continuity!=='G2'||a.result.errors.size)return {ok:false,detail:'Patch cancel failed'};
+    return {ok:true,detail:JSON.stringify({cases:native.results,health:native.health,ui:'G0/G1/G2, per-edge overrides, actual support-face selection, cancel and save/reopen'})};
+  },
+
   async 'surface-differential-analysis'() {
     const worker = new Worker('/tests/surface-continuity.worker.js', { type: 'module' });
     let timer;
@@ -4696,6 +5093,14 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
       await a.setDoc(JSON.parse(JSON.stringify(a.doc)));if(a.result.errors.size)return {ok:false,detail:type+': saved G1 support failed'};
       const support=M.findFeature(a.doc,tangent.supportSketch.id);await a.enterSketch(support,false);a.sketcher.f.curves[0].r=34;a.sketcher.changed();a.exitSketch(true);await a.rebuild();
       if(a.result.errors.size)return {ok:false,detail:type+': support edit failed: '+JSON.stringify([...a.result.errors])};
+      a.editFeature(tangent.loft.id);
+      if(![...field('startCondition').options].some(o=>o.value==='curvature'))return {ok:false,detail:type+': G2 option missing'};
+      field('startCondition').value='curvature';field('startCondition').dispatchEvent(new Event('change',{bubbles:true}));await settle();
+      if(a.pm.loftEndSlot!=='startFaces'||!document.querySelector('[data-loft-end-faces="startFaces"]'))return {ok:false,detail:type+': G2 support selector missing'};
+      await a.okPM();if(a.result.errors.size||!a.result.notes.get(tangent.loft.id)?.includes('G2 curvature mismatch'))return {ok:false,detail:type+': G2 edit failed: '+JSON.stringify([...a.result.errors])};
+      await a.setDoc(JSON.parse(JSON.stringify(a.doc)));if(a.result.errors.size||M.findFeature(a.doc,tangent.loft.id).startCondition!=='curvature')return {ok:false,detail:type+': G2 save/reopen failed'};
+      a.editFeature(tangent.loft.id);field('startCondition').value='tangent';field('startCondition').dispatchEvent(new Event('change',{bubbles:true}));await settle();a.cancelPM();await a.rebuild();
+      if(M.findFeature(a.doc,tangent.loft.id).startCondition!=='curvature')return {ok:false,detail:type+': G2 cancel failed'};
       a.editFeature(tangent.loft.id);document.querySelector('[data-loft-slot="profiles"]').click();
       if(!a.loftPicking())return {ok:false,detail:type+': cannot return to profile selection'};
       a.cancelPM();await a.rebuild();
@@ -4731,6 +5136,55 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
       if(M.findFeature(a.doc,sweep.id).orientation!=='parallel')return {ok:false,detail:type+': cancel failed to restore orientation'};
     }
     return {ok:true,detail:JSON.stringify({cases:native.results,health:native.health,ui:'solid and surface: expression, serialization, orientation switch, hidden twist and cancel'})};
+  },
+
+  async 'sweep-canvas-selection'() {
+    const {run,fixture}=await import('/tests/sweep-selection-cases.js'),S=await import('/js/sketchmodel.js');
+    const native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
+    const a=window.app,settle=async()=>{await wait(180);await until(()=>!a.kernel.pending);};
+    const {Vector3}=await import('three'),click=async p=>{const ev=viewEvents();ev.vp.camera.updateMatrixWorld(true);await ev.click(...ev.toScreen(new Vector3(...p)));await settle();};
+    const slot=name=>document.querySelector(`[data-sweep-slot="${name}"]`).click();
+    for(const type of ['sweep','surfSweep']){
+      const data=fixture({type,open:type==='surfSweep',shared:true}),{doc,profile,path}=data;
+      doc.features.pop();const first=path.curves[0],end=first.p2,mid=S.addPoint(path,0,50);first.p2=mid;S.addLine(path,mid,end);
+      await a.newDocument?.();closeModals();await a.setDoc(doc);a.selection={kind:'feature',id:profile.id};a.startFeature(type);await settle();
+      const id=a.pm.feature.id;
+      if(type==='sweep'&&a.pm.feature.profile)return {ok:false,detail:'Sweep chose an arbitrary region from a multi-profile sketch'};
+      a.viewport.setStandardView('top',false);a.viewport.zoomToFit(null,false);await wait(160);
+      await click(type==='sweep'?[2,0,2]:[2,0,0]);
+      if(typeof a.pm.feature.profile!=='object'||!a.pm.feature.profile)return {ok:false,detail:type+': actual profile click failed'};
+      slot('path');let chain=document.querySelector('[data-sweep-chain="path"]');chain.checked=false;chain.dispatchEvent(new Event('change'));await settle();
+      a.viewport.setStandardView('front',false);a.viewport.zoomToFit(null,false);await wait(160);await click([0,25,0]);await click([0,75,0]);
+      if(a.pm.loftDraft?.curves.length!==2)return {ok:false,detail:type+': manual path selection failed'};
+      slot('guide');if(a.pm.sweepSlot!=='path'||a.pm.loftDraft?.curves.length!==2)return {ok:false,detail:'Switch discarded an unfinished contour'};
+      document.querySelector('[data-sweep-finish="path"]').click();await settle();slot('guide');await click([7.5,50,0]);
+      if(a.pm.feature.path?.curves.length!==2||a.pm.feature.guide?.sketch!==path.id)return {ok:false,detail:type+': distinct path and guide from same sketch failed'};
+      const guideMode=document.querySelector('[data-sweep-field="guideMode"]');guideMode.value='contact';guideMode.dispatchEvent(new Event('change'));await settle();
+      const savedPath=JSON.stringify(a.pm.feature.path);if(a.setSweepReference(path.id,'guide')!==false||JSON.stringify(a.pm.feature.path)!==savedPath)return {ok:false,detail:'Overlapping whole source was accepted'};
+      await a.okPM();if(a.result.errors.size)return {ok:false,detail:type+': '+JSON.stringify([...a.result.errors])};
+      const feature=M.findFeature(a.doc,id),refs=M.referencesOf(a.doc,feature);if(!refs.has(profile.id)||!refs.has(path.id))return {ok:false,detail:'Contour dependencies missing'};
+      const m=(await a.kernel.request('measure',{refs:[{kind:'body',id:a.result.body.bodies.at(-1).id}]})).items[0],value=type==='sweep'?m.volume:m.area,expected=type==='sweep'?Math.PI*100*175/3:1500;
+      if(m.solid!==(type==='sweep')||Math.abs(value-expected)/expected>2e-5)return {ok:false,detail:type+': wrong selected geometry '+JSON.stringify(m)};
+      await a.setDoc(JSON.parse(JSON.stringify(a.doc)));a.editFeature(id);await settle();slot('path');
+      if(document.querySelector('[data-sweep-chain="path"]').checked)return {ok:false,detail:'Per-role chain setting was not restored'};
+      slot('guide');if(!document.querySelector('[data-sweep-chain="guide"]').checked)return {ok:false,detail:'Guide inherited the path chain setting'};
+      document.querySelector('[data-sweep-clear="guide"]').click();await settle();if(!document.querySelector('[data-sweep-field="orientation"]'))return {ok:false,detail:'Single-path options did not return'};
+      a.cancelPM();await a.rebuild();if(!M.findFeature(a.doc,id).guide||a.result.errors.size)return {ok:false,detail:'Cancel/reopen lost selected inputs'};
+    }
+    const cut=fixture(),base=M.createFeature(cut.doc,'sketch',{plane:{ref:'top'}});S.addCircle(base,'O',20);
+    const solid=M.createFeature(cut.doc,'extrude',{sketch:base.id,depth:100});cut.doc.features.unshift(base,solid);
+    await a.setDoc(cut.doc);a.editFeature(cut.sweep.id);await settle();
+    const operation=document.querySelector('[data-solid-operation]');operation.value='cut';operation.dispatchEvent(new Event('change'));await settle();
+    const all=[...document.querySelectorAll('#pm .pm-row')].find(r=>r.querySelector('label')?.textContent.trim()==='All bodies')?.querySelector('input');
+    all.checked=false;all.dispatchEvent(new Event('change'));await settle();document.querySelector('[data-feature-scope]').click();
+    if(a.pickMode()!=='body')return {ok:false,detail:'Sweep profile picking intercepted cut targets'};
+    a.viewport.setStandardView('front',false);a.viewport.zoomToFit(null,false);await wait(160);await click([18,50,0]);
+    if(a.pm.feature.scope.length!==1)return {ok:false,detail:'Sweep cut target canvas selection failed'};
+    slot('guide');if(a.pickMode()!=='loftContour')return {ok:false,detail:'Sweep selector did not resume after body picking'};
+    await a.okPM();if(a.result.errors.size)return {ok:false,detail:'Scoped sweep cut failed: '+JSON.stringify([...a.result.errors])};
+    const cutVolume=(await a.kernel.request('measure',{refs:[{kind:'body',id:a.result.body.bodies.at(-1).id}]})).items[0].volume;
+    if(Math.abs(cutVolume-(40000*Math.PI-Math.PI*100*175/3))>0.001)return {ok:false,detail:'Wrong scoped cut volume: '+cutVolume};
+    return {ok:true,detail:JSON.stringify({cases:native.results,health:native.health,ui:'actual canvas roles, manual connected entities, same-sketch path/guide, overlap rejection, independent chain settings, dependencies, reopen, cancel and scoped cut'})};
   },
 
   async 'surface-sweep-path-guide'() {

@@ -131,7 +131,7 @@ The ribbon shows its buttons in two rows. {idx:toolbars, customising}
 - **Rearrange**: drag a button to a new place; the others slide aside.
 - **Your own toolbars**: click **+** after the tabs (or right-click a tab ▸ **New Toolbar…**). Add tools by dragging a button onto its tab or with right-click ▸ **Add to "…"**. Drag a button off to remove it.
 - Right-click a button on a built-in toolbar to hide it or add a separator after it. **Customize Toolbars…** shows hidden buttons again, and **Reset** puts a toolbar back as it was.
-- In **Customize Toolbars…**, choose **Sketch** and set **Sketch toolbar layout** to **Expanded (all tools)** or **Grouped (flyout menus)**. Grouped mode gathers lines, rectangles, arcs, splines and slots under their family buttons; click a family to select a variant. The preference is saved, and changing it preserves the expanded toolbar order and hidden tools. Use Expanded mode to rearrange individual tools.
+- In **Customize Toolbars…**, choose **Sketch** and set **Sketch toolbar layout** to **Expanded (all tools)** or **Grouped (flyout menus)**. Grouped mode gathers lines, rectangles, arcs, splines and slots under split buttons. Click the main icon to start the last-used variant; click the adjacent arrow to choose another variant. The icon and label follow the saved choice. With a family tool active, its **Type** selector in the Property panel offers the same variants, in both toolbar layouts. Choices made with shortcuts or individual toolbar buttons are remembered too. Each family remembers its own variant between sessions. The layout preference is saved, and changing it preserves the expanded toolbar order and hidden tools. Use Expanded mode to rearrange individual tools.
 
 The layout is kept in `prefs.json` in RazorCAD's data folder.
 
@@ -498,7 +498,13 @@ Power trim: hover over a segment and it turns red; click to remove it up to the 
 
 ## Offset
 
-Click a line, arc or circle and its whole connected chain is offset. Move the mouse to the side and distance you want and click, then type the exact distance. Corners are re-trimmed or extended. {idx:Offset}
+Click a line, arc, circle or spline, choose the options in the Property panel, then click to create its offset. **Select chain** switches between the clicked entity and its connected contour, including mixed line/arc/spline chains. Corners are re-trimmed or extended; an unjoinable or collapsed offset reports an error. {idx:Offset}
+
+**Direction** offers **Pick side**, **Inside / left**, **Outside / right** and **Both sides**. Inside and outside follow the winding of a closed contour, including reversed contours. For an open chain they mean left and right along its traversal. Both sides places a copy at the specified distance on each side: one dimension drives both copies, so the total separation is twice the distance.
+
+Enter **Distance** before creating the offset; expressions and parameters are supported. **Use mouse distance** lets the pointer set the initial distance instead. The resulting offset dimension can be edited later. Linked offsets retain their source references through save/reopen and follow source edits. Constrain the source geometry to hold it in place while changing dimensions.
+
+Line and arc offsets remain analytic. Spline parallels are represented by cubic spline pieces, checked against source-curve normals at sampled parameters within **0.001 mm**; this is a sampled numerical check, not a certified global bound. Cusps, detected crossings and folds are rejected. A large source edit that exceeds the stored fit tolerance asks you to recreate that offset. Ellipses are not supported. Copies and blocks retain plain geometry rather than the offset link.
 
 - You can also click a **model edge** (with **Select chain**, the connected edges lying in a plane parallel to the sketch, such as a face outline) or a curve of another sketch.
 - **Linked offset** (default): the offset follows its source, including model edges when the model changes, and one dimension drives the chain (relation "Offset ⇉").
@@ -554,6 +560,7 @@ Select entities ([[Ctrl]]+click for several, or drag a box from empty space: lef
 | Point + arc | Coincident (on curve), Midpoint (half way round the arc) |
 | Point + circle | Coincident (on curve) |
 | Line + circle/arc | Tangent |
+| Line + open spline | Tangent at a spline endpoint (control-point or fit-point spline) |
 | Circles/arcs | Equal Radius, Equal Curve Length, Concentric, Tangent |
 | 2 or more curves (including splines, ellipses or mixed line/curve selections) | Equal Curve Length; for lines only, use Equal |
 | 2 points + line | Symmetric (about the line) |
@@ -561,11 +568,15 @@ Select entities ([[Ctrl]]+click for several, or drag a box from empty space: lef
 
 Relations are shown as small green glyphs next to the geometry. Click a glyph to select it, then press [[Del]] to remove it. Hovering a glyph highlights the entities it ties together. For several selected entities, relations already implied by existing constraints are skipped while useful relations are added. A relation refused says why: one that is **already satisfied** names the relations that already define the geometry that way (an information message); one that **would over-define** the sketch names the relations or dimensions in its way. Either way those relations are selected, so you can delete one and add the new relation instead. A true conflict rejects the entire request without changing the sketch.
 
+**Tangent with a spline:** Ctrl-select a line and an open spline, then choose **Tangent**. The shared endpoint, or otherwise the spline endpoint closest to the infinite line, is used. To choose explicitly (required if both ends are equally close), also select the desired spline endpoint. The selected endpoint is stored and does not switch after edits. For control-point splines the first or last control-polygon leg is aligned with the line; fit-point splines use their endpoint tangent. Coincidence is separate: add Coincident between endpoints or Coincident (on line) to make the curves meet. Closed splines and zero-length endpoint directions are unsupported.
+
 **Equal Curve Length (≋)** constrains the length measured along each selected curve, not its chord or control polygon. Two arcs may have different radii and sweeps while keeping equal lengths; a spline can also match a line or another curve. Select the curves with Ctrl and choose **Equal Curve Length** in **Add Relations**. With more than two curves, each is matched to the first. Circular curves' **Equal Radius (=)** keeps their radii equal and remains a separate relation. Length links survive source edits, undo/redo, save/reopen and rebuild. Ellipse and spline lengths are integrated numerically from their definitions.
 
 ## How profiles are found
 
 Profiles are found automatically from all non-construction geometry and sent to the kernel as exact lines, arcs and circles. Intersections are split, dangling lines are ignored and nested loops become holes. A full circle (or arcs that make one) becomes a single closed curve, so an extruded circle has one continuous cylindrical face. {idx:profiles}
+
+For canvas region selection, connected lines, arcs and splines can divide a closed outline into separate selectable cells within the same sketch. Click inside the desired cell; shared boundary edges may belong to several cells. Holes remain attached to their enclosing cell and can also be selected as disks. New cell references preserve boundary direction so regions sharing the same source curve IDs remain distinct. Existing whole-sketch and saved outline selections retain their previous extent. Construction geometry does not subdivide regions.
 
 ## Showing and hiding sketches
 
@@ -733,12 +744,17 @@ Every value field accepts numbers or equations (see Equations in the Evaluate ch
 
 Extrudes a sketch profile into a solid, or cuts it out. {idx:extrude}{idx:Extrude Cut}
 
+**Start** and **End** are independent. **Start from → Profile plane** preserves the usual extrusion. **Offset from profile** translates the starting plane by a signed distance along the first selected profile's normal; expressions are supported. **Plane / planar face** projects the profiles along the extrusion direction onto the underlying plane of the selected reference, including inclined planes. Use **Pick start surface in canvas** or the Start surface list. End references have their own picker and do not replace the start reference.
+
+Blind depth, symmetric and two-sided distances are measured from the new start. Reversing the extrusion changes its extent direction while preserving the start offset. With an inclined start and a distance end, both caps follow the starting plane, separated along the extrusion direction. **Up To Surface**, **Offset From Surface** and **Up To Vertex** retain independent end references. Crossing boundaries, zero thickness and a starting plane parallel to the extrusion direction are rejected. The options apply to solid extrusions, cuts, Thin Feature and selected profile regions; saved start-plane references follow source edits. Surface Extrude retains its existing start behavior.
+
 End conditions:
 
 | End condition | Meaning |
 |---|---|
 | Blind | A set depth |
-| Mid Plane | The depth split equally on both sides of the sketch |
+| Mid Plane | The total depth split equally on both sides of the sketch |
+| Two sides | Independent Depth and Second depth on opposite sides of the profile plane |
 | Through All / Through All – Both | Through every body, in one or both directions |
 | Up To Vertex | Click a model vertex or choose a reference point |
 | Up To Surface | Click a flat model face or choose a plane; angled surfaces are supported and the extrusion is trimmed to the surface |
@@ -746,20 +762,26 @@ End conditions:
 
 Options:
 
-- **Merge result** (boss): untick to keep the new material as a separate body even where it touches. A boss that doesn't touch existing material makes a new body anyway.
+- **Operation**: **Join** merges with existing material where possible; **New body** keeps the result separate; **Cut** removes material. A Join that does not touch existing material makes a new body.
 - **Thin Feature**: makes a wall of the given thickness from the profile; direction one side, other side or mid-plane. Open sketches switch it on automatically. {idx:thin feature}
 - **Feature Scope** (cuts): **All bodies** by default; untick it and click the bodies to cut. {idx:feature scope}
 
 ## Revolve and Revolve Cut
 
-Revolves a profile about an axis: the sketch axes, any line in the sketch (such as a centerline), a reference axis, a straight model edge or a cylindrical face (click it in the view). Cuts have the same Feature Scope option as extruded cuts. {idx:revolve}
+**Profiles** uses the common canvas selector: choose regions, connected contours or individual entities rather than automatically consuming a whole multi-profile sketch. Coplanar selections can be combined. Whole-sketch selection remains available explicitly and older files remain compatible.
+
+Choose **Select axis in canvas** separately from the profiles. The axis may be a sketch axis, a line in an earlier sketch (including construction geometry), a reference axis, a straight/circular model edge or a cylindrical face. **Project axis into profile plane** projects its origin and direction onto the selected profile plane; a perpendicular axis cannot be projected. Return to **Select profiles in canvas** to edit the profile selection.
+
+**Extent** is **Full (360°)** or **Angle**. Angle supports **One side**, **Two sides** with independent angles, or **Symmetric** (the total angle split equally). Reverse exchanges the signed direction for one/two sides. The total angle must not exceed 360°. Profiles must not cross a coplanar rotation axis. Full ignores stored angle values. Older files whose angles were clamped to 360° keep that geometry and migrate to Full when edited.
+
+**Operation** offers Join, New body or Cut. **Thin Feature** revolves a wall along open or closed contours; open contours enable it automatically. Cuts have the same **Feature Scope** as Extrude; **Select target bodies in canvas** switches explicitly from profile/axis selection to target-body picking. {idx:revolve}
 
 ## Sweep and Sweep Cut
 
 Sweeps a profile along a path. {idx:sweep}
 
-- **Profile**: a sketch, or **Circular** with a diameter (useful for springs).
-- **Path**: a sketch chain, 3D sketch, curve or helix.
+- **Profile**: a selected sketch region or contour, or **Circular** with a diameter (useful for springs).
+- **Path**: a selected sketch chain, 3D sketch, curve or helix.
 - **Orientation**: **Perpendicular to path** keeps the section square to the path; **Parallel to initial profile** moves it along the path without turning it (tight bends can make the sweep invalid). {idx:sweep, orientation}
 - **Twist angle** (with Perpendicular): the profile turns by this total angle along the path, evenly by distance. Positive angles turn by the right-hand rule along the path. Equations are allowed; 0 is the usual sweep. A twist needs an open path with no sharp corners (round them first), and the profile in the plane square to the path at its start. {idx:sweep, twist}
 - **Guide (optional)**: a second curve (sketch chain, 3D sketch, curve or helix) the profile follows. It replaces Orientation and Twist; removing it brings them back. {idx:sweep, guide curve}
@@ -767,6 +789,10 @@ Sweeps a profile along a path. {idx:sweep}
   - **Guide controls → Section size**: the profile is scaled evenly so its edge stays on the guide. The guide starts on the profile's edge and crosses each plane square to the path once.
   - A guided sweep takes one closed profile without holes or Thin, an open path and an open guide. Both curves run between the planes square to the path at its ends, and don't touch. A guide drawn the other way round is turned automatically. Contact with the guide is checked to 0.0001 mm; geometry that doesn't fit gives an error rather than an ordinary sweep.
 - **Thin** option (without a guide).
+
+**Select Profile / Path / Guide in canvas** activates one role at a time. Click inside a closed profile or on its contour; click path and guide curves directly. Each role has its own **Chain selection** checkbox. Turn it off to pick individual connected entities from one sketch, then choose **Use selected contour** or press Enter. Add or clear an unfinished contour before switching roles. Paths and guides may include construction curves. Different contours from the same sketch can be used in different roles, but the same entities cannot be reused across roles. Unrelated sketch geometry is ignored by selected contour references; missing selected curves report an error. **Other sources (whole sketch / curve)** retains explicit whole-sketch and supported derived-curve selection, including existing files.
+
+Solid Sweep uses the same **Join / New body / Cut** operation control as Extrude and Revolve. Cut supports explicit target-body selection. Without a guide, selected regions retain internal holes and open profiles can use Thin Feature.
 
 ## Loft and Loft Cut
 
@@ -780,6 +806,14 @@ Guide contacts are checked against the actual CAD profiles. The fit uses the ori
 
 **Guide construction → CAD constraints (two profiles)** builds patches constrained directly by the original 3D guide edges. It checks the kernel's contact error and independent distances against **0.0001 mm**. This method currently requires two profiles without holes or Thin Feature, with guides starting and ending on corresponding patches. **Across guide seams** selects C0 (contact, the default), G1 (tangent joins) or G2 (curvature-continuous joins along shared guides). Original profile corners are preserved. Unsupported or incompatible constraints report an error without falling back to approximation. **Adaptive approximation** remains available for the broader set of loft options and is the default for existing features.
 
+### Profile correspondence
+
+Enable **Edit profile connectors** to display numbered connections between matching profile vertices. Use **Pick start in canvas**, choose a start vertex in the panel, or drag a connector endpoint to another existing vertex on that profile. Moving an attachment shifts the correspondence around the contour while preserving boundary order. For circles, set the seam angle (expressions are supported) or drag the seam in the canvas. Open surface profiles use their endpoints; reversing their direction exchanges the endpoints.
+
+Settings follow the selected profile through renaming, reordering, save/reopen and source edits. A deleted attachment reports an error and must be reselected. Use a profile's **Automatic for this profile** button to clear its settings, or reset all connectors to return to automatic matching. Closed profiles must share the same traversal direction: reversing only some would fold the loft. Manual matching is passed to the CAD builder without automatic remapping and also applies when guides or endpoint conditions are used.
+
+Manual connectors currently support sketch profiles with matching segment counts, including the outer boundary of profiles with holes; inner holes remain automatically matched. Thin lofts and 3D curve profiles use automatic matching. To attach at another position on a noncircular curve, split that curve first. Arbitrary crossed vertex mappings are not supported. Surface Loft uses the same controls.
+
 ### Start and end conditions
 
 **Start Condition** and **End Condition** control the first and last section independently:
@@ -789,13 +823,15 @@ Guide contacts are checked against the actual CAD profiles. The fit uses the ori
 - **Direction** uses a world axis or a reference axis. Create a reference axis from a sketch line for an inclined direction.
 - **Tangent to adjacent faces (G1)** matches the tangent planes of existing solid or surface faces along the endpoint profile. Click **Select start support faces** or **Select end support faces**, then click the adjacent side faces in the canvas. Select all faces needed to cover the outer and inner profile edges, including Thin walls: one cylindrical face can cover a circle; a rectangular extrusion needs its four side faces. For a hollow section also select the adjacent inner walls. The profile must coincide with their boundary, not merely lie inside a face. Click **Select profiles in canvas** to return to contour selection.
 
+**Curvature to adjacent faces (G2)** also matches the curvature of the selected adjacent faces. Set this independently at either end, including G2 at both ends or a G1/G2 combination. It uses the same support-face selection rules as G1. Curvature is measured on the CAD surfaces, including the along-edge, across-edge and mixed components; incompatible geometry reports an error. A sampled CAD normal check also rejects detected local collapses between profiles; reduce Influence or add a section if this happens. This does not certify the absence of every possible self-intersection.
+
 **Influence** is a positive multiplier of the endpoint derivative length; 1 uses the distance to the neighboring profile as the scale. Larger values extend the endpoint's influence farther into the loft. Expressions are supported. **Reverse tangent direction** reverses the signed derivative and may create an invalid or overlapping loft.
 
-Endpoint conditions require matching profile curve counts and a smooth loft. Solid lofts support **internal holes and Thin Feature**, including Outside, Inside and Mid-plane sketch offsets and open Thin profiles. Every section must have the same number of corresponding inner loops. Outer and inner walls are constructed together and sewn to end faces with openings, rather than filling the cavities. G1 support selection must cover all walls. They support two or more sections, and closed profiles for solids or open/closed profiles for surfaces. Intermediate sections use C2 cubic interpolation. Normal to profile requires a planar sketch; Direction also supports curve sources in Surface Loft. Closed surface profiles stay uncapped.
+Endpoint conditions require matching profile curve counts and a smooth loft. Solid lofts support **internal holes and Thin Feature**, including Outside, Inside and Mid-plane sketch offsets and open Thin profiles. Every section must have the same number of corresponding inner loops. Outer and inner walls are constructed together and sewn to end faces with openings, rather than filling the cavities. G1 and G2 support selection must cover all walls. They support two or more sections, and closed profiles for solids or open/closed profiles for surfaces. Intermediate sections use C2 cubic interpolation. Normal to profile requires a planar sketch; Direction also supports curve sources in Surface Loft. Closed surface profiles stay uncapped.
 
 **Guide curves with endpoint conditions** use **Adaptive approximation**. Guides must meet every section in order, and their endpoint tangents must agree with the requested tangent planes and direction. Conflicting constraints report an error. Refinement uses 8/16/32/64/128 intermediate stations per profile interval and checks independent native guide points against the final CAD side faces to **0.0001 mm**. With Thin, guide checks retain the sketched outline’s offset to the outer wall; inner loops follow the guide deformation. Multiple guide deformations blend smoothly between contact locations (C2 blend weights), preserving physical profile corners. Influence remains relative to the original neighboring section, independently of the refinement count. **CAD constraints** with C0/G1/G2 guide seams still requires free endpoint conditions; selecting it with endpoint constraints gives an explicit error instead of switching methods.
 
-The kernel constructs clamped tensor cubic B-splines, refining profile interpolation from 8 through 128 intervals. It checks off-node profile contact and endpoint derivatives, including influence and direction. Final sewn CAD faces are checked again at 33 positions per endpoint for contact within **0.0001 mm**, tangent-plane mismatch within **0.5°**, and relative endpoint derivative error within **0.0001**. These are sampled numerical checks, not a certified global bound. Unsupported or incompatible constraints report an error without dropping the endpoint conditions. Feature notes report measured contact and angular errors.
+The kernel constructs clamped tensor B-splines (cubic, or degree five along the loft when G2 is requested), refining profile interpolation from 8 through 128 intervals. It checks off-node profile contact and endpoint derivatives, including influence and direction. Final sewn CAD faces are checked again at 33 positions per endpoint for contact within **0.0001 mm**, tangent-plane mismatch within **0.5°**, and relative endpoint derivative error within **0.0001**. These are sampled numerical checks, not a certified global bound. Unsupported or incompatible constraints report an error without dropping the endpoint conditions. G2 additionally compares all three components of the second fundamental form on the final CAD faces, with curvature mismatch at most **0.001 1/mm**. Feature notes report measured contact, angular and G2 curvature errors.
 
 - A circle is split into as many equal arcs as the other profile has corners.
 - Profiles with different segment counts give an error naming the sketches.
@@ -970,12 +1006,12 @@ The **Surfaces** tab builds surface bodies (zero-thickness faces), listed under 
 
 | Feature | What it does |
 |---|---|
-| **Extruded Surface** | Sweeps the sketch's curves in a straight line; open chains are fine |
-| **Revolved Surface** | Revolves the sketch's curves about an axis |
-| **Planar Surface** | Fills a closed sketch (holes allowed) |
+| **Extruded Surface** | Extrudes selected regions, open/closed contours or individual entities; one side, symmetric total depth or independent depths on both sides; reverse supported |
+| **Revolved Surface** | Revolves selected regions or open/closed contours with separate axis selection, optional axis projection and the same Full/Angle, one-side/two-side/symmetric controls as solid Revolve |
+| **Planar Surface** | Creates flat surfaces from selected sketch regions, closed entity contours or coplanar model boundary edges; sketch regions preserve their holes |
 | **Lofted Surface** | A surface through two or more profiles (sketches or 3D sketches), open or closed, optionally ruled (straight between profiles). Open profiles drawn in opposite directions are lined up automatically. **Guide Curves** (rails, optional): sketches or curves the surface follows between the profiles, e.g. along its edges; each runs from the first profile to the last, through every profile. One guide pulls the surface along it; two or more shape it across, each where it touches the profiles. |
 | **Swept Surface** | An open or closed sketch profile, or a circle, swept along a sketch, 3D sketch or helix. **Orientation**, **Twist angle** and an optional **Guide** work as for Sweep (see Sweep and Sweep Cut); with a guide the profile can be open or closed. Closed profiles give a surface without end caps. |
-| **Filled Surface** | A smooth patch over a hole bounded by edges of a surface or a solid, touching or optionally tangent to the faces round it. It can be knit into the surface and close a solid. A flat loop gives a flat patch. |
+| **Filled Surface** | A smooth patch over a hole bounded by one closed loop of edges of a surface or a solid, touching (G0), tangent (G1) or matching curvature (G2) with the faces round it; the condition can be set for each edge. It can be knit into the surface and close a solid. A flat loop gives a flat patch. |
 | **Boundary Surface** | A surface through curves in two directions. The first and last curve of each direction bound it and must meet at their ends; the curves between shape it. |
 | **Ruled Surface** | Straight-sided surfaces standing on edges, either normal to the surface or along a direction tapered by an angle, on one or both sides (for example mould parting surfaces) |
 | **Offset Surface** | Offsets faces of any body |
@@ -984,6 +1020,8 @@ The **Surfaces** tab builds surface bodies (zero-thickness faces), listed under 
 {idx:Lofted Surface}{idx:Swept Surface}{idx:Filled Surface}{idx:Boundary Surface}{idx:Ruled Surface}{idx:Copy Surface}
 
 ### Guide control for Swept Surface
+
+Swept Surface uses the same separate canvas selectors and per-role Chain selection as solid Sweep. Choose one open or closed profile contour without holes; a region with inner loops must be reduced to the desired contour. Whole-sketch sources remain available explicitly for older workflows.
 
 Without a guide, **Orientation** and **Twist angle** work as in solid Sweep: perpendicular sections with an optional signed total twist, or sections parallel to the initial profile. Open and closed profiles remain uncapped. The same open, tangent-continuous path restriction and numerical checks apply to nonzero twist.
 
@@ -1000,6 +1038,32 @@ Lofted Surface uses the same **Start Condition**, **End Condition**, **Influence
 Select **Guide Curves → Guide construction → CAD constraints (two profiles)** to use the original guide edges as patch boundaries. This supports open profiles forming a sheet, or closed profiles forming an uncapped surface shell. Guides can lie in different planes, making a nonplanar surface. A closed profile does not add end caps or make a solid.
 
 The kernel checks the patch contact error to **0.0001 mm**, validates the resulting CAD shape and checks points on the guide curves independently. **Across guide seams** offers **C0** (contact), **G1** (tangency) and **G2** (curvature continuity) along shared guide edges. G1 checks native CAD normals at nine interior positions, allowing at most **0.5°** mismatch. G2 constructs a C2 B-spline surface for internal guide networks, trims the resulting patches and checks contact, normals and all three components of the second fundamental form at 33 independent positions on each seam. Its curvature mismatch limit is **0.001 1/mm**. Measured angular and G2 curvature mismatches appear in the feature note. These are numerical tolerance checks, not a symbolic proof that every guide point is exact. The method requires two compatible profiles without holes or Thin Feature. Original profile corners are preserved. A transverse guide through a sharp corner cannot provide G2 continuity: choose C0 or move the contact onto a smooth profile segment. Circular profile seams are positioned automatically; straight guides already on a cylinder or cone preserve its geometry. Incompatible constraints report an error without lowering continuity or switching methods. Choose **Adaptive approximation** explicitly for other supported loft configurations.
+
+### Surface Extrude and Revolve selection
+
+These commands use the same canvas profile/contour selector as Planar Surface and solid features. Turn off **Chain selection** for individual sketch entities and confirm the contour with **Add selected contour**. Unlike a solid profile, an open chain is valid. Selecting a region uses its boundary curves, including holes, without automatically using unrelated curves from its sketch. Closed contours remain surface shells; the command does not turn them into solids. Earlier whole-sketch features still rebuild and can be edited through the explicit whole-source fallback.
+
+Surface Revolve has separate profile and axis slots; the axis can come from another sketch. Surface Extrude's **Symmetric** depth is the total depth, while **Two sides** uses Depth and Second depth independently. Surface Revolve shares Full/Angle and one-side/two-side/symmetric behavior with solid Revolve. These surface commands currently create new surface bodies; To Object end conditions and direct model-face inputs are not offered.
+
+### Planar Surface selection
+
+Use **Sketch Profiles → Select profiles in canvas** to click inside a closed region or select its contour. Each selection adds only that region, including its inner holes, instead of every profile in its sketch. Click a selected profile again to remove it. **Chain selection** follows connected sketch entities; turn it off to pick individual curves, then use **Add selected contour** once they close. Selecting just an outer contour fills that outline; click the actual region to include its holes.
+
+Use **Model Boundary Edges → Select model edges** for existing solid or surface edges. Choose one connected, closed, coplanar loop, with optional chain selection. The kernel rejects open, duplicate, missing or nonplanar boundary edges. Each selected sketch region creates a planar face; multiple independent regions are supported. Profiles remain linked to their source entities when dimensions change, and deleted selected entities require reselection.
+
+Existing whole-sketch features remain compatible. **Other sources (whole sketch / curve)** keeps whole-sketch selection available explicitly. A sketch with multiple regions no longer gets selected in full automatically when starting Planar Surface: choose the desired profiles in the canvas. Planar Surface creates flat sheets; use Filled Surface for a nonplanar patch or continuity to adjacent faces.
+
+### Filled Surface / Patch continuity
+
+Select one connected, closed boundary loop. **Chain selection** is enabled for new patches: click an edge to add its connected boundary chain on that body; click a fully selected chain again to remove it. Turn the checkbox off to add or remove individual edges. Partial chains are completed without duplicate edges or changing existing per-edge continuity. Selection stops at branches; for solid edges, an explicitly selected support face can identify its boundary loop. The checkbox is saved with the feature; older files keep individual selection until enabled.
+
+**Boundary continuity** sets **Contact (G0)**, **Tangent (G1)** or **Curvature (G2)** for the loop. Each edge can override that setting, so a patch can combine G0, G1 and G2 boundaries. Open, disconnected, duplicate or multiple loops report an error.
+
+G1/G2 edges require an adjacent support face. An open surface edge infers its unique adjacent face. Use **Select support faces** when a solid edge has two adjacent faces; exactly one selected adjacent face must cover each constrained edge. **Select boundary edges** returns to picking edges. G0 does not require support faces. Older files with **Tangent** enabled keep G1 behavior, with strict verification instead of a contact-only fallback.
+
+The resulting CAD face is checked for validity and sampled at 33 positions on each boundary: contact within **0.0001 mm**, G1/G2 normal mismatch within **0.5°**, and G2 mismatch of all three curvature components within **0.001 1/mm**. Boundary trimming curves are checked again after knitting. Incompatible supports or failed constraints remain errors; the requested continuity is not downgraded. These checks are sampled numerical bounds, not a global mathematical proof. A latitude opening in a spherical face preserves its exact spherical continuation; other constrained patches use native plate construction with bounded refinement and final CAD checks.
+
+**Knit into the surface** joins the patch when all selected edges belong to one surface body. **Make a solid when that closes it** closes a watertight result; if other openings remain, the result stays a surface and its note says so. Example: `tests/data/surface-patch-g2.rcad`.
 
 ## Changing surfaces
 
@@ -1044,31 +1108,55 @@ Surface quality can be checked with Zebra Stripes, Curvature and Draft Analysis 
 
 ## Reference Plane
 
-Pick up to three references (faces, edges or vertices on the model; lines, circles, arcs or points of a sketch shown in the view; planes in the view; planes, axes or points in the tree). A sketch line counts as an edge, a sketch circle or arc as its axis, a sketch point as a vertex, and the plane follows the sketch when it changes. The plane type follows from what you pick. Click a reference again to remove it. {idx:reference plane}
+Reference Plane, Reference Axis and Reference Point share a **References and Relations** panel with three numbered slots. Pick sketch geometry, model geometry or an earlier reference feature in the canvas or tree. The **Choose reference geometry** list also offers individual sketch lines, arcs, circles, supported splines and points (including the sketch origin), grouped by source sketch. Entries show the entity name and stable ID; suppressed, failed and later sketches are omitted. Hidden source sketches are temporarily displayed without changing their saved visibility. Click a slot to replace its reference; a fourth pick never discards an existing reference. Click a selected reference again, or its remove button, to remove it. References remain linked to their sources. {idx:reference plane}
 
-| References | Plane made |
+Each slot offers compatible **Relation** choices. **Automatic** chooses the usual relation for the selected combination; selecting an explicit relation keeps that choice when other references change. Distances and angles accept expressions. References must precede the feature in the tree.
+
+The displayed rectangle of a reference plane is centered near its defining line, point or path location, projected onto the plane. This display position does not change the plane's sketch coordinate system. For rotation about a line, use **Coincident / through** on the line and **At angle** on a reference plane.
+
+**Fully Defined** means the supported constraints have a finite solution with no remaining continuous freedom. **Under Defined** identifies missing constraints; **Conflicting** identifies incompatible geometry, relations or values. An axis direction alone does not fix its position, and two points alone do not fix a plane. Incomplete and conflicting definitions cannot be accepted. When two distinct geometric solutions exist, **Solution 1 / Solution 2** selects the branch; opposite normals of the same plane are handled by **Reverse its normal** instead.
+
+| Reference geometry | Available plane relations and constructions |
 |---|---|
-| One plane or face | Offset (distance, flip) |
-| Two planes or faces | Mid plane: halfway between parallel faces, or the bisector of angled ones |
-| Plane/face + edge/axis | Through the edge at an angle (Parallel 0° and Perpendicular 90° buttons) |
-| Edge/axis (+ optional point) | Normal to the edge, at its start, middle, end or the point |
-| Plane/face + point/vertex | Parallel, through the point |
-| Three points or vertices | Through three points |
-| Edge/axis + point/vertex, **Through the edge and the point** ticked | Through the edge and the point |
-| Two edges or axes | Through both (they must meet or be parallel) |
-| Edge/axis, position **At a distance from the start** | Normal to the edge, at that distance along it |
-| Cylindrical face | Tangent to it, at an angle round it |
-| Cylindrical face + plane/face | Tangent to it, parallel to the plane (either side) |
+| Planar face or plane | Coincident, Offset, Parallel, Perpendicular, At angle |
+| Point or vertex | Coincident / through |
+| Straight edge, sketch line or reference axis | Coincident / through, Parallel, Perpendicular, At angle; Normal at position |
+| Sketch circle/arc or circular model edge | Its containing plane supplies Coincident, Parallel, Perpendicular and At angle relations |
+| Two planes/faces with Midplane relations | Midplane of parallel planes, or either angular bisector |
+| Cylindrical face | Tangent, with an angle round the cylinder; optionally parallel to one selected plane, with either side available |
 
-**Placement**, for any plane: move it along its normal, turn its axes in the plane (how a sketch on it lies), or reverse its normal.
+Examples: three non-collinear points define a plane; a line with **Coincident** plus an external point defines the plane through both; a line with **Perpendicular** plus a point defines a normal plane through that point. A line with **Coincident** and a plane with **At angle** can define two angular solutions. Skew lines, inconsistent angles and invalid tangent combinations report conflicts. **Normal at position** uses the selected segment's start, midpoint, end or a distance within a straight segment. A reference axis supplies a direction and its stored anchor.
+
+The solver uses affine equations and the unit-normal constraint, rather than a tessellated approximation. Numerical rank and consistency checks distinguish free, unique and incompatible definitions. Tangency currently supports a cylinder alone or a cylinder with one parallel plane; midplane supports two plane references. Arbitrary curved-surface relations and additional constraints on these special constructions are not supported yet.
+
+**Placement** transforms the constructed plane after its reference relations have been solved: move along its normal, turn its sketch axes in the plane, or reverse its normal. An Offset relation already supplies its signed distance and has **Flip offset direction**.
+
+Existing plane and axis constructions keep their original geometry and anchor when opened for editing. The panel identifies the preserved construction; changing a reference or relation upgrades it to the constraint definition. Cancel restores the original saved definition.
+
+### Plane Along Path and point along a curve
+
+In Reference Plane or Reference Point, select a sketch line, arc, circle or spline, a model edge, or an earlier helix/3D/composite/projected curve feature. Choose the reference relation **Along path (arc length)**. The source picker and tree also offer curve features; a feature containing several disconnected routes must be reduced to one connected path first.
+
+**Position** offers Distance along curve, Fraction (0–1), Start, Half arc length and End. Distances and fractions accept expressions. **Reverse path direction** measures from the opposite end and reverses the tangent used by the plane. A fraction follows changes in the total curve length; a distance retains its physical length when the source changes. Closed paths retain the curve's existing seam; distances outside the path are rejected rather than wrapped.
+
+The plane passes through the computed position, has its origin there and is normal to the local tangent. The point uses that same position. A point can lie at a corner or cusp; a plane cannot be made there without a unique tangent. The preview identifies a conflict at detected corners, singularities or nonsmooth closed seams instead of choosing one tangent arbitrarily.
+
+Locations use adaptive integration of curve speed and bounded inversion of the resulting arc length, independently of display tessellation. Sketch splines retain their original Bézier pieces, degree and rational weights. Model edges and curve features use derivatives of the actual CAD curve and an independent CAD length check. Position inversion targets **0.0000001 mm** or **1e-10 of the path length**, whichever is larger; refinement exhaustion reports an error. These are numerical convergence controls, not a certified global error bound. Existing Midpoint and straight-segment Distance relations keep their previous meanings; choose Along path explicitly for arc-length placement.
+
 
 ## Reference Axis
 
-Made from two planes, two reference points, a straight or circular model edge, a sketch line, or a cylindrical face (axis at its centre). Right-click an edge ▸ **Reference Axis** to start one. Axes are drawn dashed and follow the model when it changes. A reference axis can drive a revolve or a pattern. {idx:reference axis}
+Uses the same three slots, per-reference relations and definition states. Two points define a through-axis; two intersecting planes define an axis in both. A straight edge or sketch line supplies its line, a circular edge supplies its centre axis, and a cylindrical or conical face supplies its centre axis. Plane **Perpendicular** plus a point defines a normal axis through that point. Parallel and perpendicular relations can constrain the direction while other references constrain the position. {idx:reference axis}
+
+Axes remain linked, are drawn dashed and can drive a revolve or a pattern. Right-click an edge and choose **Reference Axis** to preselect it. Parallel distinct planes, coincident points and zero-length directions cannot define the requested axis.
 
 ## Reference Point
 
-Coordinates (equations allowed), a model vertex, an arc centre or an edge midpoint. Right-click a vertex ▸ **Reference Point** to start one. {idx:reference point}
+Choose **Coordinates** (expressions allowed) or **Reference geometry**. The latter uses the shared slots and states. A point/vertex can be copied; a selected sketch line or model edge can supply its start, end or midpoint, and a circular curve can supply its centre. **Distance from start** currently supports straight segments and rejects distances outside the segment. {idx:reference point}
+
+**Coincident** relations intersect straight lines and planes: two crossing lines, a line crossing a plane, or three independent planes can define one point. A point on one plane retains two degrees of freedom; one on a line retains one. Skew lines, incompatible planes and missing references report conflicts. Circular and other curved-edge midpoint positions use the kernel's normalized curve parameter, preserving the existing Edge midpoint behavior; they are not a general arc-length locator. Use **Along path (arc length)** above to locate a point by physical curve distance or fraction. Intersections of arbitrary curves or curved surfaces are not supported yet.
+
+Right-click a vertex and choose **Reference Point** to preselect it. Coordinate mode retains its stored reference choices but does not depend on or evaluate them.
 
 # The Feature Tree and History
 
