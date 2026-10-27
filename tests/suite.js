@@ -1356,17 +1356,21 @@ const UI = {
     const fl = M.createFeature(d, 'fillet', { filletType: 'variable', radiusMode: 'vertices', radius: 2, edges: [{ p: edgeP }], edgePoints: [{ edge: 0, t: 50, r: 5 }] });
     M.insertFeature(d, fl); a.commit(); await a.rebuild();
     const v0 = ((await a.kernel.request('measure', { refs: [{ kind: 'body', id: a.result.bodies[0].id }] })).items?.[0] || {}).volume;
-    a.editFeature(fl.id); await wait(400);
+    a.editFeature(fl.id);
+    // (the model as it was before the fillet, shown for editing: its edges come once that is built, which on a slow
+    // machine takes a while)
+    await until(() => (a.pm?.feature && !a.kernel.pending && a.filletPoints(a.pm.feature)?.[0]) || null, 20000);
     vp.setStandardView('iso', false); vp.zoomToFit(null, false); await wait(300);
     const { fire, toScreen } = viewEvents();
-    const f = a.pm.feature, at = a.filletPoints(f)[0];
+    const f = a.pm.feature, at = a.filletPoints(f)?.[0];
+    if (!at) return { ok: false, detail: 'the point of the fillet was not found on its edge (the model as it was before the fillet was not shown)' };
     const quarter = (() => { const { P, L } = at, s = L[L.length - 1] / 4; let k = 1; while (k < P.length - 1 && L[k] < s) k++; return P[k - 1].clone().lerp(P[k], (s - L[k - 1]) / ((L[k] - L[k - 1]) || 1)); })();
     const from = toScreen(vp.camera.position.clone().set(...at.p)), to = toScreen(quarter);
     fire('pointerdown', ...from, { button: 0, buttons: 1 }); await wait(40);
     for (let k = 1; k <= 5; k++) { fire('pointermove', from[0] + ((to[0] - from[0]) * k) / 5, from[1] + ((to[1] - from[1]) * k) / 5, { button: 0, buttons: 1 }); await wait(30); }
-    const during = a.filletPoints(f)[0].p;
+    const during = a.filletPoints(f)?.[0]?.p || [NaN, NaN, NaN];
     fire('pointerup', ...to, { button: 0, buttons: 0 }); await wait(100);
-    for (let i = 0; i < 100 && a.kernel.pending; i++) await wait(50);
+    await until(() => !a.kernel.pending, 30000);
     await wait(300);
     const t1 = f.edgePoints[0].t, moved = Math.hypot(...during.map((x, k) => x - quarter.toArray()[k]));
     a.okPM?.(); await wait(200); await a.rebuild();
@@ -3193,7 +3197,8 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     const c1 = await convert(await step(r0));
     const c2 = await convert(await step(c1.r));
     const same = (a, b) => a.min.every((x, k) => Math.abs(x - b.min[k]) < 1e-4) && a.max.every((x, k) => Math.abs(x - b.max[k]) < 1e-4);
-    const ok = measureMs < 3000 && Math.abs(v0 - 23759.4208) < 1e-3 && !c1.r.errors.length && !c2.r.errors.length && c1.after.sheet && c2.after.sheet
+    // (the tray's exact measure: 0.15 s here, 16 s when it went unspanned; GitHub's runner, many times slower, 4.5 s)
+    const ok = measureMs < 10000 && Math.abs(v0 - 23759.4208) < 1e-3 && !c1.r.errors.length && !c2.r.errors.length && c1.after.sheet && c2.after.sheet
       && inside(c1.after, c1.before, 1e-3) && Math.abs(c1.v1 - c1.v0) / c1.v0 < 1e-5 && c1.after.faces === c1.before.faces && c1.corners === 4 && c2.corners === 4
       && c2.after.faces === c2.before.faces && same(c2.after, c2.before) && Math.abs(c2.v1 - c2.v0) / c2.v0 < 1e-5;
     return ok ? { ok: true, detail: `tray measured in ${Math.round(measureMs)} ms (${v0.toFixed(4)} mm³); converted: its ${c1.corners} corners as RazorCAD made them, ${c1.before.faces} → ${c1.after.faces} faces, inside the body, volume ${(100 * (c1.v1 - c1.v0) / c1.v0).toFixed(6)} %; converted again: the same to ${Math.abs(c2.v1 - c2.v0).toExponential(1)} mm³` }
