@@ -1,0 +1,231 @@
+{
+ "version": 1,
+ "name": "Shell with small fillet",
+ "material": null,
+ "equations": [],
+ "features": [
+  {
+   "id": "f1",
+   "type": "sketch",
+   "name": "Sketch1",
+   "suppressed": false,
+   "plane": {
+    "ref": "top"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": -30,
+     "y": -20
+    },
+    {
+     "id": "p2",
+     "x": 30,
+     "y": -20
+    },
+    {
+     "id": "p3",
+     "x": 30,
+     "y": 20
+    },
+    {
+     "id": "p4",
+     "x": -30,
+     "y": 20
+    }
+   ],
+   "curves": [
+    {
+     "id": "c5",
+     "type": "line",
+     "p1": "p1",
+     "p2": "p2",
+     "construction": false
+    },
+    {
+     "id": "c6",
+     "type": "line",
+     "p1": "p2",
+     "p2": "p3",
+     "construction": false
+    },
+    {
+     "id": "c7",
+     "type": "line",
+     "p1": "p3",
+     "p2": "p4",
+     "construction": false
+    },
+    {
+     "id": "c8",
+     "type": "line",
+     "p1": "p4",
+     "p2": "p1",
+     "construction": false
+    },
+    {
+     "id": "c13",
+     "type": "line",
+     "p1": "p1",
+     "p2": "p3",
+     "construction": true
+    },
+    {
+     "id": "c14",
+     "type": "line",
+     "p1": "p2",
+     "p2": "p4",
+     "construction": true
+    }
+   ],
+   "constraints": [
+    {
+     "id": "k9",
+     "type": "horizontal",
+     "refs": [
+      "c5"
+     ]
+    },
+    {
+     "id": "k10",
+     "type": "vertical",
+     "refs": [
+      "c6"
+     ]
+    },
+    {
+     "id": "k11",
+     "type": "horizontal",
+     "refs": [
+      "c7"
+     ]
+    },
+    {
+     "id": "k12",
+     "type": "vertical",
+     "refs": [
+      "c8"
+     ]
+    },
+    {
+     "id": "k15",
+     "type": "midpoint",
+     "refs": [
+      "O",
+      "c13"
+     ]
+    }
+   ],
+   "nextSid": 16,
+   "rev": "6cpruhrj"
+  },
+  {
+   "id": "f2",
+   "type": "extrude",
+   "name": "Extrude1",
+   "suppressed": false,
+   "sketch": "f1",
+   "op": "add",
+   "merge": true,
+   "end": "blind",
+   "depth": 30,
+   "reverse": false,
+   "toPoint": null,
+   "toVertex": null,
+   "toPlane": null,
+   "toFace": null,
+   "toOffset": 5,
+   "toFlip": false,
+   "thin": false,
+   "thinT": 2,
+   "thinDir": "one",
+   "scopeAll": true,
+   "scope": []
+  },
+  {
+   "id": "f3",
+   "type": "fillet",
+   "name": "Fillet1",
+   "suppressed": false,
+   "radius": 1,
+   "edges": [
+    {
+     "p": [
+      30,
+      30,
+      0
+     ],
+     "fn": [
+      {
+       "t": "PLANE",
+       "n": [
+        0,
+        1,
+        0
+       ],
+       "cv": 1
+      },
+      {
+       "t": "PLANE",
+       "n": [
+        1,
+        -0.0,
+        -0.0
+       ],
+       "cv": 1
+      }
+     ],
+     "t": "LINE",
+     "d": [
+      0,
+      0,
+      -1
+     ],
+     "box": {
+      "min": [
+       -30,
+       0,
+       -20
+      ],
+      "max": [
+       30,
+       30,
+       20
+      ]
+     }
+    }
+   ],
+   "filletType": "constant",
+   "radius2": 4,
+   "flipRadii": false,
+   "faces": [],
+   "radiusMode": "ends",
+   "vertexRadii": [],
+   "edgePoints": [],
+   "setback": 0
+  },
+  {
+   "id": "f4",
+   "type": "shell",
+   "name": "Shell1",
+   "suppressed": false,
+   "faces": [
+    {
+     "p": [
+      0,
+      30,
+      0
+     ],
+     "n": [
+      0,
+      1,
+      0
+     ]
+    }
+   ],
+   "thickness": 2,
+   "outward": false
+  }
+ ],
+ "nextId": 5
+}

@@ -4530,6 +4530,25 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     return { ok: true, detail: `Nonplanar open surface / two native spline guides (${worst.toExponential(3)} mm), uncapped circular surface, panel method selection and cancel` };
   },
 
+  async 'surface-differential-analysis'() {
+    const worker = new Worker('/tests/surface-continuity.worker.js', { type: 'module' });
+    let timer;
+    try {
+      const r = await new Promise((resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('Differential fixture worker timed out')), 60000);
+        worker.onmessage = ({ data }) => data.error ? reject(new Error(data.error)) : resolve(data.result);
+        worker.onerror = (e) => reject(new Error(e.message));
+      });
+      const near = (a, b) => Math.abs(a - b) < 1e-7;
+      const ok = near(r.cylinderAcross, 0.05) && near(r.cylinderAlong, 0) && near(r.sphereY, 0.05) && near(r.sphereZ, 0.05) && near(r.plane, 0)
+        && near(r.equal.angle, 0) && near(r.equal.curvatureError, 0) && near(r.unequal.angle, 0) && near(r.unequal.curvatureError, 0.01)
+        && near(r.offset, 0.02) && r.equal.positionError < 1e-7
+        && near(r.mixedOnly.angle, 0) && near(r.mixedOnly.curvatureError, 0.05) && r.tiltedDiagonal.every((k) => near(k, 0.025))
+        && near(r.offsetParametric, 0.02) && near(r.equalParametric.angle, 0) && near(r.equalParametric.curvatureError, 0) && r.equalParametric.positionError < 1e-7;
+      return { ok, detail: JSON.stringify(r) };
+    } finally { clearTimeout(timer); worker.terminate(); }
+  },
+
   async 'surface-guide-continuity'() {
     const a = window.app, S = await import('/js/sketchmodel.js'), d = M.newDoc();
     const plane = M.createFeature(d, 'plane', { refs: [{ kind: 'plane', id: 'top' }], offset: 100 }); d.features.push(plane);
@@ -4542,23 +4561,24 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     S.addCtrlSpline(guide, [[0, 0], [6, 100 / 3], [6, 200 / 3], [0, 100]].map(([x, y]) => S.addPoint(guide, x, y)), 3); d.features.push(guide);
     const surface = M.createFeature(d, 'surfLoft', { profiles, guides: [guide.id], guideMethod: 'constrained' }); d.features.push(surface);
     const notes = [];
-    for (const mode of ['C0', 'G1']) {
+    for (const mode of ['C0', 'G1', 'G2']) {
       surface.guideContinuity = mode;
       const r = await a.kernel.rebuild(d, null, null);
       if (r.errors.length) return { ok: false, detail: `${mode}: ${JSON.stringify(r.errors)}; completed checks: ${notes.join(' | ')}` };
       const note = r.notes[surface.id] || '', angle = Number(note.match(/normal mismatch ([\d.]+) deg/)?.[1]);
       if (!note.includes(`${mode}, 1 seams`) || !Number.isFinite(angle) || (mode === 'C0' ? angle < 2 : angle > 0.5)) return { ok: false, detail: `Unexpected differential check: ${note}` };
+      if(mode==='G2'&&!(Number(note.match(/curvature mismatch ([\d.e+\-]+) 1\/mm/)?.[1])<=0.001))return {ok:false,detail:`Unverified G2 curvature: ${note}`};
       notes.push(note);
     }
-    surface.guideContinuity = 'G2';
+    surface.guideContinuity = 'G3';
     const unsupported = await a.kernel.rebuild(d, null, null);
-    if (!unsupported.errors.some(([, message]) => message.includes('G2 guide continuity is not available'))) return { ok: false, detail: 'Unverified G2 silently fell back to another continuity' };
-    surface.guideContinuity = 'G1';
+    if (!unsupported.errors.some(([, message]) => message.includes('Select C0, G1 or G2'))) return { ok: false, detail: 'An unknown continuity silently fell back to another mode' };
+    surface.guideContinuity = 'G2';
     await a.newDocument?.(); closeModals(); await a.setDoc(d); a.editFeature(surface.id); await a.rebuild();
     const selector = [...document.querySelectorAll('#pm select')].find((s) => [...s.options].some((o) => o.value === 'G1'));
-    if (!selector || selector.value !== 'G1' || [...selector.options].some((o) => o.value === 'G2')) return { ok: false, detail: 'Guide continuity selector exposed an unsupported mode or lost G1' };
+    if (!selector || selector.value !== 'G2' || ![...selector.options].some((o) => o.value === 'G2')) return { ok: false, detail: 'Guide continuity selector did not restore G2' };
     selector.value = 'C0'; selector.dispatchEvent(new Event('change')); a.cancelPM(); await a.rebuild();
-    if (a.doc.features.find((f) => f.id === surface.id).guideContinuity !== 'G1') return { ok: false, detail: 'Cancel did not restore guide continuity' };
+    if (a.doc.features.find((f) => f.id === surface.id).guideContinuity !== 'G2') return { ok: false, detail: 'Cancel did not restore G2 guide continuity' };
     const solid = JSON.parse(JSON.stringify(a.doc));
     for (const id of profiles) {
       const sk = solid.features.find((f) => f.id === id); sk.points = []; sk.curves = [];
@@ -4567,10 +4587,212 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     }
     const solidGuide = solid.features.find((f) => f.id === guide.id); solidGuide.plane = { ref: 'front' };
     solidGuide.points.forEach((p) => { p.x += 20; });
-    const boss = solid.features.find((f) => f.id === surface.id); boss.type = 'loft'; boss.op = 'add'; boss.merge = true;
+    const boss = solid.features.find((f) => f.id === surface.id); boss.type = 'loft'; boss.op = 'add'; boss.merge = true; boss.guideContinuity='G1';
     const built = await a.kernel.rebuild(solid, null, null);
     if (built.errors.length || !built.body?.bodies?.some((b) => b.kind === 'solid') || !built.notes[boss.id]?.includes('G1, 1 seams')) return { ok: false, detail: `Solid G1 loft: ${JSON.stringify(built.errors)}` };
-    return { ok: true, detail: notes.join(' | ') };
+    boss.guideContinuity='G2';
+    const curved=await a.kernel.rebuild(solid,null,null);
+    if(curved.errors.length||!curved.body?.bodies?.some((b)=>b.kind==='solid')||!curved.notes[boss.id]?.includes('G2, 1 seams'))return {ok:false,detail:`Solid G2 loft: ${JSON.stringify(curved.errors)}`};
+    const health=await a.kernel.stats();
+    if(!health.freeing||!health.stackReset)return {ok:false,detail:`Kernel lifetime hooks missing: ${JSON.stringify(health)}`};
+    return { ok: true, detail: notes.join(' | ')+` | solid G2, lifetime/stack checks (${health.build}, ${health.threads} threads)` };
+  },
+
+  async 'shell-valid-cavity'() {
+    const {run,fixture}=await import('/tests/shell-cases.js');
+    const native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
+    const a=window.app,{doc,shell}=fixture({fillet:1,faces:[]});
+    await a.newDocument?.();closeModals();await a.setDoc(doc);a.editFeature(shell.id);await a.rebuild();await until(()=>!a.kernel.pending);
+    a.viewport.setStandardView('trimetric',false);a.viewport.zoomToFit(null,false);await wait(150);
+    const {vp,toScreen,click}=viewEvents(),THREE=await import('/vendor/three.module.js');
+    vp.camera.updateMatrixWorld(true);
+    await click(...toScreen(new THREE.Vector3(0,30,0)));await wait(120);await until(()=>!a.kernel.pending);
+    if(a.pm.feature.faces.length!==1||a.result.errors.size)return {ok:false,detail:'Could not select and shell the filleted solid: '+JSON.stringify([...a.result.errors])};
+    await a.okPM();
+    const volume=async()=>{const m=await a.kernel.request('measure',{refs:[{kind:'body',id:a.result.body.bodies[0].id}]});return m.items[0].volume;};
+    const expected=15552-40*(1-Math.PI/4);
+    if(Math.abs(await volume()-expected)>1e-4)return {ok:false,detail:'The selected solid remained full'};
+    a.editFeature(shell.id);await a.rebuild();await until(()=>!a.kernel.pending);
+    const row=[...document.querySelectorAll('#pm .pm-row')].find((r)=>r.querySelector('label')?.textContent==='Thickness'),input=row?.querySelector('input');
+    if(!input)return {ok:false,detail:'Shell thickness input missing'};
+    input.value='3';input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));await wait(120);await until(()=>!a.kernel.pending);
+    const edited=22428-40*(1-Math.PI/4);
+    if(a.result.errors.size||Number(M.findFeature(a.doc,shell.id).thickness)!==3)return {ok:false,detail:'Thickness edit failed'};
+    await a.okPM();
+    if(Math.abs(await volume()-edited)>1e-4)return {ok:false,detail:'Confirmed thickness edit failed to update the cavity'};
+    a.editFeature(shell.id);await a.rebuild();await until(()=>!a.kernel.pending);
+    const next=[...document.querySelectorAll('#pm .pm-row')].find((r)=>r.querySelector('label')?.textContent==='Thickness')?.querySelector('input');
+    next.value='4';next.dispatchEvent(new Event('input',{bubbles:true}));next.dispatchEvent(new Event('change',{bubbles:true}));await wait(120);await until(()=>!a.kernel.pending);
+    a.cancelPM();await a.rebuild();await until(()=>!a.kernel.pending);
+    if(Number(M.findFeature(a.doc,shell.id).thickness)!==3||Math.abs(await volume()-edited)>1e-4)return {ok:false,detail:'Cancel failed to restore the shell'};
+    await a.setDoc(JSON.parse(JSON.stringify(a.doc)));
+    if(a.result.errors.size||Math.abs(await volume()-edited)>1e-4)return {ok:false,detail:'Saved shell did not rebuild'};
+    return {ok:true,detail:JSON.stringify({cases:native.results,health:native.health,ui:'face selection, thickness editing, cancel and serialization'})};
+  },
+
+  async 'loft-end-guides-and-walls'() {
+    const {run,guidedFixture,thinTangentFixture}=await import('/tests/loft-end-options-cases.js');
+    const native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
+    const a=window.app,settle=async()=>{await wait(160);await until(()=>!a.kernel.pending);};
+    const {doc,loft,guide}=guidedFixture({thin:true});await a.newDocument?.();closeModals();await a.setDoc(doc);
+    if(a.result.errors.size)return {ok:false,detail:JSON.stringify([...a.result.errors])};
+    a.editFeature(loft.id);await a.rebuild();
+    const direction=[...document.querySelectorAll('#pm select')].find(s=>[...s.options].some(o=>o.value==='mid'));
+    if(!direction)return {ok:false,detail:'Thin direction control is missing'};
+    direction.value='mid';direction.dispatchEvent(new Event('change',{bubbles:true}));await settle();await a.okPM();
+    if(a.result.errors.size||M.findFeature(a.doc,loft.id).thinDir!=='mid')return {ok:false,detail:'Guided Thin direction edit failed: '+JSON.stringify([...a.result.errors])};
+    await a.setDoc(JSON.parse(JSON.stringify(a.doc)));if(a.result.errors.size)return {ok:false,detail:'Guided Thin save/reopen failed'};
+    await a.enterSketch(M.findFeature(a.doc,guide.id),false);a.sketcher.f.points[1].y=20;a.sketcher.changed();a.exitSketch(true);await a.rebuild();
+    if(a.result.errors.size)return {ok:false,detail:'Guide edit failed: '+JSON.stringify([...a.result.errors])};
+    const note=a.result.notes.get(loft.id)||'',error=Number(note.match(/Adaptive guides: CAD contact ([\d.e+\-]+)/)?.[1]);
+    if(!(error<=1e-4))return {ok:false,detail:'Edited guide was not verified on the final CAD shape'};
+    a.editFeature(loft.id);const input=[...document.querySelectorAll('#pm .pm-row')].find(r=>r.querySelector('label')?.textContent==='Thickness')?.querySelector('input');
+    if(!input)return {ok:false,detail:'Thin thickness control missing'};
+    input.value='1.2';input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));await settle();a.cancelPM();await a.rebuild();
+    if(Number(M.findFeature(a.doc,loft.id).thinT)!==1||a.result.errors.size)return {ok:false,detail:'Guided Thin cancel failed'};
+    const tangent=thinTangentFixture();await a.setDoc(tangent.doc);if(a.result.errors.size)return {ok:false,detail:JSON.stringify([...a.result.errors])};
+    const roles=M.findFeature(a.doc,tangent.loft.id).startFaces.map(r=>r.loftLoop).sort();
+    if(JSON.stringify(roles)!=='[0,1]')return {ok:false,detail:'Inner and outer support identities are missing'};
+    await a.enterSketch(M.findFeature(a.doc,tangent.profiles[0].id),false);a.sketcher.f.curves[0].r=20.5;a.sketcher.changed();a.exitSketch(true);await a.rebuild();
+    if(a.result.errors.size)return {ok:false,detail:'Shared inner/outer support edit failed: '+JSON.stringify([...a.result.errors])};
+    await a.setDoc(JSON.parse(JSON.stringify(a.doc)));if(a.result.errors.size)return {ok:false,detail:'Edited inner/outer supports did not serialize'};
+    return {ok:true,detail:JSON.stringify({cases:native.results,health:native.health,ui:'guided Thin direction, guide editing, cancel/save/reopen and G1 inner/outer support regeneration'})};
+  },
+
+  async 'loft-end-conditions'() {
+    const {run,fixture,tangentFixture}=await import('/tests/loft-end-cases.js');
+    const native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
+    const a=window.app,settle=async()=>{await wait(160);await until(()=>!a.kernel.pending);};
+    const field=key=>document.querySelector(`[data-loft-end-field="${key}"]`);
+    const volume=async()=>{const b=a.result.body.bodies.at(-1),m=await a.kernel.request('measure',{refs:[{kind:'body',id:b.id}]});return m.items[0].volume;};
+    for(const type of ['loft','surfLoft']){
+      const {doc,loft}=fixture({type});await a.newDocument?.();closeModals();await a.setDoc(doc);const initial=type==='loft'?await volume():0;
+      a.editFeature(loft.id);await a.rebuild();
+      if(field('startCondition')?.value!=='normal'||field('endCondition')?.value!=='normal')return {ok:false,detail:type+': endpoint panel did not restore'};
+      field('startCondition').value='direction';field('startCondition').dispatchEvent(new Event('change',{bubbles:true}));await settle();
+      if(!field('startDirection'))return {ok:false,detail:type+': missing direction selector'};
+      const influence=[...document.querySelectorAll('#pm .pm-row')].find(r=>r.querySelector('label')?.textContent==='Influence')?.querySelector('input');
+      influence.value='1 + 1';influence.dispatchEvent(new Event('input',{bubbles:true}));influence.dispatchEvent(new Event('change',{bubbles:true}));await settle();await a.okPM();
+      if(a.result.errors.size||M.findFeature(a.doc,loft.id).startStrength!=='1 + 1')return {ok:false,detail:type+': influence expression failed'};
+      if(type==='loft'&&Math.abs(await volume()-initial)<1)return {ok:false,detail:'Influence did not change the loft geometry'};
+      await a.setDoc(JSON.parse(JSON.stringify(a.doc)));if(a.result.errors.size)return {ok:false,detail:type+': save/reopen failed'};
+      a.editFeature(loft.id);field('startCondition').value='none';field('startCondition').dispatchEvent(new Event('change',{bubbles:true}));await settle();a.cancelPM();await a.rebuild();
+      if(M.findFeature(a.doc,loft.id).startCondition!=='direction')return {ok:false,detail:type+': cancel failed'};
+      const tangent=tangentFixture({cone:true,type});tangent.loft.startFaces=[];await a.setDoc(tangent.doc);a.editFeature(tangent.loft.id);await a.rebuild();
+      document.querySelector('[data-loft-end-faces="startFaces"]').click();
+      if(a.pickMode()!=='faces'||a.loftPicking())return {ok:false,detail:type+': face selection is blocked by contour selection'};
+      a.viewport.setStandardView('trimetric',false);a.viewport.zoomToFit(null,false);await wait(160);
+      const {Vector3}=await import('three'),ev=viewEvents();ev.vp.camera.updateMatrixWorld(true);
+      await ev.click(...ev.toScreen(new Vector3(25,-25,0)));await settle();
+      if(a.pm.feature.startFaces.length!==1||!a.pm.feature.startFaces[0].body)return {ok:false,detail:type+': canvas support selection failed'};
+      await a.okPM();if(a.result.errors.size)return {ok:false,detail:JSON.stringify([...a.result.errors])};
+      const saved=M.findFeature(a.doc,tangent.loft.id),owner=M.bodyOwner(saved.startFaces[0].body);
+      if(!M.referencesOf(a.doc,saved).has(owner))return {ok:false,detail:'Support dependency was not recorded'};
+      await a.setDoc(JSON.parse(JSON.stringify(a.doc)));if(a.result.errors.size)return {ok:false,detail:type+': saved G1 support failed'};
+      const support=M.findFeature(a.doc,tangent.supportSketch.id);await a.enterSketch(support,false);a.sketcher.f.curves[0].r=34;a.sketcher.changed();a.exitSketch(true);await a.rebuild();
+      if(a.result.errors.size)return {ok:false,detail:type+': support edit failed: '+JSON.stringify([...a.result.errors])};
+      a.editFeature(tangent.loft.id);document.querySelector('[data-loft-slot="profiles"]').click();
+      if(!a.loftPicking())return {ok:false,detail:type+': cannot return to profile selection'};
+      a.cancelPM();await a.rebuild();
+    }
+    return {ok:true,detail:JSON.stringify({cases:native.results,health:native.health,ui:'solid and surface: direction, influence expression, cancel, serialization, canvas G1 support selection and dependencies'})};
+  },
+
+  async 'sweep-orientation-and-twist'() {
+    const {run,fixture}=await import('/tests/sweep-options-cases.js');
+    const native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
+    const a=window.app;
+    const twistInput=()=>[...document.querySelectorAll('#pm .pm-row')].find(r=>r.querySelector('label')?.textContent==='Twist angle')?.querySelector('input');
+    const settle=async()=>{await wait(150);await until(()=>!a.kernel.pending);};
+    for(const type of ['sweep','surfSweep']){
+      const {doc,sweep}=fixture(type);await a.newDocument?.();closeModals();await a.setDoc(doc);a.editFeature(sweep.id);await a.rebuild();
+      const orientation=()=>document.querySelector('[data-sweep-field="orientation"]');
+      if(orientation()?.value!=='perpendicular'||!twistInput())return {ok:false,detail:type+': missing orientation or twist controls'};
+      const input=twistInput();input.value='45 + 45';input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));await settle();await a.okPM();
+      if(a.result.errors.size||M.findFeature(a.doc,sweep.id).twistAngle!=='45 + 45')return {ok:false,detail:type+': twist expression did not confirm'};
+      await a.setDoc(JSON.parse(JSON.stringify(a.doc)));
+      if(a.result.errors.size)return {ok:false,detail:type+': serialized twist failed'};
+      const probe=[0,100,-5],contact=await a.kernel.request('measure',{refs:[{kind:'point',p:probe},{kind:'face',p:probe}]});
+      if(contact.distance>1e-4)return {ok:false,detail:type+': saved rotation is wrong'};
+      a.editFeature(sweep.id);orientation().value='parallel';orientation().dispatchEvent(new Event('change',{bubbles:true}));await settle();
+      if(twistInput())return {ok:false,detail:type+': twist remains available with Parallel'};
+      await a.okPM();
+      if(a.result.errors.size)return {ok:false,detail:type+': Parallel failed'};
+      const p=[5,100,0],m=await a.kernel.request('measure',{refs:[{kind:'point',p},{kind:'face',p}]});
+      if(m.distance>1e-4)return {ok:false,detail:type+': Parallel did not preserve the profile'};
+      a.editFeature(sweep.id);orientation().value='perpendicular';orientation().dispatchEvent(new Event('change',{bubbles:true}));await settle();
+      if(!twistInput())return {ok:false,detail:type+': switching back did not restore twist'};
+      a.cancelPM();await a.rebuild();
+      if(M.findFeature(a.doc,sweep.id).orientation!=='parallel')return {ok:false,detail:type+': cancel failed to restore orientation'};
+    }
+    return {ok:true,detail:JSON.stringify({cases:native.results,health:native.health,ui:'solid and surface: expression, serialization, orientation switch, hidden twist and cancel'})};
+  },
+
+  async 'surface-sweep-path-guide'() {
+    const {run,fixture}=await import('/tests/surface-sweep-guide-cases.js');
+    const native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
+    const a=window.app,{doc,sweep,guide}=fixture();await a.newDocument?.();closeModals();await a.setDoc(doc);a.editFeature(sweep.id);await a.rebuild();
+    const guideSelect=document.querySelector('[data-sweep-field="guide"]'),mode=document.querySelector('[data-sweep-field="guideMode"]');
+    if(guideSelect?.value!==guide.id||mode?.value!=='contact')return {ok:false,detail:'Surface sweep guide panel did not restore its inputs'};
+    const tags=[...document.querySelectorAll('[data-loft-label]')].map((e)=>e.textContent);
+    if(!['Profile','Path','Guide'].every((s)=>tags.includes(s)))return {ok:false,detail:'Surface sweep input labels missing'};
+    guideSelect.focus();a.pmPick('sketch',guide.id);
+    if(a.pm.feature.path!==sweep.path||a.pm.feature.profile!==sweep.profile)return {ok:false,detail:'Guide picking overwrote path or profile'};
+    mode.value='orientation';mode.dispatchEvent(new Event('change'));await a.rebuild();
+    if(a.result.errors.size)return {ok:false,detail:JSON.stringify([...a.result.errors])};
+    a.cancelPM();await a.rebuild();if(M.findFeature(a.doc,sweep.id).guideMode!=='contact')return {ok:false,detail:'Cancel did not restore the surface guide mode'};
+    await a.setDoc(JSON.parse(JSON.stringify(a.doc)));
+    await a.enterSketch(M.findFeature(a.doc,guide.id),false);a.sketcher.f.points[1].x=15;a.sketcher.changed();a.exitSketch(true);await a.rebuild();
+    if(a.result.errors.size)return {ok:false,detail:JSON.stringify([...a.result.errors])};
+    const measured=await a.kernel.request('measure',{refs:[{kind:'body',id:a.result.body.bodies[0].id}]});
+    if(measured.items[0].solid||Math.abs(measured.items[0].area-2000)>0.001)return {ok:false,detail:'Guide edit did not regenerate an open surface'};
+    a.editFeature(sweep.id);const input=document.querySelector('[data-sweep-field="guide"]');input.value='';input.dispatchEvent(new Event('change'));await a.okPM();
+    if(a.result.errors.size||M.findFeature(a.doc,sweep.id).guide)return {ok:false,detail:'Removing the surface guide failed'};
+    return {ok:true,detail:JSON.stringify({cases:native.results,health:native.health,ui:'selection, cancel, serialization, editing and clearing'})};
+  },
+
+  async 'sweep-path-guide'() {
+    const {run,fixture}=await import('/tests/sweep-guide-cases.js');
+    const native=await run({threads:threadsPerKernel()});
+    if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
+    const a=window.app,{doc,sweep,guide}=fixture();
+    await a.newDocument?.();closeModals();await a.setDoc(doc);a.editFeature(sweep.id);await a.rebuild();
+    const tags=[...document.querySelectorAll('[data-loft-label]')].map((e)=>e.textContent);
+    if(!['Profile','Path','Guide'].every((name)=>tags.includes(name)))return {ok:false,detail:'Sweep input labels are missing from the view'};
+    const selector=document.querySelector('[data-sweep-field="guide"]');
+    const mode=document.querySelector('[data-sweep-field="guideMode"]');
+    if(!selector||selector.value!==guide.id||!mode||mode.value!=='contact')return {ok:false,detail:'Guide panel did not restore the selected guide and mode'};
+    if([...selector.options].some((o)=>o.value===sweep.path||o.value===sweep.profile))return {ok:false,detail:'Guide selector offers the profile or path'};
+    if(!M.referencesOf(a.doc,M.findFeature(a.doc,sweep.id)).has(guide.id)||!M.sketchesUsedBy(sweep).includes(guide.id))return {ok:false,detail:'Guide dependency is missing'};
+    selector.focus();a.pmPick('sketch',guide.id);
+    if(a.pm.feature.path!==sweep.path||a.pm.feature.profile!==sweep.profile||a.pm.feature.guide!==guide.id)return {ok:false,detail:'Tree guide selection replaced another sweep input'};
+    mode.value='orientation';mode.dispatchEvent(new Event('change'));await a.rebuild();
+    if(a.result.errors.size)return {ok:false,detail:JSON.stringify([...a.result.errors])};
+    a.cancelPM();await a.rebuild();
+    if(M.findFeature(a.doc,sweep.id).guideMode!=='contact')return {ok:false,detail:'Cancel failed to restore the guide mode'};
+    const saved=JSON.parse(JSON.stringify(a.doc));await a.setDoc(saved);
+    await a.enterSketch(M.findFeature(a.doc,guide.id),false);
+    a.sketcher.f.points[1].x=15;a.sketcher.changed();a.exitSketch(true);await a.rebuild();
+    if(a.result.errors.size)return {ok:false,detail:'Guide edit failed: '+JSON.stringify([...a.result.errors])};
+    const body=a.result.body.bodies[0],measured=await a.kernel.request('measure',{refs:[{kind:'body',id:body.id}]});
+    const expected=Math.PI*100*(25+75+225)/3;
+    if(Math.abs(measured.items[0].volume-expected)/expected>2e-5)return {ok:false,detail:'Guide edit did not regenerate the section size'};
+    a.editFeature(sweep.id);document.querySelector('[data-sweep-field="guide"]').value='';document.querySelector('[data-sweep-field="guide"]').dispatchEvent(new Event('change'));
+    await a.okPM();
+    if(M.findFeature(a.doc,sweep.id).guide||a.result.errors.size)return {ok:false,detail:'Clearing the guide failed to restore the ordinary sweep'};
+    return {ok:true,detail:JSON.stringify({cases:native.results,health:native.health,ui:'selection, cancel, serialization, guide editing and clearing'})};
+  },
+
+  async 'loft-guide-edit-regeneration'() {
+    const {run}=await import('/tests/loft-edit-cases.js');
+    const r=await run();
+    return {ok:r.ok,detail:JSON.stringify({results:r.results,health:r.health})};
+  },
+
+  async 'loft-g2-difficult-guides'() {
+    const {run}=await import('/tests/loft-g2-cases.js');
+    const r=await run({threads:threadsPerKernel(),requireLifetime:true});
+    return {ok:r.ok,detail:JSON.stringify(r)};
   },
 
   async 'loft-guide-accuracy'() {

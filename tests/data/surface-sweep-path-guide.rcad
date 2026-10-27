@@ -1,0 +1,139 @@
+{
+ "version": 1,
+ "name": "Swept surface with path and guide",
+ "material": null,
+ "equations": [],
+ "features": [
+  {
+   "id": "f1",
+   "type": "sketch",
+   "name": "Sketch1",
+   "suppressed": false,
+   "plane": {
+    "ref": "top"
+   },
+   "points": [
+    {
+     "id": "p2",
+     "x": -5,
+     "y": 0
+    },
+    {
+     "id": "p3",
+     "x": 5,
+     "y": 0
+    }
+   ],
+   "curves": [
+    {
+     "id": "c4",
+     "type": "line",
+     "p1": "p2",
+     "p2": "p3",
+     "construction": false
+    }
+   ],
+   "constraints": [],
+   "nextSid": 5,
+   "rev": "7q4d3ydv"
+  },
+  {
+   "id": "f2",
+   "type": "sketch",
+   "name": "Sketch2",
+   "suppressed": false,
+   "plane": {
+    "ref": "front"
+   },
+   "points": [
+    {
+     "id": "p4",
+     "x": -40,
+     "y": 0
+    },
+    {
+     "id": "p5",
+     "x": 0,
+     "y": 0
+    },
+    {
+     "id": "p6",
+     "x": -40,
+     "y": 40
+    }
+   ],
+   "curves": [
+    {
+     "id": "c7",
+     "type": "arc",
+     "c": "p4",
+     "p1": "p5",
+     "p2": "p6",
+     "construction": false
+    }
+   ],
+   "constraints": [],
+   "nextSid": 8,
+   "rev": "7eb6efmb"
+  },
+  {
+   "id": "f3",
+   "type": "sketch",
+   "name": "Sketch3",
+   "suppressed": false,
+   "plane": {
+    "ref": "front"
+   },
+   "points": [
+    {
+     "id": "p4",
+     "x": -35,
+     "y": 0
+    },
+    {
+     "id": "p5",
+     "x": -5,
+     "y": 0
+    },
+    {
+     "id": "p6",
+     "x": -40,
+     "y": 29.58039891549808
+    }
+   ],
+   "curves": [
+    {
+     "id": "c7",
+     "type": "arc",
+     "c": "p4",
+     "p1": "p5",
+     "p2": "p6",
+     "construction": false
+    }
+   ],
+   "constraints": [],
+   "nextSid": 8,
+   "rev": "cdotlq1d"
+  },
+  {
+   "id": "f4",
+   "type": "surfSweep",
+   "name": "Surface-Sweep1",
+   "suppressed": false,
+   "op": "add",
+   "profileType": "sketch",
+   "profile": "f1",
+   "diameter": 2,
+   "path": "f2",
+   "guide": "f3",
+   "guideMode": "contact",
+   "merge": true,
+   "thin": false,
+   "thinT": 1,
+   "thinDir": "one",
+   "scopeAll": true,
+   "scope": []
+  }
+ ],
+ "nextId": 5
+}

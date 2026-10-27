@@ -206,6 +206,17 @@ function thinDirOptions(f) {
     : [['one', 'Outside the profile'], ['other', 'Inside the profile'], ['mid', 'Mid-plane (half each side)']];
 }
 
+const LOFT_END_GROUPS = ['start', 'end'].map((key) => ({
+  title: key === 'start' ? 'Start Condition' : 'End Condition', fields: [
+    { key: key + 'Condition', type: 'select', label: 'Constraint', options: [['none', 'Free'], ['normal', 'Normal to profile'], ['direction', 'Direction'], ['tangent', 'Tangent to adjacent faces (G1)']] },
+    { key: key + 'Direction', type: 'direction', label: 'Direction', show: (f) => f[key + 'Condition'] === 'direction' },
+    { key: key + 'Faces', type: 'faceList', loftEnd: key, show: (f) => f[key + 'Condition'] === 'tangent', hint: 'Select the adjacent side faces whose boundary coincides with this profile. Select all faces needed to cover its outer and inner edges, including Thin walls.' },
+    { key: key + 'Strength', type: 'expr', default: 1, label: 'Influence', show: (f) => f[key + 'Condition'] && f[key + 'Condition'] !== 'none' },
+    { key: key + 'Reverse', type: 'check', label: 'Reverse tangent direction', show: (f) => f[key + 'Condition'] && f[key + 'Condition'] !== 'none' },
+    { key: key + 'Hint', type: 'hint', show: (f) => f[key + 'Condition'] && f[key + 'Condition'] !== 'none', text: 'Smooth loft with matching profile curves. Holes and Thin include their inner walls. Guides require Adaptive approximation and compatible endpoint tangents. Influence controls the endpoint derivative length (1 is the default). Contact and tangent planes are checked on the final CAD faces to 0.0001 mm and 0.5 degrees. Interior profiles use C2 interpolation.' },
+  ],
+}));
+
 const THIN_GROUP = {
   title: 'Thin Feature', fields: [
     { key: 'thin', type: 'check', label: 'Thin feature (a wall along the sketch curves)' },
@@ -596,11 +607,17 @@ const PM_SCHEMAS = {
   ],
   sweep: [
     {
-      title: 'Profile and Path', fields: [
+      title: 'Profile, Path and Guide', fields: [
         { key: 'profileType', type: 'select', label: 'Profile', options: [['sketch', 'A sketch'], ['circle', 'Circular (enter the diameter)']] },
         { key: 'profile', type: 'sketch', label: 'Profile sketch', show: (f) => f.profileType !== 'circle' },
         { key: 'diameter', type: 'expr', label: 'Diameter', unit: 'mm', show: (f) => f.profileType === 'circle' },
         { key: 'path', type: 'pathSel', label: 'Path' },
+        { key: 'guide', type: 'pathSel', label: 'Guide (optional)', optional: true },
+        { key: 'orientation', type: 'select', label: 'Orientation', show: (f) => !f.guide, options: [['perpendicular', 'Perpendicular to path'], ['parallel', 'Parallel to initial profile']] },
+        { key: 'twistAngle', type: 'expr', default: 0, label: 'Twist angle', unit: '°', show: (f) => !f.guide && f.orientation !== 'parallel' },
+        { key: 'twistHint', type: 'hint', show: (f) => !f.guide && f.orientation !== 'parallel', text: 'Total rotation distributed by distance along the path. Positive angles follow the right-hand rule along the path. Twist requires an open, tangent-continuous path; zero keeps the usual sweep.' },
+        { key: 'guideMode', type: 'select', label: 'Guide controls', show: (f) => !!f.guide, options: [['orientation', 'Orientation — keep profile size'], ['contact', 'Section size — keep guide on boundary']] },
+        { key: 'guideHint', type: 'hint', show: (f) => !!f.guide, text: 'Use one closed profile without holes or Thin, with an open path and guide. Both curves must span the same normal sections. Orientation keeps the profile size; the guide need not touch its boundary. Section size uniformly scales the profile; the guide must start on its boundary. Contact is checked to 0.0001 mm.' },
         { key: 'sweepHint', type: 'hint', text: 'The path is a sketch (one chain of lines and arcs) or a helix. A sketch profile should sit at the start of the path, across it. For a spring: a helix path and a circular profile.' },
       ],
     },
@@ -610,16 +627,17 @@ const PM_SCHEMAS = {
   ],
   loft: [
     { title: 'Profiles', fields: [{ key: 'profiles', type: 'loftSelection' }] },
+    ...LOFT_END_GROUPS,
     { title: 'Guide Curves', fields: [
       { key: 'guides', type: 'loftSelection', show: (f) => !f.ruled || f.guides?.length },
-      { key: 'guideMethod', type: 'select', label: 'Guide construction', show: (f) => f.guides?.length && !f.ruled, options: [['adaptive', 'Adaptive approximation'], ['constrained', 'CAD constraints (two profiles)']] },
-      { key: 'guideContinuity', type: 'select', label: 'Across guide seams', show: (f) => f.guides?.length && f.guideMethod === 'constrained' && !f.ruled, options: [['C0', 'C0 — Contact'], ['G1', 'G1 — Tangent']] },
+      { key: 'guideMethod', type: 'select', label: 'Guide construction', show: (f) => f.guides?.length && !f.ruled, options: (f) => [['adaptive', 'Adaptive approximation'], ['constrained', [f.startCondition, f.endCondition].some(x => x && x !== 'none') ? 'CAD constraints (requires free endpoints)' : 'CAD constraints (two profiles)']] },
+      { key: 'guideContinuity', type: 'select', label: 'Across guide seams', show: (f) => f.guides?.length && f.guideMethod === 'constrained' && !f.ruled, options: [['C0', 'C0 — Contact'], ['G1', 'G1 — Tangent'], ['G2', 'G2 — Curvature']] },
       { key: 'guideMethodHint', type: 'hint', show: (f) => f.guides?.length && f.guideMethod === 'constrained', text: 'Native guide edges constrain the CAD patches to 0.0001 mm. Requires two profiles without holes or Thin Feature. Across guide seams controls the joins along shared guides; original profile corners are not smoothed. Incompatible constraints report an error without lowering continuity.' },
     ] },
     { title: 'Options', fields: [
       { key: 'ruled', type: 'check', label: 'Straight (ruled) sides between profiles' },
-      { key: 'continuity', type: 'select', label: 'Through the profiles', show: (f) => !f.ruled && !(f.guides?.length && f.guideMethod === 'constrained'), options: [['C2', 'Curvature-continuous (C2)'], ['C1', 'Tangent-continuous (C1)']] },
-      { key: 'smoothing', type: 'check', label: 'Smooth the surface (evens out its bends)', show: (f) => !f.ruled && !(f.guides?.length && f.guideMethod === 'constrained') },
+      { key: 'continuity', type: 'select', label: 'Through the profiles', show: (f) => !f.ruled && ![f.startCondition, f.endCondition].some(x => x && x !== 'none') && !(f.guides?.length && f.guideMethod === 'constrained'), options: [['C2', 'Curvature-continuous (C2)'], ['C1', 'Tangent-continuous (C1)']] },
+      { key: 'smoothing', type: 'check', label: 'Smooth the surface (evens out its bends)', show: (f) => !f.ruled && ![f.startCondition, f.endCondition].some(x => x && x !== 'none') && !(f.guides?.length && f.guideMethod === 'constrained') },
       { key: 'merge', type: 'check', label: 'Merge result (off: make a separate body)', show: (f) => f.op === 'add' },
     ] },
     THIN_GROUP,
@@ -978,21 +996,28 @@ const PM_SCHEMAS = {
   ],
   surfLoft: [
     { title: 'Profiles', fields: [{ key: 'profiles', type: 'loftSelection', with3d: true }] },
+    ...LOFT_END_GROUPS,
     { title: 'Guide Curves', fields: [
       { key: 'guides', type: 'loftSelection', show: (f) => !f.ruled || f.guides?.length },
-      { key: 'guideMethod', type: 'select', label: 'Guide construction', show: (f) => f.guides?.length && !f.ruled, options: [['adaptive', 'Adaptive approximation'], ['constrained', 'CAD constraints (two profiles)']] },
-      { key: 'guideContinuity', type: 'select', label: 'Across guide seams', show: (f) => f.guides?.length && f.guideMethod === 'constrained' && !f.ruled, options: [['C0', 'C0 — Contact'], ['G1', 'G1 — Tangent']] },
-      { key: 'guideMethodHint', type: 'hint', show: (f) => f.guides?.length && f.guideMethod === 'constrained', text: 'Native guide edges form patch boundaries, checked to 0.0001 mm. Requires two profiles. Open profiles make a sheet; closed profiles make an uncapped shell. Across guide seams controls contact or tangency along shared guides. Incompatible constraints report an error without lowering continuity.' },
+      { key: 'guideMethod', type: 'select', label: 'Guide construction', show: (f) => f.guides?.length && !f.ruled, options: (f) => [['adaptive', 'Adaptive approximation'], ['constrained', [f.startCondition, f.endCondition].some(x => x && x !== 'none') ? 'CAD constraints (requires free endpoints)' : 'CAD constraints (two profiles)']] },
+      { key: 'guideContinuity', type: 'select', label: 'Across guide seams', show: (f) => f.guides?.length && f.guideMethod === 'constrained' && !f.ruled, options: [['C0', 'C0 — Contact'], ['G1', 'G1 — Tangent'], ['G2', 'G2 — Curvature']] },
+      { key: 'guideMethodHint', type: 'hint', show: (f) => f.guides?.length && f.guideMethod === 'constrained', text: 'Native guide edges form patch boundaries, checked to 0.0001 mm. Requires two profiles. Open profiles make a sheet; closed profiles make an uncapped shell. Across guide seams controls contact, tangency or curvature continuity along shared guides. Incompatible constraints report an error without lowering continuity.' },
       { key: 'gHint', type: 'hint', show: (f) => !f.ruled && f.guideMethod !== 'constrained', text: 'Optional: curves (rails) the surface follows between the profiles, e.g. along its edges. Each runs from the first profile to the last, through every profile. One guide pulls the surface along it; two or more shape it across, each where it touches the profiles.' },
     ] },
     { title: 'Options', fields: [{ key: 'ruled', type: 'check', label: 'Straight (ruled) between profiles' }] },
   ],
   surfSweep: [
-    { title: 'Profile and Path', fields: [
+    { title: 'Profile, Path and Guide', fields: [
       { key: 'profileType', type: 'select', label: 'Profile', options: [['sketch', 'A sketch (open or closed)'], ['circle', 'Circular (enter the diameter)']] },
       { key: 'profile', type: 'sketch', label: 'Profile sketch', show: (f) => f.profileType !== 'circle' },
       { key: 'diameter', type: 'expr', label: 'Diameter', unit: 'mm', show: (f) => f.profileType === 'circle' },
       { key: 'path', type: 'pathSel', label: 'Path' },
+      { key: 'guide', type: 'pathSel', label: 'Guide (optional)', optional: true },
+        { key: 'orientation', type: 'select', label: 'Orientation', show: (f) => !f.guide, options: [['perpendicular', 'Perpendicular to path'], ['parallel', 'Parallel to initial profile']] },
+        { key: 'twistAngle', type: 'expr', default: 0, label: 'Twist angle', unit: '°', show: (f) => !f.guide && f.orientation !== 'parallel' },
+        { key: 'twistHint', type: 'hint', show: (f) => !f.guide && f.orientation !== 'parallel', text: 'Total rotation distributed by distance along the path. Positive angles follow the right-hand rule along the path. Twist requires an open, tangent-continuous path; zero keeps the usual sweep.' },
+      { key: 'guideMode', type: 'select', label: 'Guide controls', show: (f) => !!f.guide, options: [['orientation', 'Orientation — keep profile size'], ['contact', 'Section size — follow the guide']] },
+      { key: 'guideHint', type: 'hint', show: (f) => !!f.guide, text: 'Use one open or closed profile chain and an open path and guide. Orientation keeps the profile size. Section size uniformly scales the profile; the guide must start on the profile curve. Contact with the surface is checked to 0.0001 mm. Closed profiles produce an uncapped surface.' },
       { key: 'ssHint', type: 'hint', text: 'The profile (one chain of curves, open or closed) is swept along the path as a surface. Place it at the start of the path, across it.' },
     ] },
   ],
@@ -3591,7 +3616,7 @@ export class UI {
           if (picked) row.appendChild(el('button', { class: 'pm-btn', onclick: () => { f[fd.key] = null; this.renderPM(); a.updateEdgeHighlights(); a.preview(); } }, 'Clear'));
           body.appendChild(this.row(fd.label, row));
         } else if (fd.type === 'expr') {
-          body.appendChild(this.row(fd.label, this.exprInput(fd.neg ? negExpr(f[fd.key]) : f[fd.key], fd.unit, (v) => { f[fd.key] = fd.neg ? negExpr(v) : v; a.preview(); }, { optional: !!fd.optional })));
+          body.appendChild(this.row(fd.label, this.exprInput(fd.neg ? negExpr(f[fd.key] ?? fd.default) : (f[fd.key] ?? fd.default), fd.unit, (v) => { f[fd.key] = fd.neg ? negExpr(v) : v; a.preview(); }, { optional: !!fd.optional })));
         } else if (fd.type === 'check') {
           const cb = el('input', { type: 'checkbox' });
           cb.checked = !!(f[fd.key] ?? fd.default);
@@ -3616,7 +3641,7 @@ export class UI {
           if (fd.type === 'pointSel') options = [['', '— select a reference point —'], ...pointFeats];
           if (fd.type === 'pointRef') options = [['', f.toVertex ? '✔ Vertex picked on the model' : '— click a vertex on the model —'], ...pointFeats];
           if (fd.type === 'surfaceRef') options = [['', f.toFace ? '✔ Face picked on the model' : '— click a flat face on the model —'], ...Object.entries(STD_PLANES).map(([k, p]) => [k, p.name]), ...before.filter((x) => x.type === 'plane' && !x.suppressed).map((x) => [x.id, x.name])];
-          if (fd.type === 'pathSel') options = [['', '— a sketch, 3D sketch, curve or helix —'], ...before.filter((x) => ['sketch', 'helix', 'sketch3d', 'compCurve', 'projCurve'].includes(x.type) && !x.suppressed && x.id !== f.profile).map((x) => [x.id, x.name])];
+          if (fd.type === 'pathSel') options = [['', fd.optional ? '— None —' : '— a sketch, 3D sketch, curve or helix —'], ...before.filter((x) => ['sketch', 'helix', 'sketch3d', 'compCurve', 'projCurve'].includes(x.type) && !x.suppressed && (['sweep','surfSweep'].includes(f.type) && f.profileType === 'circle' || x.id !== f.profile) && !(['sweep','surfSweep'].includes(f.type) && x.id === (fd.key === 'guide' ? f.path : f.guide))).map((x) => [x.id, x.name])];
           if (fd.type === 'threadSize') {
             options = [['auto', 'Automatic (the size that fits the face)'], ...threadList(f.system || 'metric').map((t) => [t.id, t.label]), ['custom', 'Custom…']];
             if (!options.some(([vv]) => vv === f.size)) f.size = 'auto';
@@ -3632,8 +3657,12 @@ export class UI {
             if ((f[fd.key] ?? '') === v) o.selected = true;
             s.appendChild(o);
           }
+          if (['sweep','surfSweep'].includes(f.type)) s.dataset.sweepField = fd.key;
+          if (['loft', 'surfLoft'].includes(f.type) && /^(start|end)/.test(fd.key)) { s.dataset.loftEndField = fd.key; if (fd.type === 'direction') s.onfocus = () => { pm.loftEndAxis = fd.key; }; }
+          if (['sweep','surfSweep'].includes(f.type) && ['profile','path','guide'].includes(fd.key)) s.onfocus = () => { pm.sweepSlot = fd.key; };
           s.onchange = () => {
             f[fd.key] = s.value || null;
+            if (['loft', 'surfLoft'].includes(f.type) && /^(start|end)Condition$/.test(fd.key)) { pm.loftEndSlot = s.value === 'tangent' ? fd.key.replace('Condition', 'Faces') : null; pm.loftDraft = null; a.updateSketchDisplay(); }
             if (f.type === 'extrude' && (['pointRef', 'surfaceRef'].includes(fd.type) || (fd.key === 'end' && ['upToVertex', 'upToSurface', 'offsetSurface'].includes(f.end)))) { pm.extrudePick = false; pm.loftHover = null; a.updateSketchDisplay(); }
             // an open sketch can only be extruded as a thin feature
             if (fd.type === 'sketch' && f.type === 'extrude' && SM.isOpenSketch(findFeature(doc, f.sketch))) f.thin = true;
@@ -4965,17 +4994,19 @@ export class UI {
 
   renderFaceList(body, f, fd = {}) {
     const a = this.app;
-    if (!Array.isArray(f.faces)) f.faces = [];
+    const key = fd.key || 'faces', pm = a.pm;
+    if (!Array.isArray(f[key])) f[key] = [];
+    if (fd.loftEnd) body.appendChild(el('button', { class: 'pm-btn' + (pm.loftEndSlot === key ? ' on' : ''), 'data-loft-end-faces': key, onclick: () => { pm.loftEndSlot = pm.loftEndSlot === key ? null : key; pm.loftDraft = null; this.renderPM(); a.updateSketchDisplay(); a.updateEdgeHighlights(); } }, `Select ${fd.loftEnd} support faces`));
     body.appendChild(el('div', { class: 'pm-hint' }, esc(fd.hint || 'Click faces on the model to add or remove them.')));
     const ul = el('div', { class: 'pm-list' });
-    if (!f.faces.length) ul.appendChild(el('div', { class: 'li pm-hint' }, esc(fd.empty || 'No faces selected')));
-    f.faces.forEach((r, i) => {
+    if (!f[key].length) ul.appendChild(el('div', { class: 'li pm-hint' }, esc(fd.empty || 'No faces selected')));
+    f[key].forEach((r, i) => {
       const li = el('div', { class: 'li sel' }, `${icon('plane')}<span>${esc(fd.itemLabel || 'Face')}&lt;${i + 1}&gt;</span><span class="x" title="Remove">✕</span>`);
-      li.querySelector('.x').onclick = () => { f.faces.splice(i, 1); this.renderPM(); a.updateEdgeHighlights(); a.preview(); };
+      li.querySelector('.x').onclick = () => { f[key].splice(i, 1); this.renderPM(); a.updateEdgeHighlights(); a.preview(); };
       ul.appendChild(li);
     });
     body.appendChild(ul);
-    if (f.faces.length) body.appendChild(el('button', { class: 'pm-btn', onclick: () => { f.faces.length = 0; this.renderPM(); a.updateEdgeHighlights(); a.preview(); } }, 'Clear'));
+    if (f[key].length) body.appendChild(el('button', { class: 'pm-btn', onclick: () => { f[key].length = 0; this.renderPM(); a.updateEdgeHighlights(); a.preview(); } }, 'Clear'));
   }
 
   // Loft profiles: sketches in order (the loft goes through them from first to last).
@@ -4983,9 +5014,9 @@ export class UI {
     const a = this.app, pm = a.pm, key = fd.key, guide = key === 'guides';
     const extrude = f.type === 'extrude';
     pm.loftSlot ||= 'profiles'; f[key] ||= [];
-    const active = pm.loftSlot === key && (!extrude || pm.extrudePick !== false);
+    const active = !pm.loftEndSlot && pm.loftSlot === key && (!extrude || pm.extrudePick !== false);
     body.appendChild(el('button', { class: 'pm-btn' + (active ? ' on' : ''), 'aria-pressed': String(active), disabled: guide && f.ruled, 'data-loft-slot': key, onclick: () => {
-      pm.loftSlot = key; pm.loftDraft = null; pm.loftHover = null;
+      pm.loftEndSlot = null; pm.loftEndAxis = null; pm.loftSlot = key; pm.loftDraft = null; pm.loftHover = null;
       if (extrude) pm.extrudePick = !active;
       this.renderPM(); a.updateSketchDisplay(); a.status(guide ? 'Click the guide curves in the canvas.' : 'Click the section contours or inside closed profiles in the canvas.');
     } }, guide ? 'Select guides in canvas' : 'Select profiles in canvas'));

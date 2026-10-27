@@ -1,5 +1,7 @@
 """RazorCAD's changes to replicad's multi-threaded kernel loader (replicad_multi.js, replicad commit a0bc495).
 
+For rebuilt surface kernels use patch_surface_kernel_loader.py; this script reproduces the original published loader.
+
 The same two hooks as in RazorCAD's replicad_single.js (used by app/js/ocfree.js to free kernel objects for real),
 and the number of threads a kernel starts (and the processor count OpenCascade sees) taken from Module.razorcadThreads (RazorCAD sets it from the PC: see
 app/js/machine.js), instead of always every processor thread, so several kernels don't each start one per thread.

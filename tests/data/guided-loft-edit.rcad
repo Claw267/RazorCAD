@@ -1,0 +1,262 @@
+{
+ "version": 1,
+ "name": "Guided loft - G2",
+ "material": null,
+ "equations": [],
+ "features": [
+  {
+   "id": "f1",
+   "type": "plane",
+   "name": "Plane1",
+   "suppressed": false,
+   "refs": [
+    {
+     "kind": "plane",
+     "id": "top"
+    }
+   ],
+   "offset": 100,
+   "flip": false,
+   "angle": 90,
+   "flipAngle": false,
+   "position": "mid",
+   "bisector": false,
+   "through": false,
+   "along": 0,
+   "around": 0,
+   "moveBy": 0,
+   "turn": 0,
+   "reverse": false
+  },
+  {
+   "id": "f2",
+   "type": "sketch",
+   "name": "Sketch1",
+   "suppressed": false,
+   "plane": {
+    "ref": "top"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": -20,
+     "y": -20
+    },
+    {
+     "id": "p2",
+     "x": 20,
+     "y": -20
+    },
+    {
+     "id": "p3",
+     "x": 20,
+     "y": 20
+    },
+    {
+     "id": "p4",
+     "x": -20,
+     "y": 20
+    }
+   ],
+   "curves": [
+    {
+     "id": "c5",
+     "type": "line",
+     "p1": "p1",
+     "p2": "p2",
+     "construction": false
+    },
+    {
+     "id": "c6",
+     "type": "line",
+     "p1": "p2",
+     "p2": "p3",
+     "construction": false
+    },
+    {
+     "id": "c7",
+     "type": "line",
+     "p1": "p3",
+     "p2": "p4",
+     "construction": false
+    },
+    {
+     "id": "c8",
+     "type": "line",
+     "p1": "p4",
+     "p2": "p1",
+     "construction": false
+    }
+   ],
+   "constraints": [],
+   "nextSid": 9,
+   "rev": "0qp5j5t6"
+  },
+  {
+   "id": "f3",
+   "type": "sketch",
+   "name": "Sketch2",
+   "suppressed": false,
+   "plane": {
+    "ref": "f1"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": -20,
+     "y": -24
+    },
+    {
+     "id": "p2",
+     "x": 20,
+     "y": -24
+    },
+    {
+     "id": "p3",
+     "x": 20,
+     "y": 24
+    },
+    {
+     "id": "p4",
+     "x": -20,
+     "y": 24
+    }
+   ],
+   "curves": [
+    {
+     "id": "c5",
+     "type": "line",
+     "p1": "p1",
+     "p2": "p2",
+     "construction": false
+    },
+    {
+     "id": "c6",
+     "type": "line",
+     "p1": "p2",
+     "p2": "p3",
+     "construction": false
+    },
+    {
+     "id": "c7",
+     "type": "line",
+     "p1": "p3",
+     "p2": "p4",
+     "construction": false
+    },
+    {
+     "id": "c8",
+     "type": "line",
+     "p1": "p4",
+     "p2": "p1",
+     "construction": false
+    }
+   ],
+   "constraints": [],
+   "nextSid": 9,
+   "rev": "vefmrzwt"
+  },
+  {
+   "id": "f4",
+   "type": "sketch",
+   "name": "Sketch3",
+   "suppressed": false,
+   "plane": {
+    "ref": "front"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": 20,
+     "y": 0
+    },
+    {
+     "id": "p2",
+     "x": 29,
+     "y": 33.333333333333336
+    },
+    {
+     "id": "p3",
+     "x": 29,
+     "y": 66.66666666666667
+    },
+    {
+     "id": "p4",
+     "x": 20,
+     "y": 100
+    }
+   ],
+   "curves": [
+    {
+     "id": "s5",
+     "type": "spline",
+     "ctrl": true,
+     "degree": 3,
+     "pts": [
+      "p1",
+      "p2",
+      "p3",
+      "p4"
+     ],
+     "p1": "p1",
+     "p2": "p4",
+     "closed": false,
+     "construction": false
+    },
+    {
+     "id": "c6",
+     "type": "line",
+     "p1": "p1",
+     "p2": "p2",
+     "construction": true,
+     "ctrlOf": "s5"
+    },
+    {
+     "id": "c7",
+     "type": "line",
+     "p1": "p2",
+     "p2": "p3",
+     "construction": true,
+     "ctrlOf": "s5"
+    },
+    {
+     "id": "c8",
+     "type": "line",
+     "p1": "p3",
+     "p2": "p4",
+     "construction": true,
+     "ctrlOf": "s5"
+    }
+   ],
+   "constraints": [],
+   "nextSid": 9,
+   "rev": "enwhco9i"
+  },
+  {
+   "id": "f5",
+   "type": "loft",
+   "name": "Loft1",
+   "suppressed": false,
+   "op": "add",
+   "profiles": [
+    "f2",
+    "f3"
+   ],
+   "guides": [
+    "f4"
+   ],
+   "ruled": false,
+   "continuity": "C2",
+   "smoothing": false,
+   "merge": true,
+   "thin": false,
+   "thinT": 1,
+   "thinDir": "one",
+   "scopeAll": true,
+   "scope": [],
+   "guideMethod": "constrained",
+   "guideContinuity": "G2"
+  }
+ ],
+ "nextId": 6
+}

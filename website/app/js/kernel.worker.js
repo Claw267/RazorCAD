@@ -19,6 +19,10 @@ import { profileDims, profileSection, piercePoint } from './profiles.js';
 import { normalize3d, solve3d, splineGeom } from './sketch3dmodel.js';
 import { decimate } from './meshdecimate.js';
 import { installRealDelete, freeStats } from './ocfree.js';
+import { compareSurfaceContinuity, surfaceNormalAtUV } from './surfacecontinuity.js';
+import { guideScaleLaw } from './sweepguides.js';
+import { sweepWithOrientation } from './sweepoptions.js';
+import { hasLoftEnds, endConstrainedLoft, checkLoftEndGuides, tensorFaceDistance } from './loftends.js';
 
 // sheet metal features (they keep a body's flat pattern up to date)
 // sheet metal features that make new bodies (from sketches)
@@ -40,12 +44,12 @@ let stack = null;      // { get, set, top }
 let stackLost = 0;     // bytes of kernel stack recovered so far (for crash reports)
 let kernelDead = null; // why the kernel stopped (abort); the worker must then be replaced
 
-// emscripten_stack_get_current / _emscripten_stack_restore: plain names in unminified builds,
-// 'Ra' / 'Pa' in the bundled replicad_single.wasm, 'lb' / 'jb' in replicad_multi.wasm. Checked before use.
-function findStackFns(x) {
-  const pairs = [['emscripten_stack_get_current', '_emscripten_stack_restore'], ...(MULTI ? [['lb', 'jb']] : [['Ra', 'Pa']])];
-  for (const [g, s] of pairs) {
-    const get = x[g], set = x[s];
+// Prefer stable module exports. Retain the legacy export names for previous kernels;
+// every candidate is tested before any stack reset is enabled.
+function findStackFns(x, oc) {
+  const names = [['emscripten_stack_get_current', '_emscripten_stack_restore'], ...(MULTI ? [['lb', 'jb']] : [['Ra', 'Pa']])];
+  const pairs = [[oc?._emscripten_stack_get_current, oc?.__emscripten_stack_restore], ...names.map(([g,s])=>[x[g],x[s]])];
+  for (const [get, set] of pairs) {
     if (typeof get !== 'function' || typeof set !== 'function' || get.length !== 0 || set.length !== 1) continue;
     try {
       const sp = get();
@@ -91,7 +95,7 @@ const ready = (async () => {
       onAbort(what) { kernelDead = `the geometry kernel aborted${what ? ` (${what})` : ''}`; },
     }).then(resolve, reject);
   });
-  stack = findStackFns(exportsOf);
+  stack = findStackFns(exportsOf, oc);
   // (type information and vtables are static data, below the stack)
   installRealDelete(oc, exportsOf, stack?.top ?? 12 * 1048576);
   R.setOC(oc);
@@ -2372,6 +2376,121 @@ async function rebuild(doc, previewId = null, opts = {}) {
     return a;
   };
 
+  const buildEndLoft = (f, ids, wires, surface = false, options = {}) => {
+    if (f.ruled) throw new Error('Endpoint conditions require a smooth loft; untick Straight (ruled)');
+    if (options.guides?.length && f.guideMethod === 'constrained') throw new Error('Endpoint conditions with guide curves currently require Adaptive approximation; CAD guide seams remain available without endpoint conditions');
+    const settings = [], allocated = [];
+    try {
+      for (const [i, key] of ['start', 'end'].entries()) {
+        const mode = f[key + 'Condition'] || 'none';
+        if (!['none', 'normal', 'direction', 'tangent'].includes(mode)) throw new Error('Select a supported loft endpoint condition');
+        const strength = mode === 'none' ? 1 : ev(f[key + 'Strength'] ?? 1);
+        if (!(Number.isFinite(strength) && strength > 0)) throw new Error('Endpoint influence must be finite and greater than zero');
+        let direction, faces = [];
+        if (mode === 'normal') {
+          const sk = sketches.get(LR.sourceId(ids[i === 0 ? 0 : ids.length - 1]));
+          if (!sk) throw new Error('Normal to profile requires a planar sketch; use Direction for a 3D curve');
+          direction = sk.frame.n;
+        } else if (mode === 'direction') direction = resolveAxis(f[key + 'Direction'] || 'y').d;
+        else if (mode === 'tangent') {
+          const refs = f[key + 'Faces'] || [];
+          if (!refs.length) throw new Error(`Select adjacent support faces for the ${key} profile`);
+          faces = refs.map(ref => {
+            const sources = [...solids, ...surfaces].filter(b => !ref.body || b.id === ref.body);
+            let hit = findFaceAny(sources, ref);
+            // After a dimensional edit, a curved face may move away from the
+            // old pick. Rebind only within its saved body and geometric type,
+            // and only to a unique side face adjacent to the new profile.
+            if (!hit && ref.body && ref.loftType) {
+              const endpoint = i === 0 ? 0 : wires.length - 1, neighbor = i === 0 ? 1 : endpoint - 1;
+              const allLoops = [wires, ...(options.holes || [])], loops = Number.isInteger(ref.loftLoop) && allLoops[ref.loftLoop] ? [allLoops[ref.loftLoop]] : allLoops;
+              const edges = loops.flatMap(loop => loop[endpoint].edges), others = loops.flatMap(loop => loop[neighbor].edges), candidates = [];
+              const gap = (point, shape) => { const vertex = R.makeVertex(point), query = new R.DistanceQuery(vertex); try { return query.distanceTo(shape); } finally { query.delete(); vertex.delete(); } };
+              const point = (edge, t) => { const p = edge.pointAt(t); try { return vec(p); } finally { p.delete(); } };
+              try {
+                for (const source of sources) for (const { face } of facesWithBox(source.shape)) {
+                  if (face.geomType !== ref.loftType) continue;
+                  const boundary = face.edges;
+                  try {
+                    const adjacent = edges.some((edge, j) => {
+                      if (!others[j] || ![.19, .53, .83].every(t => boundary.some(e => gap(point(edge, t), e) <= 1e-4))) return false;
+                      const p = point(edge, .5), n = face.normalAt(p), t = edge.tangentAt(.5);
+                      try { return Math.abs(dot(cross(unit(vec(t)), unit(vec(n))), sub(point(others[j], .5), p))) > 1e-7; }
+                      finally { n.delete(); t.delete(); }
+                    });
+                    if (adjacent) candidates.push({ body: source, face });
+                  } finally { boundary.forEach(edge => edge.delete()); }
+                }
+                if (candidates.length === 1) {
+                  const candidate = candidates[0], vertex = R.makeVertex(ref.p), query = new R.DistanceQuery(vertex);
+                  try { query.distanceTo(candidate.face); const p = query.wrapped.PointOnShape2(1); try { ref.p = [p.X(), p.Y(), p.Z()]; } finally { p.delete(); } }
+                  finally { query.delete(); vertex.delete(); }
+                  hit = refFound(ref, candidate, true);
+                }
+              } finally { edges.forEach(edge => edge.delete()); others.forEach(edge => edge.delete()); }
+            }
+            if (!hit) throw new Error(`A ${key} support face is missing or could not be resolved`);
+            ref.loftType = hit.face.geomType;
+            if (!Number.isInteger(ref.loftLoop)) {
+              const boundary = hit.face.edges, loops = [wires, ...(options.holes || [])], matches = [];
+              const onEdge = (p, edge) => { const vertex = R.makeVertex(p), query = new R.DistanceQuery(vertex); try { return query.distanceTo(edge) <= 1e-4; } finally { query.delete(); vertex.delete(); } };
+              try { loops.forEach((loop, index) => {
+                const edges = loop[i === 0 ? 0 : loop.length - 1].edges;
+                try { if (edges.some(edge => [.19,.53,.83].every(t => { const p = edge.pointAt(t); try { return boundary.some(other => onEdge(vec(p), other)); } finally { p.delete(); } }))) matches.push(index); }
+                finally { edges.forEach(edge => edge.delete()); }
+              }); } finally { boundary.forEach(edge => edge.delete()); }
+              if (matches.length === 1) ref.loftLoop = matches[0];
+            }
+            const face = hit.face.clone(); allocated.push(face); return face;
+          });
+        }
+        settings.push({ mode, direction, faces, strength, reverse: !!f[key + 'Reverse'] });
+      }
+    } catch (e) { allocated.forEach(face => face.delete()); throw e; }
+    let guideBase;
+    try {
+      const build = (outer, holes) => endConstrainedLoft(R, outer, settings, { surface, sew: sewShapes, solid: solidFromSewn, holes, constraintWires: guideBase?.outer || wires, constraintHoles: guideBase?.holes || options.holes || [] });
+      let result, guideError = 0;
+      if (options.guides?.length) {
+        guideBase = guidedLoftWires(options.matched, options.guides, options.names, options.holesMatched || [], options.slack || 0, { open: options.open, profileWires: options.profileWires, stations: 0, includeJunctions: false, smoothPull: true, tolerance: 1e-4 });
+        checkLoftEndGuides(R, options.guides, guideBase.outer, settings, options.slack || 0);
+        for (const stations of [8, 16, 32, 64, 128]) {
+          const g = guidedLoftWires(options.matched, options.guides, options.names, options.holesMatched || [], options.slack || 0, { open: options.open, profileWires: options.profileWires, stations, smoothPull: true, tolerance: 1e-4 });
+          let candidate;
+          try {
+            candidate = build(g.outer, g.holes);
+            const faces = candidate.shape.faces.map(face => ({ face, box: bbox(face), spline: face.geomType === 'BSPLINE_SURFACE' })), oc = R.getOC(); guideError = 0;
+            try {
+              for (const { p } of g.checkPoints) {
+                const point = new oc.gp_Pnt(...p); let error = Infinity;
+                try { for (const { face, box, spline } of faces) {
+                  if (boxDist(box, p) > 1e-4) continue;
+                  const hit = oc.RazorCADSurfacePatch.NearPoint(face.wrapped, point, 1e-4);
+                  try { const q = [hit.X(), hit.Y(), hit.Z()]; if (q.every(Number.isFinite)) error = Math.min(error, len(sub(q, p))); else if (spline) error = Math.min(error, tensorFaceDistance(R, face, p, 1e-5)); } finally { hit.delete(); }
+                  if (error <= 1e-4) break;
+                }} finally { point.delete(); }
+                guideError = Math.max(guideError, error); if (!(guideError <= 1e-4)) break;
+              }
+            } finally { faces.forEach(({ face }) => face.delete()); }
+            if (guideError <= 1e-4) { result = candidate; candidate = null; break; }
+          } finally {
+            candidate?.shape.delete();
+            g.outer.filter(wire => !wires.includes(wire)).forEach(wire => wire.delete());
+            g.holes.flat().forEach(wire => wire.delete());
+          }
+        }
+        if (!result) throw new Error(`The guides and endpoint conditions could not be followed within 0.0001 mm after bounded refinement (last sampled error ${Number.isFinite(guideError)?guideError.toExponential(2):'unresolved'} mm); add a profile near the tightest bend`);
+      } else result = build(wires, options.holes || []);
+      res.features[f.id] = { ...(res.features[f.id] || {}), startFaces: f.startFaces || [], endFaces: f.endFaces || [] };
+      res.notes[f.id] = `Endpoint CAD constraints · contact ${result.contact.toExponential(2)} mm · normal mismatch ${result.angle.toFixed(4)} deg` + (options.guides?.length ? ` · Adaptive guides: CAD contact ${guideError.toExponential(2)} mm` : '');
+      return result.shape;
+    } finally {
+      allocated.forEach(face => face.delete());
+      guideBase?.outer.filter(wire => !wires.includes(wire)).forEach(wire => wire.delete());
+      guideBase?.holes.flat().forEach(wire => wire.delete());
+    }
+  };
+
   // axis of a revolve: an axis feature, a straight model edge or cylindrical face picked on the
   // model ('edge' / 'face'), or a line of the sketch ('v' / 'u' = the sketch axes)
   const revolveAxisOf = (f, sk) => {
@@ -3391,22 +3510,45 @@ async function rebuild(doc, previewId = null, opts = {}) {
           needEdges('Shell');
           if (!f.faces?.length) throw new Error('Select the faces to remove on the model');
           const t = ev(f.thickness);
-          if (t <= 0) throw new Error('Thickness must be greater than zero');
-          const hits = f.faces.map((r) => findFaceAny(solids, r));
-          if (hits.some((h) => !h)) throw new Error('A selected face could not be found in the model');
+          if (!Number.isFinite(t) || t <= 0) throw new Error('Thickness must be a finite number greater than zero');
+          const pickedHits=f.faces.map((r)=>findFaceAny(solids,r));
+          if(pickedHits.some((h)=>!h))throw new Error('A selected face could not be found in the model');
+          const hits=pickedHits.filter((hit,i)=>pickedHits.findIndex((other)=>other.body===hit.body&&other.face.isSame(hit.face))===i);
           const rec = hits[0].body;
           if (hits.some((h) => h.body !== rec)) throw new Error('All removed faces must be on the same body');
-          const thick = (shape, faces) => {
-            const oc = R.getOC(), L = ocList(faces);
-            const mk = new oc.BRepOffsetAPI_MakeThickSolid();
+          // OCCT can report completion while returning the original body or an
+          // open shell. Neither is a successful hollowing operation.
+          const validShell = (shape, candidate, removed) => {
+            if (!candidate) return false;
+            const oc=R.getOC(),check=new oc.BRepCheck_Analyzer(candidate.wrapped,true);
+            const solids=candidate.solids,faces=candidate.faces;
             try {
-              mk.MakeThickSolidByJoin(shape.wrapped, L, f.outward ? t : -t, 1e-3, oc.BRepOffset_Mode.BRepOffset_Skin, false, false, oc.GeomAbs_JoinType.GeomAbs_Arc, false);
-              const out = R.cast(mk.Shape());
-              return solidsOf(out).length ? out : null;
-            } catch { return null; } finally { mk.delete(); L.delete(); }
+              if(!check.IsValid()||!solids.length||removed.some((r)=>faces.some((face)=>face.isSame(r))))return false;
+              const volume=preciseVolume(candidate),before=preciseVolume(shape);
+              if(!Number.isFinite(volume)||!(volume>0))return false;
+              if(!f.outward&&!(volume<before-Math.max(1e-9,before*1e-9)))return false;
+              return true;
+            } finally {check.delete();solids.forEach((s)=>s.delete());faces.forEach((face)=>face.delete());}
+          };
+          let sharpJoins=false;
+          const thick = (shape, faces) => {
+            const oc=R.getOC(),L=ocList(faces),tolerance=Math.max(1e-7,Math.min(1e-4,t*1e-3));
+            try {
+              for(const join of [oc.GeomAbs_JoinType.GeomAbs_Arc,oc.GeomAbs_JoinType.GeomAbs_Intersection])for(const intersect of [false,true]){
+                const sp=stack?.get(),mk=new oc.BRepOffsetAPI_MakeThickSolid();let candidate;
+                try {
+                  mk.MakeThickSolidByJoin(shape.wrapped,L,f.outward?t:-t,tolerance,oc.BRepOffset_Mode.BRepOffset_Skin,intersect,false,join,false);
+                  if(!mk.IsDone())continue;
+                  const raw=mk.Shape();try{candidate=R.cast(raw);}finally{raw.delete();}
+                  if(validShell(shape,candidate,faces)){sharpJoins=join===oc.GeomAbs_JoinType.GeomAbs_Intersection;const result=candidate;candidate=null;return result;}
+                } catch(e){if(isFatal(e))throw e;}
+                finally{candidate?.delete();mk.delete();if(sp!=null)stack.set(sp);}
+              }
+              return null;
+            }finally{L.delete();}
           };
           let out = thick(rec.shape, hits.map((h) => h.face));
-          if (!out) {
+          if (!out && !f.outward) {
             // A fillet (or chamfer) smaller than the wall collapses when it is offset, and the kernel
             // gives up. Shell the body as it would be without those small blends instead, and cut that
             // cavity out of the real body: the outside keeps its fillets, the inside has sharp corners.
@@ -3423,18 +3565,22 @@ async function rebuild(doc, previewId = null, opts = {}) {
               try { part = await rebuild(sub, null, { partial: true }); } catch (e) { if (isFatal(e)) throw e; part = null; } finally { quietProgress--; }
               const plain = part?.solids.find((x) => x.id === rec.id);
               if (!plain) continue;
-              const plainFaces = f.faces.map((r) => findFaceAny([plain], r)?.face);
+              const plainFaces = f.faces.map((r) => findFaceAny([plain], r)?.face).filter((face,i,all)=>!face||all.findIndex((other)=>other&&other.isSame(face))===i);
               if (plainFaces.some((x) => !x)) continue;
               const shelled = thick(plain.shape, plainFaces);
               if (!shelled) continue;
+              let cavity,res2;
               try {
-                const cavity = plain.shape.cut(shelled);
-                const res2 = rec.shape.cut(cavity);
-                if (solidsOf(res2).length) { out = res2; break; }
-              } catch (e) { if (isFatal(e)) throw e; /* try the next option */ }
+                cavity=plain.shape.cut(shelled);res2=rec.shape.cut(cavity);
+                if(validShell(rec.shape,res2,hits.map((h)=>h.face))){
+                  out=res2;res2=null;res.notes[f.id]='Small blends retained outside; sharp corners inside';break;
+                }
+              } catch(e){if(isFatal(e))throw e;}
+              finally{res2?.delete();cavity?.delete();shelled.delete();}
             }
           }
-          if (!out) throw new Error('The shell could not be built — try a smaller thickness or remove different faces');
+          if (!out) throw new Error('The shell could not be built with a valid cavity — try a smaller thickness, remove different faces, or place Shell before fillets and chamfers');
+          if(sharpJoins&&!res.notes[f.id])res.notes[f.id]='Sharp joins used between offset faces';
           replaceSolid(rec, unify(out), f.id);
           break;
         }
@@ -3545,6 +3691,11 @@ async function rebuild(doc, previewId = null, opts = {}) {
             return { name: s.sk.name, wire: ws[0] };
           });
           if (guides.length && f.ruled) throw new Error('Guide curves shape a smooth surface: untick "Straight (ruled) between profiles"');
+          if (hasLoftEnds(f)) {
+            const endWires = closedSecs ? closedSecs.map(sectionWire) : list;
+            const shape = buildEndLoft(f, ids, endWires, true, { guides, matched: closedSecs || wireSections(list, !closed[0]), names: ids.map(pname), open: !closed[0], profileWires: closed[0] ? null : list });
+            surfaces.push(bodyRec(newId(f.id), shape, f.id)); applied.push({ op: 'add', tool: shape }); break;
+          }
           if (guides.length) {
             const names = ids.map(pname);
             // (closed sketch profiles: their matched segments; otherwise the profiles as they are, as runs of points)
@@ -3585,10 +3736,25 @@ async function rebuild(doc, previewId = null, opts = {}) {
             if (ws.length !== 1) throw new Error('The profile sketch must be one connected chain of curves');
             profile = ws[0];
           }
-          let shape = null;
-          for (const transitionMode of ['right', 'round', 'transformed']) {
+          let guide;
+          if (f.guide) {
+            if (f.guide === f.path || f.profileType !== 'circle' && f.guide === f.profile) throw new Error('Choose different sources for the sweep profile, path and guide');
+            if (curves.has(f.guide)) guide = curves.get(f.guide).wire;
+            else {
+              const gs = sketches.get(f.guide);
+              if (!gs) throw new Error('The sweep guide is missing, suppressed or has errors');
+              const wires = sketchWires(gs.sk, gs.frame);
+              if (wires.length !== 1) throw new Error('The sweep guide must be one connected chain of curves');
+              guide = wires[0];
+            }
+          }
+          const orientation = f.orientation || 'perpendicular', twist = guide || orientation === 'parallel' ? 0 : ev(f.twistAngle ?? 0);
+          const oriented = !guide && (orientation !== 'perpendicular' || twist !== 0);
+          let shape = guide ? sweepWithGuide(profile, spine, guide, f.guideMode || 'orientation', true) : oriented ? sweepWithOrientation(R, profile, spine, orientation, twist, true, nearFacePoint) : null;
+          for (const transitionMode of guide || oriented ? [] : ['right', 'round', 'transformed']) {
             try { shape = R.genericSweep(profile, spine, { frenet: helical, transitionMode }, true)[0]; break; } catch (e) { if (isFatal(e)) throw e; }
           }
+          if (guide) res.notes[f.id] = `Path and one guide · ${f.guideMode === 'contact' ? 'Section size; CAD guide contact ≤ 0.0001 mm' : 'Orientation; constant profile size'} · Uncapped surface`;
           if (!shape) throw new Error('The profile could not be swept along the path (place it at the start of the path, across it)');
           surfaces.push(bodyRec(newId(f.id), shape, f.id));
           applied.push({ op: 'add', tool: shape });
@@ -4707,7 +4873,23 @@ async function rebuild(doc, previewId = null, opts = {}) {
             const sk = getSketch(f.profile, f.thin ? { t: ev(f.thinT), dir: f.thinDir || 'one' } : null);
             profiles = sk.regions.map((rg) => ({ outer: loopWire(sk.frame, rg.outer.segs), holes: rg.holes.map((h) => loopWire(sk.frame, h.segs)) }));
           }
+          let guide;
+          if (f.guide) {
+            if (f.guide === f.path || f.profileType !== 'circle' && f.guide === f.profile) throw new Error('Choose different sources for the sweep profile, path and guide');
+            if (f.profileType !== 'circle' && f.thin || profiles.length !== 1 || profiles[0].holes.length) throw new Error('A guided sweep requires one closed profile without holes or Thin Feature');
+            if (curves.has(f.guide)) guide = curves.get(f.guide).wire;
+            else {
+              const gs = sketches.get(f.guide);
+              if (!gs) throw new Error('The sweep guide is missing, suppressed or has errors');
+              const wires = sketchWires(gs.sk, gs.frame);
+              if (wires.length !== 1) throw new Error('The sweep guide must be one connected chain of curves');
+              guide = wires[0];
+            }
+          }
+          const orientation = f.orientation || 'perpendicular', twist = guide || orientation === 'parallel' ? 0 : ev(f.twistAngle ?? 0);
           const sweepOne = (w) => {
+            if (guide) return sweepWithGuide(w, spine, guide, f.guideMode || 'orientation');
+            if (orientation !== 'perpendicular' || twist !== 0) return sweepWithOrientation(R, w, spine, orientation, twist, false, nearFacePoint);
             for (const transitionMode of ['right', 'round', 'transformed']) {
               try { return R.genericSweep(w, spine, { frenet: helical, transitionMode }); } catch (e) { if (isFatal(e)) throw e; }
             }
@@ -4720,6 +4902,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
             tool = tool ? tool.fuse(s) : s;
           }
           tool = unify(tool);
+          if (guide) res.notes[f.id] = `Path and one guide · ${f.guideMode === 'contact' ? 'Section size; CAD guide contact ≤ 0.0001 mm' : 'Orientation; constant profile size'}`;
           const scope = f.op === 'cut' && f.scopeAll === false ? f.scope || [] : null;
           tools.set(f.id, { shape: tool, op: f.op, merge: f.merge !== false, scope });
           apply(f.op, tool, f.merge !== false, scope);
@@ -4771,6 +4954,13 @@ async function rebuild(doc, previewId = null, opts = {}) {
           if (profs.some((p) => p.holes.length !== nh)) throw new Error('Every profile needs the same number of holes (inner loops)');
           const outerM = matchLoftSections(profs.map((p) => p.outer), names);
           const holesM = Array.from({ length: nh }, (_, i) => matchLoftSections(profs.map((p) => p.holes[i]), names));
+          if (hasLoftEnds(f)) {
+            const endWires = outerM.map(sectionWire);
+            const tool = buildEndLoft(f, ids, endWires, false, { holes: holesM.map(loop => loop.map(sectionWire)), guides, matched: outerM, holesMatched: holesM, names, slack: thin ? thin.t : 0 });
+            const scope = f.op === 'cut' && f.scopeAll === false ? f.scope || [] : null;
+            tools.set(f.id, { shape: tool, op: f.op, merge: f.merge !== false, scope });
+            apply(f.op, tool, f.merge !== false, scope); break;
+          }
           // with guides: the outline follows them and the holes (a thin loft's inside) move with it
           const g = guides.length ? buildGuidedLoft(outerM, guides, names, holesM, thin ? thin.t : 0, { constrained: f.guideMethod === 'constrained', guideContinuity: f.guideContinuity || 'C0', build: buildLoft }) : null;
           let tool = g ? g.shape : buildLoft(outerM.map(sectionWire));
@@ -6205,18 +6395,28 @@ function measureRefs(refs) {
   const out = { items: items.map((i) => i.info) };
   if (items.length === 2) {
     const oc = R.getOC();
-    const t = new oc.BRepExtrema_DistShapeShape();
-    try {
-      t.LoadS1(items[0].shape.wrapped);
-      t.LoadS2(items[1].shape.wrapped);
-      t.Perform();
-      if (t.IsDone() && t.NbSolution() > 0) {
-        const p1 = t.PointOnShape1(1), p2 = t.PointOnShape2(1);
-        out.distance = t.Value();
-        out.a = [p1.X(), p1.Y(), p1.Z()];
-        out.b = [p2.X(), p2.Y(), p2.Z()];
-      }
-    } finally { t.delete(); }
+    const pointIndex = refs.findIndex((r) => r.kind === 'point' || r.kind === 'vertex');
+    const faceIndex = refs.findIndex((r) => r.kind === 'face');
+    const contact = pointIndex >= 0 && faceIndex >= 0 ? nearFacePoint(items[faceIndex].shape, refs[pointIndex].p) : null;
+    if (contact) {
+      const p = refs[pointIndex].p;
+      out.distance = len(sub(p, contact));
+      out.a = pointIndex === 0 ? p : contact;
+      out.b = pointIndex === 0 ? contact : p;
+    } else {
+      const t = new oc.BRepExtrema_DistShapeShape();
+      try {
+        t.LoadS1(items[0].shape.wrapped);
+        t.LoadS2(items[1].shape.wrapped);
+        t.Perform();
+        if (t.IsDone() && t.NbSolution() > 0) {
+          const p1 = t.PointOnShape1(1), p2 = t.PointOnShape2(1);
+          out.distance = t.Value();
+          out.a = [p1.X(), p1.Y(), p1.Z()];
+          out.b = [p2.X(), p2.Y(), p2.Z()];
+        }
+      } finally { t.delete(); }
+    }
     // the angle between two lines, two flat faces/planes, or a line and a flat face
     const [A, B] = items;
     const ang = (u, v) => (Math.acos(Math.min(1, Math.abs(dot(u, v)))) * 180) / Math.PI;
@@ -6835,7 +7035,7 @@ function matchLoftSections(secs, names) {
 // Guide positions are evaluated on the original CAD edges. Refinement is checked against BRep faces by
 // buildGuidedLoft below. These sampled checks are not a mathematical bound over the continuous curve.
 const GUIDE_TOLERANCE = 0.01, GUIDE_CONTACT_TOLERANCE = 1e-5, GUIDE_SAMPLES = 16;
-function guidedLoftWires(matched, guides, names, holeSets = [], slack = 0, { open = false, profileWires = null, stations = 16 } = {}) {
+function guidedLoftWires(matched, guides, names, holeSets = [], slack = 0, { open = false, profileWires = null, stations = 16, includeJunctions = true, smoothPull = false, tolerance: guideTolerance = GUIDE_TOLERANCE } = {}) {
   // (a loft of circles: each made four arcs, to have points to follow the guides with)
   const asSegs = (s) => {
     if (s.segs) return s;
@@ -6883,7 +7083,7 @@ function guidedLoftWires(matched, guides, names, holeSets = [], slack = 0, { ope
       const split = (a, b, depth) => {
         const middle = { p: nativePoint(edge, (a.t + b.t) / 2), edge, t: (a.t + b.t) / 2 };
         const error = len(sub(middle.p, mul(add(a.p, b.p), 0.5)));
-        if (error > GUIDE_TOLERANCE / 40) {
+        if (error > guideTolerance / 40) {
           if (depth >= 10 || points.length > 4096) throw new Error('A guide is too complex to sample at the required tolerance; split it into shorter curves');
           split(a, middle, depth + 1); split(middle, b, depth + 1);
         } else points.push(b);
@@ -6973,7 +7173,7 @@ function guidedLoftWires(matched, guides, names, holeSets = [], slack = 0, { ope
       const run = indices.map((i) => evaluate ? evaluate(i) : pts[open ? i : i % (n * M)]);
       const end = run.length - 1, chord = sub(run[end], run[0]), cl = len(chord);
       const straight = cl > 1e-9 && run.every((q) => len(cross(sub(q, run[0]), chord)) / cl < size * 1e-7);
-      edges.push(straight ? R.makeLine(run[0], run[end]) : R.makeBSplineApproximation(run, { tolerance: Math.min(GUIDE_TOLERANCE / 20, Math.max(1e-6, size * 1e-7)), degMax: 5 }));
+      edges.push(straight ? R.makeLine(run[0], run[end]) : R.makeBSplineApproximation(run, { tolerance: Math.min(guideTolerance / 20, Math.max(1e-6, size * 1e-7)), degMax: 5 }));
     }
     return R.assembleWire(edges);
   };
@@ -6986,7 +7186,7 @@ function guidedLoftWires(matched, guides, names, holeSets = [], slack = 0, { ope
     H.forEach((h, hi) => holeWires[hi].push(sectionWire(h.secs[k])));
     if (k === secs.length - 1) break;
     const fractions = new Set(Array.from({ length: stations }, (_, st) => (st + 1) / (stations + 1)));
-    G.forEach((g, gi) => g.samples.forEach((q, i) => {
+    if (includeJunctions) G.forEach((g, gi) => g.samples.forEach((q, i) => {
       if (i && q.edge !== g.samples[i - 1].edge) {
         const fraction = (g.L[i - 1] - touch[gi][k].s) / (touch[gi][k + 1].s - touch[gi][k].s);
         if (fraction > 1e-8 && fraction < 1 - 1e-8) fractions.add(fraction);
@@ -7004,6 +7204,7 @@ function guidedLoftWires(matched, guides, names, holeSets = [], slack = 0, { ope
         const off = lerp(touch[gi][k].off, touch[gi][k + 1].off, lam);
         return { at: cyc(at), d: sub(add(atLen(g, touch[gi][k].s + (touch[gi][k + 1].s - touch[gi][k].s) * lam), off), pointAt(base, at)) };
       }).sort((x, y) => x.at - y.at);
+      const blend = (t) => smoothPull ? t*t*t*(10+t*(-15+6*t)) : t;
       const pull = (i) => {
         if (knots.length === 1) return knots[0].d;
         if (open) {
@@ -7012,13 +7213,13 @@ function guidedLoftWires(matched, guides, names, holeSets = [], slack = 0, { ope
           const hi = knots.findIndex((q) => q.at >= i);
           if (hi < 0) return knots[knots.length - 1].d;
           const A = knots[hi - 1], B = knots[hi];
-          return lerp(A.d, B.d, (i - A.at) / ((B.at - A.at) || 1));
+          return lerp(A.d, B.d, blend((i - A.at) / ((B.at - A.at) || 1)));
         }
         let hi = knots.findIndex((q) => q.at >= i);
         if (hi < 0) hi = 0;
         const lo = (hi - 1 + knots.length) % knots.length, A = knots[lo], B = knots[hi];
         const span = cyc(B.at - A.at) || NM, t = cyc(i - A.at) / span;
-        return lerp(A.d, B.d, t);
+        return lerp(A.d, B.d, blend(t));
       };
       const pulls = base.map((_, i) => pull(i));
       wires.push(fitWire(base.map((q, i) => add(q, pulls[i])), N, knots.map((q) => q.at), (i) => add(pointAt(base, i), pull(cyc(i)))));
@@ -7095,17 +7296,81 @@ const CONSTRAINED_GUIDE_TOLERANCE = 1e-4;
 function guideConstraintNote(g) {
   if (!g?.guideQuality) return '';
   const q = g.guideQuality;
-  return ` · CAD guide constraints: ${q.continuity}, ${q.seams} seams; normal mismatch ${q.maxAngle.toFixed(4)} deg`;
+  return ` · CAD guide constraints: ${q.continuity}, ${q.seams} seams; normal mismatch ${q.maxAngle.toFixed(4)} deg${q.continuity === 'G2' ? `; curvature mismatch ${q.maxCurvature.toExponential(3)} 1/mm` : ''}`;
+}
+// Auxiliary-spine sweep. The native builder controls the moving section; no
+// sampled loft or silent fallback to an unguided sweep is used.
+function sweepWithGuide(profile, spine, originalGuide, mode, surface = false) {
+  if (!['orientation','contact'].includes(mode)) throw new Error('Select Orientation or Section size for the sweep guide');
+  if (spine.isClosed || originalGuide.isClosed) throw new Error('A guided sweep currently requires an open path and an open guide');
+  const tolerance=1e-4,oc=R.getOC();let reversed,shape;
+  const point=(wire,t)=>{const p=wire.pointAt(t);try{return vec(p);}finally{p.delete();}};
+  const tangent=(wire,t)=>{const p=wire.tangentAt(t);try{return unit(vec(p));}finally{p.delete();}};
+  const start=point(spine,0),end=point(spine,1),first=tangent(spine,0),last=tangent(spine,1);
+  const endpoints=[point(originalGuide,0),point(originalGuide,1)];
+  const planeError=(points)=>Math.abs(dot(sub(points[0],start),first))+Math.abs(dot(sub(points[1],end),last));
+  let guide=originalGuide;
+  try {
+    if(planeError([...endpoints].reverse())+tolerance<planeError(endpoints)){
+      const edges=originalGuide.edges,flipped=edges.reverse().map((e)=>e.flipOrientation());
+      try{reversed=R.assembleWire(flipped);guide=reversed;}finally{edges.forEach((e)=>e.delete());flipped.forEach((e)=>e.delete());}
+    }
+    const a=point(guide,0),b=point(guide,1);
+    if(Math.abs(dot(sub(a,start),first))>tolerance||Math.abs(dot(sub(b,end),last))>tolerance)
+      throw new Error('The guide must start and end in the normal planes at the path endpoints');
+    if(len(sub(a,start))<=tolerance||len(sub(b,end))<=tolerance)
+      throw new Error('The guide must stay separate from the path');
+    const separation=new R.DistanceQuery(guide);
+    try{if(separation.distanceTo(spine)<=tolerance)throw new Error('The sweep guide crosses or approaches the path too closely');}finally{separation.delete();}
+    const edges=profile.edges;
+    try{for(const edge of edges)for(const t of [0,0.25,0.5,0.75,1])
+      if(Math.abs(dot(sub(point(edge,t),start),first))>tolerance)
+        throw new Error('Place the profile in the normal plane at the start of the path');
+    }finally{edges.forEach((e)=>e.delete());}
+    if(mode==='contact'){
+      const vertex=R.makeVertex(a),query=new R.DistanceQuery(vertex);
+      try{if(query.distanceTo(profile)>tolerance)throw new Error(surface ? 'For Section size, the guide must start on the profile curve' : 'For Section size, the guide must start on the profile boundary');}
+      finally{query.delete();vertex.delete();}
+    }
+    const builder=new oc.BRepOffsetAPI_MakePipeShell(spine.wrapped);let law;
+    try{
+      builder.SetTolerance(1e-6,1e-6,1e-3);builder.SetMaxDegree(12);builder.SetMaxSegments(128);
+      builder.SetMode(guide.wrapped,false,oc.BRepFill_TypeOfContact.BRepFill_NoContact);
+      if(mode==='contact'){law=guideScaleLaw(R,spine,guide,len(sub(a,start)),tolerance);builder.SetLaw(profile.wrapped,law,false,false);}
+      else builder.Add(profile.wrapped,false,false);
+      builder.Build();
+      if(!builder.IsDone()||!surface&&!builder.MakeSolid())throw new Error(`The path and guide could not produce a ${surface ? 'surface' : 'solid'} sweep; check that every normal section meets the guide`);
+      if(!Number.isFinite(builder.ErrorOnSurface())||builder.ErrorOnSurface()>tolerance)throw new Error('The guided sweep exceeds the 0.0001 mm construction tolerance');
+      const raw=builder.Shape();try{shape=R.cast(raw);}finally{raw.delete();}
+    }catch(e){
+      if(isFatal(e)||e?.message)throw e;
+      throw new Error('The path and guide are incompatible: check their normal sections and avoid sharp corners or crossings');
+    }finally{builder.delete();law?.delete();}
+    const validity=new oc.BRepCheck_Analyzer(shape.wrapped,true);
+    try{if(!validity.IsValid()||!surface&&!solidsOf(shape).length)throw new Error(`The guided sweep produced an invalid ${surface ? 'surface' : 'solid'}`);}
+    finally{validity.delete();}
+    if(mode==='contact'){
+      const faces=shape.faces;
+      try{for(let i=0;i<=32;i++){
+        const p=point(guide,i/32),vertex=R.makeVertex(p),query=new R.DistanceQuery(vertex);
+        let error=Infinity;
+        try{for(const face of faces){const contact=nearFacePoint(face,p);error=Math.min(error,contact?len(sub(contact,p)):query.distanceTo(face));}}
+        finally{query.delete();vertex.delete();}
+        if(!Number.isFinite(error)||error>tolerance)throw new Error('The sweep does not follow the guide within 0.0001 mm');
+      }}finally{faces.forEach((f)=>f.delete());}
+    }
+    return shape;
+  }catch(e){shape?.delete();throw e;}finally{reversed?.delete();}
 }
 function constrainedGuideLoft(matched, guides, names, holeSets, slack, options) {
   if (matched.length !== 2 || holeSets.length || slack) throw new Error('CAD guide constraints currently require two profiles without holes or Thin Feature. Select Adaptive approximation for this loft');
   const continuity = options.guideContinuity || 'C0', seams = [];
-  if (continuity === 'G2') throw new Error('G2 guide continuity is not available: the bundled kernel has not passed independent curvature and tangency verification. Select G1 or C0 explicitly');
-  if (!['C0', 'G1'].includes(continuity)) throw new Error('Select C0 or G1 guide continuity');
+  if (continuity === 'G2' && (typeof R.getOC().RazorCADSurfacePatch?.BuildNetwork !== 'function' || typeof R.getOC().RazorCADSurfacePatch?.BuildNetworkOnSurface !== 'function')) throw new Error('G2 guide continuity is not available in the loaded kernel. Reload RazorCAD to load the updated kernel');
+  if (!['C0', 'G1', 'G2'].includes(continuity)) throw new Error('Select C0, G1 or G2 guide continuity');
   const contact = guidedLoftWires(matched, guides, names, [], 0, { ...options, stations: 0 });
   const owned = [], patches = [];
   const guideEdges = guides.flatMap((g) => g.wire.edges);
-  let scaffold, sewn, result, stage = 'patch layout';
+  let scaffold, sewn, result, resultFaces = [], stage = 'patch layout';
   const point = (edge, t) => { const p = edge.pointAt(t); try { return vec(p); } finally { p.delete(); } };
   const ends = (edge) => [point(edge, 0), point(edge, 1)];
   const near = (a, b) => len(sub(a, b)) <= GUIDE_CONTACT_TOLERANCE;
@@ -7155,15 +7420,57 @@ function constrainedGuideLoft(matched, guides, names, holeSets, slack, options) 
       });
     } finally { curve.delete(); }
   };
+  // Circular quarter boundaries are artificial. Keep guide contacts inside a
+  // patch where possible, so a smooth circular profile does not acquire an
+  // arbitrary sequential G2 boundary condition through a guide.
+  let circlePhase=0;
+  if(continuity==='G2'&&matched.every((section)=>section.circle)){
+    const quarter=Math.PI/2,tau=2*Math.PI,contacts=[];
+    for(const guide of guides){
+      const pair=matched.map((section)=>{
+        const {c,r,n,u}=section.circle,x=unit(rej(u,n)),y=cross(n,x);
+        const p=ends(guide.wire).find((p)=>Math.abs(dot(sub(p,c),n))<=GUIDE_CONTACT_TOLERANCE&&Math.abs(len(sub(p,c))-r)<=GUIDE_CONTACT_TOLERANCE);
+        return p?Math.atan2(dot(sub(p,c),y),dot(sub(p,c),x)):null;
+      });
+      if(pair.every((angle)=>angle!=null))contacts.push(pair);
+    }
+    const angles=contacts.flat().map((angle)=>((angle%quarter)+quarter)%quarter).sort((a,b)=>a-b);
+    let best=-1;
+    for(let i=0;i<angles.length;i++){
+      const gap=(i+1<angles.length?angles[i+1]:angles[0]+quarter)-angles[i],phase=(angles[i]+gap/2)%quarter;
+      const patch=(angle)=>Math.floor((((angle-phase)%tau)+tau)%tau/quarter);
+      if(gap>best&&contacts.every(([a,b])=>patch(a)===patch(b))){best=gap;circlePhase=phase;}
+    }
+  }
   try {
     // Split circular sections into patches: a periodic cylindrical face is not a disk-like filling domain.
     const original = matched.map((section, i) => {
       if (!section.circle) return options.profileWires?.[i] || sectionWire(section);
       const { c, r, n, u } = section.circle, x = unit(rej(u, n)), y = cross(n, x);
       const at = (t) => add(c, add(mul(x, r * Math.cos(t)), mul(y, r * Math.sin(t))));
-      return R.assembleWire([0, 1, 2, 3].map((j) => R.makeThreePointArc(at(j * Math.PI / 2), at((j + 0.5) * Math.PI / 2), at((j + 1) * Math.PI / 2))));
+      return R.assembleWire([0, 1, 2, 3].map((j) => R.makeThreePointArc(at(circlePhase+j * Math.PI / 2), at(circlePhase+(j + 0.5) * Math.PI / 2), at(circlePhase+(j + 1) * Math.PI / 2))));
     });
     owned.push(...original.filter((wire) => !options.profileWires?.includes(wire)));
+    if(continuity==='G2'){
+      const angular=Math.sin(0.5*Math.PI/180);
+      for(const wire of original){
+        const edges=wire.edges;
+        try{
+          for(const guide of guides)for(const t of [0,1]){
+            const p=point(guide.wire,t),tangents=[];
+            for(const edge of edges)for(const end of [0,1])if(near(point(edge,end),p)){
+              const tangent=edge.tangentAt(end);try{tangents.push(unit(vec(tangent)));}finally{tangent.delete();}
+            }
+            if(tangents.length!==2)continue;
+            const normal=cross(tangents[0],tangents[1]);
+            if(len(normal)<=angular)continue;
+            const tangent=guide.wire.tangentAt(t);let transverse;
+            try{transverse=Math.abs(dot(unit(normal),unit(vec(tangent))))>angular;}finally{tangent.delete();}
+            if(transverse)throw new Error('G2 continuity is incompatible with a sharp profile corner crossed transversely by the guide. Choose C0 or move the guide contact onto a smooth profile segment');
+          }
+        }finally{edges.forEach((edge)=>edge.delete());}
+      }
+    }
     scaffold = options.build(original);
     const faces = scaffold.faces, assignments = faces.map(() => []);
     for (const guide of guides) {
@@ -7200,10 +7507,48 @@ function constrainedGuideLoft(matched, guides, names, holeSets, slack, options) 
         const path = (from, to) => { const out = []; for (let j = from; j !== to; j = (j + 1) % edges.length) out.push(edges[j]); return out; };
         domains.splice(domain, 1, [...path(a, b), ...guide.edges], [...path(b, a), ...guide.edges]);
       }
+      if (continuity !== 'C0' && internal.length && !replaced.size && typeof R.getOC().RazorCADSurfacePatch?.BuildNetwork === 'function') {
+        // Solve internal guides on one smooth surface, then trim its domains. Building
+        // both sides independently imposes arbitrary curvature from the first side.
+        const oc=R.getOC(), wires=domains.map((domain)=>R.assembleWire(order(domain)));
+        const network=R.makeCompound(wires);let group,failure;
+        try {
+          // A guide already on the scaffold should not deform an exact plane,
+          // cylinder or cone. Project its trimming curves and verify them first.
+          if(typeof oc.RazorCADSurfacePatch.BuildNetworkOnSurface==='function'){
+            const sp=stack?.get();
+            try{
+              const raw=oc.RazorCADSurfacePatch.BuildNetworkOnSurface(network.wrapped,face.wrapped,CONSTRAINED_GUIDE_TOLERANCE);
+              try{group=R.cast(raw);}finally{raw.delete();}
+            }catch(e){if(isFatal(e))throw e;}finally{if(sp!=null)stack.set(sp);}
+          }
+          for(const resolution of group?[]:[16,32,64,128]) {
+            const sp=stack?.get();
+            try {
+              stage=`solving the ${continuity} guide network (${resolution} subdivisions)`;
+              const raw=oc.RazorCADSurfacePatch.BuildNetwork(network.wrapped,2,CONSTRAINED_GUIDE_TOLERANCE,resolution,12);
+              try{group=R.cast(raw);}finally{raw.delete();}break;
+            }catch(e){if(isFatal(e))throw e;failure=e instanceof WebAssembly.Exception?oc.getExceptionMessage(e).join(': '):e.message||String(e);if(/native guide constraints did not converge|no matching support boundary/.test(failure))break;}
+            finally{if(sp!=null)stack.set(sp);}
+          }
+          if(!group)throw new Error(`${continuity} guide network failed bounded refinement: ${failure}`);
+          const faces=group.faces;owned.push(...faces);patches.push(...faces);
+          for(const guide of internal)for(const edge of guide.edges){
+            const [a,b]=ends(edge);
+            const adjacent=faces.filter((face)=>face.edges.some((other)=>{
+              const [x,y]=ends(other);
+              return ((near(a,x)&&near(b,y))||(near(a,y)&&near(b,x)))&&[0.25,0.5,0.75].every((t)=>distance(point(edge,t),other)<=GUIDE_CONTACT_TOLERANCE);
+            }));
+            if(adjacent.length!==2)throw new Error(`A ${continuity} internal guide did not split two native domains`);
+            seams.push({edge,a:adjacent[0],b:adjacent[1]});
+          }
+        }finally{group?.delete();network.delete();wires.forEach((wire)=>wire.delete());}
+        continue;
+      }
       for (const domain of domains) {
         const edges = order(domain);
         const oc = R.getOC(), filling = new oc.BRepOffsetAPI_MakeFilling(3, 25, 3, false, 1e-7, 1e-6, continuity === 'G1' ? 0.001 : 0.01, 0.1, 10, 16);
-        const supports = [];
+        const supports = [], nativeEdges = [];
         try {
           stage = 'adding ' + continuity + ' constraints';
           for (const edge of edges) {
@@ -7218,10 +7563,34 @@ function constrainedGuideLoft(matched, guides, names, holeSets, slack, options) 
                 if (candidate) { support = { face, edge: candidate }; break; }
               }
             }
+            nativeEdges.push(support?.edge || edge);
             if (support) {
-              filling.Add(support.edge.wrapped, support.face.wrapped, oc.GeomAbs_Shape.GeomAbs_G1, true);
+              if (continuity !== 'G2') filling.Add(support.edge.wrapped, support.face.wrapped, oc.GeomAbs_Shape.GeomAbs_G1, true);
               supports.push(support);
-            } else filling.Add(edge.wrapped, oc.GeomAbs_Shape.GeomAbs_C0, true);
+            } else if (continuity !== 'G2') filling.Add(edge.wrapped, oc.GeomAbs_Shape.GeomAbs_C0, true);
+          }
+          if (continuity === 'G2') {
+            const wire = R.assembleWire(order(nativeEdges)), references = R.makeCompound([...new Set(supports.map((s) => s.face))]);
+            let patch, failure;
+            try {
+              for (const resolution of [16,32,64,128]) {
+                const sp = stack?.get();
+                try {
+                  stage = `solving G2 constraints (${supports.length} support edges, ${resolution} subdivisions)`;
+                  const raw = oc.RazorCADSurfacePatch.Build(wire.wrapped,references.wrapped,2,CONSTRAINED_GUIDE_TOLERANCE,resolution,12,1);
+                  try { patch=R.cast(raw); } finally { raw.delete(); }
+                  break;
+                } catch (e) {
+                  if (isFatal(e)) throw e;
+                  failure = e instanceof WebAssembly.Exception ? oc.getExceptionMessage(e).join(': ') : e.message || String(e);
+                  if (/native guide constraints did not converge|no matching support boundary/.test(failure)) break;
+                } finally { if (sp != null) stack.set(sp); }
+              }
+              if (!patch) throw new Error(`G2 guide constraints failed bounded refinement while ${stage}: ${failure}`);
+              owned.push(patch); patches.push(patch);
+              for (const support of supports) seams.push({edge:support.edge,a:support.face,b:patch});
+            } finally { references.delete(); wire.delete(); }
+            continue;
           }
           stage = `solving ${continuity} constraints (${supports.length} support edges)`; filling.Build();
           if (!filling.IsDone()) throw new Error('The CAD guide constraints could not be solved');
@@ -7260,29 +7629,71 @@ function constrainedGuideLoft(matched, guides, names, holeSets, slack, options) 
         joined.push({ edge, a: adjacent[0], b: adjacent[1] });
       }
     }
-    let maxAngle = 0;
+    let maxAngle = 0, maxCurvature = 0;
     // Independent normal checks on native surfaces, rather than only the filling builder's errors.
     stage = 'checking CAD surface normals';
-    for (const seam of joined) for (let j = 0; j < 9; j++) {
-      const p = point(seam.edge, (j + 0.5) / 9), a = seam.a.normalAt(p), b = seam.b.normalAt(p);
-      let angle;
-      try { angle = Math.acos(Math.min(1, Math.abs(dot(unit(vec(a)), unit(vec(b)))))); }
-      finally { a.delete(); b.delete(); }
-      if (!Number.isFinite(angle) || (continuity !== 'C0' && angle > 0.5 * Math.PI / 180)) throw new Error(`The ${continuity} guide seam failed the CAD normal check (${angle * 180 / Math.PI} degrees)`);
-      maxAngle = Math.max(maxAngle, angle * 180 / Math.PI);
-
+    resultFaces = result.faces;
+    if (continuity === 'G2') {
+      for (const seam of joined) {
+        const adjacent=resultFaces.filter((face)=>{
+          const edges=face.edges;
+          try{return edges.some((edge)=>sameEdge(seam.edge,edge));}finally{edges.forEach((edge)=>edge.delete());}
+        });
+        if(adjacent.length!==2)throw new Error('A sewn G2 seam lost its two adjacent faces');
+        const [faceA,faceB]=adjacent,edgesA=faceA.edges,edgesB=faceB.edges;
+        try {
+          const a=edgesA.find((e)=>sameEdge(seam.edge,e)),b=edgesB.find((e)=>sameEdge(seam.edge,e));
+          if (!a || !b) throw new Error('A final G2 seam lost its native boundary');
+          for (let j=0;j<33;j++) {
+            const t=(1-Math.cos(Math.PI*(j+0.5)/33))/2,p=point(seam.edge,t), tangent=seam.edge.tangentAt(t);
+            const uv=(edge,face)=>{const q=R.getOC().RazorCADSurfacePatch.UV(edge.wrapped,face.wrapped,t);try{return [q.X(),q.Y()];}finally{q.delete();}};
+            let q;
+            try { q=compareSurfaceContinuity(R,faceA,faceB,p,vec(tangent),{leftUV:uv(a,faceA),rightUV:uv(b,faceB)}); }
+            finally { tangent.delete(); }
+            if (q.positionError>CONSTRAINED_GUIDE_TOLERANCE || q.angle>0.5 || q.curvatureError>0.001)
+              throw new Error(`The final G2 guide seam failed verification (${q.positionError} mm, ${q.angle} deg, ${q.curvatureError} 1/mm)`);
+            constraintError=Math.max(constraintError,q.positionError); maxAngle=Math.max(maxAngle,q.angle); maxCurvature=Math.max(maxCurvature,q.curvatureError);
+          }
+        } finally {edgesA.forEach((e)=>e.delete());edgesB.forEach((e)=>e.delete());}
+      }
+    } else {
+      const normalAtSeam=(face,edge,t,p)=>{
+        const oc=R.getOC();
+        if(continuity === 'C0' || typeof oc.RazorCADSurfacePatch?.UV!=='function'){
+          const n=face.normalAt(p);try{return unit(vec(n));}finally{n.delete();}
+        }
+        const edges=face.edges;let uv;
+        try {
+          const native=edges.find((e)=>sameEdge(edge,e));
+          if(!native)throw new Error('A guide seam lost its native parameter curve');
+          const parameter=len(sub(point(native,t),p))<=CONSTRAINED_GUIDE_TOLERANCE?t:1-t;
+          uv=oc.RazorCADSurfacePatch.UV(native.wrapped,face.wrapped,parameter);
+          const value=surfaceNormalAtUV(R,face,[uv.X(),uv.Y()]);
+          if(len(sub(value.position,p))>CONSTRAINED_GUIDE_TOLERANCE){
+            // Legacy filling surfaces may reparameterize their boundary curves.
+            const n=face.normalAt(p);try{return unit(vec(n));}finally{n.delete();}
+          }
+          return value.normal;
+        }finally{uv?.delete();edges.forEach((e)=>e.delete());}
+      };
+      for (const seam of joined) for (let j = 0; j < 9; j++) {
+        const t=(j+0.5)/9,p=point(seam.edge,t);
+        const a=normalAtSeam(seam.a,seam.edge,t,p),b=normalAtSeam(seam.b,seam.edge,t,p);
+        const angle=Math.acos(Math.min(1,Math.abs(dot(a,b))));
+        if (!Number.isFinite(angle) || (continuity !== 'C0' && angle > 0.5 * Math.PI / 180)) throw new Error(`The ${continuity} guide seam failed the CAD normal check (${angle * 180 / Math.PI} degrees)`);
+        maxAngle = Math.max(maxAngle, angle * 180 / Math.PI);
+      }
     }
     // Independent face-distance checks catch incompatible/ignored constraints and trimming problems.
-    const resultFaces = result.faces;
     for (const { p, name } of contact.checkPoints) {
       const error = Math.min(...resultFaces.map((face) => distance(p, face)));
       if (!Number.isFinite(error) || error > CONSTRAINED_GUIDE_TOLERANCE) throw new Error(`The guide ${name} failed the final CAD constraint check (${error} mm)`);
     }
-    return { shape: result, holes: [], constraintError, guideQuality: { continuity, seams: joined.length, maxAngle } };
+    return { shape: result, holes: [], constraintError, guideQuality: { continuity, seams: joined.length, maxAngle, maxCurvature } };
   } catch (e) { result?.delete(); if (isFatal(e) || e?.message) throw e; throw new Error(`${continuity} guide construction failed while ${stage}; the constraints could not be computed`); }
   finally {
     if (sewn && sewn !== result) sewn.delete();
-    scaffold?.delete(); owned.forEach((shape) => shape.delete());
+    scaffold?.delete(); owned.forEach((shape) => shape.delete()); resultFaces.forEach((face)=>face.delete());
     for (const wire of [...contact.outer, ...contact.holes.flat()]) if (!options.profileWires?.includes(wire)) wire.delete();
   }
 }
@@ -7466,6 +7877,19 @@ function chamferAsym(body, edges, type, d1, x, flip) {
   } finally { mk.delete(); }
 }
 
+// Local exact-surface contact avoids the global extrema grid on dense splines.
+// Only accept points within 1e-7 mm; all other distances use the global solver.
+function nearFacePoint(face, point) {
+  const oc = R.getOC();
+  if (!oc.RazorCADSurfacePatch?.NearPoint || face.geomType !== 'BSPLINE_SURFACE') return null;
+  const p = new oc.gp_Pnt(...point); let hit;
+  try {
+    hit = oc.RazorCADSurfacePatch.NearPoint(face.wrapped, p, 1e-7);
+    const q = [hit.X(), hit.Y(), hit.Z()];
+    return q.every(Number.isFinite) ? q : null;
+  } catch (e) { if (isFatal(e)) throw e; return null; }
+  finally { hit?.delete(); p.delete(); }
+}
 // A face of any body near a picked point (faces of dense STL bodies are not searched).
 function findFaceAny(bodies, ref) {
   const cands = [];
@@ -7475,13 +7899,16 @@ function findFaceAny(bodies, ref) {
   }
   cands.sort((x, y) => x[0] - y[0]);
   let q = null, best = null, bd = Infinity;
-  for (const [lb, b, face] of cands) {
-    if (lb > bd + 1e-9) break; // no remaining face can be nearer
-    q ||= new R.DistanceQuery(R.makeVertex(ref.p));
-    const d = q.distanceTo(face);
-    // (faces on top of each other, e.g. a copied surface on its solid: the body that was clicked)
-    if (d < bd - 1e-9 || (Math.abs(d - bd) <= 1e-9 && ref.body && b.id === ref.body)) { bd = d; best = { body: b, face }; }
-  }
+  try {
+    for (const [lb, b, face] of cands) {
+      if (lb > bd + 1e-9) break; // no remaining face can be nearer
+      const contact = nearFacePoint(face, ref.p);
+      if (!contact) q ||= new R.DistanceQuery(R.makeVertex(ref.p));
+      const d = contact ? len(sub(contact, ref.p)) : q.distanceTo(face);
+      // (faces on top of each other, e.g. a copied surface on its solid: the body that was clicked)
+      if (d < bd - 1e-9 || (Math.abs(d - bd) <= 1e-9 && ref.body && b.id === ref.body)) { bd = d; best = { body: b, face }; }
+    }
+  } finally { q?.delete(); }
   if (best && bd < Math.max(1e-3, bbox(best.body.shape).diag * 2e-3)) return refFound(ref, best, false);
   // a planar face that moved (a dimension before it changed): the face facing the same way clearly
   // nearest the old point; the reference is moved onto it, so it follows the face from now on
