@@ -37,9 +37,13 @@ export function kernelBudget(m) {
   return Math.max(2, Math.min(16, byCpu, byMem));
 }
 
-export function threadsPerKernel(threads = navigator.hardwareConcurrency || 4, isolated = !!globalThis.crossOriginIsolated) {
+export function threadsPerKernel(threads = navigator.hardwareConcurrency || 4, isolated = !!globalThis.crossOriginIsolated, front = false) {
   // (the browser version too, where the website serves it cross-origin isolated: website/_headers)
   if (!isolated || typeof SharedArrayBuffer === 'undefined' || threads < 6) return 1;
+  // (Kernel Lab: the first part's kernel all the threads but two, at most 22 — it now meshes, reads faces and edges and
+  // boxes faces in parallel: check set 6.45 s on 8 threads, 6.02 on 12, 5.92 on 16, 5.74 on 22 — and every other
+  // kernel 8 as before: 22 for every kernel hung the test suite once several parts were open)
+  if (front) return Math.max(2, Math.min(22, threads - 2));
   return Math.max(2, Math.min(8, Math.floor((threads - 2) / 2)));
 }
 

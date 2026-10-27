@@ -38,6 +38,9 @@ export function installRealDelete(oc, wasmExports, dataEnd, { autoFree = true } 
     const free = oc.___libc_free;
     if (!table || !dtors || typeof free !== 'function' || !dtors.gp_Pnt) throw new Error('kernel internals not found');
     const noop = table.get(dtors.gp_Pnt); // (gp_Pnt is one of the classes with the empty destructor)
+    // (Kernel Lab) a kernel whose destructors are real (a shape's is not the empty one): delete() already frees
+    const realDtors = dtors.TopoDS_Shape !== undefined && table.get(dtors.TopoDS_Shape) !== noop;
+    freeStats.realDtors = realDtors;
     // (views of kernel memory, renewed when it grows)
     let v32 = null, v8 = null;
     const u32 = () => { const b = oc.wasmMemory.buffer; if (v32?.buffer !== b) v32 = new Uint32Array(b); return v32; };
@@ -185,7 +188,7 @@ export function installRealDelete(oc, wasmExports, dataEnd, { autoFree = true } 
       };
     }
 
-    base.delete = function () {
+    if (!realDtors) base.delete = function () {
       const r = this?.[recKey];
       const p = r?.[ptrKey];
       if (p && r.count.value === 1 && isPlainRec(r)) {

@@ -44,11 +44,56 @@ let stack = null;      // { get, set, top }
 let stackLost = 0;     // bytes of kernel stack recovered so far (for crash reports)
 let kernelDead = null; // why the kernel stopped (abort); the worker must then be replaced
 
-// Prefer stable module exports. Retain the legacy export names for previous kernels;
-// every candidate is tested before any stack reset is enabled.
-function findStackFns(x, oc) {
-  const names = [['emscripten_stack_get_current', '_emscripten_stack_restore'], ...(MULTI ? [['lb', 'jb']] : [['Ra', 'Pa']])];
-  const pairs = [[oc?._emscripten_stack_get_current, oc?.__emscripten_stack_restore], ...names.map(([g,s])=>[x[g],x[s]])];
+// Stack functions: the module's explicitly exported ones first (RazorCAD's surface kernels export them), then the
+// pair found by its code in the wasm (any build), then the legacy minified names. Each candidate is tested first.
+// emscripten_stack_get_current / _emscripten_stack_restore: plain names in unminified builds,
+// 'Ra' / 'Pa' in the bundled replicad_single.wasm, 'lb' / 'jb' in replicad_multi.wasm. Checked before use.
+// The stack functions' export names, found by their code: emscripten_stack_get_current is `global.get G; end`,
+// _emscripten_stack_restore `local.get 0; global.set G; end`, G the same global (the stack pointer). null if not found.
+async function stackNamesFromWasm(url) {
+  const b = new Uint8Array(await (await fetch(url)).arrayBuffer());
+  let i = 8;
+  const leb = () => { let r = 0, s = 0, x; do { x = b[i++]; r |= (x & 0x7f) << s; s += 7; } while (x & 0x80); return r >>> 0; };
+  const lebAt = (k) => { let r = 0, s = 0, x; do { x = b[k++]; r |= (x & 0x7f) << s; s += 7; } while (x & 0x80); return [r >>> 0, k]; };
+  let nImp = 0;
+  const exports = new Map(); // function index → name
+  const get = new Map(), set = new Map(); // global → name
+  while (i < b.length) {
+    const id = b[i++], size = leb(), end = i + size;
+    if (id === 2) {
+      for (let n = leb(); n--;) {
+        for (let k = 0; k < 2; k++) { const ln = leb(); i += ln; } // (leb() moves i: read it first)
+        const kind = b[i++];
+        if (kind === 0) { leb(); nImp++; } else if (kind === 1) { i++; const fl = b[i++]; leb(); if (fl & 1) leb(); }
+        else if (kind === 2) { const fl = b[i++]; leb(); if (fl & 1) leb(); } else if (kind === 3) i += 2; else if (kind === 4) { i++; leb(); }
+      }
+    } else if (id === 7) {
+      for (let n = leb(); n--;) {
+        const ln = leb(), name = new TextDecoder().decode(b.subarray(i, i + ln)); i += ln;
+        const kind = b[i++], idx = leb();
+        if (kind === 0) exports.set(idx, name);
+      }
+    } else if (id === 10) {
+      const n = leb();
+      for (let f = 0; f < n; f++) {
+        const sz = leb(), start = i;
+        i = start + sz;
+        const name = exports.get(f + nImp);
+        if (!name) continue;
+        let [nl, k] = lebAt(start);
+        for (; nl--;) { [, k] = lebAt(k); k++; }
+        if (b[k] === 0x23) { const [g, k2] = lebAt(k + 1); if (k2 === i - 1 && b[k2] === 0x0b) get.set(g, name); }
+        if (b[k] === 0x20 && b[k + 1] === 0x00 && b[k + 2] === 0x24) { const [g, k2] = lebAt(k + 3); if (k2 === i - 1 && b[k2] === 0x0b) set.set(g, name); }
+      }
+    }
+    i = end;
+  }
+  for (const [g, name] of get) if (set.has(g)) return [name, set.get(g)];
+  return null;
+}
+function findStackFns(x, oc, found = null) {
+  const names = [...(found ? [found] : []), ['emscripten_stack_get_current', '_emscripten_stack_restore'], ...(MULTI ? [['lb', 'jb']] : [['Ra', 'Pa']])];
+  const pairs = [[oc?._emscripten_stack_get_current, oc?.__emscripten_stack_restore], ...names.map(([g, s]) => [x[g], x[s]])];
   for (const [get, set] of pairs) {
     if (typeof get !== 'function' || typeof set !== 'function' || get.length !== 0 || set.length !== 1) continue;
     try {
@@ -95,7 +140,7 @@ const ready = (async () => {
       onAbort(what) { kernelDead = `the geometry kernel aborted${what ? ` (${what})` : ''}`; },
     }).then(resolve, reject);
   });
-  stack = findStackFns(exportsOf, oc);
+  stack = findStackFns(exportsOf, oc, await stackNamesFromWasm(wasmUrl).catch(() => null));
   // (type information and vtables are static data, below the stack)
   installRealDelete(oc, exportsOf, stack?.top ?? 12 * 1048576);
   R.setOC(oc);
@@ -258,6 +303,7 @@ function faceBoxUnion(shape) {
   if (hasLooseEdges(raw)) return null;
   const faces = exploreAll(raw, 'TopAbs_FACE');
   if (!faces.length) return null;
+  labPrefetchBoxes(faces); // (Kernel Lab k5)
   const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
   try {
     for (const f of faces) {
@@ -277,6 +323,34 @@ function hasLooseEdges(raw) {
     if (loose) return true;
   }
   return false;
+}
+// (Kernel Lab k5) the precise boxes of the faces given that are not kept yet, from one kernel call, put where
+// faceBox finds them (a face the kernel could not box is left to faceBox, as before)
+const LAB_BOXES = (globalThis.LAB_BOXES = { calls: 0, faces: 0, ms: 0 });
+function labPrefetchBoxes(faces) {
+  const oc = R.getOC();
+  if (!oc.LabShapeInfo?.faceBoxes || faces.length < 8) return;
+  const miss = faces.filter((f) => keptFind(FACE_BOXES, f, 'box') === undefined);
+  if (miss.length < 8) return;
+  const t0 = performance.now();
+  const builder = new oc.TopoDS_Builder(), comp = new oc.TopoDS_Compound();
+  let raw = null;
+  try {
+    builder.MakeCompound(comp);
+    for (const f of miss) builder.Add(comp, f);
+    raw = oc.LabShapeInfo.faceBoxes(comp, true);
+    const D = new Float64Array(oc.wasmMemory.buffer, raw.getDoublesPtr() >>> 0, raw.getDoublesSize());
+    if (D.length !== miss.length * 7) return;
+    miss.forEach((f, i) => {
+      const k = D[i * 7];
+      if (k < 0) return;
+      const b = k ? [[D[i * 7 + 1], D[i * 7 + 2], D[i * 7 + 3]], [D[i * 7 + 4], D[i * 7 + 5], D[i * 7 + 6]]] : null;
+      keptAdd(FACE_BOXES, f, 'box', b, (x) => oc.TopoDS.Face(x));
+    });
+  } finally {
+    raw?.delete(); builder.delete(); comp.delete();
+    LAB_BOXES.calls++; LAB_BOXES.faces += miss.length; LAB_BOXES.ms += performance.now() - t0;
+  }
 }
 // a face's precise box ([min, max], null when empty), kept with the face
 function faceBox(f) {
@@ -408,6 +482,8 @@ function boolByList(kind, shape, toolShapes) {
   } finally { builder.delete(); args.delete(); tl.delete(); progress.delete(); }
 }
 
+const LAB_SHEETS = (globalThis.LAB_SHEETS = { deferred: 0, refolds: 0, ms: 0 }); // (Kernel Lab: sheet metal folds put off / made)
+const LAB_CUT_CHUNK = 8; // (Kernel Lab: features per chunk of waiting cuts)
 function boxesTouch(a, b, tol) {
   for (let k = 0; k < 3; k++) if (a.min[k] > b.max[k] + tol || b.min[k] > a.max[k] + tol) return false;
   return true;
@@ -417,6 +493,31 @@ function boxesTouch(a, b, tol) {
 // adaptive integration to a small relative error, as the fixed rule the plain measure uses can be off by up to
 // about 1% on rational B-spline faces; otherwise the plain (exact for planes, cylinders, cones…) measure.
 const FREEFORM = new Set(['BSPLINE_SURFACE', 'BEZIER_SURFACE', 'OFFSET_SURFACE', 'REVOLUTION_SURFACE', 'EXTRUSION_SURFACE', 'OTHER_SURFACE']);
+// (Kernel Lab) volumes and areas as shown (measuring, the cut list, the BOM's mass): adaptive integration to a
+// relative error of eps (OpenCascade's default fixed rule can be percents off on trimmed faces). shapes: replicad
+// shapes. [{ volume, area }] (NaN where it failed: the caller falls back).
+function exactProps(shapes, eps = 1e-9) {
+  const oc = R.getOC();
+  if (!shapes.length) return [];
+  if (oc.LabShapeInfo?.solidProps) {
+    const builder = new oc.TopoDS_Builder(), comp = new oc.TopoDS_Compound();
+    let raw = null;
+    try {
+      builder.MakeCompound(comp);
+      for (const s of shapes) builder.Add(comp, s.wrapped);
+      raw = oc.LabShapeInfo.solidProps(comp, eps, true);
+      const D = new Float64Array(oc.wasmMemory.buffer, raw.getDoublesPtr() >>> 0, raw.getDoublesSize());
+      if (D.length === shapes.length * 2) return shapes.map((s, i) => ({ volume: D[i * 2], area: D[i * 2 + 1] }));
+    } finally { raw?.delete(); builder.delete(); comp.delete(); }
+  }
+  return shapes.map((s) => {
+    const out = { volume: NaN, area: NaN };
+    try { const p = new oc.GProp_GProps(); oc.BRepGProp.VolumePropertiesGK(s.wrapped, p, eps, false, true, false, false, false); out.volume = Math.abs(p.Mass()); p.delete(); } catch (e) { if (isFatal(e)) throw e; }
+    try { const p = new oc.GProp_GProps(); oc.BRepGProp.SurfaceProperties(s.wrapped, p, eps, false); out.area = p.Mass(); p.delete(); } catch (e) { if (isFatal(e)) throw e; }
+    return out;
+  });
+}
+const finite = (x, fallback) => (Number.isFinite(x) ? x : fallback());
 function preciseVolume(shape) {
   let free = false;
   try { free = shape.faces.some((f) => FREEFORM.has(f.geomType)); } catch { free = false; }
@@ -620,10 +721,66 @@ const faceListCache = new WeakMap();
 function facesWithBox(shape) {
   let l = faceListCache.get(shape);
   if (!l) {
-    l = shape._parts ? shape._parts.flatMap(facesWithBox) : shape.faces.map((face) => ({ face, box: bbox(face) }));
+    // (Kernel Lab: each face's precise box worked out when first asked for: findFaceAny needs few of them)
+    l = shape._parts ? shape._parts.flatMap(facesWithBox) : shape.faces.map((face) => {
+      const e = { face, quick: undefined, precise: undefined };
+      Object.defineProperty(e, 'box', { get() { if (this.precise === undefined) this.precise = bbox(face); return this.precise; } });
+      return e;
+    });
     faceListCache.set(shape, l);
   }
   return l;
+}
+// (Kernel Lab) a face list entry's quick box: its precise box when known; else, for the surface kinds whose usual
+// box holds the face (as bboxOfAllQuick), BRepBndLib::Add's; else the precise box
+const LAB_QUICK_SURFS = new Map();
+// (k10) the quick boxes of these face list entries not known yet, from one kernel call; a face of another surface
+// kind is marked for its precise box, and one the kernel could not box is left to labQuickBox
+function labPrefetchQuick(list) {
+  const oc = R.getOC();
+  if (!oc.LabShapeInfo?.quickBoxes) return;
+  const miss = list.filter((e) => e.precise === undefined && e.quick === undefined && !e.notSure);
+  if (miss.length < 8) return;
+  const builder = new oc.TopoDS_Builder(), comp = new oc.TopoDS_Compound();
+  let raw = null;
+  try {
+    builder.MakeCompound(comp);
+    for (const e of miss) builder.Add(comp, e.face.wrapped);
+    raw = oc.LabShapeInfo.quickBoxes(comp, true);
+    const D = new Float64Array(oc.wasmMemory.buffer, raw.getDoublesPtr() >>> 0, raw.getDoublesSize());
+    if (D.length !== miss.length * 7) return;
+    miss.forEach((e, i) => {
+      const k = D[i * 7];
+      if (k === 2) { e.notSure = true; return; }
+      if (k !== 1) return; // (void, or failed: as labQuickBox works it out)
+      const b = { min: [D[i * 7 + 1], D[i * 7 + 2], D[i * 7 + 3]], max: [D[i * 7 + 4], D[i * 7 + 5], D[i * 7 + 6]] };
+      if ([...b.min, ...b.max].every(Number.isFinite)) e.quick = b;
+    });
+  } finally { raw?.delete(); builder.delete(); comp.delete(); }
+}
+function labQuickBox(e) {
+  if (e.precise !== undefined) return e.precise;
+  if (e.quick !== undefined) return e.quick;
+  if (e.notSure) return (e.quick = e.box);
+  const oc = R.getOC(), f = e.face.wrapped;
+  const kept = bboxCache.get(e.face) || keptFind(FACE_BOXES, f, 'box');
+  if (kept !== undefined && kept !== null && !Array.isArray(kept)) return (e.quick = kept);
+  if (Array.isArray(kept)) return (e.quick = { min: kept[0], max: kept[1] });
+  let sure = LAB_QUICK_SURFS.get(oc);
+  if (!sure) { const ST = oc.GeomAbs_SurfaceType; sure = new Set(['GeomAbs_Plane', 'GeomAbs_Cylinder', 'GeomAbs_Cone', 'GeomAbs_Sphere', 'GeomAbs_Torus', 'GeomAbs_BezierSurface', 'GeomAbs_BSplineSurface'].map((k) => ST[k])); LAB_QUICK_SURFS.set(oc, sure); }
+  const fc = oc.TopoDS.Face(f), ad = new oc.BRepAdaptor_Surface(fc, false);
+  const ok = sure.has(ad.GetType());
+  ad.delete(); fc.delete();
+  let b = null;
+  if (ok) {
+    const bx = new oc.Bnd_Box();
+    try {
+      oc.BRepBndLib.Add(f, bx, false);
+      if (!bx.IsVoid()) { const lo = bx.CornerMin(), hi = bx.CornerMax(); b = { min: [lo.X(), lo.Y(), lo.Z()], max: [hi.X(), hi.Y(), hi.Z()] }; lo.delete(); hi.delete(); }
+    } finally { bx.delete(); }
+  }
+  if (!b || ![...b.min, ...b.max].every(Number.isFinite)) return (e.quick = e.box);
+  return (e.quick = b);
 }
 
 function findFace(body, ref) {
@@ -733,6 +890,7 @@ function surfOf(face) {
     const ax = (a) => { const L = a.Location(), D = a.Direction(); return { p: [L.X(), L.Y(), L.Z()], d: unit([D.X(), D.Y(), D.Z()]) }; };
     if (t === 'CYLINDER' || t === 'CYLINDRE') { const c = ad.Cylinder(); return { t: 'CYLINDER', ...ax(c.Axis()), r: c.Radius() }; }
     if (t === 'CONE') { const c = ad.Cone(); return { t, ...ax(c.Axis()), r: c.RefRadius() }; }
+    if (t === 'TORUS') { const c = ad.Torus(); return { t, ...ax(c.Axis()), r: c.MajorRadius(), r2: c.MinorRadius() }; } // (Kernel Lab k8)
     if (t === 'SPHERE') { const c = ad.Sphere(), L = c.Location(); return { t, p: [L.X(), L.Y(), L.Z()], r: c.Radius() }; }
     return { t: 'OTHER' };
   } catch { return { t: 'OTHER' }; } finally { ad?.delete(); }
@@ -782,15 +940,22 @@ function meshKept(shape, tol, ang) {
     let gsNew = null;
     if (missing.length) {
       const builder = new oc.TopoDS_Builder(), comp = new oc.TopoDS_Compound();
-      let m;
-      try {
-        builder.MakeCompound(comp);
-        for (const f of missing) builder.Add(comp, f);
-        m = R.cast(comp).mesh({ tolerance: tol, angularTolerance: ang });
-      } finally { builder.delete(); }
-      const total = m.faceGroups.reduce((n, g) => n + g.count, 0);
-      gsNew = total === m.triangles.length ? 1 : 3;
-      const byId = new Map(m.faceGroups.map((g) => [g.faceId, g]));
+      let m, byId;
+      const X = LAB_PREMESHED && LAB_EXTRACTED;
+      if (X && missing.every((f) => X.byId.has(hashOf(f)))) {
+        // (Kernel Lab) from the rebuild's one extraction
+        builder.delete(); comp.delete();
+        m = X.m; byId = X.byId; gsNew = X.gs;
+      } else {
+        try {
+          builder.MakeCompound(comp);
+          for (const f of missing) builder.Add(comp, f);
+          m = LAB_PREMESHED ? labExtract(comp) : R.cast(comp).mesh({ tolerance: tol, angularTolerance: ang });
+        } finally { builder.delete(); }
+        const total = m.faceGroups.reduce((n, g) => n + g.count, 0);
+        gsNew = total === m.triangles.length ? 1 : 3;
+        byId = new Map(m.faceGroups.map((g) => [g.faceId, g]));
+      }
       for (const f of missing) {
         const g = byId.get(hashOf(f));
         let data = { vertices: [], normals: [], triangles: [], gs: gsNew };
@@ -805,18 +970,155 @@ function meshKept(shape, tol, ang) {
       }
     }
     // (the faces one after another, as the extractor lists them)
-    const out = { vertices: [], normals: [], triangles: [], faceGroups: [] };
     const gs = gsNew ?? per.find(Boolean)?.gs ?? 1;
+    // (Kernel Lab: arrays sized once, filled by block copies)
+    let nv = 0, nn = 0, nt = 0;
+    for (const d of per) { nv += d.vertices.length; nn += d.normals.length; nt += d.triangles.length; }
+    const out = { vertices: new Float32Array(nv), normals: new Float32Array(nn), triangles: new Uint32Array(nt), faceGroups: [] };
+    let ov = 0, on = 0, ot = 0;
     faces.forEach((f, i) => {
-      const d = per[i], base = out.vertices.length / 3, start = out.triangles.length;
-      for (const x of d.vertices) out.vertices.push(x);
-      for (const x of d.normals) out.normals.push(x);
-      for (const x of d.triangles) out.triangles.push(x + base);
-      const n = d.triangles.length;
+      const d = per[i], base = ov / 3, start = ot;
+      out.vertices.set(d.vertices, ov); out.normals.set(d.normals, on);
+      const T = d.triangles, n = T.length;
+      for (let k = 0; k < n; k++) out.triangles[ot + k] = T[k] + base;
+      ov += d.vertices.length; on += d.normals.length; ot += n;
       if (n) out.faceGroups.push({ start: start / gs, count: n / gs, faceId: hashOf(f) });
     });
     return out;
   } finally { faces.forEach((f) => f.delete()); }
+}
+// (Kernel Lab 3b) premeshing: true while the rebuild's bodies are meshed after labPremesh made their triangles
+let LAB_PREMESHED = false;
+// (Kernel Lab) the extraction of all the faces premeshed: { m, byId: faceId → face group, gs }, or null
+let LAB_EXTRACTED = null;
+const LAB_MESH = (globalThis.LAB_MESH = { calls: 0, faces: 0, meshMs: 0, extractMs: 0, brepMs: 0, infoMs: 0, infoBodies: 0 });
+function labPremesh(parts, tol, diagQ, ang) {
+  const oc = R.getOC();
+  if (!oc.LabMeshExtractor) return false;
+  const t0 = performance.now(), key = `${tol}|${ang}`;
+  const builder = new oc.TopoDS_Builder(), comp = new oc.TopoDS_Compound();
+  let n = 0;
+  const infoOf = []; // (k3: the bodies whose faces and edges are read in one call)
+  const groups = []; // (k7: each body's faces to mesh)
+  try {
+    builder.MakeCompound(comp);
+    for (const s of parts) {
+      // (as meshPart decides: a body meshed before with these settings, or one taking the many-faces path, is left)
+      const c = meshCache.get(s.shape);
+      if (c && c.tol === tol && c.ang === ang && c.diagQ === diagQ && c.kind === s.kind && c.look === (s.look || null)) continue;
+      if (faceCount(s.shape) > 2500) continue;
+      infoOf.push(s.shape);
+      // (k7: each body's faces in a compound of its own)
+      const sub = new oc.TopoDS_Compound();
+      builder.MakeCompound(sub);
+      let m = 0;
+      for (const f of exploreAll(s.shape.wrapped, 'TopAbs_FACE')) {
+        if (keptFind(FACE_MESHES, f, key) === undefined) { builder.Add(sub, f); n++; m++; }
+        f.delete();
+      }
+      if (m) groups.push({ sub, m }); else sub.delete();
+    }
+    if (n) {
+      const tm = performance.now();
+      // (k7) many bodies: each body on one thread, the bodies shared out over the threads (the edge work in parallel
+      // too); a big body (an eighth of the faces or more) and few bodies (under 32): OpenCascade's own parallel
+      // meshing of one call, over the faces. The same triangles either way.
+      const per = oc.LabMeshExtractor.meshBodies && groups.length >= 32;
+      const big = new oc.TopoDS_Compound(), small = new oc.TopoDS_Compound();
+      builder.MakeCompound(big); builder.MakeCompound(small);
+      let nb = 0, ns = 0;
+      for (const g of groups) { if (per && g.m < n / 8) { builder.Add(small, g.sub); ns++; } else { builder.Add(big, g.sub); nb++; } }
+      try {
+        if (nb) oc.LabMeshExtractor.mesh(big, tol, ang);
+        if (ns) oc.LabMeshExtractor.meshBodies(small, tol, ang);
+      } finally { big.delete(); small.delete(); }
+      LAB_MESH.brepMs = (LAB_MESH.brepMs || 0) + performance.now() - tm;
+      // (Kernel Lab) the triangles of all these faces, in one extraction (meshKept takes each face's slice)
+      if (groups.length > 1) {
+        const all = new oc.TopoDS_Compound();
+        builder.MakeCompound(all);
+        try {
+          for (const g of groups) builder.Add(all, g.sub);
+          const m = labExtract(all);
+          const byId = new Map(), dup = new Set();
+          for (const g of m.faceGroups) { if (byId.has(g.faceId)) dup.add(g.faceId); else byId.set(g.faceId, g); }
+          for (const id of dup) byId.delete(id);
+          const total = m.faceGroups.reduce((t, g) => t + g.count, 0);
+          LAB_EXTRACTED = { m, byId, gs: total === m.triangles.length ? 1 : 3 };
+        } finally { all.delete(); }
+      }
+    }  } finally { builder.delete(); comp.delete(); for (const g of groups) g.sub.delete(); }
+  LAB_MESH.calls++; LAB_MESH.faces += n; LAB_MESH.meshMs += performance.now() - t0;
+  if (infoOf.length && oc.LabShapeInfo) labShapeInfo(infoOf, diagQ);
+  return n > 0;
+}
+// (Kernel Lab k3) every body's faces' surfaces and edges' points, as surfOf / seamEdges + edgeKept make them, from
+// one kernel call; kept for meshPart (once), by body shape
+const LAB_INFO = new WeakMap();
+const LAB_CURVES = ['LINE', 'CIRCLE', 'ELLIPSE', 'HYPERBOLA', 'PARABOLA', 'BEZIER_CURVE', 'BSPLINE_CURVE', 'OFFSET_CURVE', 'OTHER_CURVE'];
+function labShapeInfo(shapes, diagQ) {
+  const oc = R.getOC(), t0 = performance.now();
+  const builder = new oc.TopoDS_Builder(), comp = new oc.TopoDS_Compound();
+  let raw = null;
+  try {
+    builder.MakeCompound(comp);
+    for (const s of shapes) builder.Add(comp, s.wrapped);
+    raw = oc.LabShapeInfo.facesAndEdges(comp, diagQ, true);
+    const buf = oc.wasmMemory.buffer;
+    const D = new Float64Array(buf, raw.getDoublesPtr() >>> 0, raw.getDoublesSize());
+    const I = new Int32Array(buf, raw.getIntsPtr() >>> 0, raw.getIntsSize());
+    let ii = 0, di = 0;
+    // (Kernel Lab: n numbers from D at a, as a plain array; Array.from on a view is slower)
+    const take = (a, n) => { const r = new Array(n); for (let k = 0; k < n; k++) r[k] = D[a + k]; return r; };
+    const nb = I[ii++], counts = [];
+    for (let b = 0; b < nb; b++) counts.push([I[ii++], I[ii++]]);
+    if (nb !== shapes.length) return;
+    const cones = !!oc.gp_Cone;
+    // (k8: tori, and 8 numbers per face; before, 7)
+    const tori = !!oc.gp_Torus, faceN = tori ? 8 : 7;
+    const out = counts.map(([nf]) => {
+      const surfs = [];
+      for (let k = 0; k < nf; k++) {
+        const kind = I[ii++], d = take(di, faceN); di += faceN;
+        // (cones as surfOf gives them with this kernel: their axis when it has gp_Cone, else 'OTHER' (ad.Cone() throws))
+        surfs.push(kind === 0 ? { t: 'PLANE', p: d.slice(0, 3), n: unit(d.slice(3, 6)) }
+          : kind === 1 ? { t: 'CYLINDER', p: d.slice(0, 3), d: unit(d.slice(3, 6)), r: d[6] }
+            : kind === 2 && cones ? { t: 'CONE', p: d.slice(0, 3), d: unit(d.slice(3, 6)), r: d[6] }
+            : kind === 5 && tori ? { t: 'TORUS', p: d.slice(0, 3), d: unit(d.slice(3, 6)), r: d[6], r2: d[7] }
+            : kind === 3 ? { t: 'SPHERE', p: d.slice(0, 3), r: d[6] } : { t: 'OTHER' });
+      }
+      return { diagQ, surfs, edges: [] };
+    });
+    counts.forEach(([, ne], b) => {
+      for (let k = 0; k < ne; k++) {
+        const type = I[ii++], circ = I[ii++], np = I[ii++];
+        const c = take(di, 7); di += 7;
+        const mid = take(di, 3); di += 3;
+        const pts = take(di, np * 3); di += np * 3;
+        out[b].edges.push(type < 0 ? null : { pts, mid, type: LAB_CURVES[type], ...(type === 1 && circ ? { circ: { r: c[0], c: c.slice(1, 4), n: unit(c.slice(4, 7)) } } : {}) });
+      }
+    });
+    shapes.forEach((s, b) => LAB_INFO.set(s, out[b]));
+  } finally {
+    raw?.delete(); builder.delete(); comp.delete();
+    LAB_MESH.infoMs = (LAB_MESH.infoMs || 0) + performance.now() - t0; LAB_MESH.infoBodies = (LAB_MESH.infoBodies || 0) + shapes.length;
+  }
+}
+// the triangles already on a shape's faces, as replicad's mesh() returns them
+function labExtract(shape) {
+  const oc = R.getOC(), t0 = performance.now();
+  const raw = oc.LabMeshExtractor.extract(shape.wrapped ?? shape, false, true);
+  try {
+    const buf = oc.wasmMemory.buffer, F = new Float32Array(buf), U = new Uint32Array(buf), I = new Int32Array(buf);
+    const take = (heap, p, n) => { const a = (p >>> 0) / heap.BYTES_PER_ELEMENT; return heap.slice(a, a + n); }; // (Kernel Lab: a typed copy)
+    const vertices = take(F, raw.getVerticesPtr(), raw.getVerticesSize());
+    const normals = take(F, raw.getNormalsPtr(), raw.getNormalsSize());
+    const triangles = take(U, raw.getTrianglesPtr(), raw.getTrianglesSize());
+    const g = take(I, raw.getFaceGroupsPtr(), raw.getFaceGroupsSize());
+    const faceGroups = [];
+    for (let i = 0; i < g.length; i += 3) faceGroups.push({ start: g[i], count: g[i + 1], faceId: g[i + 2] });
+    return { triangles, vertices, normals, faceGroups };
+  } finally { raw.delete(); LAB_MESH.extractMs += performance.now() - t0; }
 }
 // an edge's points as shown (sampleEdge), kept like the faces' meshes
 function edgeKept(e, diagQ) {
@@ -851,11 +1153,17 @@ function meshPart(s, tol, diagQ, onWork, ang = 0.2) {
     return pts;
   });
   const edges = [];
+  // (Kernel Lab k3: what one kernel call read for this body, if it did)
+  const labInfo = LAB_INFO.get(s.shape)?.diagQ === diagQ ? LAB_INFO.get(s.shape) : null;
+  LAB_INFO.delete(s.shape);
   if (!dense) {
-    const seams = seamEdges(s.shape);
-    for (const e of s.shape.edges) {
-      if (seams.some((x) => x.IsSame(e.wrapped))) continue;
-      edges.push(edgeKept(e, diagQ));
+    if (labInfo && labInfo.edges.every(Boolean)) { for (const d of labInfo.edges) edges.push(d); }
+    else {
+      const seams = seamEdges(s.shape);
+      for (const e of s.shape.edges) {
+        if (seams.some((x) => x.IsSame(e.wrapped))) continue;
+        edges.push(edgeKept(e, diagQ));
+      }
     }
   }
   // (faces as the mesh numbers them: their surfaces, for assembly mates)
@@ -865,7 +1173,8 @@ function meshPart(s, tol, diagQ, onWork, ang = 0.2) {
     // (a face group knows its face by hash code; the mesh lists them in the same order as the faces)
     const byHash = new Map();
     for (const f of faces) { try { byHash.set(f.hashCode, f); } catch { /* no hash */ } }
-    surfs = m.faceGroups.map((g, gi) => { const f = byHash.get(g.faceId) || faces[gi]; return f ? surfOf(f) : { t: 'OTHER' }; });
+    const at = labInfo && labInfo.surfs.length === faces.length ? new Map(faces.map((f, i) => [f, i])) : null;
+    surfs = m.faceGroups.map((g, gi) => { const f = byHash.get(g.faceId) || faces[gi]; return f ? (at ? labInfo.surfs[at.get(f)] : surfOf(f)) : { t: 'OTHER' }; });
   }
   // the looks an import gave single faces, each face found by its vertex box
   let faceLooks = null;
@@ -2195,14 +2504,19 @@ async function rebuild(doc, previewId = null, opts = {}) {
           try {
             const r = SM.cutSheet(s.sheet, tool);
             if (!r.hit) { next.push(s); continue; }
-            const rec = bodyRec(s.id, SM.toSolid(r.sheet), fid);
+            // (Kernel Lab: folded later when the next feature can do without the folded body)
+            const wait = labSheetCanWait(labNext);
+            const rec = wait ? bodyRec(s.id, s.shape, fid) : bodyRec(s.id, SM.toSolid(r.sheet), fid);
             rec.sheet = r.sheet;
+            if (wait) { rec.sheetPending = true; LAB_SHEETS.deferred++; }
             next.push(rec);
             continue;
           } catch (e) {
             if (isFatal(e)) throw e;
             // fall back to an ordinary cut; the flat pattern no longer matches (see below)
           }
+          // (Kernel Lab: the ordinary cut needs the body as it is: its waiting fold made, in place)
+          if (s.sheetPending) { s.shape = SM.toSolid(s.sheet); s.box = bbox(s.shape); delete s.sheetPending; LAB_SHEETS.refolds++; }
         }
         // (a tool of several solids, e.g. a pattern's copies or cuts made together: cut as a list, so copies that
         // overlap each other are cut right; in one compound the overlap would be left standing)
@@ -2618,8 +2932,8 @@ async function rebuild(doc, previewId = null, opts = {}) {
     const oc = R.getOC();
     const ad = new oc.BRepAdaptor_Surface(hit.face.wrapped, false);
     try {
-      if (t === 'CYLINDRE' || t === 'CONE') {
-        const ax = (t === 'CYLINDRE' ? ad.Cylinder() : ad.Cone()).Axis(), L = ax.Location(), D = ax.Direction();
+      if (t === 'CYLINDRE' || t === 'CONE' || t === 'TORUS') {
+        const ax = (t === 'CYLINDRE' ? ad.Cylinder() : t === 'CONE' ? ad.Cone() : ad.Torus()).Axis(), L = ax.Location(), D = ax.Direction();
         return { geo: { kind: 'line', p: [L.X(), L.Y(), L.Z()], d: unit([D.X(), D.Y(), D.Z()]) }, body: hit.body };
       }
       if (t === 'SPHERE') { const L = ad.Sphere().Location(); return { geo: { kind: 'point', p: [L.X(), L.Y(), L.Z()] }, body: hit.body }; }
@@ -2682,6 +2996,36 @@ async function rebuild(doc, previewId = null, opts = {}) {
     }
     return false;
   };
+  // (Kernel Lab) sheet metal folded once for a run of cuts: can feature g work on sheet bodies whose fold waits?
+  // (the features the app's own deferred cuts allow, whatever the bodies are)
+  let labNext = null; // the next feature to be built after the one running
+  const labSheetCanWait = (g) => {
+    if (!g || g.id === previewId) return false;
+    if (g.type === 'sketch') return !(g.constraints || []).some((k) => k.type === 'projected' && ['edge', 'vertex', 'section'].includes(k.src?.kind));
+    if ((g.type === 'extrude' || g.type === 'revolve') && g.op === 'cut') {
+      if (g.scopeAll === false) return false;
+      if (g.type === 'extrude' && !DEFER_ENDS.has(g.end || 'blind')) return false;
+      if (g.type === 'revolve' && (g.axis === 'edge' || g.axis === 'face')) return false;
+      return true;
+    }
+    if (g.type === 'hole') return g.holeType !== 'tapped';
+    if (['lpattern', 'cpattern', 'mirror', 'spattern'].includes(g.type)) { const t = tools.get(g.feature); return !!t && t.op === 'cut' && !t.scope; }
+    return false;
+  };
+  // the waiting folds made (new records: the folded body, its box worked out from it)
+  const labFlushSheets = () => {
+    if (!solids.some((r) => r.sheetPending)) return false;
+    solids = solids.map((r) => {
+      if (!r.sheetPending) return r;
+      const t0 = performance.now();
+      const nr = bodyRec(r.id, SM.toSolid(r.sheet), r.last, [r]);
+      nr.sheet = r.sheet;
+      LAB_SHEETS.refolds++; LAB_SHEETS.ms += performance.now() - t0;
+      return nr;
+    });
+    body = compoundOf(solids);
+    return true;
+  };
   // The waiting cuts made: in one boolean (if that fails, one by one, so the feature that fails is named). Made in
   // two steps, the cuts of the last feature apart from the others: that feature is the one most often edited, and
   // then "all the others" is the same as last time (cutMemo), so only its own cut is made again and the faces left
@@ -2693,7 +3037,12 @@ async function rebuild(doc, previewId = null, opts = {}) {
     const lastFid = pending[pending.length - 1].fid;
     const earlier = whole ? [] : pending.filter((x) => x.fid !== lastFid), own = whole ? pending : pending.filter((x) => x.fid === lastFid);
     pending = [];
-    if (earlier.length) cutTogether(earlier);
+    // (Kernel Lab: the earlier features' cuts in fixed chunks of LAB_CUT_CHUNK features, each found again in cutMemo
+    // after an edit of a later one)
+    if (earlier.length) {
+      const fids = [...new Set(earlier.map((x) => x.fid))];
+      for (let i = 0; i < fids.length; i += LAB_CUT_CHUNK) { const ids = new Set(fids.slice(i, i + LAB_CUT_CHUNK)); cutTogether(earlier.filter((x) => ids.has(x.fid))); }
+    }
     cutTogether(own);
   };
   const cutTogether = (list) => {
@@ -2866,6 +3215,10 @@ async function rebuild(doc, previewId = null, opts = {}) {
     progress((0.8 * fi) / nFeat, `Rebuilding ${f.name}…`);
     if (f.suppressed) { if (entries) entries[fi] = { id: f.id, json: fjson[fi], snap: takeSnap() }; continue; }
     // (a feature that needs the body as it really is: the waiting cuts made first)
+    // (Kernel Lab: the folds waiting since a sheet metal cut made now, unless this feature can do without them)
+    if (f.id === previewId || !labSheetCanWait(f)) labFlushSheets();
+    labNext = null;
+    for (let j = fi + 1; j < doc.features.length; j++) { const g = doc.features[j]; if (doc.rollbackAt && g.id === doc.rollbackAt) break; if (!g.suppressed) { labNext = g; break; } }
     deferNow = canDefer(f);
     if (!deferNow) { try { flushCuts(f.id === previewId); } catch (e) { if (isFatal(e)) throw e; } }
     const bodyIn = body, solidsIn = solids, surfacesIn = surfaces;
@@ -6203,6 +6556,11 @@ async function rebuild(doc, previewId = null, opts = {}) {
     }
     if (entries) entries[fi] = { id: f.id, json: fjson[fi], snap: takeSnap() };
   }
+  // (Kernel Lab: the waiting folds made; the last feature's saved state then holds the folded body)
+  if (labFlushSheets()) {
+    const k = entries ? entries.length - 1 : -1;
+    if (k >= 0 && entries[k]) entries[k] = { ...entries[k], snap: takeSnap() };
+  }
   // (the waiting cuts made; the last feature's saved state then holds the body as it is)
   if (pending.length) {
     deferNow = false;
@@ -6233,8 +6591,16 @@ async function rebuild(doc, previewId = null, opts = {}) {
     // each body is meshed on its own (so every face and edge knows its body), and only when it changed
     timing.meshStart = performance.now();
     progressFeature = null; // (meshing: no one feature to blame)
-    timing.meshHelpers = await meshHelped(parts, tol, diagQ, ang, opts.meshHelp);
-    const meshes = parts.map((s, i) => meshPart(s, tol, diagQ, () => progress(0.8 + (0.2 * i) / parts.length, parts.length > 1 ? `Meshing body ${i + 1} of ${parts.length}…` : 'Meshing…'), ang));
+    // (Kernel Lab 3b: the faces not meshed yet, of all these bodies, meshed in one call first: in parallel with threads.
+    // A multi-threaded kernel does that before the mesh helpers, whose quick probe then sees little left to share; a
+    // single-thread one asks for helpers first, as before, and premeshes what is left)
+    let meshes;
+    try {
+      if (MULTI) LAB_PREMESHED = labPremesh(parts, tol, diagQ, ang);
+      timing.meshHelpers = await meshHelped(parts, tol, diagQ, ang, opts.meshHelp);
+      if (!MULTI) LAB_PREMESHED = labPremesh(parts, tol, diagQ, ang);
+      meshes = parts.map((s, i) => meshPart(s, tol, diagQ, () => progress(0.8 + (0.2 * i) / parts.length, parts.length > 1 ? `Meshing body ${i + 1} of ${parts.length}…` : 'Meshing…'), ang));
+    } finally { LAB_PREMESHED = false; LAB_EXTRACTED = null; }
     const key = `${KERNEL_SESSION}|${tol}|${ang}|` + parts.map((s) => `${shapeId(s.shape)}:${s.id}:${s.kind}:${s.last}`).join('|');
     const dense = meshes.some((m) => m.dense);
     const bodies = [];
@@ -6379,13 +6745,14 @@ function measureRefs(refs) {
       const planar = h.face.geomType === 'PLANE';
       const n = planar ? unit(vec(h.face.normalAt())) : null;
       const ax = planar ? null : faceAxis(h.face);
-      return { shape: h.face, normal: n, axis: ax, info: { type: 'face', area: R.measureArea(h.face), planar, radius: ax ? radiusOfFace(h.face) : null } };
+      return { shape: h.face, normal: n, axis: ax, info: { type: 'face', area: finite(exactProps([h.face])[0]?.area, () => R.measureArea(h.face)), planar, radius: ax ? radiusOfFace(h.face) : null } };
     }
     if (r.kind === 'body') {
       const b = all.find((x) => x.id === r.id);
       if (!b) throw new Error('A selected body no longer exists');
       const solid = lastSolids.includes(b);
-      return { shape: b.shape, info: { type: 'body', solid, volume: solid ? preciseVolume(b.shape) : null, area: R.measureArea(b.shape) } };
+      const x = exactProps([b.shape])[0] || {};
+      return { shape: b.shape, info: { type: 'body', solid, volume: solid ? finite(x.volume, () => preciseVolume(b.shape)) : null, area: finite(x.area, () => R.measureArea(b.shape)) } };
     }
     if (r.kind === 'seg') return { shape: R.makeLine(r.a, r.b), dir: unit(sub(r.b, r.a)), info: { type: 'edge', length: len(sub(r.b, r.a)), curve: 'line' } };
     if (r.kind === 'plane') return { shape: planeFace(r.o, r.n), normal: unit(r.n), info: { type: 'plane' } };
@@ -7854,11 +8221,11 @@ function textOutlines(texts) {
 // Axis { o, d } of a cylindrical or conical face (null for other faces).
 function faceAxis(face) {
   const t = face.geomType;
-  if (t !== 'CYLINDRE' && t !== 'CONE') return null;
+  if (t !== 'CYLINDRE' && t !== 'CONE' && t !== 'TORUS') return null;
   const oc = R.getOC();
   const ad = new oc.BRepAdaptor_Surface(face.wrapped, false);
   try {
-    const ax = (t === 'CYLINDRE' ? ad.Cylinder() : ad.Cone()).Axis(), L = ax.Location(), D = ax.Direction();
+    const ax = (t === 'CYLINDRE' ? ad.Cylinder() : t === 'CONE' ? ad.Cone() : ad.Torus()).Axis(), L = ax.Location(), D = ax.Direction();
     return { o: [L.X(), L.Y(), L.Z()], d: unit([D.X(), D.Y(), D.Z()]) };
   } catch {
     return null; // (this kernel build cannot read a cone's axis: the face is measured without it)
@@ -7914,22 +8281,46 @@ function nearFacePoint(face, point, tol = 1e-7) {
 }
 // A face of any body near a picked point (faces of dense STL bodies are not searched).
 function findFaceAny(bodies, ref) {
-  const cands = [];
+  // (Kernel Lab) the search below, first with quick boxes (the smallest distance), then with precise boxes for the
+  // faces that can matter only: the same face (tools/patch_findface_quick.py)
+  const entries = [];
   for (const b of bodies) {
     if (b.dense) continue;
-    for (const x of facesWithBox(b.shape)) cands.push([boxDist(x.box, ref.p), b, x.face]);
+    for (const x of facesWithBox(b.shape)) entries.push([b, x]);
   }
-  cands.sort((x, y) => x[0] - y[0]);
-  let q = null, best = null, bd = Infinity;
-  try {
-    for (const [lb, b, face] of cands) {
-      if (lb > bd + 1e-9) break; // no remaining face can be nearer
-      const contact = nearFacePoint(face, ref.p);
-      if (!contact) q ||= new R.DistanceQuery(R.makeVertex(ref.p));
-      const d = contact ? len(sub(contact, ref.p)) : q.distanceTo(face);
-      // (faces on top of each other, e.g. a copied surface on its solid: the body that was clicked)
-      if (d < bd - 1e-9 || (Math.abs(d - bd) <= 1e-9 && ref.body && b.id === ref.body)) { bd = d; best = { body: b, face }; }
+  let q = null;
+  const dist = new Map();
+  // (a face's distance: the contact point on it when the point lies on the face, else the general distance query)
+  const distOf = (x) => {
+    let d = dist.get(x);
+    if (d === undefined) {
+      const contact = nearFacePoint(x.face, ref.p);
+      if (contact) d = len(sub(contact, ref.p));
+      else { q ||= new R.DistanceQuery(R.makeVertex(ref.p)); d = q.distanceTo(x.face); }
+      dist.set(x, d);
     }
+    return d;
+  };
+  const search = (cands) => {
+    cands.sort((x, y) => x[0] - y[0]);
+    let best = null, bd = Infinity;
+    for (const [lb, b, x] of cands) {
+      if (lb > bd + 1e-9) break; // no remaining face can be nearer
+      const d = distOf(x);
+      // (faces on top of each other, e.g. a copied surface on its solid: the body that was clicked)
+      if (d < bd - 1e-9 || (Math.abs(d - bd) <= 1e-9 && ref.body && b.id === ref.body)) { bd = d; best = { body: b, face: x.face }; }
+    }
+    return { best, bd };
+  };
+  let best = null, bd = Infinity;
+  try {
+    labPrefetchQuick(entries.map(([, x]) => x)); // (k10)
+    const quick = entries.map(([b, x]) => [boxDist(labQuickBox(x), ref.p), b, x]);
+    const first = search(quick.slice());
+    const near = quick.filter(([lb]) => lb <= first.bd + 2e-9);
+    // (their precise boxes in one call, when there are several to work out)
+    { const fs = near.filter(([, , x]) => x.precise === undefined).map(([, , x]) => x.face.wrapped); if (fs.length >= 8) labPrefetchBoxes(fs); }
+    ({ best, bd } = search(near.map(([, b, x]) => [boxDist(x.box, ref.p), b, x])));
   } finally { q?.delete(); }
   if (best && bd < Math.max(1e-3, bbox(best.body.shape).diag * 2e-3)) return refFound(ref, best, false);
   // a planar face that moved (a dimension before it changed): the face facing the same way clearly
@@ -8882,6 +9273,8 @@ async function handleMessage(e) {
       const out = await rebuild(doc, null, { coarse: !!data.coarse });
       const r = out.res;
       result = { body: r.body, errors: [...(r.errors instanceof Map ? r.errors : Object.entries(r.errors || {}))].length };
+      // (Kernel Lab: the solids' volume, for the BOM's mass, instead of the display mesh's)
+      if (data.withVolume && r.body && lastSolids.length) { const ex = exactProps(lastSolids.map((x) => x.shape), 1e-6); r.body.volume = ex.reduce((t, x, i) => t + finite(x.volume, () => preciseVolume(lastSolids[i].shape)), 0); }
       transfer = out.transfer;
     } else if (type === 'exportAssemblySTEP') {
       result = await exportAssemblySTEP(data.doc);
@@ -8903,7 +9296,8 @@ async function handleMessage(e) {
     } else if (type === 'cutList') {
       let list = lastSolids;
       if (data.doc) { await ensureDrawingCache(data.doc); list = drawingCache.solids; }
-      result = list.filter((r) => r.member).map((r) => ({ id: r.id, ...r.member, axis: undefined, volume: R.measureVolume(r.shape) }));
+      const members = list.filter((r) => r.member), ex = exactProps(members.map((r) => r.shape));
+      result = members.map((r, i) => ({ id: r.id, ...r.member, axis: undefined, volume: finite(ex[i]?.volume, () => R.measureVolume(r.shape)) }));
     } else if (type === 'compareParts') {
       result = await compareParts(data.a, data.b);
     } else if (type === 'interference') {

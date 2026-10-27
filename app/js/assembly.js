@@ -787,7 +787,7 @@ export class AssemblyEditor {
       this.parts.set(j.gk, error ? { key: j.key, from: j.p.doc, mesh: null, error, coarse: j.coarse } : { key: j.key, from: j.p.doc, coarse: j.coarse, mesh: mesh && withPartLooks(mesh, j.p.doc), color: materialById(j.p.doc.material)?.color ?? j.p.color ?? DEFAULT_BODY_COLOR, box: mesh ? meshBox(mesh) : null });
       // (its mass, for the bill of materials: the mesh's volume and the part's material)
       if (mesh && !isAssembly(j.p.doc) && !j.cut) {
-        const kg = massOf(meshVolume(mesh), j.p.doc.material), k = j.cfgId ?? '';
+        const kg = massOf(Number.isFinite(mesh.volume) ? mesh.volume : meshVolume(mesh), j.p.doc.material), k = j.cfgId ?? ''; // (Kernel Lab: the kernel's volume)
         if (kg != null) { if (j.p.mass?.[k] !== +kg.toPrecision(6)) (j.p.mass ||= {})[k] = +kg.toPrecision(6); } else if (j.p.mass) delete j.p.mass[k];
       }
       any = true;
@@ -822,7 +822,7 @@ export class AssemblyEditor {
     await pool.each(todo, async (j) => {
       this.app.status(left > 1 ? `Building ${left} parts…` : `Building ${j.p.name}${j.cfgId ? ` (${this.configName(j.p, j.cfgId)})` : ''}…`);
       try {
-        const r = await pool.request('partMesh', { doc: j.json, coarse: !!j.coarse });
+        const r = await pool.request('partMesh', { doc: j.json, coarse: !!j.coarse, withVolume: true }); // (Kernel Lab: the part's volume for the BOM's mass)
         const mesh = r.body && r.body.vertices ? r.body : null;
         for (const x of built.get(j.key)) done(x, mesh);
         // stored for next time, unless it had errors (its rebuild may come out differently)
@@ -2623,7 +2623,7 @@ function refOfFace(m, gi) {
   const s = m.faceGroups[gi]?.surf;
   if (!s) return null;
   if (s.t === 'PLANE') return { kind: 'plane', p: s.p.map(r6), n: s.n.map(r6), what: 'Face' };
-  if (s.t === 'CYLINDER' || s.t === 'CONE') return { kind: 'axis', p: s.p.map(r6), d: s.d.map(r6), r: r6(s.r), what: s.t === 'CYLINDER' ? 'Cylindrical face' : 'Conical face' };
+  if (s.t === 'CYLINDER' || s.t === 'CONE' || s.t === 'TORUS') return { kind: 'axis', p: s.p.map(r6), d: s.d.map(r6), r: r6(s.r), what: s.t === 'CYLINDER' ? 'Cylindrical face' : s.t === 'CONE' ? 'Conical face' : 'Toroidal face' }; // (Kernel Lab k8: tori)
   if (s.t === 'SPHERE') return { kind: 'point', p: s.p.map(r6), r: r6(s.r), what: 'Spherical face' };
   return null;
 }
