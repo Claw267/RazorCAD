@@ -6,6 +6,9 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-28 12:19 — Version 0.18.2-beta
+- Installer, user manual (94 pages) and website for 0.18.2-beta.
+
 ## 2026-10-28 11:16 — Measure: a face measured again answers at once
 - Measure worked out a face's exact area (shown with it) every time the face was measured: 174 of 176 ms on a
   guided loft's B-spline patch. The area is now kept with the face, so only the first measure of a face pays for
