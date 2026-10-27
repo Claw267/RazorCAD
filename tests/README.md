@@ -130,3 +130,15 @@ extrusion after source edits. Its UI workflow uses real canvas clicks, replaces
 numbered slots, rejects a fourth reference and incomplete acceptance, switches
 solutions, and checks cancel, source visibility, legacy editing and reopening.
 Run on both kernel configurations.
+
+## Plane and point along path
+
+`python tests/run_tests.py --only reference-along-path reference-datum-workflows --jobs 1`
+
+`path-location-cases.js` checks arc-length positions against analytic arcs,
+nonuniform quintics and weighted rational circles, including derivative normals,
+3D helices, composite-route boundaries, model circle/spline edges, reversal,
+closed seams, cusps, out-of-range values, expressions and source edits. The app
+test picks an arc in the canvas, uses the shared relation controls, verifies the
+plane origin and tangent, then saves, reopens, cancels invalid edits and changes
+the source radius. Run on both kernel configurations.

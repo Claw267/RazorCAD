@@ -3964,6 +3964,42 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
   // (y 10, x 30 to 60). Normal to the first line: its normal along y; through the first line and the second's end
   // point, and through both lines: the front plane (normal along z); the sketch changed (the first line's top end
   // moved to x 40): the normal plane turns with it
+  async 'reference-along-path'() {
+    const {run,fixture}=await import('/tests/path-location-cases.js'),S=await import('/js/sketchmodel.js');
+    const native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
+    const a=window.app,settle=async()=>{await wait(180);await until(()=>!a.kernel.pending);};
+    const state=()=>document.querySelector('[data-datum-status]')?.dataset.datumStatus;
+    const relation=async value=>{const s=document.querySelector('[data-datum-relation="0"]');s.value=value;s.dispatchEvent(new Event('change'));await settle();};
+    const mode=async value=>{const s=document.querySelector('[data-datum-path-mode="0"]');s.value=value;s.dispatchEvent(new Event('change'));await settle();};
+    const parameter=async(key,value)=>{const input=document.querySelector(`[data-datum-parameter="0:${key}"] input`);input.value=value;input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));await settle();};
+    const {Vector3}=await import('three'),click=async p=>{const ev=viewEvents();ev.vp.camera.updateMatrixWorld(true);await ev.click(...ev.toScreen(new Vector3(...p)));await settle();};
+    const data=fixture(),{doc,sk}=data;doc.features.pop();await a.newDocument?.();closeModals();await a.setDoc(doc);a.selection=null;a.startFeature('plane');await settle();
+    a.viewport.setStandardView('front',false);a.viewport.zoomToFit(null,false);await wait(160);await click([Math.sqrt(50),Math.sqrt(50),0]);
+    if(a.pm.feature.refs[0]?.curve!==data.curve)return {ok:false,detail:'Actual arc selection failed'};
+    await relation('alongPath');await mode('distance');await parameter('distance','10*pi/6');
+    if(![...document.querySelector('[data-datum-relation="0"]').options].some(o=>o.value==='coincident'))return {ok:false,detail:'Along path hid the other valid arc relations'};
+    const id=a.pm.feature.id;let n=a.result.planes.get(id)?.n;
+    if(state()!=='defined'||!n||n.distanceTo(new Vector3(-.5,Math.sqrt(3)/2,0))>1e-6)return {ok:false,detail:'Plane was not normal to the arc tangent'};
+    if(a.result.planes.get(id).o.distanceTo(new Vector3(5*Math.sqrt(3),5,0))>1e-6)return {ok:false,detail:'Plane sketch origin was not placed on the curve'};
+    await relation('coincident');if(state()!=='defined'||Math.abs(a.result.planes.get(id).n.z)<1-1e-7)return {ok:false,detail:'Switching back to the arc plane failed'};
+    await relation('alongPath');if(state()!=='defined'||a.result.planes.get(id).n.distanceTo(n)>1e-6)return {ok:false,detail:'Switching back to along path lost the stored position'};
+    const reverse=document.querySelector('[data-datum-path-reverse="0"]');reverse.checked=true;reverse.dispatchEvent(new Event('change'));await settle();
+    n=a.result.planes.get(id).n;if(n.distanceTo(new Vector3(Math.sqrt(3)/2,-.5,0))>1e-6)return {ok:false,detail:'Reverse did not change distance origin and tangent direction'};
+    if(!document.querySelector('[data-datum-path-info]').textContent.includes('Length:'))return {ok:false,detail:'Path length feedback missing'};
+    await a.okPM();await a.setDoc(JSON.parse(JSON.stringify(a.doc)));a.editFeature(id);await settle();
+    if(!document.querySelector('[data-datum-path-reverse="0"]').checked||document.querySelector('[data-datum-path-mode="0"]').value!=='distance')return {ok:false,detail:'Path settings lost on reopen'};
+    await parameter('distance','100');await a.okPM();if(!a.pm||state()!=='conflict')return {ok:false,detail:'Outside-path plane was accepted'};
+    a.cancelPM();await a.rebuild();
+    const source=M.findFeature(a.doc,sk.id);await a.enterSketch(source,false);const c=S.getCurve(a.sketcher.f,data.curve);S.getPoint(a.sketcher.f,c.p1).x=20;S.getPoint(a.sketcher.f,c.p2).y=20;a.sketcher.changed();a.exitSketch(true);await a.rebuild();
+    const p=[20*Math.cos(5*Math.PI/12),20*Math.sin(5*Math.PI/12),0],plane=a.result.planes.get(id);
+    if(a.result.errors.size||Math.abs(plane.n.dot(new Vector3(...p).sub(plane.o)))>1e-6)return {ok:false,detail:'Source radius edit did not retain the physical arc distance'};
+    const point=fixture('quintic','point');await a.setDoc(point.doc);a.editFeature(point.feature.id);await settle();
+    await parameter('fraction','.371');if(Math.abs(a.result.points.get(point.feature.id).x-3.71)>2e-7)return {ok:false,detail:'Point used the spline parameter instead of arc length'};
+    await a.okPM();await a.setDoc(JSON.parse(JSON.stringify(a.doc)));
+    if(a.result.errors.size||!M.referencesOf(a.doc,M.findFeature(a.doc,point.feature.id)).has(point.sk.id))return {ok:false,detail:'Point path dependency or reopening failed'};
+    return {ok:true,detail:JSON.stringify({native,ui:'actual arc pick, along-path plane and point, distance expressions, reversal, length feedback, invalid acceptance guard, save/reopen/cancel and source edits'})};
+  },
+
   async 'reference-datum-workflows'() {
     const {run,fixture}=await import('/tests/reference-datum-cases.js');const native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
     const a=window.app,settle=async()=>{await wait(180);await until(()=>!a.kernel.pending);};

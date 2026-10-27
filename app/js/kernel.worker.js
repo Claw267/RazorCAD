@@ -12,6 +12,7 @@ import * as LR from './loftrefs.js';
 import { solveSketch } from './solver.js';
 import { inferPlaneType, planeRefs } from './refgeom.js';
 import { solveReferenceDatum, defaultReferenceRelations } from './refconstraints.js';
+import {locateAlongPath,sketchPath,cadPath} from './pathlocation.js';
 import { threadList, minorDiameter, nearestThread } from './threads.js';
 import * as SM from './sheetmetal.js';
 import { holeSpec, holeProfile } from './holes.js';
@@ -2393,7 +2394,33 @@ async function rebuild(doc, previewId = null, opts = {}) {
   const referenceDatum=f=>{
     const signature=JSON.stringify(f);
     try{
+      const pathGeometry=r=>{
+        let path,sourceType='path';
+        try{
+          if(r.kind==='sketch'){
+            const source=sketches.get(r.sketch),curve=source&&S.getCurve(source.sk,r.curve);
+            if(!curve)throw new Error('The selected path sketch or curve is missing, suppressed or has errors');
+            path=sketchPath(S,source.sk,curve,source.frame);sourceType=curve.type;
+          }else if(r.kind==='edge'){
+            needEdges('Along path from a model edge');const edge=findEdge(body,r);if(!edge)throw new Error('The selected path edge could not be found');
+            updateEdgeRef(r,edge,body);path=cadPath(R,edge);sourceType=edgeGeom(edge,bbox(body).diag)?.type||'curve';
+          }else if(r.kind==='curve'){
+            const source=curves.get(r.id);if(!source)throw new Error('The selected path feature is missing, suppressed or has errors');
+            if(source.wires?.length>1)throw new Error('Select one connected path; this feature contains multiple paths');
+            path=cadPath(R,source.wire,true);
+          }else throw new Error('Along path requires a sketch curve, model edge or curve feature');
+          const positionMode=r.positionMode||'fraction',options={...r,positionMode};
+          if(positionMode==='fraction')options.fraction=ev(r.fraction??.5);
+          if(positionMode==='distance')options.distance=ev(r.distance??0);
+          return {kind:'path',sample:locateAlongPath(path,options,f.type==='plane'),curve:{type:sourceType}};
+        }finally{path?.delete?.();}
+      };
       const refs=f.refs||[],geo=refs.map(r=>{
+        if(['plane','point'].includes(f.type)){
+          const sketchCurve=r.kind==='sketch'&&r.curve&&S.getCurve(sketches.get(r.sketch)?.sk||{curves:[]},r.curve);
+          if(r.relation==='alongPath'||r.kind==='curve'||!r.relation&&sketchCurve?.type==='spline')return pathGeometry(r);
+          if(f.type==='plane'&&r.kind==='edge'&&!r.relation){const edge=findEdge(body,r);if(edge&&!['line','circle','arc'].includes(edgeGeom(edge,bbox(body).diag)?.type))return pathGeometry(r);}
+        }
         if(f.type==='axis'&&r.kind==='face'&&!r.n){const hit=findFaceAny([...solids,...surfaces],r),axis=hit&&faceAxis(hit.face);if(!axis)throw new Error('Select a cylindrical or conical face');return {kind:'cylinder',o:axis.o,d:axis.d};}
         if(f.type==='point'&&r.kind==='edge'){
           needEdges('Reference point from an edge');const edge=findEdge(body,r);if(!edge)throw new Error('The selected edge could not be found in the model');
@@ -2410,7 +2437,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
       const relations=evaluated.map(r=>r.relation),opts={...f};
       if(f.type==='plane')for(const key of ['offset','angle','along','around']){const active=key==='along'?relations.includes('normal')&&f.position==='distance':key==='around'?relations.includes('tangent')&&!geo.some(g=>g.kind==='plane'):relations.includes(key==='offset'?'offset':'angle');opts[key]=active?ev(f[key]??0):0;}
       const solved=solveReferenceDatum(f.type,geo,evaluated,opts);
-      (res.info ||= {})[f.id]={datum:solved,datumSignature:signature,relations,geometry:geo.map(g=>({kind:g.kind,curve:g.curve?{type:g.curve.type}:null}))};
+      (res.info ||= {})[f.id]={datum:solved,datumSignature:signature,relations,geometry:geo.map(g=>({kind:g.kind,curve:g.curve?{type:g.curve.type}:null})),pathLocations:geo.map(g=>g.sample||null)};
       if(solved.status!=='defined')throw new Error(solved.status==='under'?`Under Defined: ${solved.message}`:`Conflicting: ${solved.message}`);
       res.features[f.id]={refs};
       return {solved,geo,relations};
@@ -3094,8 +3121,9 @@ async function rebuild(doc, previewId = null, opts = {}) {
           let fr;
           if(f.referenceDefinition&&!f.referenceLegacy){
             const {solved,geo}=referenceDatum(f),{n,h}=solved.value;
+            const pathAnchor=geo.find(g=>g.kind==='path')?.sample?.p;
             const source=geo.find(g=>g.kind==='plane'&&g.frame&&Math.abs(dot(n,g.n))>1-1e-8);
-            fr=source?{...source.frame,o:add(source.frame.o,mul(n,h-dot(n,source.frame.o)))}:frameOnPlane(mul(n,h),n);
+            fr=pathAnchor?{...frameOnPlane(pathAnchor,n),o:[...pathAnchor]}:source?{...source.frame,o:add(source.frame.o,mul(n,h-dot(n,source.frame.o)))}:frameOnPlane(mul(n,h),n);
             if(dot(fr.n,n)<0)fr={...fr,v:mul(fr.v,-1),n};
           } else if (type === 'offset') {
             const g = planesOf[0];

@@ -4,7 +4,7 @@ const EPS=1e-8, dot=(a,b)=>a.reduce((s,x,i)=>s+x*b[i],0), sub=(a,b)=>a.map((x,i)
 const unit=a=>{const l=norm(a);if(!(l>EPS)||!Number.isFinite(l))throw new Error('A reference direction is invalid or has zero length');return mul(a,1/l);};
 const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
 const row=(a,b=0)=>({a,b});
-const datumGeometry=(type,g)=>type==='plane'&&['circle','arc'].includes(g.curve?.type)?{kind:'plane',n:g.d,p:g.curve.c,fromCurve:true}:g;
+const datumGeometry=(type,g)=>type==='plane'&&g.kind==='line'&&['circle','arc'].includes(g.curve?.type)?{kind:'plane',n:g.d,p:g.curve.c,fromCurve:true}:g;
 
 function affine(rows,n){
   if(rows.some(r=>![...r.a,r.b].every(Number.isFinite)))throw new Error('Reference coordinates, distances and angles must be finite');
@@ -35,20 +35,22 @@ function directions(rows,n=3){
 }
 
 export function referenceRelations(type,g){
+  if(g.kind==='path')return type==='axis'?[]:['alongPath'];
+  const path=g.curve&&type!=='axis'?['alongPath']:[];
   g=datumGeometry(type,g);
-  if(type==='plane')return g.kind==='point'?['coincident']:g.kind==='plane'?['coincident','offset','parallel','perpendicular','angle','midplane']:g.kind==='cylinder'?['tangent']:['coincident','parallel','perpendicular','normal','angle'];
+  if(type==='plane')return g.kind==='point'?['coincident']:g.kind==='plane'?[...path,'coincident','offset','parallel','perpendicular','angle',...(path.length?[]:['midplane'])]:g.kind==='cylinder'?['tangent']:[...path,'coincident','parallel','perpendicular','normal','angle'];
   if(type==='axis')return g.kind==='point'?['coincident']:g.kind==='plane'?['coincident','parallel','perpendicular']:g.kind==='cylinder'?['centerline']:['coincident','parallel','perpendicular'];
-  return g.kind==='point'?['coincident']:g.kind==='plane'?['coincident','offset']:g.kind==='cylinder'?[]:['coincident',...(g.curve?['start','end','midpoint',...(g.curve.type!=='line'?['center']:[]),...(!['circle','arc'].includes(g.curve.type)?['distance']:[])]:[])];
+  return g.kind==='point'?['coincident']:g.kind==='plane'?['coincident','offset']:g.kind==='cylinder'?[]:[...path,'coincident',...(g.curve?['start','end','midpoint',...(g.curve.type!=='line'?['center']:[]),...(!['circle','arc'].includes(g.curve.type)?['distance']:[])]:[])];
 }
 
-export const RELATION_LABELS={coincident:'Coincident / through',offset:'Offset',parallel:'Parallel',perpendicular:'Perpendicular',normal:'Normal at position',angle:'At angle',midplane:'Midplane / bisector',tangent:'Tangent',centerline:'Centre axis',start:'Start point',end:'End point',midpoint:'Midpoint',center:'Arc / circle centre',distance:'Distance from start'};
+export const RELATION_LABELS={alongPath:'Along path (arc length)',coincident:'Coincident / through',offset:'Offset',parallel:'Parallel',perpendicular:'Perpendicular',normal:'Normal at position',angle:'At angle',midplane:'Midplane / bisector',tangent:'Tangent',centerline:'Centre axis',start:'Start point',end:'End point',midpoint:'Midpoint',center:'Arc / circle centre',distance:'Distance from start'};
 
 export function defaultReferenceRelations(type,geo,options={}){
   geo=geo.map(g=>datumGeometry(type,g));
   const count=k=>geo.filter(g=>g.kind===k).length;
-  if(type==='plane')return geo.map(g=>g.kind==='point'?'coincident':g.kind==='cylinder'?'tangent':g.kind==='plane'?(g.fromCurve?'coincident':count('cylinder')?'parallel':count('plane')===2?'midplane':count('line')?'angle':count('point')?'parallel':'offset'):(count('plane')?'coincident':count('point')?(options.through?'coincident':'perpendicular'):geo.length===1?'normal':'coincident'));
+  if(type==='plane')return geo.map(g=>g.kind==='path'?'alongPath':g.kind==='point'?'coincident':g.kind==='cylinder'?'tangent':g.kind==='plane'?(g.fromCurve?'coincident':count('cylinder')?'parallel':count('plane')===2?'midplane':count('line')?'angle':count('point')?'parallel':'offset'):(count('plane')?'coincident':count('point')?(options.through?'coincident':'perpendicular'):geo.length===1?'normal':'coincident'));
   if(type==='axis')return geo.map(g=>g.kind==='cylinder'?'centerline':g.kind==='plane'&&count('point')?'perpendicular':'coincident');
-  return geo.map(g=>g.kind==='line'&&g.curve&&geo.length===1?'midpoint':'coincident');
+  return geo.map(g=>g.kind==='path'?'alongPath':g.kind==='line'&&g.curve&&geo.length===1?'midpoint':'coincident');
 }
 
 function located(g,r,options){
@@ -96,6 +98,7 @@ export function solveReferenceDatum(type,geo,refs,options={}){
     }else if(type==='plane'){
       geo.forEach((g,i)=>{
         const r=rs[i],relation=r.relation;
+        if(g.kind==='path'){const n=fixed(g.sample.tangent,1);rows.push(row([0,0,0,1],dot(n,g.sample.p)));return;}
         if(g.kind==='point'){rows.push(row([...g.p,-1]));return;}
         const d=g.kind==='plane'?g.n:g.d;
         if(relation==='coincident'||relation==='offset'){
@@ -116,7 +119,8 @@ export function solveReferenceDatum(type,geo,refs,options={}){
     }else if(type==='point'){
       geo.forEach((g,i)=>{
         const r=rs[i];
-        if(g.kind==='point')fixed(g.p,1);
+        if(g.kind==='path')fixed(g.sample.p,1);
+        else if(g.kind==='point')fixed(g.p,1);
         else if(g.kind==='plane')rows.push(row(g.n,dot(g.n,g.p)+(r.relation==='offset'?(r.offset??0):0)));
         else if(r.relation!=='coincident')fixed(located(g,r,options),1);
         else{

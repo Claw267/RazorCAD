@@ -32,11 +32,19 @@ import * as W from './wcs.js';
 import {referenceRelations,defaultReferenceRelations,RELATION_LABELS} from './refconstraints.js';
 
 function datumHint(doc,r){
+  if(r.kind==='curve')return {kind:'path',curve:{type:'path'}};
   if(r.kind==='plane'||r.kind==='face'&&r.n)return {kind:'plane'};
   if(r.kind==='face')return {kind:'cylinder'};
   if(r.kind==='point'||r.kind==='vertex'||r.kind==='sketch'&&r.point)return {kind:'point'};
   const source=r.kind==='sketch'?findFeature(doc,r.sketch):null,c=source&&SM.getCurve(source,r.curve);
+  if(c?.type==='spline')return {kind:'path',curve:{type:'path'}};
   return {kind:'line',...(r.kind==='edge'||c?{curve:{type:c?.type||'unknown'}}:{})};
+}
+function resolvedDatumHint(doc,r,g,type){
+  if(g.kind!=='path')return g;
+  if(r.kind==='sketch')return datumHint(doc,r);
+  if(r.kind==='edge'&&(type==='point'||['line','circle','arc'].includes(g.curve?.type)))return {kind:'line',curve:g.curve};
+  return g;
 }
 function hasPlaneRelation(f,a,relation){
   const refs=f.refs||[],info=a.result?.info?.[f.id],geo=info?.datumSignature===JSON.stringify(f)&&info.geometry?info.geometry:refs.map(r=>datumHint(a.doc,r)),defaults=defaultReferenceRelations('plane',geo,f);
@@ -5017,14 +5025,15 @@ export class UI {
     }
     const ok=root.querySelector('.pm-actions button[title^="OK"]');if(ok){ok.disabled=status!=='defined';ok.setAttribute('aria-disabled',String(ok.disabled));}
     const solution=root.querySelector('[data-datum-solution]');if(solution){solution.disabled=!(datum?.alternatives>1);solution.value=String(Math.min(f.solution||0,(datum?.alternatives||1)-1));}
+    for(const node of root.querySelectorAll('[data-datum-path-info]')){const sample=current&&info.pathLocations?.[Number(node.dataset.datumPathInfo)];node.textContent=sample?`Length: ${lenWithUnit(sample.length,a.units)} · Distance: ${lenWithUnit(sample.distance,a.units)}`:'The path length will appear after preview.';}
   }
 
   renderPlaneRefs(body, f, before) {
     const a=this.app,pm=a.pm;f.refs ||= [];body.classList.add('datum-definition');
     body.appendChild(el('div',{'data-datum-status':'checking',class:'pm-msg'},'Updating preview…'));
     const info=a.result?.info?.[f.id],resolved=info?.datumSignature===JSON.stringify(f)&&info.geometry;
-    const hints=resolved||f.refs.map(r=>this.datumGeometryHint(r)),defaults=defaultReferenceRelations(f.type,hints,f);body.dataset.geometry=resolved?JSON.stringify(resolved):'';
-    const name=r=>r.kind==='plane'?STD_PLANES[r.id]?.name||findFeature(a.doc,r.id)?.name||'(missing plane)':r.kind==='axis'||r.kind==='point'?findFeature(a.doc,r.id)?.name||'(missing reference)':r.kind==='sketch'?`${findFeature(a.doc,r.sketch)?.name||'(missing sketch)'} · ${r.point||r.curve}`:r.kind==='face'?(r.n?'Planar face':'Cylindrical / conical face'):r.kind==='edge'?'Model edge':'Model vertex';
+    const hints=resolved?resolved.map((g,i)=>resolvedDatumHint(a.doc,f.refs[i],g,f.type)):f.refs.map(r=>this.datumGeometryHint(r)),defaults=defaultReferenceRelations(f.type,hints,f);body.dataset.geometry=resolved?JSON.stringify(resolved):'';
+    const name=r=>r.kind==='plane'?STD_PLANES[r.id]?.name||findFeature(a.doc,r.id)?.name||'(missing plane)':['axis','point','curve'].includes(r.kind)?findFeature(a.doc,r.id)?.name||'(missing reference)':r.kind==='sketch'?`${findFeature(a.doc,r.sketch)?.name||'(missing sketch)'} · ${r.point||r.curve}`:r.kind==='face'?(r.n?'Planar face':'Cylindrical / conical face'):r.kind==='edge'?'Model edge':'Model vertex';
     for(let i=0;i<3;i++){
       const r=f.refs[i],row=el('div',{class:'pm-row','data-datum-slot':i});
       const pick=el('button',{class:'pm-btn'+(pm.datumSlot===i?' on':''),'data-datum-pick':i,disabled:i>f.refs.length,onclick:()=>{pm.datumSlot=pm.datumSlot===i?null:i;this.renderPM();a.updateSketchDisplay();a.updatePlanes();}},`Reference ${i+1}: ${r?esc(name(r)):'Select geometry'}`);
@@ -5039,10 +5048,21 @@ export class UI {
       body.appendChild(this.row('Relation',select));
       const relation=r.relation||defaults[i],key=relation==='angle'?'angle':relation==='offset'?'offset':relation==='distance'?'distance':null;
       if(key){const initial=r[key]??(f.type==='plane'?f[key]:null)??0,input=this.exprInput(initial,key==='angle'?'°':'mm',value=>{r[key]=value;useReferenceRelations(f);a.preview();});input.dataset.datumParameter=i+':'+key;body.appendChild(this.row(key==='angle'?'Angle':key==='offset'?'Distance':'Distance from start',input));}
+      if(relation==='alongPath'){
+        const mode=el('select',{'data-datum-path-mode':i,'aria-label':'Position along path'});
+        for(const [value,label] of [['fraction','Fraction (0–1)'],['distance','Distance along curve'],['start','Start'],['mid','Half arc length'],['end','End']])mode.appendChild(el('option',{value},label));
+        mode.value=r.positionMode||'fraction';mode.onchange=()=>{r.positionMode=mode.value;useReferenceRelations(f);a.preview(true);};body.appendChild(this.row('Position',mode));
+        if(['fraction','distance'].includes(mode.value)){
+          const field=mode.value,initial=r[field]??(field==='fraction'?.5:0),input=this.exprInput(initial,field==='fraction'?'#':'mm',value=>{r[field]=value;useReferenceRelations(f);a.preview();});input.dataset.datumParameter=i+':'+field;body.appendChild(this.row(field==='fraction'?'Fraction':'Arc distance',input));
+        }
+        const reverse=el('input',{type:'checkbox','data-datum-path-reverse':i});reverse.checked=!!r.reversePath;reverse.onchange=()=>{r.reversePath=reverse.checked;useReferenceRelations(f);a.preview();};
+        const label=el('label');label.append(reverse,document.createTextNode(' Reverse path direction'));body.appendChild(this.row(null,label,'check'));
+        body.appendChild(el('div',{'data-datum-path-info':i,class:'pm-hint'},''));
+      }
     }
     const sources=el('select',{'data-datum-source':''});sources.appendChild(el('option',{value:''},'Choose a plane, axis or point…'));
     for(const [id,p] of Object.entries(STD_PLANES))sources.appendChild(el('option',{value:'plane:'+id},esc(p.name)));
-    for(const source of before.filter(x=>!x.suppressed&&['plane','axis','point'].includes(x.type)))sources.appendChild(el('option',{value:source.type+':'+source.id},esc(source.name)));
+    for(const source of before.filter(x=>!x.suppressed&&(['plane','axis','point'].includes(x.type)||f.type!=='axis'&&['helix','sketch3d','compCurve','projCurve'].includes(x.type))))sources.appendChild(el('option',{value:(['plane','axis','point'].includes(source.type)?source.type:'curve')+':'+source.id},esc(source.name)));
     sources.onchange=()=>{if(sources.value){const [kind,id]=sources.value.split(':');a.togglePlaneRef({kind,id});}};
     body.appendChild(sources);
     const solution=el('select',{'data-datum-solution':'','aria-label':'Geometric solution'});solution.append(el('option',{value:'0'},'Solution 1'),el('option',{value:'1'},'Solution 2'));

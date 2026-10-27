@@ -13,7 +13,7 @@ matching a menu label alone is insufficient.
 | Solid Revolve / Cut | Selected coplanar regions/contours; profile and axis picking are separate | Full or angle; one side, symmetric or two independent angles; reverse; optional axis projection; Thin for open contours; Join/New body/Cut and explicit target-body selection |
 | Surface Extrude | Selected regions or open/closed contours; manual entity selection | One side, symmetric or two independent depths; reverse; produces surface geometry rather than a capped solid |
 | Surface Revolve | Selected regions or open/closed contours; profile and axis picking are separate | Same Full/Angle and directional controls as solid Revolve, optional axis projection; keeps a surface result |
-| Reference planes, axes and points | Three shared slots, canvas/tree picks and per-reference relations | Analytic constraints, definition states, alternative solutions, source dependencies and preserved legacy constructions |
+| Reference planes, axes and points | Three shared slots, canvas/tree picks and per-reference relations | Analytic constraints, definition states, alternative solutions, source dependencies, preserved legacy constructions, and arc-length plane/point locations on sketch and CAD curves |
 | Planar Surface | Previously added canvas regions, individual sketch entities and closed model-edge loops | Preserves region holes, rejects open/nonplanar model boundaries; explicit whole-sketch fallback |
 | Sweep / Surface Sweep | Separate canvas profile/path/guide roles; per-role chain or individual-entity selection; disjoint contours from the same sketch; explicit whole-source fallback | Existing guide modes, orientation and twist retained; solid Join/New/Cut and target scope; open surface profiles remain uncapped |
 
@@ -39,7 +39,7 @@ instead of changing the resulting geometry.
 | Sweep / Surface Sweep | Contour slots and path/guide modes listed above | Guide surfaces, broader scale/twist controls and direct model-edge/face inputs; guided solid holes/Thin remain unsupported |
 | Loft / Surface Loft | Canvas profiles, guides and separate endpoint conditions through G2 already exist | Broader guide/endpoint combinations, continuity influence controls and model-face selection workflows |
 | Patch | Per-edge G0/G1/G2 and connected model-edge selection already exist | Tangency weights, interior rails/points; sketch inputs need an explicit product decision (planar sketch creation currently belongs to Planar Surface) |
-| Reference geometry | Constraint definitions listed above | Arbitrary curved-surface constraints/intersections, arc-length curve locators and broader combinations with tangent/midplane constructions |
+| Reference geometry | Constraint definitions listed above | Arbitrary curved-surface constraints/intersections and broader combinations with tangent/midplane constructions |
 | Fillet/Chamfer, Shell, Hole, patterns, sheet metal, assemblies and drawings | Existing RazorCAD commands | Dedicated command-by-command comparison and interaction tests are still required |
 
 ## Official references

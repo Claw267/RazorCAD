@@ -1109,6 +1109,17 @@ The solver uses affine equations and the unit-normal constraint, rather than a t
 
 Existing plane and axis constructions keep their original geometry and anchor when opened for editing. The panel identifies the preserved construction; changing a reference or relation upgrades it to the constraint definition. Cancel restores the original saved definition.
 
+### Plane Along Path and point along a curve
+
+In Reference Plane or Reference Point, select a sketch line, arc, circle or spline, a model edge, or an earlier helix/3D/composite/projected curve feature. Choose the reference relation **Along path (arc length)**. The source picker and tree also offer curve features; a feature containing several disconnected routes must be reduced to one connected path first.
+
+**Position** offers Distance along curve, Fraction (0–1), Start, Half arc length and End. Distances and fractions accept expressions. **Reverse path direction** measures from the opposite end and reverses the tangent used by the plane. A fraction follows changes in the total curve length; a distance retains its physical length when the source changes. Closed paths retain the curve's existing seam; distances outside the path are rejected rather than wrapped.
+
+The plane passes through the computed position, has its origin there and is normal to the local tangent. The point uses that same position. A point can lie at a corner or cusp; a plane cannot be made there without a unique tangent. The preview identifies a conflict at detected corners, singularities or nonsmooth closed seams instead of choosing one tangent arbitrarily.
+
+Locations use adaptive integration of curve speed and bounded inversion of the resulting arc length, independently of display tessellation. Sketch splines retain their original Bézier pieces, degree and rational weights. Model edges and curve features use derivatives of the actual CAD curve and an independent CAD length check. Position inversion targets **0.0000001 mm** or **1e-10 of the path length**, whichever is larger; refinement exhaustion reports an error. These are numerical convergence controls, not a certified global error bound. Existing Midpoint and straight-segment Distance relations keep their previous meanings; choose Along path explicitly for arc-length placement.
+
+
 ## Reference Axis
 
 Uses the same three slots, per-reference relations and definition states. Two points define a through-axis; two intersecting planes define an axis in both. A straight edge or sketch line supplies its line, a circular edge supplies its centre axis, and a cylindrical or conical face supplies its centre axis. Plane **Perpendicular** plus a point defines a normal axis through that point. Parallel and perpendicular relations can constrain the direction while other references constrain the position. {idx:reference axis}
@@ -1119,7 +1130,7 @@ Axes remain linked, are drawn dashed and can drive a revolve or a pattern. Right
 
 Choose **Coordinates** (expressions allowed) or **Reference geometry**. The latter uses the shared slots and states. A point/vertex can be copied; a selected sketch line or model edge can supply its start, end or midpoint, and a circular curve can supply its centre. **Distance from start** currently supports straight segments and rejects distances outside the segment. {idx:reference point}
 
-**Coincident** relations intersect straight lines and planes: two crossing lines, a line crossing a plane, or three independent planes can define one point. A point on one plane retains two degrees of freedom; one on a line retains one. Skew lines, incompatible planes and missing references report conflicts. Circular and other curved-edge midpoint positions use the kernel's normalized curve parameter, preserving the existing Edge midpoint behavior; they are not a general arc-length locator. Intersections of arbitrary curves or curved surfaces are not supported yet.
+**Coincident** relations intersect straight lines and planes: two crossing lines, a line crossing a plane, or three independent planes can define one point. A point on one plane retains two degrees of freedom; one on a line retains one. Skew lines, incompatible planes and missing references report conflicts. Circular and other curved-edge midpoint positions use the kernel's normalized curve parameter, preserving the existing Edge midpoint behavior; they are not a general arc-length locator. Use **Along path (arc length)** above to locate a point by physical curve distance or fraction. Intersections of arbitrary curves or curved surfaces are not supported yet.
 
 Right-click a vertex and choose **Reference Point** to preselect it. Coordinate mode retains its stored reference choices but does not depend on or evaluate them.
 

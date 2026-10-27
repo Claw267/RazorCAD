@@ -2408,7 +2408,8 @@ class App {
     const editing = this.pm?.kind === 'feature' ? this.pm.feature.id : null;
     const sel = this.selection?.kind === 'feature' ? this.selection.id : null;
     const sweep = this.pm?.kind === 'feature' && ['sweep','surfSweep'].includes(this.pm.feature.type) ? this.pm.feature : null;
-    const state = (id) => (id === editing || id === sweep?.guide ? 'preview' : id === sel || id === this._hoverFeature || id === sweep?.path ? 'selected' : 'normal');
+    const datumRefs=new Set(this.pm?.feature?.referenceDefinition?(this.pm.feature.refs||[]).filter(r=>r.id).map(r=>r.id):[]);
+    const state = (id) => (id === editing || id === sweep?.guide ? 'preview' : id === sel || id === this._hoverFeature || id === sweep?.path || datumRefs.has(id) ? 'selected' : 'normal');
     const axes = [], points = [];
     for (const f of this.doc.features) {
       if (f.suppressed || this.mode === 'sketch') continue;
@@ -2852,6 +2853,7 @@ class App {
       this.hoverSketchId=id;this.updateSketchDisplay();this.status('Use Select profiles in canvas to pick a contour, or Select axis in canvas to pick an axis line.');return true;
     }
     if (['loft', 'surfLoft'].includes(f.type) && kind === 'axis' && this.pm.loftEndAxis) { f[this.pm.loftEndAxis] = id; this.preview(true); return true; }
+    if(f.referenceDefinition&&['plane','point'].includes(f.type)&&f.pointType!=='coords'&&target&&['helix','sketch3d','compCurve','projCurve'].includes(target.type)){this.togglePlaneRef({kind:'curve',id});return true;}
     // two-slot fields (axis from two planes / two points) fill alternately
     const slot = (a, b) => { const k = this.pm.slot === a ? b : a; this.pm.slot = k; return k; };
     if ((f.type === 'plane'||f.referenceDefinition&&['axis','point'].includes(f.type)&&f.pointType!=='coords') && (kind === 'plane' || kind === 'point' || kind === 'axis')) {
@@ -2916,6 +2918,7 @@ class App {
     if (this.pm?.kind === 'feature') {
       if (f.type === 'sketch' && this.pmPick('sketch', id)) return;
       if ((f.type === 'helix' || f.type === 'sketch3d') && this.pmPick('helix', id)) return;
+      if (['compCurve','projCurve'].includes(f.type) && this.pmPick('curve',id)) return;
       if ((f.type === 'extrude' || f.type === 'revolve') && this.pmPick('feature', id)) return;
       if (f.type === 'plane' && this.pmPick('plane', id)) return;
       if (f.type === 'point' && this.pmPick('point', id)) return;
@@ -3024,7 +3027,16 @@ class App {
       const sc = this.allows('edge') ? this.sketchCurveAt(e) : null;
       if (sc) {
         const c = S.getCurve(this.result.sketches.get(sc.sketch)?.sketch, sc.curve);
-        if (c && ['line', 'circle', 'arc'].includes(c.type)) return this.togglePlaneRef({ kind: 'sketch', sketch: sc.sketch, curve: sc.curve });
+        if (c && (['line', 'circle', 'arc'].includes(c.type)||this.pm?.feature?.type!=='axis'&&c.type==='spline')) return this.togglePlaneRef({ kind: 'sketch', sketch: sc.sketch, curve: sc.curve });
+      }
+      if(['plane','point'].includes(this.pm?.feature?.type)){
+        const m=vp.screenPos(e);let best=null,distance=6;
+        for(const [id,curve] of this.result.curves||[]){
+          const feature=M.findFeature(this.doc,id);if(!feature||feature.suppressed||this.doc.features.indexOf(feature)>=this.doc.features.indexOf(this.pm.feature))continue;
+          const paths=Array.isArray(curve?.[0]?.[0])?curve:[curve];
+          for(const points of paths)for(let i=1;i<points.length;i++){const a=vp.project(new THREE.Vector3(...points[i-1])),b=vp.project(new THREE.Vector3(...points[i])),d=S.segDist(m.x,m.y,a.x,a.y,b.x,b.y);if(d<distance){best=id;distance=d;}}
+        }
+        if(best)return this.togglePlaneRef({kind:'curve',id:best});
       }
       const p = this.pickAt(e);
       if (p?.kind === 'plane') return this.togglePlaneRef({ kind: 'plane', id: p.id });
@@ -3791,6 +3803,7 @@ class App {
       else if (selF?.type === 'plane') ref = { kind: 'plane', id: selF.id };
       else if (selF?.type === 'axis') ref = { kind: 'axis', id: selF.id };
       else if (selF?.type === 'point') ref = { kind: 'point', id: selF.id };
+      else if(type!=='axis'&&selF&&['helix','sketch3d','compCurve','projCurve'].includes(selF.type))ref={kind:'curve',id:selF.id};
       props.refs = ref ? [ref] : [];
       props.referenceDefinition=true;
       if(type==='axis')props.axisType='references';
