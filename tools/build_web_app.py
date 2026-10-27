@@ -37,12 +37,29 @@ def app_version():
         return 'dev'
 
 
+def split_big_wasm(app, part=24 * 1024 * 1024):
+    """A geometry kernel too big for the host (an optimised build can pass 25 MiB) is published in parts, name.part0,
+    name.part1…, which the kernel worker joins again when the whole file is not there (kernel.worker.js wasmBytes)."""
+    vendor = os.path.join(app, 'vendor', 'replicad')
+    for n in sorted(os.listdir(vendor)) if os.path.isdir(vendor) else []:
+        p = os.path.join(vendor, n)
+        if not n.endswith('.wasm') or os.path.getsize(p) <= MAX_FILE:
+            continue
+        data = open(p, 'rb').read()
+        for i in range(0, len(data), part):
+            with open(f'{p}.part{i // part}', 'wb') as f:
+                f.write(data[i:i + part])
+        os.remove(p)
+        print(f'{n}: {len(data) / 1048576:.1f} MB, published in {-(-len(data) // part)} parts')
+
+
 def main():
     if not os.path.isfile(os.path.join(SRC, 'index.html')):
         sys.exit('app/index.html not found')
     if os.path.isdir(DST):
         shutil.rmtree(DST)
     shutil.copytree(SRC, DST, ignore=shutil.ignore_patterns(*SKIP))
+    split_big_wasm(DST)
     version = app_version()
     p = os.path.join(DST, 'index.html')
     html = open(p, encoding='utf-8').read()

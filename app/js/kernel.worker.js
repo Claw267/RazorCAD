@@ -51,7 +51,7 @@ let kernelDead = null; // why the kernel stopped (abort); the worker must then b
 // The stack functions' export names, found by their code: emscripten_stack_get_current is `global.get G; end`,
 // _emscripten_stack_restore `local.get 0; global.set G; end`, G the same global (the stack pointer). null if not found.
 async function stackNamesFromWasm(url) {
-  const b = new Uint8Array(await (await fetch(url)).arrayBuffer());
+  const b = await wasmBytes(url);
   let i = 8;
   const leb = () => { let r = 0, s = 0, x; do { x = b[i++]; r |= (x & 0x7f) << s; s += 7; } while (x & 0x80); return r >>> 0; };
   const lebAt = (k) => { let r = 0, s = 0, x; do { x = b[k++]; r |= (x & 0x7f) << s; s += 7; } while (x & 0x80); return [r >>> 0, k]; };
@@ -124,6 +124,28 @@ function isFatal(e) {
 }
 
 const wasmUrl = new URL(`../vendor/replicad/${KERNEL_BUILD}.wasm`, import.meta.url);
+// The kernel's wasm: the whole file, or, where the website's host limits a file's size, its parts name.part0,
+// name.part1… joined (tools/build_web_app.py). Fetched once.
+const wasmFetched = new Map();
+function wasmBytes(url) {
+  const key = String(url);
+  if (!wasmFetched.has(key)) wasmFetched.set(key, (async () => {
+    const r = await fetch(url);
+    if (r.ok) return new Uint8Array(await r.arrayBuffer());
+    const parts = [];
+    for (let i = 0; ; i++) {
+      const p = await fetch(`${key}.part${i}`);
+      if (!p.ok) break;
+      parts.push(new Uint8Array(await p.arrayBuffer()));
+    }
+    if (!parts.length) throw new Error(`The geometry kernel could not be loaded (${r.status})`);
+    const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+    let o = 0;
+    for (const p of parts) { out.set(p, o); o += p.length; }
+    return out;
+  })());
+  return wasmFetched.get(key);
+}
 let kernelThreads = 1; // (threads the kernel runs with: for the status and crash reports)
 const ready = (async () => {
   let exportsOf = null;
@@ -133,7 +155,7 @@ const ready = (async () => {
       ...(MULTI ? { razorcadThreads: THREADS } : {}),
       instantiateWasm(imports, done) {
         WebAssembly.instantiateStreaming(fetch(wasmUrl), imports)
-          .catch(() => fetch(wasmUrl).then((r) => r.arrayBuffer()).then((b) => WebAssembly.instantiate(b, imports)))
+          .catch(() => wasmBytes(wasmUrl).then((b) => WebAssembly.instantiate(b, imports)))
           .then((r) => { exportsOf = r.instance.exports; done(r.instance, r.module); }, reject);
         return {};
       },
