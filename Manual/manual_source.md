@@ -1006,7 +1006,9 @@ The kernel checks the patch contact error to **0.0001 mm**, validates the result
 
 ### Filled Surface / Patch continuity
 
-Select one connected, closed boundary loop. **Boundary continuity** sets **Contact (G0)**, **Tangent (G1)** or **Curvature (G2)** for the loop. Each edge can override that setting, so a patch can combine G0, G1 and G2 boundaries. Open, disconnected, duplicate or multiple loops report an error.
+Select one connected, closed boundary loop. **Chain selection** is enabled for new patches: click an edge to add its connected boundary chain on that body; click a fully selected chain again to remove it. Turn the checkbox off to add or remove individual edges. Partial chains are completed without duplicate edges or changing existing per-edge continuity. Selection stops at branches; for solid edges, an explicitly selected support face can identify its boundary loop. The checkbox is saved with the feature; older files keep individual selection until enabled.
+
+**Boundary continuity** sets **Contact (G0)**, **Tangent (G1)** or **Curvature (G2)** for the loop. Each edge can override that setting, so a patch can combine G0, G1 and G2 boundaries. Open, disconnected, duplicate or multiple loops report an error.
 
 G1/G2 edges require an adjacent support face. An open surface edge infers its unique adjacent face. Use **Select support faces** when a solid edge has two adjacent faces; exactly one selected adjacent face must cover each constrained edge. **Select boundary edges** returns to picking edges. G0 does not require support faces. Older files with **Tangent** enabled keep G1 behavior, with strict verification instead of a contact-only fallback.
 

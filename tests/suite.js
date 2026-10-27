@@ -4535,6 +4535,32 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     return { ok: true, detail: `Nonplanar open surface / two native spline guides (${worst.toExponential(3)} mm), uncapped circular surface, panel method selection and cancel` };
   },
 
+  async 'surface-patch-chain-selection'() {
+    const {runChains,fixture}=await import('/tests/surface-patch-cases.js');
+    const native=await runChains({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
+    const a=window.app,{doc,patch}=fixture(),settle=async()=>{await wait(180);await until(()=>!a.kernel.pending&&!a.pm?.patchChainBusy);};
+    patch.edges=[];await a.newDocument?.();closeModals();await a.setDoc(doc);a.editFeature(patch.id);await a.rebuild();
+    a.viewport.setStandardView('top',false);a.viewport.zoomToFit(null,false);await wait(160);
+    const {Vector3}=await import('three'),click=async p=>{const ev=viewEvents();ev.vp.camera.updateMatrixWorld(true);await ev.click(...ev.toScreen(new Vector3(...p)));await settle();};
+    const checkbox=()=>document.querySelector('[data-patch-chain]');
+    if(!checkbox()?.checked)return {ok:false,detail:'New Patch chain checkbox is missing or off'};
+    await click([10,0,0]);if(a.pm.feature.edges.length!==4)return {ok:false,detail:'One click did not select the inner loop: '+a.pm.feature.edges.length};
+    a.pm.feature.edges[0].continuity='G2';a.ui.renderPM();
+    checkbox().checked=false;checkbox().dispatchEvent(new Event('change',{bubbles:true}));
+    await click([0,0,5]);if(a.pm.feature.edges.length!==3)return {ok:false,detail:'Single-edge mode did not remove just one edge'};
+    checkbox().checked=true;checkbox().dispatchEvent(new Event('change',{bubbles:true}));
+    await click([0,0,5]);if(a.pm.feature.edges.length!==4||!a.pm.feature.edges.some(e=>e.continuity==='G2'))return {ok:false,detail:'Chain completion duplicated edges or lost continuity'};
+    await click([10,0,0]);if(a.pm.feature.edges.length!==0)return {ok:false,detail:'Clicking the selected chain did not remove it'};
+    checkbox().checked=false;checkbox().dispatchEvent(new Event('change',{bubbles:true}));
+    for(const p of [[10,0,0],[0,0,5],[-10,0,0],[0,0,-5]])await click(p);
+    if(a.pm.feature.edges.length!==4)return {ok:false,detail:'Individual edge selection failed'};
+    await a.okPM();if(a.result.errors.size)return {ok:false,detail:JSON.stringify([...a.result.errors])};
+    await a.setDoc(JSON.parse(JSON.stringify(a.doc)));if(M.findFeature(a.doc,patch.id).chainSelection!==false)return {ok:false,detail:'Checkbox did not persist'};
+    a.editFeature(patch.id);checkbox().checked=true;checkbox().dispatchEvent(new Event('change',{bubbles:true}));a.cancelPM();await a.rebuild();
+    if(M.findFeature(a.doc,patch.id).chainSelection!==false)return {ok:false,detail:'Cancel did not restore chain selection'};
+    return {ok:true,detail:JSON.stringify({native,ui:'actual chain and individual picks, no duplicates, continuity preservation, serialization and cancel'})};
+  },
+
   async 'surface-patch-continuity'() {
     const {run,fixture}=await import('/tests/surface-patch-cases.js');
     const native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};

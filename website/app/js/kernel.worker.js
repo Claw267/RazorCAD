@@ -8672,6 +8672,44 @@ function featureFaces(id) {
   return out;
 }
 
+// Follow exact CAD endpoints. Open surface boundaries exclude shared edges;
+// solid vertices with several possible continuations stop the selection.
+function patchChainSelection({bodyId,ref,supportFaces=[]}){
+  const bodies=[...lastSolids,...lastSurfaces],body=bodies.find(b=>b.id===bodyId);
+  if(!body)throw new Error('The patch boundary body is no longer available');
+  const hit=findEdgeInfo(body.shape,ref);if(!hit)throw new Error('The clicked patch edge could not be found');
+  const read=p=>{try{return vec(p);}finally{p.delete();}};
+  const entries=edgeInfos(body.shape).map(info=>({edge:info.e,a:read(info.e.startPoint),b:read(info.e.endPoint),uses:0})),byHash=new Map();
+  for(const entry of entries){const key=entry.edge.hashCode;if(!byHash.has(key))byHash.set(key,[]);byHash.get(key).push(entry);}
+  const selectedIndex=entries.findIndex(e=>e.edge.isSame(hit.e)),oc=R.getOC();
+  for(const {face} of facesWithBox(body.shape)){
+    const ex=new oc.TopExp_Explorer(face.wrapped,oc.TopAbs_ShapeEnum.TopAbs_EDGE,oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+    try{for(;ex.More();ex.Next()){
+      const raw=ex.Current();let edge;try{edge=R.cast(raw);const entry=byHash.get(edge.hashCode)?.find(e=>e.edge.isSame(edge));if(entry)entry.uses++;}finally{edge?.delete();raw.delete();}
+    }}finally{ex.delete();}
+  }
+  let candidates=entries;
+  if(entries[selectedIndex].uses===1)candidates=entries.filter(e=>e.uses===1);
+  else{
+    const faces=supportFaces.filter(r=>!r.body||r.body===bodyId).map(r=>findFaceAny([body],r)?.face).filter(Boolean);
+    const adjacent=faces.filter(face=>{const es=face.edges;try{return es.some(e=>e.isSame(hit.e));}finally{es.forEach(e=>e.delete());}});
+    if(adjacent.length===1){const es=adjacent[0].edges;try{candidates=entries.filter(e=>es.some(x=>x.isSame(e.edge)));}finally{es.forEach(e=>e.delete());}}
+  }
+  const near=(a,b)=>len(sub(a,b))<1e-5,selected=new Set([entries[selectedIndex]]);let ambiguous=false;
+  const walk=start=>{
+    let p=start;
+    for(let n=0;n<candidates.length;n++){
+      const incident=candidates.filter(e=>near(e.a,p)||near(e.b,p));
+      if(incident.length!==2){if(incident.length>2)ambiguous=true;break;}
+      const next=incident.filter(e=>!selected.has(e));if(next.length!==1)break;
+      const edge=next[0];selected.add(edge);p=near(edge.a,p)?edge.b:edge.a;
+    }
+  };
+  const seed=entries[selectedIndex];if(!near(seed.a,seed.b)){walk(seed.a);walk(seed.b);}
+  const refs=[...selected].map(({edge})=>{const r={body:body.id,p:read(edge.pointAt(.5))};updateEdgeRef(r,edge,body.shape);return r;});
+  return {refs,ambiguous};
+}
+
 // ------------------------------------------------------------ the rebuild cache, kept between sessions
 // The state after each feature (bodies, tools, sketches, planes… as the rebuild cache holds it) written out
 // so that opening the part again restores it instead of rebuilding every feature: the first change after
@@ -8848,6 +8886,8 @@ async function handleMessage(e) {
     } else if (type === 'exportFaceDXF') {
       result = exportFaceDXF(data.ref);
       transfer = [result.buffer];
+    } else if (type === 'patchChain') {
+      result = patchChainSelection(data);
     } else if (type === 'featureFaces') {
       result = featureFaces(data.id);
     } else if (type === 'loadFont') {

@@ -67,3 +67,23 @@ export async function run({threads=1}={}){
     results.push(result);
   }const health=await kernel.stats();return {ok:results.every(x=>x.ok)&&!kernel.restarts&&health.memoryMB<512,results,health};}finally{kernel.dispose();}
 }
+
+export async function runChains({threads=1}={}){
+  const kernel=new KernelClient({threads}),results=[];
+  try{await kernel.ready;
+    for(const c of [
+      {name:'inner rectangular loop',p:[10,0,0],count:4},
+      {name:'outer rectangular loop',p:[30,0,0],count:4},
+      {name:'circular loop',circle:true,p:[10,0,0],count:1},
+      {name:'sphere rim excludes seam',curved:true,p:[20,0,0],count:1},
+      {name:'solid branch stops',box:true,p:[10,10,0],count:1,ambiguous:true},
+      {name:'solid support chooses face loop',box:true,p:[10,10,0],count:4,support:true},
+    ]){
+      const {doc,patch}=c.box?boxFixture():fixture(c);doc.features=doc.features.filter(f=>f.id!==patch.id);
+      const r=await kernel.rebuild(doc),bodyId=r.body.bodies[0].id;
+      const chain=await kernel.request('patchChain',{bodyId,ref:{p:c.p},supportFaces:c.support?[{body:bodyId,p:[0,10,0],n:[0,1,0]}]:[]});
+      results.push({name:c.name,ok:!r.errors.length&&chain.refs.length===c.count&&chain.ambiguous===!!c.ambiguous,...chain});
+    }
+    return {ok:results.every(r=>r.ok)&&!kernel.restarts,results,health:await kernel.stats()};
+  }finally{kernel.dispose();}
+}

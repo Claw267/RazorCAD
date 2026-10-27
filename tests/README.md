@@ -101,6 +101,8 @@ Checks analytic volumes for holes and all three Thin directions, open Thin profi
 
 ### Surface Patch continuity
 
-`python tests/run_tests.py --only surface-patch-continuity surface-differential-analysis --jobs 1`
+`python tests/run_tests.py --only surface-patch-chain-selection surface-patch-continuity surface-differential-analysis --jobs 1`
 
 Checks G0/G1/G2 on planar, circular, spherical and cylindrical boundaries; mixed edge conditions; explicit and ambiguous supports; legacy Tangent files; knitting and solid closure; missing/disconnected/duplicate boundaries; and incompatible requests without a G0 fallback. The UI test picks a real support face, switches boundary and face selection, overrides an individual edge, saves/reopens and cancels an edit. Final CAD checks use native trimming curves and independent differential comparisons. Run on both kernels. Example: `tests/data/surface-patch-g2.rcad`.
+
+Patch chain selection additionally checks native inner/outer loops, circular rims without cylinder/sphere seams, solid branches and explicit support-face loops. Real viewport clicks exercise chain toggling, individual picking, partial-chain completion, per-edge continuity retention, save/reopen and cancel.

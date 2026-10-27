@@ -271,7 +271,7 @@ export function createFeature(doc, type, props = {}) {
     surfLoft: { profiles: [], guides: [], ruled: false, startCondition: 'none', endCondition: 'none', startDirection: 'y', endDirection: 'y', startStrength: 1, endStrength: 1, startReverse: false, endReverse: false, startFaces: [], endFaces: [] },
     surfSweep: { profileType: 'sketch', profile: null, diameter: 10, path: null, guide: null, guideMode: 'orientation', orientation: 'perpendicular', twistAngle: 0 },
     // Patch continuity: G0/G1/G2, with optional per-edge overrides and support faces. Legacy tangent means G1.
-    surfFill: { edges: [], continuity: null, supportFaces: [], merge: true, solid: false },
+    surfFill: { edges: [], chainSelection: true, continuity: null, supportFaces: [], merge: true, solid: false },
     // tool: a plane, surface body or sketch; faces: points on the pieces; mode 'keep' | 'remove'
     surfTrim: { tool: '', faces: [], mode: 'keep', mutual: false },
     surfExtend: { edges: [], distance: 10 },

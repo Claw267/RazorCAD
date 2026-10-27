@@ -2125,6 +2125,22 @@ class App {
 
   edgePickMode() { return this.pickMode() === 'edge'; }
 
+  async pickPatchChain(hit) {
+    const pm=this.pm,f=pm.feature;if(pm.patchChainBusy)return;
+    const bodyId=this.result.bodies?.[this.viewport.edgeBody[hit.index]]?.id;
+    pm.patchChainBusy=true;
+    try{
+      const result=await this.kernel.request('patchChain',{bodyId,ref:{p:hit.edge.mid},supportFaces:f.supportFaces||[]});
+      if(this.pm!==pm||!f.chainSelection||pm.patchSupportPick)return;
+      const same=(a,b)=>(!a.body||!b.body||a.body===b.body)&&Math.hypot(...a.p.map((x,i)=>x-b.p[i]))<1e-4;
+      const allSelected=result.refs.every(ref=>f.edges.some(e=>same(e,ref)));
+      if(allSelected)f.edges=f.edges.filter(e=>!result.refs.some(ref=>same(e,ref)));
+      else for(const ref of result.refs)if(!f.edges.some(e=>same(e,ref)))f.edges.push(ref);
+      this.ui.renderPM();this.updateEdgeHighlights();this.preview();
+      this.status(result.ambiguous?'Chain stopped at a branch; pick the remaining edges individually.':`${result.refs.length} boundary edges ${allSelected?'removed':'selected'}.`);
+    }catch(e){if(this.pm===pm)this.toast(e.message,true);}finally{pm.patchChainBusy=false;}
+  }
+
   // Apply a pick from the model to the open Property panel.
   applyModelPick(hit) {
     const f = this.pm.feature;
@@ -2148,6 +2164,7 @@ class App {
       return;
     }
     if (mode === 'edge') {
+      if (f.type === 'surfFill' && f.chainSelection) { this.pickPatchChain(hit); return; }
       if (f.type === 'fillet' || f.type === 'chamfer' || f.type === 'smFlange' || f.type === 'smHem' || f.type === 'smProfileFlange' || f.type === 'surfFill' || f.type === 'surfExtend' || f.type === 'ruledSurface' || f.type === 'compCurve') {
         const i = f.edges.findIndex((x) => this.viewport.edgeIndexForPoint(x.p) === hit.index);
         if (i >= 0) f.edges.splice(i, 1);
