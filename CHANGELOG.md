@@ -6,6 +6,9 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-28 07:37 — Site check: a kernel published in parts
+- `tools/check_site.py` checks `replicad_multi.wasm.part0` when the kernel is published in parts (it failed on 0.18.0-beta's push, with the site working).
+
 ## 2026-10-28 07:09 — Version 0.18.0-beta
 - Installer, user manual (93 pages) and website for 0.18.0-beta.
 

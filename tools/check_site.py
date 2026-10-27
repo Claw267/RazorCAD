@@ -16,6 +16,7 @@ import os
 import re
 import sys
 import time
+import urllib.error
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -66,6 +67,17 @@ def main():
     for path in ['/', '/docs/', '/app/', '/app/js/kernel.worker.js', '/app/vendor/replicad/replicad_multi.wasm']:
         try:
             status, h, body = get(base + path)
+        except urllib.error.HTTPError as e:
+            # (a kernel too big for the host is published in parts: tools/build_web_app.py split_big_wasm)
+            if not (path.endswith('.wasm') and e.code == 404):
+                fails.append(f'{path}: {e}')
+                continue
+            path += '.part0'
+            try:
+                status, h, body = get(base + path)
+            except Exception as e:
+                fails.append(f'{path}: {e}')
+                continue
         except Exception as e:
             fails.append(f'{path}: {e}')
             continue
