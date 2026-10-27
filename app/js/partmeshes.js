@@ -20,7 +20,7 @@ export function unpackMesh(m) {
   out.edges = m.edges.map((e, i) => ({ ...e, pts: Array.from(edgePts.subarray(edgeOff[i], edgeOff[i + 1])) }));
   return out;
 }
-export const MESH_CACHE = 'assembly part mesh 1\n'; // (changes when packMesh does)
+export const MESH_CACHE = 'assembly part mesh 2\n'; // (changes when packMesh does) (Kernel Lab: 2, with the volume)
 
 // a part document as it is built in a configuration (the text the cache key is made from)
 export function builtJSON(doc, cfgId) {

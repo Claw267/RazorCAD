@@ -73,7 +73,7 @@ class App {
     this.filePath = null;
     installCrashHandlers(this);
     // (a part's kernel: multi-threaded where the PC and the page allow it; the pool's kernels work on whole parts side by side)
-    this.kernel = new KernelClient({ threads: threadsPerKernel() });
+    this.kernel = new KernelClient({ threads: threadsPerKernel(undefined, undefined, true) }); // (Kernel Lab: the first part's kernel: front)
     this.kernelPool = new KernelPool(this.kernel); // (more kernels for assemblies and drawings)
     // (the kernels at once: from the PC's threads and free memory; a kernel for each open part, up to tabKernelMax)
     this.tabKernelMax = 1;
