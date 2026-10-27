@@ -1,0 +1,321 @@
+{
+ "version": 1,
+ "name": "Patch with G2 along all four cylindrical edges",
+ "material": null,
+ "equations": [],
+ "features": [
+  {
+   "id": "f1",
+   "type": "sketch",
+   "name": "Sketch1",
+   "suppressed": false,
+   "plane": {
+    "ref": "front"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": 20,
+     "y": 0
+    },
+    {
+     "id": "p2",
+     "x": 20,
+     "y": 30
+    }
+   ],
+   "curves": [
+    {
+     "id": "c3",
+     "type": "line",
+     "p1": "p1",
+     "p2": "p2",
+     "construction": false
+    }
+   ],
+   "constraints": [],
+   "nextSid": 4,
+   "rev": "1voxss31"
+  },
+  {
+   "id": "f2",
+   "type": "surfRevolve",
+   "name": "Surface-Revolve1",
+   "suppressed": false,
+   "sketch": "f1",
+   "axis": "v",
+   "angle": 270
+  },
+  {
+   "id": "f3",
+   "type": "sketch",
+   "name": "Sketch2",
+   "suppressed": false,
+   "plane": {
+    "ref": "front"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": 20,
+     "y": -5
+    },
+    {
+     "id": "p2",
+     "x": 20,
+     "y": 0
+    }
+   ],
+   "curves": [
+    {
+     "id": "c3",
+     "type": "line",
+     "p1": "p1",
+     "p2": "p2",
+     "construction": false
+    }
+   ],
+   "constraints": [],
+   "nextSid": 4,
+   "rev": "nndm5tw8"
+  },
+  {
+   "id": "f4",
+   "type": "surfRevolve",
+   "name": "Surface-Revolve2",
+   "suppressed": false,
+   "sketch": "f3",
+   "axis": "v",
+   "angle": 90
+  },
+  {
+   "id": "f5",
+   "type": "moveBody",
+   "name": "Move Body1",
+   "suppressed": false,
+   "bodies": [
+    "f4"
+   ],
+   "copy": false,
+   "copies": 1,
+   "mode": "translate",
+   "dx": 0,
+   "dy": 0,
+   "dz": 0,
+   "rotAxis": "y",
+   "angle": 270,
+   "rotCenter": "origin",
+   "mates": []
+  },
+  {
+   "id": "f6",
+   "type": "sketch",
+   "name": "Sketch3",
+   "suppressed": false,
+   "plane": {
+    "ref": "front"
+   },
+   "points": [
+    {
+     "id": "p1",
+     "x": 20,
+     "y": 30
+    },
+    {
+     "id": "p2",
+     "x": 20,
+     "y": 35
+    }
+   ],
+   "curves": [
+    {
+     "id": "c3",
+     "type": "line",
+     "p1": "p1",
+     "p2": "p2",
+     "construction": false
+    }
+   ],
+   "constraints": [],
+   "nextSid": 4,
+   "rev": "uoa07jq0"
+  },
+  {
+   "id": "f7",
+   "type": "surfRevolve",
+   "name": "Surface-Revolve3",
+   "suppressed": false,
+   "sketch": "f6",
+   "axis": "v",
+   "angle": 90
+  },
+  {
+   "id": "f8",
+   "type": "moveBody",
+   "name": "Move Body2",
+   "suppressed": false,
+   "bodies": [
+    "f7"
+   ],
+   "copy": false,
+   "copies": 1,
+   "mode": "translate",
+   "dx": 0,
+   "dy": 0,
+   "dz": 0,
+   "rotAxis": "y",
+   "angle": 270,
+   "rotCenter": "origin",
+   "mates": []
+  },
+  {
+   "id": "f9",
+   "type": "surfFill",
+   "name": "Curvature patch G2",
+   "suppressed": false,
+   "edges": [
+    {
+     "p": [
+      20,
+      15,
+      0
+     ],
+     "body": "f2",
+     "fn": [
+      {
+       "t": "CYLINDRE"
+      }
+     ],
+     "t": "LINE",
+     "d": [
+      0,
+      1,
+      0
+     ],
+     "box": {
+      "min": [
+       -20,
+       0,
+       -20
+      ],
+      "max": [
+       20,
+       30,
+       20
+      ]
+     }
+    },
+    {
+     "p": [
+      14.142135623730946,
+      30,
+      14.142135623730955
+     ],
+     "body": "f7",
+     "fn": [
+      {
+       "t": "CYLINDRE"
+      }
+     ],
+     "t": "CIRCLE",
+     "r": 20,
+     "c": [
+      0,
+      30,
+      0
+     ],
+     "n": [
+      0,
+      1,
+      -0.0
+     ],
+     "box": {
+      "min": [
+       -4.440892098500626e-15,
+       30,
+       5.665538897647979e-15
+      ],
+      "max": [
+       20,
+       35,
+       20
+      ]
+     }
+    },
+    {
+     "p": [
+      -4.440892098500626e-15,
+      15,
+      20
+     ],
+     "body": "f2",
+     "fn": [
+      {
+       "t": "CYLINDRE"
+      }
+     ],
+     "t": "LINE",
+     "d": [
+      0,
+      1,
+      0
+     ],
+     "box": {
+      "min": [
+       -20,
+       0,
+       -20
+      ],
+      "max": [
+       20,
+       30,
+       20
+      ]
+     }
+    },
+    {
+     "p": [
+      14.142135623730946,
+      0,
+      14.142135623730955
+     ],
+     "body": "f4",
+     "fn": [
+      {
+       "t": "CYLINDRE"
+      }
+     ],
+     "t": "CIRCLE",
+     "r": 20,
+     "c": [
+      0,
+      0,
+      0
+     ],
+     "n": [
+      0,
+      1,
+      -0.0
+     ],
+     "box": {
+      "min": [
+       -4.440892098500626e-15,
+       -5,
+       5.665538897647979e-15
+      ],
+      "max": [
+       20,
+       0,
+       20
+      ]
+     }
+    }
+   ],
+   "continuity": "G2",
+   "supportFaces": [],
+   "merge": false,
+   "solid": false
+  }
+ ],
+ "nextId": 10
+}

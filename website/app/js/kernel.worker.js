@@ -22,6 +22,7 @@ import { installRealDelete, freeStats } from './ocfree.js';
 import { compareSurfaceContinuity, surfaceNormalAtUV } from './surfacecontinuity.js';
 import { guideScaleLaw } from './sweepguides.js';
 import { sweepWithOrientation } from './sweepoptions.js';
+import {buildSurfacePatch,verifyPatch,patchContinuity} from './surfacepatch.js';
 import { hasLoftEnds, endConstrainedLoft, checkLoftEndGuides, tensorFaceDistance } from './loftends.js';
 
 // sheet metal features (they keep a body's flat pattern up to date)
@@ -3761,44 +3762,63 @@ async function rebuild(doc, previewId = null, opts = {}) {
           break;
         }
         case 'surfFill': {
-          // a patch over a hole bounded by edges (contact, or tangent to the faces round it)
           if (!(f.edges || []).length) throw new Error('Click the edges round the hole to fill');
-          const all = [...solids, ...surfaces], whole = compoundOf(all);
-          const found = f.edges.map((e) => findEdgeInfo(whole, e));
-          if (found.some((x) => !x)) throw new Error('A boundary edge could not be found in the model');
-          const edges = found.map((x) => x.e);
-          const owner = (e) => all.find((r) => r.shape.edges.some((x) => x.isSame(e)));
-          const recs = [...new Set(edges.map(owner))];
-          const oc = R.getOC();
-          const build = (tangent) => {
-            const mk = new oc.BRepOffsetAPI_MakeFilling(3, 15, 2, false, 1e-5, 1e-4, 0.01, 0.1, 8, 9);
-            try {
-              for (const e of edges) {
-                const sup = tangent ? owner(e)?.shape.faces.find((fc) => fc.edges.some((x) => x.isSame(e))) : null;
-                if (sup) mk.Add(e.wrapped, sup.wrapped, oc.GeomAbs_Shape.GeomAbs_G1, true);
-                else mk.Add(e.wrapped, oc.GeomAbs_Shape.GeomAbs_C0, true);
-              }
-              mk.Build();
-              return R.cast(mk.Shape());
-            } finally { mk.delete(); }
-          };
-          let patch = null, note = '';
-          try { patch = build(!!f.tangent); } catch (e) { if (isFatal(e)) throw e; if (f.tangent) { patch = build(false); note = ' (made with contact only: the tangent fill failed)'; } }
-          if (!patch) throw new Error('The edges do not bound a hole that can be filled (they must form one closed loop)');
-          // knit into the surface the edges belong to (and close a solid when that seals it)
-          const surfRec = recs.length === 1 && surfaces.includes(recs[0]) ? recs[0] : null;
-          if (f.merge !== false && surfRec) {
-            const sewn = sewShapes([surfRec.shape, patch], 1e-4);
-            const sol = f.solid && holeLoops(sewn).freeEdges === 0 ? solidFromSewn(sewn) : null;
-            surfaces = surfaces.filter((r) => r !== surfRec);
-            if (sol) apply('add', unify(sol), true);
-            else {
-              surfaces.push(bodyRec(surfRec.id, sewn, f.id));
-              if (f.solid) note += ' (the surface is not closed, so no solid was made)';
+          const all=[...solids,...surfaces],whole=compoundOf(all),mode=patchContinuity(f);
+          if(!['G0','G1','G2'].includes(mode))throw new Error('Select a supported patch continuity (G0, G1 or G2)');
+          const found=f.edges.map(ref=>{
+            const candidates=ref.body?all.filter(b=>b.id===ref.body):all;
+            const body=candidates.length===all.length?whole:compoundOf(candidates);
+            const hit=findEdgeInfo(body,ref);
+            if(body&&body!==whole&&candidates.length>1)body.delete();
+            return hit;
+          });
+          if(found.some(x=>!x))throw new Error('A boundary edge could not be found in the model');
+          const constrained=f.edges.some(ref=>(ref.continuity||mode)!=='G0');
+          const selected=(constrained?(f.supportFaces||[]):[]).map(ref=>{
+            const hit=findFaceAny(all.filter(b=>!ref.body||b.id===ref.body),ref);
+            if(!hit)throw new Error('A patch support face is missing');return hit.face;
+          });
+          const entries=[],recs=new Set(),used=new Set();
+          for(let i=0;i<found.length;i++){
+            const edge=found[i].e,ref=f.edges[i],continuity=ref.continuity||mode;
+            if(!['G0','G1','G2'].includes(continuity))throw new Error('Select a supported patch edge continuity (G0, G1 or G2)');
+            if(entries.some(x=>x.edge.isSame(edge)))throw new Error('A patch boundary edge is selected more than once');
+            const owners=all.filter(b=>edgeInfos(b.shape).some(x=>x.e.isSame(edge)));
+            owners.forEach(b=>recs.add(b));
+            const adjacent=[];
+            for(const body of owners)for(const {face} of facesWithBox(body.shape)){
+              const edges=face.edges;
+              try{if(edges.some(e=>e.isSame(edge))&&!adjacent.some(f=>f.isSame(face)))adjacent.push(face);}finally{edges.forEach(e=>e.delete());}
             }
-          } else surfaces.push(bodyRec(newId(f.id), patch, f.id));
-          applied.push({ op: 'add', tool: patch });
-          res.notes[f.id] = `Filled ${edges.length} edge${edges.length === 1 ? '' : 's'}${note}`;
+            let support=null;
+            if(continuity!=='G0'){
+              const choices=selected.length?adjacent.filter(face=>selected.some(f=>f.isSame(face))):adjacent;
+              if(choices.length!==1)throw new Error(choices.length?'The patch support is ambiguous; select one adjacent support face for each constrained edge':'Select an adjacent support face for each G1/G2 patch edge');
+              support=choices[0];used.add(support);
+            }
+            if(owners.length===1){ref.body=owners[0].id;updateEdgeRef(ref,edge,owners[0].shape);}
+            entries.push({edge,support,continuity});
+          }
+          if(entries.some(e=>e.continuity!=='G0')&&selected.some(face=>![...used].some(f=>f.isSame(face))))throw new Error('A selected patch support face is not adjacent to a constrained boundary edge');
+          const result=buildSurfacePatch(R,entries,{fatal:isFatal,message:e=>e instanceof WebAssembly.Exception?R.getOC().getExceptionMessage(e).join(': '):e.message||String(e),stack});
+          const patch=result.shape,surfRec=recs.size===1&&surfaces.includes([...recs][0])?[...recs][0]:null;
+          let note='';
+          try{
+            if(f.merge!==false&&surfRec){
+              const sewn=sewShapes([surfRec.shape,patch],1e-4);let transferred=false;
+              try{
+                verifyPatch(R,sewn,entries,patch);
+                const sol=f.solid&&holeLoops(sewn).freeEdges===0?solidFromSewn(sewn):null;
+                surfaces=surfaces.filter(r=>r!==surfRec);
+                if(sol)apply('add',unify(sol),true);
+                else{surfaces.push(bodyRec(surfRec.id,sewn,f.id));transferred=true;if(f.solid)note=' · Surface remains open';}
+              }finally{if(!transferred)sewn.delete();}
+            }else surfaces.push(bodyRec(newId(f.id),patch,f.id));
+            applied.push({op:'add',tool:patch});
+            res.features[f.id]={...(res.features[f.id]||{}),edges:f.edges,supportFaces:f.supportFaces||[]};
+            const modes=[...new Set(entries.map(e=>e.continuity))].join('/');
+            res.notes[f.id]=`Patch ${modes} · CAD contact ${result.contact.toExponential(2)} mm · normal mismatch ${result.angle.toFixed(4)} deg`+(entries.some(e=>e.continuity==='G2')?` · curvature mismatch ${result.curvature.toExponential(2)} 1/mm`:'')+note;
+          }catch(e){patch.delete();throw e;}
           break;
         }
         case 'surfTrim': {

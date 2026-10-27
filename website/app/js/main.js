@@ -2091,7 +2091,8 @@ class App {
     if (f.type === 'smTabSlot') return f.edge ? 'flatface' : 'edge'; // (the tab edge first, then the slot face)
     if (f.type === 'smConvert') return 'anyface'; // (a curved surface can be converted too)
     if (f.type === 'smFlange' || f.type === 'smHem' || f.type === 'smProfileFlange') return 'edge';
-    if (f.type === 'surfFill' || f.type === 'surfExtend') return 'edge';
+    if (f.type === 'surfFill') return this.pm.patchSupportPick ? 'faces' : 'edge';
+    if (f.type === 'surfExtend') return 'edge';
     if (f.type === 'surfTrim' || f.type === 'deleteFace' || f.type === 'replaceFace' || f.type === 'untrim') return 'faces';
     if (f.type === 'ruledSurface' || f.type === 'compCurve') return 'edge';
     if (f.type === 'projCurve' || f.type === 'splitLine' || f.type === 'flattenSurf') return 'faces';
@@ -3027,12 +3028,12 @@ class App {
       }
       const f = this.pm.feature, vp = this.viewport, gi = fh.hit.face;
       const face = vp.faceInfo(gi);
-      const key = ['loft', 'surfLoft'].includes(f.type) ? this.pm.loftEndSlot : 'faces';
+      const key = ['loft', 'surfLoft'].includes(f.type) ? this.pm.loftEndSlot : f.type === 'surfFill' ? 'supportFaces' : 'faces';
       if (!key) return;
       f[key] ||= [];
       const i = f[key].findIndex((r) => vp.faceIndexNear(r.p) === gi);
       if (i >= 0) f[key].splice(i, 1);
-      else f[key].push({ p: fh.hit.point.toArray(), ...(face.planar ? { n: face.normal.toArray() } : {}), ...(['loft', 'surfLoft'].includes(f.type) ? { body: this.result.bodies[vp.faceBody[gi]]?.id } : {}) });
+      else f[key].push({ p: fh.hit.point.toArray(), ...(face.planar ? { n: face.normal.toArray() } : {}), ...(['loft', 'surfLoft', 'surfFill'].includes(f.type) ? { body: this.result.bodies[vp.faceBody[gi]]?.id } : {}) });
       this.ui.renderPM();
       this.updateEdgeHighlights();
       this.preview();

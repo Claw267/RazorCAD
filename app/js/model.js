@@ -270,8 +270,8 @@ export function createFeature(doc, type, props = {}) {
     // (sketches or curves) the surface follows, each through every profile
     surfLoft: { profiles: [], guides: [], ruled: false, startCondition: 'none', endCondition: 'none', startDirection: 'y', endDirection: 'y', startStrength: 1, endStrength: 1, startReverse: false, endReverse: false, startFaces: [], endFaces: [] },
     surfSweep: { profileType: 'sketch', profile: null, diameter: 10, path: null, guide: null, guideMode: 'orientation', orientation: 'perpendicular', twistAngle: 0 },
-    // edges round a hole; tangent: G1 to the faces round it; merge: knit into that surface; solid: close it
-    surfFill: { edges: [], tangent: false, merge: true, solid: false },
+    // Patch continuity: G0/G1/G2, with optional per-edge overrides and support faces. Legacy tangent means G1.
+    surfFill: { edges: [], continuity: null, supportFaces: [], merge: true, solid: false },
     // tool: a plane, surface body or sketch; faces: points on the pieces; mode 'keep' | 'remove'
     surfTrim: { tool: '', faces: [], mode: 'keep', mutual: false },
     surfExtend: { edges: [], distance: 10 },
@@ -427,7 +427,8 @@ export function referencesOf(doc, f) {
   if (f.plane?.ref) addId(f.plane.ref);
   if (f.type === 'split') { addId(f.tool); addBody(f.tool); }
   if (f.sketchLine) addId(String(f.sketchLine).split(':')[0]);
-  for (const r of [...(f.startFaces || []), ...(f.endFaces || [])]) addBody(r.body);
+  for (const r of [...(f.startFaces || []), ...(f.endFaces || []), ...(f.supportFaces || [])]) addBody(r.body);
+  if (f.type === 'surfFill') for (const r of f.edges || []) addBody(r.body);
   for (const r of f.refs || []) { addId(r?.id); if (r?.kind === 'sketch') addId(r.sketch); }
   for (const b of [...(f.bodies || []), ...(f.scope || []), f.main, f.body]) addBody(b);
   for (const m of f.mates || []) { addId(m.a?.id); addId(m.b?.id); }

@@ -1024,10 +1024,11 @@ const PM_SCHEMAS = {
   surfFill: [
     { title: 'Patch Boundary', fields: [
       { key: 'edges', type: 'edges' },
-      { key: 'tangent', type: 'check', label: 'Tangent to the faces round the hole' },
+      { key: 'continuity', type: 'select', label: 'Boundary continuity', options: [['G0', 'Contact (G0)'], ['G1', 'Tangent (G1)'], ['G2', 'Curvature (G2)']] },
+      { key: 'supportFaces', type: 'faceList', patchSupport: true, show: f => (f.continuity ?? (f.tangent ? 'G1' : 'G0')) !== 'G0' || f.edges.some(e => e.continuity && e.continuity !== 'G0'), hint: 'Open boundary edges infer their adjacent face. Select support faces explicitly when an edge has two adjacent faces. Each G1/G2 edge needs exactly one support.' },
       { key: 'merge', type: 'check', default: true, label: 'Knit into the surface (when the edges are all on one surface body)' },
       { key: 'solid', type: 'check', label: 'Make a solid when that closes it', show: (f) => f.merge !== false },
-      { key: 'fHint', type: 'hint', text: 'Click the edges round a hole (one closed loop) of a surface or a solid: a smooth patch fills it. A flat loop gives a flat patch.' },
+      { key: 'fHint', type: 'hint', text: 'Select one closed loop. Set G0, G1 or G2 for the boundary, or override individual edges. Contact, tangency and curvature are checked on CAD surfaces; incompatible constraints report an error without lowering continuity.' },
     ] },
   ],
   surfTrim: [
@@ -3461,6 +3462,7 @@ export class UI {
   renderFeaturePM(root) {
     const a = this.app, pm = a.pm, f = pm.feature, doc = a.doc;
     const info = TYPE_INFO[f.type];
+    if (f.type === 'surfFill' && f.continuity == null) f.continuity = f.tangent ? 'G1' : 'G0';
     if (f.type === 'extrude' && !Array.isArray(f.profiles)) { f.profiles = f.sketch ? [f.sketch] : []; f.sketch = null; }
     this.pmHeader(root, iconFor(f), f.name);
     const err = a.result?.errors.get(f.id);
@@ -3659,9 +3661,11 @@ export class UI {
           }
           if (['sweep','surfSweep'].includes(f.type)) s.dataset.sweepField = fd.key;
           if (['loft', 'surfLoft'].includes(f.type) && /^(start|end)/.test(fd.key)) { s.dataset.loftEndField = fd.key; if (fd.type === 'direction') s.onfocus = () => { pm.loftEndAxis = fd.key; }; }
+          if (f.type === 'surfFill' && fd.key === 'continuity') s.dataset.patchContinuity = '';
           if (['sweep','surfSweep'].includes(f.type) && ['profile','path','guide'].includes(fd.key)) s.onfocus = () => { pm.sweepSlot = fd.key; };
           s.onchange = () => {
             f[fd.key] = s.value || null;
+            if (f.type === 'surfFill' && fd.key === 'continuity' && s.value === 'G0' && !f.edges.some(e => e.continuity && e.continuity !== 'G0')) pm.patchSupportPick = false;
             if (['loft', 'surfLoft'].includes(f.type) && /^(start|end)Condition$/.test(fd.key)) { pm.loftEndSlot = ['tangent', 'curvature'].includes(s.value) ? fd.key.replace('Condition', 'Faces') : null; pm.loftDraft = null; a.updateSketchDisplay(); }
             if (f.type === 'extrude' && (['pointRef', 'surfaceRef'].includes(fd.type) || (fd.key === 'end' && ['upToVertex', 'upToSurface', 'offsetSurface'].includes(f.end)))) { pm.extrudePick = false; pm.loftHover = null; a.updateSketchDisplay(); }
             // an open sketch can only be extruded as a thin feature
@@ -4996,6 +5000,7 @@ export class UI {
     const a = this.app;
     const key = fd.key || 'faces', pm = a.pm;
     if (!Array.isArray(f[key])) f[key] = [];
+    if (fd.patchSupport) body.appendChild(el('button', { class: 'pm-btn' + (pm.patchSupportPick ? ' on' : ''), 'data-patch-support': '', onclick: () => { pm.patchSupportPick = !pm.patchSupportPick; this.renderPM(); a.updateEdgeHighlights(); } }, 'Select support faces'));
     if (fd.loftEnd) body.appendChild(el('button', { class: 'pm-btn' + (pm.loftEndSlot === key ? ' on' : ''), 'data-loft-end-faces': key, onclick: () => { pm.loftEndSlot = pm.loftEndSlot === key ? null : key; pm.loftDraft = null; this.renderPM(); a.updateSketchDisplay(); a.updateEdgeHighlights(); } }, `Select ${fd.loftEnd} support faces`));
     body.appendChild(el('div', { class: 'pm-hint' }, esc(fd.hint || 'Click faces on the model to add or remove them.')));
     const ul = el('div', { class: 'pm-list' });
@@ -5303,11 +5308,21 @@ export class UI {
 
     const a = this.app;
     const n = f.edges.length;
+    if (f.type === 'surfFill') body.appendChild(el('button', { class: 'pm-btn' + (!a.pm.patchSupportPick ? ' on' : ''), 'data-patch-edges': '', onclick: () => { a.pm.patchSupportPick = false; this.renderPM(); a.updateEdgeHighlights(); } }, 'Select boundary edges'));
     body.appendChild(el('div', { class: 'pm-hint' }, 'Click edges on the model to add or remove them. The preview shows material removed in <b style="color:#c62828">red</b> and added in <b style="color:#a37f00">yellow</b>.'));
     const ul = el('div', { class: 'pm-list' });
     if (!n) ul.appendChild(el('div', { class: 'li pm-hint' }, 'No edges selected'));
     f.edges.forEach((e, i) => {
       const li = el('div', { class: 'li' }, `${icon('edge')}<span>Edge&lt;${i + 1}&gt;</span><span class="x" title="Remove">✕</span>`);
+      if(f.type==='surfFill')li.dataset.patchEdgeRow=i;
+      if(f.type==='surfFill'){
+        const select=el('select',{'data-patch-edge':i,'aria-label':`Edge ${i+1} continuity`});
+        for(const [value,label] of [['','Use boundary setting'],['G0','G0 Contact'],['G1','G1 Tangent'],['G2','G2 Curvature']]){
+          const option=el('option',{value},label);option.selected=(e.continuity||'')===value;select.appendChild(option);
+        }
+        select.onchange=()=>{if(select.value)e.continuity=select.value;else delete e.continuity;this.renderPM();a.preview();};
+        li.insertBefore(select,li.querySelector('.x'));
+      }
       li.querySelector('.x').onclick = () => { f.edges.splice(i, 1); this.renderPM(); a.updateEdgeHighlights(); a.preview(); };
       li.onpointerenter = () => { a.hoverEdge = a.viewport.edgeIndexForPoint(e.p); a.updateEdgeHighlights(); };
       li.onpointerleave = () => { a.hoverEdge = null; a.updateEdgeHighlights(); };

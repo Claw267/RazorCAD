@@ -4535,6 +4535,29 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     return { ok: true, detail: `Nonplanar open surface / two native spline guides (${worst.toExponential(3)} mm), uncapped circular surface, panel method selection and cancel` };
   },
 
+  async 'surface-patch-continuity'() {
+    const {run,fixture}=await import('/tests/surface-patch-cases.js');
+    const native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
+    const a=window.app,{doc,patch}=fixture(),settle=async()=>{await wait(160);await until(()=>!a.kernel.pending);};
+    await a.newDocument?.();closeModals();await a.setDoc(doc);a.editFeature(patch.id);await a.rebuild();
+    const field=()=>document.querySelector('[data-patch-continuity]');
+    if(field()?.value!=='G0')return {ok:false,detail:'Patch default continuity is missing'};
+    field().value='G2';field().dispatchEvent(new Event('change',{bubbles:true}));await settle();
+    const support=document.querySelector('[data-patch-support]');if(!support)return {ok:false,detail:'Patch support selector missing'};support.click();
+    if(a.pickMode()!=='faces')return {ok:false,detail:'Patch cannot select support faces'};
+    a.viewport.setStandardView('trimetric',false);a.viewport.zoomToFit(null,false);await wait(160);
+    const {Vector3}=await import('three'),ev=viewEvents();ev.vp.camera.updateMatrixWorld(true);await ev.click(...ev.toScreen(new Vector3(20,0,0)));await settle();
+    if(a.pm.feature.supportFaces.length!==1||!a.pm.feature.supportFaces[0].body)return {ok:false,detail:'Canvas patch support selection failed'};
+    document.querySelector('[data-patch-edges]').click();if(a.pickMode()!=='edge')return {ok:false,detail:'Cannot return to patch boundary selection'};
+    const edge=document.querySelector('[data-patch-edge="0"]');edge.value='G0';edge.dispatchEvent(new Event('change',{bubbles:true}));await settle();await a.okPM();
+    if(a.result.errors.size)return {ok:false,detail:JSON.stringify([...a.result.errors])};
+    await a.setDoc(JSON.parse(JSON.stringify(a.doc)));const saved=M.findFeature(a.doc,patch.id);
+    if(a.result.errors.size||saved.continuity!=='G2'||saved.edges[0].continuity!=='G0'||saved.supportFaces.length!==1)return {ok:false,detail:'Mixed patch settings failed to serialize'};
+    a.editFeature(patch.id);field().value='G1';field().dispatchEvent(new Event('change',{bubbles:true}));await settle();a.cancelPM();await a.rebuild();
+    if(M.findFeature(a.doc,patch.id).continuity!=='G2'||a.result.errors.size)return {ok:false,detail:'Patch cancel failed'};
+    return {ok:true,detail:JSON.stringify({cases:native.results,health:native.health,ui:'G0/G1/G2, per-edge overrides, actual support-face selection, cancel and save/reopen'})};
+  },
+
   async 'surface-differential-analysis'() {
     const worker = new Worker('/tests/surface-continuity.worker.js', { type: 'module' });
     let timer;

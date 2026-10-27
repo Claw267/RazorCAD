@@ -98,3 +98,9 @@ Checks normal/direction/G1/G2 endpoint construction for solids and surfaces, int
 `python tests/run_tests.py --only loft-end-guides-and-walls loft-end-conditions loft-guide-edit-regeneration --jobs 1`
 
 Checks analytic volumes for holes and all three Thin directions, open Thin profiles, circular and rectangular walls, G1/G2 inner/outer supports, G2 with a compatible guide, guide reversal, multiple guides/sections, open and closed surfaces, guided holes and Thin, and incompatible guide tangents/directions. Guide checks use bounded projections on the final CAD side surfaces. Native CAD guide-seam construction with constrained endpoints is rejected explicitly; this combination uses Adaptive approximation. Example: `tests/data/loft-guided-thin-ends.rcad`.
+
+### Surface Patch continuity
+
+`python tests/run_tests.py --only surface-patch-continuity surface-differential-analysis --jobs 1`
+
+Checks G0/G1/G2 on planar, circular, spherical and cylindrical boundaries; mixed edge conditions; explicit and ambiguous supports; legacy Tangent files; knitting and solid closure; missing/disconnected/duplicate boundaries; and incompatible requests without a G0 fallback. The UI test picks a real support face, switches boundary and face selection, overrides an individual edge, saves/reopens and cancels an edit. Final CAD checks use native trimming curves and independent differential comparisons. Run on both kernels. Example: `tests/data/surface-patch-g2.rcad`.
