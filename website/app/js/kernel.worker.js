@@ -548,6 +548,16 @@ function exactProps(shapes, eps = 1e-9) {
   });
 }
 const finite = (x, fallback) => (Number.isFinite(x) ? x : fallback());
+// (Kernel Lab) a face's exact area, as Measure shows it, kept with the face: worked out again for every measure of
+// the face, it took 174 of 176 ms on a guided loft's B-spline patch
+function faceArea(face) {
+  let a = keptFind(FACE_AREAS, face.wrapped, 'area');
+  if (a === undefined) {
+    a = exactProps([face])[0]?.area;
+    if (Number.isFinite(a)) keptAdd(FACE_AREAS, face.wrapped, 'area', a, (x) => R.getOC().TopoDS.Face(x));
+  }
+  return a;
+}
 function preciseVolume(shape) {
   let free = false;
   try { free = shape.faces.some((f) => FREEFORM.has(f.geomType)); } catch { free = false; }
@@ -932,7 +942,7 @@ function surfOf(face) {
 // the same one, in the same place, the same way round), and only the new ones are meshed and sampled.
 // replicad's mesh extractor meshes every face again each time, which on a big body (a golf ball: 114 000
 // triangles) takes over a second. Kept for the faces and edges of the last few bodies meshed.
-const FACE_MESHES = new Map(), EDGE_POINTS = new Map(), FACE_BOXES = new Map(); // hash → [{ shape, key, data, used }]
+const FACE_MESHES = new Map(), EDGE_POINTS = new Map(), FACE_BOXES = new Map(), FACE_AREAS = new Map(); // hash → [{ shape, key, data, used }]
 let meshGen = 0;
 const KEEP_GENS = 6, KEEP_MAX = 60000;
 const hashOf = (raw) => R.getOC().ReplicadShapeHasher.HashCode(raw, R.HASH_CODE_MAX);
@@ -1220,7 +1230,7 @@ function meshPart(s, tol, diagQ, onWork, ang = 0.2) {
   }
   const out = { tol, ang, diagQ, kind: s.kind, look: s.look || null, m, gs, dense, facePts, edges, surfs, faceLooks };
   meshCache.set(s.shape, out);
-  keptPrune(FACE_MESHES); keptPrune(EDGE_POINTS); keptPrune(FACE_BOXES);
+  keptPrune(FACE_MESHES); keptPrune(EDGE_POINTS); keptPrune(FACE_BOXES); keptPrune(FACE_AREAS);
   return out;
 }
 
@@ -6988,7 +6998,7 @@ function measureRefs(refs) {
       const planar = h.face.geomType === 'PLANE';
       const n = planar ? unit(vec(h.face.normalAt())) : null;
       const ax = planar ? null : faceAxis(h.face);
-      return { shape: h.face, normal: n, axis: ax, info: { type: 'face', area: finite(exactProps([h.face])[0]?.area, () => R.measureArea(h.face)), planar, radius: ax ? radiusOfFace(h.face) : null } };
+      return { shape: h.face, normal: n, axis: ax, info: { type: 'face', area: finite(faceArea(h.face), () => R.measureArea(h.face)), planar, radius: ax ? radiusOfFace(h.face) : null } };
     }
     if (r.kind === 'body') {
       const b = all.find((x) => x.id === r.id);

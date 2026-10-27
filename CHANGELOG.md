@@ -6,6 +6,12 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-10-28 11:16 — Measure: a face measured again answers at once
+- Measure worked out a face's exact area (shown with it) every time the face was measured: 174 of 176 ms on a
+  guided loft's B-spline patch. The area is now kept with the face, so only the first measure of a face pays for
+  it: 20 point-to-face measures on one patch 3.5 s → 0.09 s, with the same distances and points.
+  `loft-cad-guide-constraints` (101 measures) 24 s → 6.6 s.
+
 ## 2026-10-28 11:12 — From Claw267's pull requests #7, #8 and #9: automatic parallel and collinear relations, a steadier updater, STEP products with their own geometry
 - **Sketching (#7)**: with automatic relations on, Line and Centerline infer **parallel** and **collinear** from
   other lines in the sketch (construction and projected lines too): the reference line is highlighted and a click
