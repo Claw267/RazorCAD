@@ -112,3 +112,9 @@ Patch chain selection additionally checks native inner/outer loops, circular rim
 `python tests/run_tests.py --only planar-surface-selection surface-patch-chain-selection --jobs 1`
 
 Checks individual sketch regions, holes, multiple regions, whole-sketch compatibility, manual entity contours, dimensional edits, construction/unselected geometry, missing/deleted/open entities, model boundary edges and rejection of duplicate/nonplanar loops. The app test starts from a sketch with several regions, clicks a region and individual sketch entities in the viewport, picks model boundary edges, saves/reopens, cancels edits and migrates a legacy whole-sketch feature. Run on both kernels.
+
+### Common Extrude/Revolve workflows
+
+`python tests/run_tests.py --only standard-feature-workflows extrude-canvas-selection loft-canvas-selection planar-surface-selection surface-patch-continuity --jobs 1`
+
+Checks selected solid/surface profiles, analytical volumes and areas, directional native contact probes, two-sided/symmetric/reversed extents, Full with inactive stored angles, legacy whole sketches and clamped angles, independent/projected sketch axes, Thin, solid Join/New body/Cut, invalid angles and axis crossings. The app test uses actual profile/axis picks and cut-target body picks, edits operation/direction controls, saves/reopens and cancels. Run on both kernels. The implementation/reference inventory is in `Manual/cad-behavior-alignment.md`.

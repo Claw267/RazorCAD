@@ -22,6 +22,7 @@ import { installRealDelete, freeStats } from './ocfree.js';
 import { compareSurfaceContinuity, surfaceNormalAtUV } from './surfacecontinuity.js';
 import { guideScaleLaw } from './sweepguides.js';
 import { sweepWithOrientation } from './sweepoptions.js';
+import {extrusionInterval,revolutionInterval} from './featuredirections.js';
 import {buildSurfacePatch,verifyPatch,patchContinuity,patchBoundary} from './surfacepatch.js';
 import { hasLoftEnds, endConstrainedLoft, checkLoftEndGuides, tensorFaceDistance } from './loftends.js';
 
@@ -2272,17 +2273,18 @@ async function rebuild(doc, previewId = null, opts = {}) {
     if (!id) throw new Error('Select a sketch');
     let s = sketches.get(LR.sourceId(id));
     if (!s) throw new Error('The sketch is missing, suppressed or has errors');
+    const sourceSketch = s.sk;
     let selected = null;
     if (typeof id !== 'string') {
       selected = LR.resolveContour(s.sk, id);
       s = { ...s, sk: selected.sketch };
     }
-    if (thin) { const regions = S.thinRegions(s.sk, thin.t, thin.dir); return { ...s, regions, drawing: regionsDrawing(regions) }; }
+    if (thin) { const regions = S.thinRegions(s.sk, thin.t, thin.dir); return { ...s, sourceSketch, regions, drawing: regionsDrawing(regions) }; }
     const regions = selected?.region ? [selected.region] : S.profileRegions(s.sk);
     const text = selected ? null : textDrawing(s.sk);
     const gears = selected ? [] : [...gearDrawings(s.sk), ...airfoilDrawings(s.sk)]; // (generated outlines, each made on its own)
     if (!regions.length && !text && !gears.length) throw new Error(s.sk.curves.some((c) => !c.construction) ? 'The sketch has no closed profile — tick Thin Feature to use open curves' : 'The sketch has no closed profile');
-    return { ...s, regions, drawing: regions.length ? regionsDrawing(regions) : null, text, gears };
+    return { ...s, sourceSketch, regions, drawing: regions.length ? regionsDrawing(regions) : null, text, gears };
   };
   // The solid a feature makes from a sketch profile: make(drawing) for the outlines and for the text,
   // combined so text inside an outline is cut out of it (and text outside it is added).
@@ -2494,7 +2496,12 @@ async function rebuild(doc, previewId = null, opts = {}) {
 
   // axis of a revolve: an axis feature, a straight model edge or cylindrical face picked on the
   // model ('edge' / 'face'), or a line of the sketch ('v' / 'u' = the sketch axes)
-  const revolveAxisOf = (f, sk) => {
+  const resolveRevolveAxis = (f, sk) => {
+    if(f.axis==='sketchLine'){
+      const source=sketches.get(f.axisSketch?.sketch);if(!source)throw new Error('The axis sketch is missing');
+      const axis=S.revolveAxis({axis:f.axisSketch.curve},source.sk),fr=source.frame;
+      return {o:S.fromFrame2D(fr,...axis.a),d:add(mul(fr.u,axis.d[0]),mul(fr.v,axis.d[1]))};
+    }
     if (axes.has(f.axis)) return axes.get(f.axis);
     if (f.axis === 'edge') {
       if (!f.axisEdge) throw new Error('Click a straight edge on the model for the axis');
@@ -2515,8 +2522,23 @@ async function rebuild(doc, previewId = null, opts = {}) {
       if (!ax) throw new Error('The axis face could not be found (use a cylindrical or conical face)');
       return ax;
     }
-    const fr = sk.frame, ax = S.revolveAxis(f, sk.sk);
+    const fr = sk.frame, ax = S.revolveAxis(f, sk.sourceSketch || sk.sk);
     return { o: S.fromFrame2D(fr, ax.a[0], ax.a[1]), d: add(mul(fr.u, ax.d[0]), mul(fr.v, ax.d[1])) };
+  };
+
+  const revolveAxisOf=(f,sk)=>{
+    const axis=resolveRevolveAxis(f,sk);if(!f.projectAxis)return axis;
+    const n=sk.frame.n,d=sub(axis.d,mul(n,dot(axis.d,n)));
+    if(len(d)<1e-9)throw new Error('An axis perpendicular to the profile plane cannot be projected into it');
+    return {o:sub(axis.o,mul(n,dot(sub(axis.o,sk.frame.o),n))),d:unit(d)};
+  };
+
+  const checkRevolveAxis=(sk,axis)=>{
+    const n=sk.frame.n;
+    if(Math.abs(dot(axis.d,n))>1e-7||Math.abs(dot(sub(axis.o,sk.frame.o),n))>1e-5)return;
+    const across=unit(cross(axis.d,n));
+    const polygons=sk.regions?.length?sk.regions.map(r=>r.outer.poly):sk.sk.curves.filter(c=>!c.construction&&!c.ctrlOf).map(c=>S.curvePoints(sk.sk,c));
+    for(const polygon of polygons){const distances=polygon.map(p=>dot(sub(S.fromFrame2D(sk.frame,...p),axis.o),across));if(Math.min(...distances)<-1e-6&&Math.max(...distances)>1e-6)throw new Error('A revolution profile must not cross its axis');}
   };
 
   // consecutive fillets (or chamfers) applied since the last other solid feature
@@ -3111,6 +3133,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
           break;
         }
         case 'extrude': {
+          if(f.op==='cut'&&!solids.length)throw new Error('A cut requires an existing solid body');
           const refs = Array.isArray(f.profiles) ? f.profiles : f.sketch ? [f.sketch] : [];
           if (!refs.length) throw new Error('Select one or more sketch profiles');
           const sections = refs.map((ref) => getSketch(ref, f.thin ? { t: ev(f.thinT), dir: f.thinDir || 'one' } : null));
@@ -3123,17 +3146,13 @@ async function rebuild(doc, previewId = null, opts = {}) {
           const extrusions = [];
           for (const sk of sections) {
             let z0 = 0, z1 = 0;
-            if (f.end === 'blind' || f.end === 'midplane') {
-              const d = ev(f.depth);
-              if (d <= 0) throw new Error('Depth must be greater than zero');
-              if (f.end === 'blind') z1 = d; else { z0 = -d / 2; z1 = d / 2; }
-            } else if (f.end === 'through' || f.end === 'through2') {
-              if (f.op === 'add' && !body) throw new Error('Through All needs an existing body');
-              const b = body ? bbox(body) : { center: [0, 0, 0], diag: 1000 };
-              const L = len(sub(b.center, sk.frame.o)) + b.diag + 5;
-              if (f.end === 'through') z1 = L; else { z0 = -L; z1 = L; }
+            if(['blind','midplane','twoSides'].includes(f.end||'blind'))({start:z0,end:z1}=extrusionInterval(f,ev));
+            else if(f.end==='through'||f.end==='through2'){
+              if(f.op==='add'&&!body)throw new Error('Through All needs an existing body');
+              const box=body?bbox(body):{center:[0,0,0],diag:1000},length=len(sub(box.center,sk.frame.o))+box.diag+5;
+              if(f.end==='through')z1=length;else{z0=-length;z1=length;}
+              if(f.reverse&&f.end==='through')[z0,z1]=[-z1,-z0];
             }
-            if (f.reverse && (f.end === 'blind' || f.end === 'through')) [z0, z1] = [-z1, -z0];
             if (sk.extrudeSign < 0) [z0, z1] = [-z1, -z0];
             const fr = sk.frame;
             let tool = null;
@@ -3189,17 +3208,16 @@ async function rebuild(doc, previewId = null, opts = {}) {
           break;
         }
         case 'revolve': {
-          const sk = getSketch(f.sketch);
-          const a = ev(f.angle);
-          if (a <= 0) throw new Error('Angle must be greater than zero');
-          const angle = Math.min(a, 360);
-          const fr = sk.frame;
-          const { o: origin, d: dir } = revolveAxisOf(f, sk);
-          let tool = profileSolid(sk, (dr) => dr.sketchOnPlane(rPlane(fr)).revolve(dir, { origin, angle }));
-          let start = 0;
-          if (f.end === 'midplane') start = -angle / 2;
-          else if (f.reverse) start = -angle;
-          if (start) tool = tool.rotate(start, origin, dir);
+          if(f.op==='cut'&&!solids.length)throw new Error('A cut requires an existing solid body');
+          const refs=Array.isArray(f.profiles)?f.profiles:f.sketch?[f.sketch]:[];
+          if(!refs.length)throw new Error('Select one or more revolution profiles');
+          const sections=refs.map(ref=>getSketch(ref,f.thin?{t:ev(f.thinT),dir:f.thinDir||'one'}:null)),first=sections[0];
+          for(const sk of sections)if(Math.abs(dot(sk.frame.n,first.frame.n))<1-1e-7||Math.abs(dot(sub(sk.frame.o,first.frame.o),first.frame.n))>1e-5)throw new Error('Revolve profiles must lie in the same plane');
+          const {angle,start}=revolutionInterval(f,ev),{o:origin,d:dir}=revolveAxisOf(f,first);
+          sections.forEach(sk=>checkRevolveAxis(sk,{o:origin,d:dir}));
+          const revolutions=sections.map(sk=>profileSolid(sk,dr=>dr.sketchOnPlane(rPlane(sk.frame)).revolve(dir,{origin,angle})));
+          let tool=revolutions[0];for(const next of revolutions.slice(1))tool=tool.fuse(next);
+          if(start)tool=tool.rotate(start,origin,dir);
           tool = unify(tool);
           const scope = f.op === 'cut' && f.scopeAll === false ? f.scope || [] : null;
           tools.set(f.id, { shape: tool, op: f.op, merge: f.merge !== false, scope });
@@ -3622,34 +3640,33 @@ async function rebuild(doc, previewId = null, opts = {}) {
         }
         case 'surfExtrude':
         case 'surfRevolve': {
-          if (!f.sketch) throw new Error('Select a sketch');
-          const sk = sketches.get(f.sketch);
-          if (!sk) throw new Error('The sketch is missing, suppressed or has errors');
-          const fr = sk.frame, oc = R.getOC();
-          let parts = [];
-          if (f.type === 'surfExtrude') {
-            const dpt = ev(f.depth);
-            if (dpt <= 0) throw new Error('Depth must be greater than zero');
-            const dir = f.reverse ? -1 : 1, z0 = f.end === 'midplane' ? -dpt / 2 : 0;
-            for (let w of sketchWires(sk.sk, fr)) {
-              if (z0) w = w.translate(mul(fr.n, z0));
-              const v = new R.Vector(mul(fr.n, f.end === 'midplane' ? dpt : dir * dpt));
-              const mk = new oc.BRepPrimAPI_MakePrism(w.wrapped, v.wrapped, false, true);
-              parts.push(R.cast(mk.Shape()));
-              mk.delete(); v.delete();
-            }
-          } else {
-            const a = ev(f.angle);
-            if (a <= 0) throw new Error('Angle must be greater than zero');
-            const { o: origin, d: dir } = revolveAxisOf(f, sk);
-            const sk2 = { ...sk.sk, curves: sk.sk.curves.filter((c) => c.id !== f.axis) }; // never revolve the axis line itself
-            for (const w of sketchWires(sk2, fr)) {
-              const ax1 = R.makeAx1(origin, dir);
-              const mk = new oc.BRepPrimAPI_MakeRevol(w.wrapped, ax1, (Math.min(a, 360) * Math.PI) / 180, false);
-              parts.push(R.cast(mk.Shape()));
-              mk.delete(); ax1.delete();
-            }
+          const refs=Array.isArray(f.profiles)?f.profiles:f.sketch?[f.sketch]:[];
+          if(!refs.length)throw new Error('Select one or more surface contours');
+          const sections=refs.map(ref=>{
+            const source=sketches.get(LR.sourceId(ref));if(!source)throw new Error('A surface profile sketch is missing');
+            const subset=typeof ref==='string'?source.sk:LR.resolveContour(source.sk,ref).sketch;
+            return {...source,sk:subset,sourceSketch:source.sk,id:LR.sourceId(ref)};
+          });
+          const first=sections[0];for(const sk of sections)if(Math.abs(dot(sk.frame.n,first.frame.n))<1-1e-7||Math.abs(dot(sub(sk.frame.o,first.frame.o),first.frame.n))>1e-5)throw new Error('Surface profiles must lie in the same plane');
+          const oc=R.getOC(),parts=[],extrusion=f.type==='surfExtrude'?extrusionInterval(f,ev):null,revolution=f.type==='surfRevolve'?revolutionInterval(f,ev):null,axis=revolution?revolveAxisOf(f,first):null;
+          for(const sk of sections){
+            if(axis)checkRevolveAxis(sk,axis);
+            const axisLine=f.axis==='sketchLine'?(f.axisSketch?.sketch===sk.id?f.axisSketch.curve:null):f.axis;
+            const subset=revolution?{...sk.sk,curves:sk.sk.curves.filter(c=>c.id!==axisLine)}:sk.sk;
+            const wires=sketchWires(subset,sk.frame);
+            if(!wires.length)throw new Error('The selected surface contour contains no usable curves');
+            try{for(let wi=0;wi<wires.length;wi++){let wire=wires[wi],maker,vector,ax;
+              try{
+                if(extrusion){
+                  const sign=dot(sk.frame.n,first.frame.n)<0?-1:1,start=sign<0?-extrusion.end:extrusion.start,end=sign<0?-extrusion.start:extrusion.end;
+                  if(start)wires[wi]=wire=wire.translate(mul(sk.frame.n,start));vector=new R.Vector(mul(sk.frame.n,end-start));
+                  maker=new oc.BRepPrimAPI_MakePrism(wire.wrapped,vector.wrapped,false,true);
+                }else{ax=R.makeAx1(axis.o,axis.d);maker=new oc.BRepPrimAPI_MakeRevol(wire.wrapped,ax,revolution.angle*Math.PI/180,false);}
+                let shape=R.cast(maker.Shape());if(revolution?.start)shape=shape.rotate(revolution.start,axis.o,axis.d);parts.push(shape);
+              }finally{maker?.delete();vector?.delete();ax?.delete();}
+            }}finally{wires.forEach(w=>w.delete());}
           }
+          for(const part of parts){const check=new oc.BRepCheck_Analyzer(part.wrapped,true);try{if(!check.IsValid())throw new Error('The selected contour cannot form a valid surface with this axis and direction');}finally{check.delete();}}
           const shape = asShape(parts);
           surfaces.push(bodyRec(newId(f.id), shape, f.id));
           applied.push({ op: 'add', tool: shape });

@@ -1960,7 +1960,7 @@ class App {
   }
 
   // What the open Property panel wants picked on the model: 'edge', 'vertex' or 'face'.
-  loftPicking() { return this.pm?.kind === 'feature' && (['loft', 'surfLoft'].includes(this.pm.feature.type) && !this.pm.loftEndSlot || (this.pm.feature.type === 'extrude' && this.pm.extrudePick !== false) || (this.pm.feature.type === 'surfPlanar' && !this.pm.planarEdges)); }
+  loftPicking() { return this.pm?.kind === 'feature' && (['loft', 'surfLoft'].includes(this.pm.feature.type) && !this.pm.loftEndSlot || (this.pm.feature.type === 'extrude' && this.pm.extrudePick !== false) || (this.pm.feature.type === 'surfPlanar' && !this.pm.planarEdges) || (['revolve','surfExtrude','surfRevolve'].includes(this.pm.feature.type) && this.pm.profilePick!==false)); }
 
   loftCandidates() {
     if (!this.loftPicking()) return [];
@@ -2021,14 +2021,14 @@ class App {
     const result = LR.resolveContour(source.sketch, ref, guide);
     if (!guide && f.type === 'surfPlanar' && result.chain && !result.chain.closed) throw new Error('Planar Surface requires a closed contour');
     if (!guide && f.type === 'loft' && !f.thin && !result.region && !result.chain.closed) throw new Error('A solid loft needs a closed profile. Use Surface Loft for open sections');
-    if (f.type === 'extrude') {
+    if (['extrude','revolve','surfExtrude','surfRevolve'].includes(f.type)) {
       const first = this.result.sketches.get(LR.sourceId(f.profiles?.[0]));
-      if (first && (Math.abs(first.frame.n.dot(source.frame.n)) < 1 - 1e-7 || Math.abs(source.frame.o.clone().sub(first.frame.o).dot(first.frame.n)) > 1e-5)) throw new Error('Extrude profiles must lie in the same plane');
-      if (!result.region && result.chain && !result.chain.closed) f.thin = true;
+      if (first && (Math.abs(first.frame.n.dot(source.frame.n)) < 1 - 1e-7 || Math.abs(source.frame.o.clone().sub(first.frame.o).dot(first.frame.n)) > 1e-5)) throw new Error('Selected profiles must lie in the same plane');
+      if (['extrude','revolve'].includes(f.type)&&!result.region && result.chain && !result.chain.closed) f.thin = true;
     }
     f[key] ||= [];
     if (f[key].some((q) => LR.refKey(q) === LR.refKey(ref))) {
-      if (['extrude','surfPlanar'].includes(f.type)) {
+      if (['extrude','surfPlanar','revolve','surfExtrude','surfRevolve'].includes(f.type)) {
         f[key] = f[key].filter((q) => LR.refKey(q) !== LR.refKey(ref));
         this.pm.loftDraft = null; this.pm.loftHover = null;
         this.preview(true); this.updateSketchDisplay(); return;
@@ -2037,7 +2037,7 @@ class App {
       this.ui.renderPM(); this.updateSketchDisplay();
       this.status('That contour is already selected.'); return;
     }
-    if (['extrude','surfPlanar'].includes(f.type)) f[key] = f[key].filter((q) => q !== LR.sourceId(ref));
+    if (['extrude','surfPlanar','revolve','surfExtrude','surfRevolve'].includes(f.type)) f[key] = f[key].filter((q) => q !== LR.sourceId(ref));
     f[key].push(ref); this.pm.loftDraft = null; this.pm.loftHover = null;
     this.preview(true); this.updateSketchDisplay();
     this.status(`${guide ? 'Guide' : 'Profile'} ${f[key].length} selected.`);
@@ -2047,7 +2047,7 @@ class App {
     if (!this.pm?.loftDraft?.curves.length) return;
     try {
       let ref = this.pm.loftDraft;
-      if ((this.pm.loftSlot || 'profiles') === 'profiles' && ['loft', 'extrude', 'surfPlanar'].includes(this.pm.feature.type)) {
+      if ((this.pm.loftSlot || 'profiles') === 'profiles' && ['loft', 'extrude', 'surfPlanar','revolve','surfExtrude','surfRevolve'].includes(this.pm.feature.type)) {
         const source = this.result.sketches.get(ref.sketch), subset = source && LR.contourSketch(source.sketch, ref);
         const regions = subset && S.profileRegions(subset, true);
         if (regions?.length === 1) {
@@ -2079,6 +2079,7 @@ class App {
     if (this.pm?.kind === 'section') return 'section';
     const f = this.pm?.kind === 'feature' ? this.pm.feature : null;
     if (!f) return null;
+    if(this.pm.scopePick&&['extrude','revolve'].includes(f.type)&&f.op==='cut'&&f.scopeAll===false)return 'body';
     if (f.type === 'surfPlanar' && this.pm.planarEdges) return 'edge';
     if (['loft', 'surfLoft'].includes(f.type) && this.pm.loftEndSlot) return 'faces';
     if (this.loftPicking()) return 'loftContour';
@@ -2424,7 +2425,7 @@ class App {
     }
     for (const [id, s] of res.sketches) {
       if (stale.has(id)) continue;
-      const pmSketch = this.pm?.kind === 'feature' && this.pm.feature.sketch === id;
+      const pmSketch = this.pm?.kind === 'feature' && (this.pm.feature.sketch === id || (['revolve','surfRevolve'].includes(this.pm.feature.type)&&this.pm.profilePick===false&&this.doc.features.findIndex(f=>f.id===id)<this.doc.features.indexOf(this.pm.feature)));
       const selected = (this.selection?.kind === 'feature' && this.selection.id === id) || this.hoverSketchId === id;
       if ((this.vis.sketches && this.sketchShown(s.sketch)) || pmSketch || selected || loft || (referencePicking && this.doc.features.findIndex((f) => f.id === id) < this.doc.features.findIndex((f) => f.id === editing))) {
         const polylines = s.sketch.curves.filter((c) => !loft || !c.ctrlOf).map((c) => ({ pts: S.curvePoints(s.sketch, c), construction: c.construction }));
@@ -2786,6 +2787,9 @@ class App {
       this.status('Select the desired contour in the canvas; a sketch can contain several profiles or guides.');
       return true;
     }
+    if(kind==='sketch'&&['revolve','surfExtrude','surfRevolve'].includes(f.type)){
+      this.hoverSketchId=id;this.updateSketchDisplay();this.status('Use Select profiles in canvas to pick a contour, or Select axis in canvas to pick an axis line.');return true;
+    }
     if (['loft', 'surfLoft'].includes(f.type) && kind === 'axis' && this.pm.loftEndAxis) { f[this.pm.loftEndAxis] = id; this.preview(true); return true; }
     // two-slot fields (axis from two planes / two points) fill alternately
     const slot = (a, b) => { const k = this.pm.slot === a ? b : a; this.pm.slot = k; return k; };
@@ -2805,7 +2809,7 @@ class App {
       if (f.type === 'extrude' && f.end === 'upToVertex') { key = 'toPoint'; f.toVertex = null; }
       else if (f.type === 'axis' && f.axisType === 'twoPoints') key = slot('pointA', 'pointB');
     } else if (kind === 'axis') {
-      if (f.type === 'cpattern' || f.type === 'revolve') key = 'axis';
+      if (['cpattern','revolve','surfRevolve'].includes(f.type)) { key = 'axis'; if(['revolve','surfRevolve'].includes(f.type))this.pm.profilePick=false; }
       else if (f.type === 'lpattern') key = 'dir1';
     } else if (kind === 'sketch' && f.type === 'loft') {
       f.profiles = Array.isArray(f.profiles) ? f.profiles : [];
@@ -3183,18 +3187,16 @@ class App {
 
   // A line of the open revolve's sketch under the cursor (within 6 px), or null.
   sketchLineAt(e) {
-    const f = this.pm?.feature, s = f && this.result.sketches.get(f.sketch);
-    if (!s) return null;
-    const vp = this.viewport, m = vp.screenPos(e);
-    let best = null, bd = 6;
-    for (const c of s.sketch.curves) {
-      if (c.type !== 'line') continue;
-      const A = S.getPoint(s.sketch, c.p1), B = S.getPoint(s.sketch, c.p2);
-      const a = vp.project(G.toWorld(s.frame, A.x, A.y)), b = vp.project(G.toWorld(s.frame, B.x, B.y));
-      const dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy;
-      const t = L2 ? Math.max(0, Math.min(1, ((m.x - a.x) * dx + (m.y - a.y) * dy) / L2)) : 0;
-      const d = Math.hypot(m.x - (a.x + t * dx), m.y - (a.y + t * dy));
-      if (d < bd) { bd = d; best = c; }
+    const f=this.pm?.feature;if(!f)return null;
+    const vp=this.viewport,m=vp.screenPos(e),before=this.doc.features.indexOf(f);let best=null,bd=6;
+    for(const [id,s] of this.result.sketches){
+      if(s.sketch.suppressed||this.result.errors.has(id)||this.doc.features.findIndex(f=>f.id===id)>=before)continue;
+      for(const c of s.sketch.curves){
+        if(c.type!=='line')continue;
+        const A=S.getPoint(s.sketch,c.p1),B=S.getPoint(s.sketch,c.p2),a=vp.project(G.toWorld(s.frame,A.x,A.y)),b=vp.project(G.toWorld(s.frame,B.x,B.y));
+        const d=S.segDist(m.x,m.y,a.x,a.y,b.x,b.y);
+        if(d<bd){bd=d;best={...c,sketchId:id};}
+      }
     }
     return best;
   }
@@ -3203,7 +3205,7 @@ class App {
   pickRevolveAxis(e) {
     const f = this.pm.feature, vp = this.viewport;
     const line = this.sketchLineAt(e);
-    if (line) { f.axis = line.id; f.axisEdge = f.axisFace = null; return true; }
+    if (line) { f.axis = 'sketchLine'; f.axisSketch = {sketch:line.sketchId,curve:line.id}; f.axisEdge = f.axisFace = null; return true; }
     const ed = vp.pickEdge(e, 5);
     if (ed) { f.axis = 'edge'; f.axisEdge = { p: ed.edge.mid }; f.axisFace = null; return true; }
     const fh = this.faceAt(e);
@@ -3663,7 +3665,7 @@ class App {
       }
       props.sketch = sk.id;
     }
-    if (M.SKETCH_FEATURES.has(type) && type !== 'surfPlanar') {
+    if (M.SKETCH_FEATURES.has(type) && !['surfPlanar','revolve','surfExtrude','surfRevolve'].includes(type)) {
       let sk = preSketch || (selF?.type === 'sketch' ? selF : null);
       if (!sk) {
         const used = new Set(doc.features.flatMap((f) => M.sketchesUsedBy(f)));
@@ -3686,12 +3688,12 @@ class App {
         props.sketch = null;
       }
     }
-    if(type==='surfPlanar'){
+    if(['surfPlanar','revolve','surfExtrude','surfRevolve'].includes(type)){
       const sketches=doc.features.slice(0,M.rollbackIndex(doc)).filter(f=>f.type==='sketch'&&!f.suppressed);
       const sketch=preSketch||(selF?.type==='sketch'?selF:null);
       props.profiles=[];
       if(sketch){const regions=LR.selectableRegions(this.result.sketches.get(sketch.id)?.sketch||sketch);if(regions.length===1)props.profiles=[LR.regionRef(sketch.id,regions[0])];}
-      if(sel?.kind==='edge')props.edges=[{p:sel.p,...(this.result.bodies?.[sel.body]?.id?{body:this.result.bodies[sel.body].id}:{})}];
+      if(type==='surfPlanar'&&sel?.kind==='edge')props.edges=[{p:sel.p,...(this.result.bodies?.[sel.body]?.id?{body:this.result.bodies[sel.body].id}:{})}];
       if(!sketches.length&&!this.result.bodies?.length){this.pendingFeature={type,op,opts};this.startSketch();return;}
     }
     if (type === 'sweep' || type === 'loft') {
@@ -3852,7 +3854,7 @@ class App {
   }
 
   async okPM() {
-    if (this.pm?.loftDraft?.curves.length) { this.toast(['extrude','surfPlanar'].includes(this.pm.feature.type) ? 'Add or clear the current contour selection before accepting the feature' : 'Add or clear the current contour selection before accepting the loft', true); return; }
+    if (this.pm?.loftDraft?.curves.length) { this.toast(['extrude','surfPlanar','revolve','surfExtrude','surfRevolve'].includes(this.pm.feature.type) ? 'Add or clear the current contour selection before accepting the feature' : 'Add or clear the current contour selection before accepting the loft', true); return; }
     if (this.mode === 'sketch' && this.sketcher.patternDraft) { this.sketcher.finishPattern(true); return; }
     const pm = this.pm;
     if (!pm) return;

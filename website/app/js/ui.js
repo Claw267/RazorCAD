@@ -217,6 +217,18 @@ const LOFT_END_GROUPS = ['start', 'end'].map((key) => ({
   ],
 }));
 
+const REVOLUTION_AXIS = {title:'Axis of Revolution',fields:[
+  {key:'axis',type:'axis',label:'Axis'},
+  {key:'axisPick',type:'axisPick'},
+  {key:'projectAxis',type:'check',label:'Project axis into profile plane'},
+]};
+const REVOLUTION_DIRECTIONS = {title:'Revolution',fields:[
+  {key:'extent',type:'select',label:'Extent',options:[['full','Full (360°)'],['angle','Angle']]},
+  {key:'end',type:'select',label:'Direction',show:f=>f.extent!=='full',options:[['oneway','One side'],['twoSides','Two sides'],['midplane','Symmetric']]},
+  {key:'angle',type:'expr',label:'Angle',unit:'°',show:f=>f.extent!=='full'},
+  {key:'angle2',type:'expr',label:'Second angle',unit:'°',default:0,show:f=>f.extent!=='full'&&f.end==='twoSides'},
+  {key:'reverse',type:'check',label:'Reverse direction',show:f=>f.extent!=='full'&&f.end!=='midplane'},
+]};
 const THIN_GROUP = {
   title: 'Thin Feature', fields: [
     { key: 'thin', type: 'check', label: 'Thin feature (a wall along the sketch curves)' },
@@ -755,14 +767,15 @@ const PM_SCHEMAS = {
     { title: 'Profiles', fields: [{ key: 'profiles', type: 'loftSelection' }] },
     {
       title: 'Direction 1', fields: [
-        { key: 'end', type: 'select', label: 'End condition', options: ENDS_REF },
-        { key: 'depth', type: 'expr', label: 'Depth', unit: 'mm', show: (f) => ['blind', 'midplane'].includes(f.end) },
+        { key: 'end', type: 'select', label: 'End condition', options: [...ENDS_REF,['twoSides','Two sides']] },
+        { key: 'depth', type: 'expr', label: 'Depth', unit: 'mm', show: (f) => ['blind', 'midplane', 'twoSides'].includes(f.end) },
+        { key: 'depth2', type: 'expr', label: 'Second depth', unit: 'mm', default: 0, show: f => f.end === 'twoSides' },
         { key: 'toPoint', type: 'pointRef', label: 'Vertex', show: (f) => f.end === 'upToVertex' },
         { key: 'toPlane', type: 'surfaceRef', label: 'Surface', show: isSurfEnd },
         { key: 'toOffset', type: 'expr', label: 'Offset', unit: 'mm', show: (f) => f.end === 'offsetSurface' },
         { key: 'toFlip', type: 'check', label: 'Reverse offset (past the surface)', show: (f) => f.end === 'offsetSurface' },
-        { key: 'reverse', type: 'check', label: 'Reverse direction', show: (f) => ['blind', 'through'].includes(f.end) },
-        { key: 'merge', type: 'check', label: 'Merge result (off: make a separate body)', show: (f) => f.op === 'add' },
+        { key: 'reverse', type: 'check', label: 'Reverse direction', show: (f) => ['blind', 'through', 'twoSides'].includes(f.end) },
+        { key: 'operation', type: 'solidOperation' },
       ],
     },
     {
@@ -775,17 +788,10 @@ const PM_SCHEMAS = {
     ...SCOPE_GROUP,
   ],
   revolve: [
-    { title: 'From', fields: [{ key: 'sketch', type: 'sketch', label: 'Sketch' }] },
-    { title: 'Axis of Revolution', fields: [{ key: 'axis', type: 'axis', label: 'Axis' }, { key: 'axisHint', type: 'hint', text: 'Or click the axis in the view: a line of the sketch, a straight model edge or a cylindrical face (its centre line).' }] },
-    {
-      title: 'Direction 1', fields: [
-        { key: 'end', type: 'select', label: 'Type', options: [['oneway', 'Blind'], ['midplane', 'Mid Plane']] },
-        { key: 'angle', type: 'expr', label: 'Angle', unit: '°' },
-        { key: 'reverse', type: 'check', label: 'Reverse direction', show: (f) => f.end === 'oneway' },
-        { key: 'merge', type: 'check', label: 'Merge result (off: make a separate body)', show: (f) => f.op === 'add' },
-      ],
-    },
-    ...SCOPE_GROUP,
+    {title:'Profiles',fields:[{key:'profiles',type:'loftSelection'}]},
+    REVOLUTION_AXIS,REVOLUTION_DIRECTIONS,
+    {title:'Operation',fields:[{key:'operation',type:'solidOperation'}]},
+    THIN_GROUP,...SCOPE_GROUP,
   ],
   plane: [
     { title: 'References', fields: [{ key: 'refs', type: 'planeRefs' }] },
@@ -983,13 +989,17 @@ const PM_SCHEMAS = {
     { title: 'Mates', fields: [{ key: 'mates', type: 'mates', show: (f) => f.mode === 'mates' }] },
   ],
   surfExtrude: [
-    { title: 'From', fields: [{ key: 'sketch', type: 'sketch', label: 'Sketch' }] },
-    { title: 'Direction 1', fields: [{ key: 'end', type: 'select', label: 'End condition', options: [['blind', 'Blind'], ['midplane', 'Mid Plane']] }, { key: 'depth', type: 'expr', label: 'Depth', unit: 'mm' }, { key: 'reverse', type: 'check', label: 'Reverse direction', show: (f) => f.end === 'blind' }] },
+    {title:'Contours',fields:[{key:'profiles',type:'loftSelection'}]},
+    {title:'Direction',fields:[
+      {key:'end',type:'select',label:'Direction',options:[['blind','One side'],['twoSides','Two sides'],['midplane','Symmetric']]},
+      {key:'depth',type:'expr',label:'Depth',unit:'mm'},
+      {key:'depth2',type:'expr',label:'Second depth',unit:'mm',default:0,show:f=>f.end==='twoSides'},
+      {key:'reverse',type:'check',label:'Reverse direction',show:f=>f.end!=='midplane'},
+    ]},
   ],
   surfRevolve: [
-    { title: 'From', fields: [{ key: 'sketch', type: 'sketch', label: 'Sketch' }] },
-    { title: 'Axis of Revolution', fields: [{ key: 'axis', type: 'axis', label: 'Axis' }] },
-    { title: 'Direction 1', fields: [{ key: 'angle', type: 'expr', label: 'Angle', unit: '°' }] },
+    {title:'Contours',fields:[{key:'profiles',type:'loftSelection'}]},
+    REVOLUTION_AXIS,REVOLUTION_DIRECTIONS,
   ],
   surfPlanar: [
     { title: 'Sketch Profiles', fields: [{ key: 'profiles', type: 'loftSelection' }] },
@@ -3464,7 +3474,8 @@ export class UI {
     const a = this.app, pm = a.pm, f = pm.feature, doc = a.doc;
     const info = TYPE_INFO[f.type];
     if (f.type === 'surfFill' && f.continuity == null) f.continuity = f.tangent ? 'G1' : 'G0';
-    if (['extrude','surfPlanar'].includes(f.type) && !Array.isArray(f.profiles)) { f.profiles = f.sketch ? [f.sketch] : []; f.sketch = null; }
+    if (['extrude','surfPlanar','revolve','surfExtrude','surfRevolve'].includes(f.type) && !Array.isArray(f.profiles)) { f.profiles = f.sketch ? [f.sketch] : []; f.sketch = null; }
+    if(['revolve','surfRevolve'].includes(f.type)){if(!f.extent){try{f.extent=evaluate(f.angle??360,a.result?.vars||{})>=360?'full':'angle';}catch{f.extent='angle';}}f.end ||= 'oneway';}
     if (f.type === 'surfPlanar') f.edges ||= [];
     if (f.type === 'surfPlanar' && pm.planarEdges === undefined) pm.planarEdges = !!f.edges?.length && !f.profiles.length;
     this.pmHeader(root, iconFor(f), f.name);
@@ -3503,6 +3514,14 @@ export class UI {
           this.renderVertexRadii(body, f);
         } else if (fd.type === 'edgePoints') {
           this.renderEdgePoints(body, f);
+        } else if(fd.type==='solidOperation'){
+          const select=el('select',{'data-solid-operation':''});
+          for(const [value,label] of [['join','Join'],['new','New body'],['cut','Cut']])select.appendChild(el('option',{value},label));
+          select.value=f.op==='cut'?'cut':f.merge===false?'new':'join';
+          select.onchange=()=>{f.op=select.value==='cut'?'cut':'add';f.merge=select.value!=='new';pm.scopePick=false;a.preview(true);};
+          body.appendChild(this.row('Operation',select));
+        } else if(fd.type==='axisPick'){
+          body.appendChild(el('button',{class:'pm-btn'+(pm.profilePick===false&&!pm.scopePick?' on':''),'data-profile-axis':'',onclick:()=>{pm.profilePick=false;pm.scopePick=false;pm.loftDraft=null;this.renderPM();a.updateSketchDisplay();}},'Select axis in canvas'));
         } else if (fd.type === 'edges') {
           this.renderEdgeList(body, f);
         } else if (fd.type === 'points3d') {
@@ -3634,7 +3653,8 @@ export class UI {
           if (fd.type === 'sketch') options = [['', '— select a sketch —'], ...before.filter((x) => x.type === 'sketch').map((x) => [x.id, x.name])];
           if (fd.type === 'feature') options = [['', '— select a feature —'], ...before.filter((x) => !PATTERN_SKIP.has(x.type) && !x.suppressed).map((x) => [x.id, x.name])];
           if (fd.type === 'axis') {
-            options = [['v', 'Sketch vertical axis'], ['u', 'Sketch horizontal axis'], ...axisCandidates(findFeature(doc, f.sketch))];
+            options = [['v', 'Sketch vertical axis'], ['u', 'Sketch horizontal axis'], ...axisCandidates(findFeature(doc, f.sketch || LR.sourceId(f.profiles?.[0])))];
+            if (f.axis === 'sketchLine') options.push(['sketchLine','✔ Sketch line (picked in canvas)']);
             if (f.axis === 'edge') options.push(['edge', '✔ Model edge (picked on the model)']);
             if (f.axis === 'face') options.push(['face', '✔ Cylindrical face (picked on the model)']);
           }
@@ -3664,11 +3684,15 @@ export class UI {
           }
           if (['sweep','surfSweep'].includes(f.type)) s.dataset.sweepField = fd.key;
           if (['loft', 'surfLoft'].includes(f.type) && /^(start|end)/.test(fd.key)) { s.dataset.loftEndField = fd.key; if (fd.type === 'direction') s.onfocus = () => { pm.loftEndAxis = fd.key; }; }
+          if (['revolve','surfRevolve'].includes(f.type)&&fd.key==='axis')s.onfocus=()=>{pm.profilePick=false;pm.scopePick=false;a.updateSketchDisplay();};
+          if (['revolve','surfRevolve','surfExtrude','extrude'].includes(f.type))s.dataset.featureField=fd.key;
           if (f.type === 'surfFill' && fd.key === 'continuity') s.dataset.patchContinuity = '';
           if (['sweep','surfSweep'].includes(f.type) && ['profile','path','guide'].includes(fd.key)) s.onfocus = () => { pm.sweepSlot = fd.key; };
           s.onchange = () => {
             f[fd.key] = s.value || null;
-            if (f.type === 'surfFill' && fd.key === 'continuity' && s.value === 'G0' && !f.edges.some(e => e.continuity && e.continuity !== 'G0')) pm.patchSupportPick = false;
+            if (['revolve','surfRevolve'].includes(f.type)&&fd.key==='axis')s.onfocus=()=>{pm.profilePick=false;pm.scopePick=false;a.updateSketchDisplay();};
+          if (['revolve','surfRevolve','surfExtrude','extrude'].includes(f.type))s.dataset.featureField=fd.key;
+          if (f.type === 'surfFill' && fd.key === 'continuity' && s.value === 'G0' && !f.edges.some(e => e.continuity && e.continuity !== 'G0')) pm.patchSupportPick = false;
             if (['loft', 'surfLoft'].includes(f.type) && /^(start|end)Condition$/.test(fd.key)) { pm.loftEndSlot = ['tangent', 'curvature'].includes(s.value) ? fd.key.replace('Condition', 'Faces') : null; pm.loftDraft = null; a.updateSketchDisplay(); }
             if (f.type === 'extrude' && (['pointRef', 'surfaceRef'].includes(fd.type) || (fd.key === 'end' && ['upToVertex', 'upToSurface', 'offsetSurface'].includes(f.end)))) { pm.extrudePick = false; pm.loftHover = null; a.updateSketchDisplay(); }
             // an open sketch can only be extruded as a thin feature
@@ -5020,13 +5044,14 @@ export class UI {
   // Loft profiles: sketches in order (the loft goes through them from first to last).
   renderLoftSelection(body, f, before, fd) {
     const a = this.app, pm = a.pm, key = fd.key, guide = key === 'guides';
-    const extrude = f.type === 'extrude', planar = f.type === 'surfPlanar';
+    const extrude = f.type === 'extrude', planar = f.type === 'surfPlanar', common=['revolve','surfExtrude','surfRevolve'].includes(f.type), surface=['surfExtrude','surfRevolve'].includes(f.type);
     pm.loftSlot ||= 'profiles'; f[key] ||= [];
-    const active = !pm.loftEndSlot && pm.loftSlot === key && (!extrude || pm.extrudePick !== false) && (!planar || !pm.planarEdges);
+    const active = !pm.loftEndSlot && pm.loftSlot === key && (!extrude || pm.extrudePick !== false) && (!planar || !pm.planarEdges) && (!common || pm.profilePick!==false);
     body.appendChild(el('button', { class: 'pm-btn' + (active ? ' on' : ''), 'aria-pressed': String(active), disabled: guide && f.ruled, 'data-loft-slot': key, onclick: () => {
-      pm.loftEndSlot = null; pm.loftEndAxis = null; pm.loftSlot = key; pm.loftDraft = null; pm.loftHover = null;
+      pm.loftEndSlot = null; pm.loftEndAxis = null; pm.scopePick=false; pm.loftSlot = key; pm.loftDraft = null; pm.loftHover = null;
       if (extrude) pm.extrudePick = !active;
       if (planar) pm.planarEdges = active;
+      if (common) pm.profilePick=!active;
       this.renderPM(); a.updateSketchDisplay(); a.status(guide ? 'Click the guide curves in the canvas.' : 'Click the section contours or inside closed profiles in the canvas.');
     } }, guide ? 'Select guides in canvas' : 'Select profiles in canvas'));
     if (!guide) {
@@ -5035,13 +5060,13 @@ export class UI {
       const label = el('label'); label.append(cb, document.createTextNode(' Chain selection'));
       body.appendChild(this.row(null, label, 'check'));
     }
-    body.appendChild(el('div', { class: 'pm-hint' }, planar ? 'Click inside closed regions or select sketch contours. Turn off Chain selection to pick individual entities, then add the closed contour. Select model edges in the section below.' : extrude ? 'Click inside closed regions or select contours. Click again to remove a profile. Profiles must be coplanar; open contours enable Thin Feature. Turn off canvas profile selection to pick end references or bodies.' : guide ? f.ruled ? 'Guide curves require a smooth loft. Remove the guides or untick straight (ruled) sides.' : 'Pick guide curves or connected chains, including construction curves. Guides must meet every section.' : f.type === 'loft' ? 'Pick closed contours or click inside regions. Each selection adds one section.' : 'Pick open or closed contours. All sections must be open, or all closed.'));
+    body.appendChild(el('div', { class: 'pm-hint' }, common ? (surface?'Select open or closed contours, regions or individual sketch entities. Closed contours stay uncapped. For Revolve, select the axis separately.':'Select closed profiles or enable Thin Feature for open contours. Select the revolution axis separately.') : planar ? 'Click inside closed regions or select sketch contours. Turn off Chain selection to pick individual entities, then add the closed contour. Select model edges in the section below.' : extrude ? 'Click inside closed regions or select contours. Click again to remove a profile. Profiles must be coplanar; open contours enable Thin Feature. Turn off canvas profile selection to pick end references or bodies.' : guide ? f.ruled ? 'Guide curves require a smooth loft. Remove the guides or untick straight (ruled) sides.' : 'Pick guide curves or connected chains, including construction curves. Guides must meet every section.' : f.type === 'loft' ? 'Pick closed contours or click inside regions. Each selection adds one section.' : 'Pick open or closed contours. All sections must be open, or all closed.'));
     const ul = el('div', { class: 'pm-list', 'data-loft-list': key });
     if (!f[key].length) ul.appendChild(el('div', { class: 'li pm-hint' }, guide ? 'No guides selected' : 'No profiles selected'));
     f[key].forEach((ref, i) => {
       const li = el('div', { class: 'li sel' });
       li.appendChild(el('span', {}, `${i + 1}. ${LR.describeRef(a.doc, ref)}`));
-      for (const [label, action] of (extrude || planar ? [['✕', 'remove']] : [['▲', 'up'], ['▼', 'down'], ['✕', 'remove']])) {
+      for (const [label, action] of (extrude || planar || common ? [['✕', 'remove']] : [['▲', 'up'], ['▼', 'down'], ['✕', 'remove']])) {
         const b = el('button', { class: 'pm-btn', title: action === 'up' ? 'Move up' : action === 'down' ? 'Move down' : 'Remove', 'data-loft-action': action, disabled: action === 'up' ? i === 0 : action === 'down' ? i === f[key].length - 1 : false }, label);
         b.onclick = () => {
           if (action === 'remove') f[key].splice(i, 1);
@@ -5066,7 +5091,7 @@ export class UI {
     const kinds = guide ? ['sketch', 'sketch3d', 'compCurve', 'projCurve', 'helix'] : fd.with3d ? ['sketch', 'sketch3d', 'compCurve', 'projCurve'] : ['sketch'];
     for (const source of before.filter((s) => kinds.includes(s.type) && !s.suppressed && !f[key].includes(s.id))) select.appendChild(el('option', { value: source.id }, esc(source.name)));
     select.onchange = () => { if (select.value) {
-      if (extrude || planar) { f[key] = f[key].filter((r) => LR.sourceId(r) !== select.value); if (extrude && SM.isOpenSketch(findFeature(a.doc, select.value))) f.thin = true; }
+      if (extrude || planar || common) { f[key] = f[key].filter((r) => LR.sourceId(r) !== select.value); if (extrude && SM.isOpenSketch(findFeature(a.doc, select.value))) f.thin = true; }
       f[key].push(select.value); a.preview(true); a.updateSketchDisplay();
     } };
     details.appendChild(select); body.appendChild(details);
@@ -5098,6 +5123,7 @@ export class UI {
   // Bodies (as they are before this feature) with tick boxes; they can also be clicked on the model.
   renderBodyList(body, f, fd) {
     const a = this.app;
+    if(fd.key==='scope'&&['extrude','revolve'].includes(f.type))body.appendChild(el('button',{class:'pm-btn','data-feature-scope':'',onclick:()=>{a.pm.scopePick=true;a.pm.profilePick=false;a.pm.extrudePick=false;this.renderPM();a.updateSketchDisplay();}},'Select target bodies in canvas'));
     if (!Array.isArray(f[fd.key])) f[fd.key] = [];
     const list = (a.result?.bodies || []).filter((b) => (fd.kinds.includes(b.kind) || (b.sheet && fd.kinds.includes('sheet'))) && !(fd.kinds.length === 1 && fd.kinds[0] === 'sheet' && !b.sheet) && (!fd.exclude || b.id !== f[fd.exclude]));
     if (fd.hint) body.appendChild(el('div', { class: 'pm-hint' }, esc(fd.hint)));

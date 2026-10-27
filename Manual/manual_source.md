@@ -738,7 +738,8 @@ End conditions:
 | End condition | Meaning |
 |---|---|
 | Blind | A set depth |
-| Mid Plane | The depth split equally on both sides of the sketch |
+| Mid Plane | The total depth split equally on both sides of the sketch |
+| Two sides | Independent Depth and Second depth on opposite sides of the profile plane |
 | Through All / Through All – Both | Through every body, in one or both directions |
 | Up To Vertex | Click a model vertex or choose a reference point |
 | Up To Surface | Click a flat model face or choose a plane; angled surfaces are supported and the extrusion is trimmed to the surface |
@@ -746,13 +747,19 @@ End conditions:
 
 Options:
 
-- **Merge result** (boss): untick to keep the new material as a separate body even where it touches. A boss that doesn't touch existing material makes a new body anyway.
+- **Operation**: **Join** merges with existing material where possible; **New body** keeps the result separate; **Cut** removes material. A Join that does not touch existing material makes a new body.
 - **Thin Feature**: makes a wall of the given thickness from the profile; direction one side, other side or mid-plane. Open sketches switch it on automatically. {idx:thin feature}
 - **Feature Scope** (cuts): **All bodies** by default; untick it and click the bodies to cut. {idx:feature scope}
 
 ## Revolve and Revolve Cut
 
-Revolves a profile about an axis: the sketch axes, any line in the sketch (such as a centerline), a reference axis, a straight model edge or a cylindrical face (click it in the view). Cuts have the same Feature Scope option as extruded cuts. {idx:revolve}
+**Profiles** uses the common canvas selector: choose regions, connected contours or individual entities rather than automatically consuming a whole multi-profile sketch. Coplanar selections can be combined. Whole-sketch selection remains available explicitly and older files remain compatible.
+
+Choose **Select axis in canvas** separately from the profiles. The axis may be a sketch axis, a line in an earlier sketch (including construction geometry), a reference axis, a straight/circular model edge or a cylindrical face. **Project axis into profile plane** projects its origin and direction onto the selected profile plane; a perpendicular axis cannot be projected. Return to **Select profiles in canvas** to edit the profile selection.
+
+**Extent** is **Full (360°)** or **Angle**. Angle supports **One side**, **Two sides** with independent angles, or **Symmetric** (the total angle split equally). Reverse exchanges the signed direction for one/two sides. The total angle must not exceed 360°. Profiles must not cross a coplanar rotation axis. Full ignores stored angle values. Older files whose angles were clamped to 360° keep that geometry and migrate to Full when edited.
+
+**Operation** offers Join, New body or Cut. **Thin Feature** revolves a wall along open or closed contours; open contours enable it automatically. Cuts have the same **Feature Scope** as Extrude; **Select target bodies in canvas** switches explicitly from profile/axis selection to target-body picking. {idx:revolve}
 
 ## Sweep and Sweep Cut
 
@@ -973,8 +980,8 @@ The **Surfaces** tab builds surface bodies (zero-thickness faces), listed under 
 
 | Feature | What it does |
 |---|---|
-| **Extruded Surface** | Sweeps the sketch's curves in a straight line; open chains are fine |
-| **Revolved Surface** | Revolves the sketch's curves about an axis |
+| **Extruded Surface** | Extrudes selected regions, open/closed contours or individual entities; one side, symmetric total depth or independent depths on both sides; reverse supported |
+| **Revolved Surface** | Revolves selected regions or open/closed contours with separate axis selection, optional axis projection and the same Full/Angle, one-side/two-side/symmetric controls as solid Revolve |
 | **Planar Surface** | Creates flat surfaces from selected sketch regions, closed entity contours or coplanar model boundary edges; sketch regions preserve their holes |
 | **Lofted Surface** | A surface through two or more profiles (sketches or 3D sketches), open or closed, optionally ruled (straight between profiles). Open profiles drawn in opposite directions are lined up automatically. **Guide Curves** (rails, optional): sketches or curves the surface follows between the profiles, e.g. along its edges; each runs from the first profile to the last, through every profile. One guide pulls the surface along it; two or more shape it across, each where it touches the profiles. |
 | **Swept Surface** | An open or closed sketch profile, or a circle, swept along a sketch, 3D sketch or helix, optionally controlled by one guide |
@@ -1003,6 +1010,12 @@ Lofted Surface uses the same **Start Condition**, **End Condition**, **Influence
 Select **Guide Curves → Guide construction → CAD constraints (two profiles)** to use the original guide edges as patch boundaries. This supports open profiles forming a sheet, or closed profiles forming an uncapped surface shell. Guides can lie in different planes, making a nonplanar surface. A closed profile does not add end caps or make a solid.
 
 The kernel checks the patch contact error to **0.0001 mm**, validates the resulting CAD shape and checks points on the guide curves independently. **Across guide seams** offers **C0** (contact), **G1** (tangency) and **G2** (curvature continuity) along shared guide edges. G1 checks native CAD normals at nine interior positions, allowing at most **0.5°** mismatch. G2 constructs a C2 B-spline surface for internal guide networks, trims the resulting patches and checks contact, normals and all three components of the second fundamental form at 33 independent positions on each seam. Its curvature mismatch limit is **0.001 1/mm**. Measured angular and G2 curvature mismatches appear in the feature note. These are numerical tolerance checks, not a symbolic proof that every guide point is exact. The method requires two compatible profiles without holes or Thin Feature. Original profile corners are preserved. A transverse guide through a sharp corner cannot provide G2 continuity: choose C0 or move the contact onto a smooth profile segment. Circular profile seams are positioned automatically; straight guides already on a cylinder or cone preserve its geometry. Incompatible constraints report an error without lowering continuity or switching methods. Choose **Adaptive approximation** explicitly for other supported loft configurations.
+
+### Surface Extrude and Revolve selection
+
+These commands use the same canvas profile/contour selector as Planar Surface and solid features. Turn off **Chain selection** for individual sketch entities and confirm the contour with **Add selected contour**. Unlike a solid profile, an open chain is valid. Selecting a region uses its boundary curves, including holes, without automatically using unrelated curves from its sketch. Closed contours remain surface shells; the command does not turn them into solids. Earlier whole-sketch features still rebuild and can be edited through the explicit whole-source fallback.
+
+Surface Revolve has separate profile and axis slots; the axis can come from another sketch. Surface Extrude's **Symmetric** depth is the total depth, while **Two sides** uses Depth and Second depth independently. Surface Revolve shares Full/Angle and one-side/two-side/symmetric behavior with solid Revolve. These surface commands currently create new surface bodies; To Object end conditions and direct model-face inputs are not offered.
 
 ### Planar Surface selection
 

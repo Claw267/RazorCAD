@@ -4535,6 +4535,52 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     return { ok: true, detail: `Nonplanar open surface / two native spline guides (${worst.toExponential(3)} mm), uncapped circular surface, panel method selection and cancel` };
   },
 
+  async 'standard-feature-workflows'() {
+    const {run,fixture,withBase}=await import('/tests/standard-feature-cases.js');const S=await import('/js/sketchmodel.js');
+    const native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
+    const a=window.app,settle=async()=>{await wait(180);await until(()=>!a.kernel.pending);};
+    const field=key=>document.querySelector(`[data-feature-field="${key}"]`);
+    const expr=async(label,value)=>{const row=[...document.querySelectorAll('#pm .pm-row')].find(r=>r.querySelector('label')?.textContent.trim()===label),input=row?.querySelector('input');if(!input)throw new Error('Missing '+label);input.value=value;input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));await settle();};
+    const {Vector3}=await import('three'),click=async p=>{const ev=viewEvents();ev.vp.camera.updateMatrixWorld(true);await ev.click(...ev.toScreen(new Vector3(...p)));await settle();};
+    for(const type of ['revolve','surfExtrude','surfRevolve']){
+      const data=fixture({type,open:type!=='revolve'});data.doc.features.pop();
+      S.addLine(data.sk,S.addPoint(data.sk,0,-5),S.addPoint(data.sk,0,15),true);
+      await a.newDocument?.();closeModals();await a.setDoc(data.doc);a.selection={kind:'feature',id:data.sk.id};a.startFeature(type);await a.rebuild();await settle();
+      if(a.pm.feature.profiles.length)return {ok:false,detail:type+': arbitrary whole sketch was chosen'};
+      const id=a.pm.feature.id;a.viewport.setStandardView('front',false);a.viewport.zoomToFit(null,false);await wait(160);await click([15,5,0]);
+      if(a.pm.feature.profiles.length!==1||typeof a.pm.feature.profiles[0]==='string')return {ok:false,detail:type+': profile/curve pick failed'};
+      if(type!=='surfExtrude'){
+        document.querySelector('[data-profile-axis]').click();if(a.pickMode()!=='revaxis')return {ok:false,detail:'Axis picker did not activate'};
+        await click([0,5,0]);if(a.pm.feature.axis!=='sketchLine'||!a.pm.feature.axisSketch?.curve)return {ok:false,detail:'Actual sketch axis pick failed'};
+        field('end').value='twoSides';field('end').dispatchEvent(new Event('change',{bubbles:true}));await settle();await expr('Angle','60');await expr('Second angle','30');
+      }else{field('end').value='twoSides';field('end').dispatchEvent(new Event('change',{bubbles:true}));await settle();await expr('Second depth','5');}
+      if(type==='revolve'){const operation=document.querySelector('[data-solid-operation]');operation.value='new';operation.dispatchEvent(new Event('change',{bubbles:true}));await settle();}
+      await a.okPM();if(a.result.errors.size)return {ok:false,detail:type+': '+JSON.stringify([...a.result.errors])};
+      const b=a.result.body.bodies.at(-1),m=(await a.kernel.request('measure',{refs:[{kind:'body',id:b.id}]})).items[0];
+      const value=type==='revolve'?m.volume:m.area,expected=type==='revolve'?750*Math.PI:type==='surfExtrude'?150:75*Math.PI;
+      if(m.solid!==(type==='revolve')||Math.abs(value-expected)/expected>2e-5)return {ok:false,detail:type+': unexpected geometry '+JSON.stringify(m)};
+      await a.setDoc(JSON.parse(JSON.stringify(a.doc)));if(a.result.errors.size)return {ok:false,detail:type+': save/reopen failed'};
+      a.editFeature(id);field('end').value='midplane';field('end').dispatchEvent(new Event('change',{bubbles:true}));await settle();a.cancelPM();await a.rebuild();
+      if(M.findFeature(a.doc,id).end!=='twoSides'||a.result.errors.size)return {ok:false,detail:type+': cancel failed'};
+    }
+    const legacy=fixture({legacy:true});legacy.feature.angle=400;await a.setDoc(legacy.doc);a.editFeature(legacy.feature.id);await a.rebuild();
+    if(field('extent')?.value!=='full')return {ok:false,detail:'Legacy clamped revolve did not migrate to Full'};
+    await a.okPM();if(a.result.errors.size)return {ok:false,detail:'Legacy revolve edit failed'};
+    let legacyVolume=0;for(const b of a.result.body.bodies)legacyVolume+=(await a.kernel.request('measure',{refs:[{kind:'body',id:b.id}]})).items[0].volume;
+    if(Math.abs(legacyVolume-(3000*Math.PI+280*Math.PI**2))>1e-3)return {ok:false,detail:'Legacy revolve geometry changed on edit'};
+    const cut=fixture();withBase(cut);await a.setDoc(cut.doc);a.editFeature(cut.feature.id);await a.rebuild();
+    const operation=document.querySelector('[data-solid-operation]');operation.value='cut';operation.dispatchEvent(new Event('change',{bubbles:true}));await settle();
+    const scope=[...document.querySelectorAll('#pm .pm-row')].find(r=>r.querySelector('label')?.textContent.trim()==='All bodies')?.querySelector('input');
+    scope.checked=false;scope.dispatchEvent(new Event('change',{bubbles:true}));await settle();document.querySelector('[data-feature-scope]').click();
+    if(a.pickMode()!=='body')return {ok:false,detail:'Cut scope is intercepted by the axis/profile picker'};
+    a.viewport.setStandardView('front',false);a.viewport.zoomToFit(null,false);await wait(160);await click([24,5,0]);
+    if(a.pm.feature.scope.length!==1)return {ok:false,detail:'Cut target body selection failed'};
+    await a.okPM();if(a.result.errors.size)return {ok:false,detail:'Scoped revolve cut failed'};
+    let volume=0;for(const b of a.result.body.bodies)volume+=(await a.kernel.request('measure',{refs:[{kind:'body',id:b.id}]})).items[0].volume;
+    if(Math.abs(volume-3250*Math.PI)>1e-3)return {ok:false,detail:'Scoped cut volume is wrong: '+volume};
+    return {ok:true,detail:JSON.stringify({cases:native.results,health:native.health,ui:'actual profile/axis picks, shared two-sided controls, operation, scoped body picking, save/reopen and cancel'})};
+  },
+
   async 'planar-surface-selection'() {
     const {run,fixture,edgeFixture}=await import('/tests/planar-surface-cases.js');
     const native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:JSON.stringify(native)};
