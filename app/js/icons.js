@@ -24,6 +24,8 @@ export const ICONS = {
   theme: svg(`<circle cx="16" cy="16" r="10" fill="#f3f5f8" stroke="#596273"/><path d="M16 6 A10 10 0 0 1 16 26 Z" fill="#26303c"/>`),
   language: svg(`<circle cx="16" cy="16" r="11" fill="#e8f1fd" stroke="#2f5f99"/><path d="M5 16 H27 M16 5 C10 10 10 22 16 27 M16 5 C22 10 22 22 16 27 M7.5 10 H24.5 M7.5 22 H24.5" stroke="#2f5f99" stroke-width="1"/>`),
   compare: svg(`<rect x="3" y="7" width="12" height="18" rx="1" fill="#e8f1fd" stroke="#2f5f99"/><rect x="17" y="7" width="12" height="18" rx="1" fill="#fff4d6" stroke="#b26a00"/><path d="M6 12 H12 M6 16 H12 M6 20 H10 M20 12 H26 M20 16 H24 M20 20 H26" stroke="#596273" stroke-width="1"/>`),
+  // (a plug-in: a puzzle piece)
+  plugin: svg(`<path d="M6 9 H12 C12 5 18 5 18 9 H24 V15 C28 15 28 21 24 21 V27 H18 C18 23 12 23 12 27 H6 V21 C10 21 10 15 6 15 Z" fill="#b9e3c6" stroke="#2e7d4f"/>`),
   macro: svg(`<rect x="4" y="5" width="24" height="22" rx="2" fill="#f3f5f8" stroke="#596273"/><path d="M4 10 H28" stroke="#596273"/><path d="M10 15 L7 18 L10 21 M15 22 L18 14 M22 15 L25 18 L22 21" stroke="#2f5f99" stroke-width="1.6"/>`),
   macroRec: svg(`<rect x="4" y="5" width="24" height="22" rx="2" fill="#f3f5f8" stroke="#596273"/><path d="M4 10 H28" stroke="#596273"/><circle cx="16" cy="18.5" r="5" fill="#d23c3c"/>`),
   macroStop: svg(`<rect x="4" y="5" width="24" height="22" rx="2" fill="#f3f5f8" stroke="#596273"/><path d="M4 10 H28" stroke="#596273"/><rect x="11.5" y="14" width="9" height="9" rx="1" fill="#596273"/>`),
@@ -282,4 +284,5 @@ export const ICONS = {
   hiddenBodies: svg(`<g transform="translate(0 2) scale(0.8)" opacity=".55">${BOX.replace('#f7d774', '#9cc3f0').replace('#9a7a1c', '#2f5f99')}</g><path d="M15 25 C18 21 26 21 29 25 C26 29 18 29 15 25 Z" fill="#fff" stroke="#1d2430"/><circle cx="22" cy="25" r="2" fill="#3a6fb8"/>`),
 };
 
-export const icon = (name) => ICONS[name] || '';
+// (a plug-in's own icon: its SVG markup given instead of a name)
+export const icon = (name) => ICONS[name] || (typeof name === 'string' && /^\s*<svg[\s>]/i.test(name) ? name : '');

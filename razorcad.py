@@ -69,6 +69,7 @@ STL_TYPES = ('STL Mesh (*.stl)', 'All files (*.*)')
 STEP_TYPES = ('STEP File (*.step;*.stp)', 'All files (*.*)')
 DXF_TYPES = ('DXF Drawing (*.dxf)', 'All files (*.*)')
 MACRO_TYPES = ('RazorCAD macro (*.js)', 'All files (*.*)')
+PLUGIN_TYPES = ('RazorCAD plug-in (*.zip)', 'All files (*.*)')
 IMPORT_TYPES = ('STEP IGES STL OBJ or 3MF (*.step;*.stp;*.igs;*.iges;*.stl;*.obj;*.3mf)', 'STEP File (*.step;*.stp)', 'IGES File (*.igs;*.iges)', 'STL Mesh (*.stl)', 'OBJ Mesh (*.obj)', '3MF Model (*.3mf)', 'All files (*.*)')
 # files imported (as a new part, or into one) rather than opened as RazorCAD documents
 IMPORT_EXTS = ('.step', '.stp', '.igs', '.iges', '.stl', '.obj', '.3mf')
@@ -108,6 +109,140 @@ def templates_dir():
         path = os.path.join(data_dir(), 'Templates')  # (tests: inside their own data folder)
     os.makedirs(path, exist_ok=True)
     return path
+
+
+def plugins_dir():
+    """Documents\\RazorCAD\\Plugins: the user's own plug-ins, a folder each (kept apart from RazorCAD, so private
+    plug-ins stay on this PC)."""
+    path = os.path.join(documents_dir(), APP_NAME, 'Plugins')
+    if os.environ.get('RAZORCAD_DATA_DIR'):
+        path = os.path.join(data_dir(), 'Plugins')  # (tests: inside their own data folder)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+PLUGIN_ID = re.compile(r'^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$')
+PLUGIN_CODE_EXTS = ('.js', '.mjs')
+PLUGIN_MAX_BYTES = 8 << 20  # (a plug-in's code, all its modules together)
+
+
+def plugin_path(folder, pid, rel=''):
+    """A file in plug-in pid's folder (rel with / between folders), or ValueError for anything outside it."""
+    if not isinstance(pid, str) or not PLUGIN_ID.match(pid) or pid in ('.', '..'):
+        raise ValueError('Not a plug-in: %r' % (pid,))
+    parts = [p for p in str(rel or '').replace('\\', '/').split('/') if p]
+    if any(':' in p for p in parts):
+        raise ValueError('That is outside the plug-in: %r' % (rel,))
+    root = os.path.realpath(os.path.join(folder, pid))
+    path = os.path.realpath(os.path.join(root, *parts))
+    if path != root and not path.startswith(root + os.sep):
+        raise ValueError('That is outside the plug-in: %r' % (rel,))
+    return path
+
+
+def list_plugins(folder):
+    """The plug-ins in folder: [{ id (its folder's name), manifest (plugin.json) or error, modified }]."""
+    out = []
+    for name in sorted(os.listdir(folder), key=str.lower):
+        path = os.path.join(folder, name)
+        if not os.path.isdir(path) or not PLUGIN_ID.match(name):
+            continue
+        entry = {'id': name, 'modified': 0}
+        try:
+            mf = os.path.join(path, 'plugin.json')
+            with open(mf, encoding='utf-8-sig') as f:
+                manifest = json.load(f)
+            if not isinstance(manifest, dict):
+                raise ValueError('plugin.json must hold an object')
+            entry['manifest'] = manifest
+            # (the newest of its files: a plug-in changed since it was loaded is loaded again by Reload)
+            entry['modified'] = max([os.path.getmtime(os.path.join(d, n)) for d, _, ns in os.walk(path) for n in ns] or [0]) * 1000
+        except FileNotFoundError:
+            entry['error'] = 'It has no plugin.json'
+        except Exception as e:
+            entry['error'] = 'plugin.json: %s' % e
+        out.append(entry)
+    return out
+
+
+def read_plugin(folder, pid):
+    """A plug-in's code: { files: { 'main.js': text, 'lib/util.js': text, … } } (its .js and .mjs files)."""
+    root, files, total = plugin_path(folder, pid), {}, 0
+    for d, dirs, names in os.walk(root):
+        dirs[:] = [x for x in dirs if not x.startswith('.') and x != 'node_modules']
+        for n in names:
+            if not n.lower().endswith(PLUGIN_CODE_EXTS):
+                continue
+            p = os.path.join(d, n)
+            total += os.path.getsize(p)
+            if total > PLUGIN_MAX_BYTES:
+                raise ValueError('The plug-in\'s code is bigger than %d MB' % (PLUGIN_MAX_BYTES >> 20))
+            with open(p, encoding='utf-8-sig') as f:
+                files[os.path.relpath(p, root).replace(os.sep, '/')] = f.read()
+    return {'files': files}
+
+
+def read_plugin_file(folder, pid, rel, binary=False):
+    """A file of the plug-in's own (text, or base64 when binary)."""
+    path = plugin_path(folder, pid, rel)
+    if os.path.getsize(path) > PLUGIN_MAX_BYTES:
+        raise ValueError('That file is too big')
+    if binary:
+        with open(path, 'rb') as f:
+            return base64.b64encode(f.read()).decode('ascii')
+    with open(path, encoding='utf-8-sig') as f:
+        return f.read()
+
+
+def plugin_free_id(folder, name):
+    """A folder name for a new plug-in called name, not taken yet."""
+    base = re.sub(r'[^A-Za-z0-9 ._-]+', '', str(name or '')).strip(' .') or 'Plugin'
+    base, pid, n = base[:48], base[:48], 2
+    while os.path.exists(os.path.join(folder, pid)):
+        pid, n = '%s %d' % (base, n), n + 1
+    return pid
+
+
+def write_new_plugin(folder, name, files):
+    """A new plug-in folder holding files ({ rel: text }): its id."""
+    pid = plugin_free_id(folder, name)
+    for rel, text in (files or {}).items():
+        path = plugin_path(folder, pid, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'w', encoding='utf-8', newline='\n') as f:
+            f.write(text)
+    return pid
+
+
+def install_plugin_zip(folder, zip_path):
+    """A plug-in from a .zip (plugin.json at its top, or in the one folder at its top) into a folder of its own:
+    its id."""
+    import zipfile
+    with zipfile.ZipFile(zip_path) as z:
+        names = [n for n in z.namelist() if not n.endswith('/')]
+        tops = {n.split('/', 1)[0] for n in names}
+        prefix = ''
+        if 'plugin.json' not in names:
+            if len(tops) == 1 and (next(iter(tops)) + '/plugin.json') in names:
+                prefix = next(iter(tops)) + '/'
+            else:
+                raise ValueError('There is no plugin.json in that .zip')
+        if sum(i.file_size for i in z.infolist()) > 64 << 20:
+            raise ValueError('That .zip is too big for a plug-in')
+        try:
+            manifest = json.loads(z.read(prefix + 'plugin.json').decode('utf-8-sig'))
+        except Exception as e:
+            raise ValueError('plugin.json: %s' % e)
+        name = (manifest.get('name') if isinstance(manifest, dict) else None) or os.path.splitext(os.path.basename(zip_path))[0]
+        pid = plugin_free_id(folder, name)
+        for n in names:
+            if not n.startswith(prefix):
+                continue
+            path = plugin_path(folder, pid, n[len(prefix):])
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with z.open(n) as src, open(path, 'wb') as dst:
+                shutil.copyfileobj(src, dst)
+    return pid
 
 
 def resource_dir():
@@ -1265,6 +1400,29 @@ class Api:
 
     def open_templates_folder(self):
         os.startfile(templates_dir())
+        return True
+
+    # --- plug-ins (Documents\RazorCAD\Plugins; plugins.js) ------------------
+    def list_plugins(self):
+        folder = plugins_dir()
+        return {'folder': folder, 'plugins': list_plugins(folder)}
+
+    def read_plugin(self, pid):
+        return read_plugin(plugins_dir(), pid)
+
+    def read_plugin_file(self, pid, rel, binary=False):
+        return read_plugin_file(plugins_dir(), pid, rel, binary)
+
+    def new_plugin(self, name, files):
+        return write_new_plugin(plugins_dir(), name, files)
+
+    def install_plugin(self):
+        """A plug-in .zip picked and unpacked into the plug-ins folder: its id, or None."""
+        path = first(self._file_dialog(webview.FileDialog.OPEN, file_types=PLUGIN_TYPES))
+        return install_plugin_zip(plugins_dir(), path) if path else None
+
+    def open_plugins_folder(self, pid=''):
+        os.startfile(plugin_path(plugins_dir(), pid) if pid else plugins_dir())
         return True
 
     # --- files opened from Windows ---------------------------------------

@@ -625,6 +625,38 @@ const UI = {
     return { ok: true, detail: `${notes.length} parts restored without rebuilding (${(bytes / 1048576).toFixed(1)} MB of BRep; meshing ${mesh1} ms → ${mesh2} ms)` };
   },
 
+  // a big part's states written out (more edges and vertices in all its states than a call can take as
+  // arguments: this used to overflow the kernel's stack and restart it after the part opened)
+  async 'feature-states-of-a-big-part'() {
+    const k = window.app.kernel;
+    const d = M.newDoc();
+    // (a sheet metal plate first: its states hold loose faces and edges, so the faces and edges of every
+    // state's bodies are listed when they are written)
+    const rect = (s, x0, y0, x1, y1) => { const q = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]; Object.assign(s, { points: q.map(([x, y], i) => ({ id: 'p' + i, x, y })), curves: q.map((_, i) => ({ id: 'c' + i, type: 'line', p1: 'p' + i, p2: 'p' + ((i + 1) % 4), construction: false })), constraints: [] }); return s; };
+    const ss = rect(M.createFeature(d, 'sketch', { plane: { ref: 'front' } }), 300, 0, 400, 100);
+    d.features.push(ss, M.createFeature(d, 'smBase', { sketch: ss.id, thickness: 2, radius: 2, kFactor: 0.44 }));
+    const n = 3000, sk = M.createFeature(d, 'sketch', { plane: { ref: 'front' } });
+    Object.assign(sk, {
+      points: Array.from({ length: n }, (_, i) => ({ id: 'p' + i, x: 200 * Math.cos((2 * Math.PI * i) / n), y: 200 * Math.sin((2 * Math.PI * i) / n) })),
+      curves: Array.from({ length: n }, (_, i) => ({ id: 'c' + i, type: 'line', p1: 'p' + i, p2: 'p' + ((i + 1) % n), construction: false })), constraints: [],
+    });
+    d.features.push(sk, M.createFeature(d, 'extrude', { sketch: sk.id, depth: 10 }));
+    for (let j = 0; j < 20; j++) {
+      const s = rect(M.createFeature(d, 'sketch', { plane: { ref: 'front' } }), -150 + 15 * j, -5, -140 + 15 * j, 5);
+      d.features.push(s, M.createFeature(d, 'extrude', { sketch: s.id, op: 'cut', end: 'through2' }));
+    }
+    const r = await k.rebuild(d, null, null);
+    if (r.errors?.length) return { ok: false, detail: `rebuild: ${JSON.stringify(r.errors)}` };
+    let snaps;
+    try { snaps = await k.request('exportSnaps', { ids: d.features.map((f) => f.id) }); } catch (e) { return { ok: false, detail: `writing the states: ${e.message}` }; }
+    if (!snaps?.brep) return { ok: false, detail: `not written out (${snaps?.error || 'nothing'})` };
+    await k.rebuild(M.newDoc(), null, null);
+    if (!(await k.request('importSnaps', { snaps }))) return { ok: false, detail: 'not read back' };
+    const r2 = await k.rebuild(d, null, null);
+    return r2.timing?.reused === d.features.length ? { ok: true, detail: `${n}-sided plate with 20 cuts and a sheet metal plate: ${snaps.n} states' shapes written (${(snaps.brep.length / 1048576).toFixed(1)} MB) and reused` }
+      : { ok: false, detail: `${r2.timing?.reused} of ${d.features.length} features reused` };
+  },
+
   async 'extrude-contour-references'() {
     const a = window.app, S = await import('/js/sketchmodel.js'), LR = await import('/js/loftrefs.js');
     const d = M.newDoc(), sk = M.createFeature(d, 'sketch', { plane: { ref: 'top' } });
@@ -2075,6 +2107,99 @@ const UI = {
     const extrude = M.createFeature(a.doc, 'extrude', { sketch: f.id, depth: 3 }); a.doc.features.push(extrude); await a.rebuild();
     if (a.result.errors.size || !(a.result.body?.mesh?.triangles?.length || a.result.body?.bodies?.length)) return { ok: false, detail: `Handled spline profile did not extrude: ${JSON.stringify([...a.result.errors])}` };
     return { ok: true, detail: 'Fit-point drawing, tangent/strength drag, fit-point translation, constraints and DOFs, undo/redo, serialization, copies, blocks, patterns, linked projection and solid extrusion' };
+  },
+
+  // Plug-ins (plugins.js), as the browser version keeps them: one with two modules (a relative import), a form, a
+  // part command and an assembly command on a tab of its own, its settings and the rebuilt event; one that fails in
+  // activate() (shown, the other unharmed); the New Plug-in template's generator; turned off, its tab goes
+  async 'plugins'() {
+    const a = window.app, { platform } = await import('/js/platform.js'), { pluginTemplate, linkModules } = await import('/js/plugins.js');
+    const P = a.plugins, KEY = 'razorcad.plugins.v1';
+    localStorage.removeItem(KEY); a.ui.prefs.plugins = {}; a.ui.prefs.pluginData = {};
+    await a.newDocument?.(); closeModals();
+    // (relative imports in a circle refused, not hung)
+    try { linkModules({ 'a.js': "import './b.js';", 'b.js': "import './a.js';" }, 'a.js'); return { ok: false, detail: 'A circle of imports was not refused' }; } catch { /* refused */ }
+    const files = {
+      'plugin.json': JSON.stringify({ name: 'Test Tools', version: '2.0.0', tab: 'Test Tools', main: 'main.js', razorcad: '0.1' }),
+      'lib/size.js': 'export const twice = (x) => 2 * x;',
+      'sizes.json': '{"default": 15}',
+      'main.js': `import { twice } from './lib/size.js';
+        export async function activate(api) {
+          const { default: d } = await api.readJSON('sizes.json');
+          api.on('rebuilt', () => api.settings.set('rebuilds', (api.settings.get('rebuilds', 0)) + 1));
+          api.command({ id: 'block', label: 'Test Block', icon: 'extrude', async run(rc) {
+            const v = await api.form('Test Block', [{ key: 'w', label: 'Width', type: 'number', unit: 'mm', value: d, min: 1 }, { key: 'tall', label: 'Tall', type: 'checkbox', value: false }]);
+            if (!v) return;
+            const sk = await rc.sketch('top', (s) => s.centerRect(0, 0, v.w, v.w));
+            await rc.extrude(sk, v.tall ? twice(v.w) : v.w);
+            api.settings.set('last', v.w);
+          } });
+          api.separator();
+          api.command({ id: 'asm', label: 'Test Assembly Tool', in: ['assembly'], run() {} });
+        }`,
+    };
+    const id = await platform.newPlugin('Test Tools', files), bad = await platform.newPlugin('Broken', { 'plugin.json': '{"name":"Broken"}', 'main.js': 'export function activate() { throw new Error("no good"); }' });
+    await P.reload();
+    let p = P.list.find((x) => x.id === id), pb = P.list.find((x) => x.id === bad);
+    if (!p || !pb || p.state !== 'off' || pb.state !== 'off') return { ok: false, detail: 'Plug-ins found were started before being turned on: ' + JSON.stringify(P.list.map((x) => [x.id, x.state])) };
+    await P.setOn(pb, true); await P.setOn(p, true);
+    if (pb.state !== 'failed' || !/no good/.test(pb.error)) return { ok: false, detail: 'A plug-in failing in activate() was not shown as failed: ' + pb.state + ' ' + pb.error };
+    if (p.state !== 'running') return { ok: false, detail: 'The plug-in did not start: ' + p.error };
+    // (turned on again, and run again, while running: started once, its commands not added twice)
+    await P.setOn(p, true); await P.run(p);
+    if (p.state !== 'running' || p.commands.filter((c) => c !== 'sep').length !== 2) return { ok: false, detail: `Started twice: ${p.state} ${p.error || ''}, ${p.commands.length} commands` };
+    // its tab on the part ribbon, after the built-in ones, with its part command only
+    const tab = document.querySelector(`#cm-tabs [data-tab="plugin:${id}"]`);
+    if (!tab || tab.textContent.trim() !== 'Test Tools') return { ok: false, detail: 'No Test Tools tab on the ribbon' };
+    tab.click(); await wait(20);
+    const btns = [...document.querySelectorAll('#cm-buttons .cm-btn')].map((b) => b.textContent.trim());
+    if (btns.join('|') !== 'Test Block') return { ok: false, detail: 'The tab shows ' + JSON.stringify(btns) };
+    if (!a.ui.menuDefs().Tools.some((d) => d.label === 'Test Tools ▸ Test Block') || !a.ui.commandList().some((c) => c.label === 'Test Tools ▸ Test Block')) return { ok: false, detail: 'The command is not in the Tools menu and command search' };
+    // run from its button: the form (the value from the plug-in's own file), a wrong value refused, then built
+    const n0 = a.doc.features.length, rebuilds0 = P.data(id).rebuilds || 0;
+    document.querySelector('#cm-buttons .cm-btn').click(); await wait(60);
+    const form = document.querySelector('.plugin-form'), w = form?.querySelector('[data-key="w"]');
+    if (!w || w.value !== '15') return { ok: false, detail: 'The form did not offer the size from sizes.json: ' + w?.value };
+    w.value = '0'; w.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await wait(20);
+    if (!document.contains(form) || !w.classList.contains('bad')) return { ok: false, detail: 'A width below its minimum was accepted' };
+    w.value = '40/2'; form.querySelector('[data-key="tall"]').checked = true;
+    w.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    for (let i = 0; i < 100 && a.macros.running; i++) await wait(50);
+    const ex = a.doc.features[a.doc.features.length - 1];
+    if (a.doc.features.length !== n0 + 2 || ex.type !== 'extrude' || ex.depth !== 40 || (a.result?.errors?.size || 0)) return { ok: false, detail: `The command did not add a 20 wide, 40 tall block (depth ${ex.depth}: the form's 40/2 and the module's twice())` };
+    if (P.data(id).last !== 20) return { ok: false, detail: 'The plug-in\'s setting was not kept' };
+    await wait(50);
+    if (!((P.data(id).rebuilds || 0) > rebuilds0)) return { ok: false, detail: 'The rebuilt event did not reach the plug-in' };
+    a.undo(); await wait(50);
+    if (a.doc.features.length !== n0) return { ok: false, detail: 'The command was not one undo step' };
+    // the New Plug-in template: its generator makes a new part, a plate with four holes
+    const tid = await platform.newPlugin('Template Test', pluginTemplate('Template Test', '0.21.4-beta'));
+    await P.reload();
+    const pt = P.list.find((x) => x.id === tid);
+    await P.setOn(pt, true);
+    if (pt.state !== 'running') return { ok: false, detail: 'The template plug-in did not start: ' + pt.error };
+    const doc0 = a.doc, run = P.exec(pt, pt.commands[0]);
+    await wait(60);
+    const tf = document.querySelector('.plugin-form');
+    if (!tf) return { ok: false, detail: 'The template\'s form did not open' };
+    tf.querySelector('[data-key="width"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    const r = await run;
+    if (!r.ok) return { ok: false, detail: 'The template\'s command failed: ' + r.error };
+    const types = a.doc.features.filter((f) => !['plane', 'axis', 'point'].includes(f.type)).map((f) => f.type + (f.op === 'cut' ? '-cut' : '')).join(',');
+    if (a.doc === doc0 || types !== 'sketch,extrude,sketch,extrude-cut' || (a.result?.errors?.size || 0)) return { ok: false, detail: 'The template did not make a new part with a plate and holes: ' + types };
+    // in an assembly: the assembly command on the tab; turned off: the tab gone
+    await a.newAssembly?.(); await wait(100);
+    const asmTab = document.querySelector(`#cm-tabs [data-tab="plugin:${id}"]`);
+    if (a.mode === 'drawing' && !asmTab) return { ok: false, detail: 'No plug-in tab on the assembly ribbon' };
+    if (asmTab) { asmTab.click(); await wait(20); if ([...document.querySelectorAll('#cm-buttons .cm-btn')].map((b) => b.textContent.trim()).join('|') !== 'Test Assembly Tool') return { ok: false, detail: 'The assembly tab shows the wrong commands' }; }
+    p = P.list.find((x) => x.id === id); // (the list as reloaded for the template)
+    await P.setOn(p, false);
+    if (document.querySelector(`#cm-tabs [data-tab="plugin:${id}"]`) || P.menuItems().some((d) => /Test Block/.test(d.label))) return { ok: false, detail: `Turned off, the plug-in's tab or commands stayed (state ${p.state}, mode ${a.mode}, tabs ${[...document.querySelectorAll('#cm-tabs button')].map((b) => b.dataset.tab || b.textContent).join('/')})` };
+    for (const x of [id, bad, tid]) await platform.removePlugin(x);
+    localStorage.removeItem(KEY); a.ui.prefs.plugins = {}; a.ui.prefs.pluginData = {};
+    await P.reload();
+    closeModals();
+    return { ok: true, detail: 'two modules, form (checked, remembered), part and assembly tabs, one undo step, settings, rebuilt event, failed plug-in shown, template generator, turned off' };
   },
 
   async 'expression-parameter-completion'() {
@@ -3855,6 +3980,39 @@ const UI = {
     return grew && kidsFollow ? { ok: true, detail: `front view ${r6(w0)} → ${r6(w1)} mm wide; projected views follow` } : { ok: false, detail: `front ${w0} → ${w1}, projected ${JSON.stringify(k0)} → ${JSON.stringify(k1)}` };
   },
 
+  // explode lines follow each step: a cube moved up 40, then across 50 and 10 more, has its line go up and
+  // turn the corner (not straight across); a cube moved one way only has a straight line
+  async 'explode-line-corners'() {
+    const a = window.app;
+    const p = M.newDoc(); p.name = 'Cube';
+    const s = M.createFeature(p, 'sketch', { plane: { ref: 'top' } });
+    const pts = [[-10, -10], [10, -10], [10, 10], [-10, 10]];
+    Object.assign(s, { points: pts.map(([x, y], i) => ({ id: 'p' + (i + 1), x, y })), curves: pts.map((_, i) => ({ id: 'c' + (i + 1), type: 'line', p1: 'p' + (i + 1), p2: 'p' + ((i + 1) % 4 + 1), construction: false })), constraints: [] });
+    p.features.push(s, M.createFeature(p, 'extrude', { sketch: s.id, depth: 20 }));
+    a.newAssembly();
+    await wait(400);
+    closeModals();
+    const asm = a.drawing;
+    const pid = asm.addPart(p, null, null);
+    await asm.addComponent(pid); await asm.addComponent(pid);
+    await until(() => asm.doc.components.every((c) => asm.geo(c)?.mesh), 30000);
+    const [c1, c2] = asm.doc.components;
+    asm.doc.explodes.push({ id: 'ex1', name: 'Exploded View 1', steps: [
+      { id: 's1', items: [c1.id, c2.id], dir: [0, 1, 0], dist: 40 },
+      { id: 's2', items: [c2.id], dir: [1, 0, 0], dist: 50 },
+      { id: 's3', items: [c2.id], dir: [1, 0, 0], dist: 10 }] });
+    asm.doc.exploded = 'ex1';
+    asm.buildMesh();
+    const lines = [];
+    asm._exLines?.traverse((o) => { if (o.isLine) { const P = o.geometry.attributes.position; lines.push(Array.from({ length: P.count }, (_, i) => [P.getX(i), P.getY(i), P.getZ(i)])); } });
+    const rel = (L) => L.map((q) => q.map((x, i) => r6(x - L[0][i])));
+    const got = lines.map(rel).sort((x, y) => x.length - y.length);
+    const want = [[[0, 0, 0], [0, 40, 0]], [[0, 0, 0], [0, 40, 0], [60, 40, 0]]];
+    const ok = JSON.stringify(got) === JSON.stringify(want);
+    asm.doc.exploded = null; asm.buildMesh();
+    return ok ? { ok: true, detail: 'straight line for one move; up 40 then across 60 with the corner shown' } : { ok: false, detail: JSON.stringify(got) };
+  },
+
   // assembly interference: of three 20 mm cubes, one overlapping another by 5 mm (2000 mm³) and one only
   // touching (not counted)
   async 'assembly-interference'() {
@@ -4371,6 +4529,159 @@ ENDSEC;END-ISO-10303-21;`;
     const inDxf = flat.ents.some((e) => e.layer === 'ETCH') && dxf.includes('ETCH');
     const ok = Math.abs(v1 - v0) < 1e-6 * v0 && etch.length >= 2 && inside && Math.abs(len - want) < 0.05 * want && inDxf;
     return ok ? { ok: true, detail: `${etch.length} etch segments, ${r6(len)} mm long (line + circle ≈ ${r6(want)}); volume unchanged` } : { ok: false, detail: `dxf ${inDxf}, volume ${v0} → ${v1}, ${etch.length} segments, inside ${inside}, length ${len} (want ${want}); notes ${JSON.stringify(r.notes?.[et.id])}` };
+  },
+
+  // a fan scroll as sheet metal: SM-Extrude of a profile that starts with an arc (R400 into R500, then a straight
+  // side), 3 thick, 300 deep, with a 300 x 200 opening cut in the R500 roll (a straight-sided cut across a big bend:
+  // all of it cut, not a sliver); and an inlet plate: a base flange with a hole in its middle, sketched on an offset
+  // plane and made the other way, with flanges on two edges, stays where it was drawn (it does not fold about a flange)
+  async 'sheet-scroll-opening-and-holed-plate'() {
+    const k = window.app.kernel, bad = [];
+    const vol = async (r, id) => { const m = await k.request('measure', { refs: [{ kind: 'body', id }] }); return (m.items?.[0] || m).volume; };
+    const d = M.newDoc();
+    const s = M.createFeature(d, 'sketch', { plane: { ref: 'front' } });
+    Object.assign(s, {
+      points: [{ id: 'c1', x: 100, y: 0 }, { id: 'a', x: 100, y: -400 }, { id: 'b', x: 500, y: 0 }, { id: 'c', x: -500, y: 0 }, { id: 'e', x: -500, y: -200 }],
+      curves: [{ id: 'k1', type: 'arc', c: 'c1', p1: 'a', p2: 'b', construction: false }, { id: 'k2', type: 'arc', c: 'O', p1: 'b', p2: 'c', construction: false },
+        { id: 'k3', type: 'line', p1: 'c', p2: 'e', construction: false }],
+      constraints: [],
+    });
+    const sc = M.createFeature(d, 'smExtrude', { sketch: s.id, depth: 300, thickness: 3, side: 'other', radius: 3 });
+    d.features.push(s, sc);
+    let r = await k.rebuild(d, null, null);
+    if (r.errors?.length || !r.body?.bodies?.length) return { ok: false, detail: `scroll: ${JSON.stringify(r.errors)}` };
+    const v0 = await vol(r, r.body.bodies[0].id);
+    // the opening: from a plane above the roll, cut down through it
+    const pl = M.createFeature(d, 'plane', { refs: [{ kind: 'plane', id: 'top' }], offset: 600 });
+    const cs = M.createFeature(d, 'sketch', { plane: { ref: pl.id } });
+    const q = [[-150, -250], [150, -250], [150, -50], [-150, -50]];
+    Object.assign(cs, { points: q.map(([x, y], i) => ({ id: 'p' + i, x, y })), curves: q.map((_, i) => ({ id: 'l' + i, type: 'line', p1: 'p' + i, p2: 'p' + ((i + 1) % 4), construction: false })), constraints: [] });
+    d.features.push(pl, cs, M.createFeature(d, 'extrude', { sketch: cs.id, op: 'cut', end: 'blind', depth: 150, reverse: true }));
+    r = await k.rebuild(d, null, null);
+    if (r.errors?.length) return { ok: false, detail: `opening: ${JSON.stringify(r.errors)}` };
+    const v1 = await vol(r, r.body.bodies[0].id);
+    // what the opening takes: 200 deep across the ring R500..R503 where |x| < 150
+    let area = 0;
+    for (let i = 0, n = 3000; i < n; i++) { const x = -150 + (300 * (i + 0.5)) / n; area += (Math.sqrt(503 * 503 - x * x) - Math.sqrt(500 * 500 - x * x)) * (300 / n); }
+    const want = 200 * area, got = v0 - v1;
+    if (!r.body.bodies[0].sheet || Math.abs(got - want) > 0.005 * want) bad.push(`opening took ${r6(got)} mm³, want ${r6(want)}`);
+    // the inlet plate
+    const d2 = M.newDoc();
+    const p2 = M.createFeature(d2, 'plane', { refs: [{ kind: 'plane', id: 'front' }], offset: -500 });
+    const ps = M.createFeature(d2, 'sketch', { plane: { ref: p2.id } });
+    const r4 = [[-400, -300], [400, -300], [400, 300], [-400, 300]];
+    Object.assign(ps, {
+      points: [...r4.map(([x, y], i) => ({ id: 'p' + i, x, y }))],
+      curves: [...r4.map((_, i) => ({ id: 'l' + i, type: 'line', p1: 'p' + i, p2: 'p' + ((i + 1) % 4), construction: false })), { id: 'h', type: 'circle', c: 'O', r: 250, construction: false }],
+      constraints: [],
+    });
+    const bf = M.createFeature(d2, 'smBase', { sketch: ps.id, thickness: 5, radius: 5, reverse: true });
+    const ef = M.createFeature(d2, 'smFlange', { edges: [{ p: [0, -300, -505] }, { p: [0, 300, -505] }], length: 40, lengthRef: 'outer', position: 'inside' });
+    d2.features.push(p2, ps, bf, ef);
+    const r2 = await k.rebuild(d2, null, null);
+    let box = null;
+    const b2 = r2.body?.bodies?.[0];
+    if (b2) {
+      const V = r2.body.vertices, T = r2.body.triangles, lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+      for (let i = b2.triStart; i < b2.triStart + b2.triCount; i++) for (let j = 0; j < 3; j++) { const x = V[3 * T[i] + j]; lo[j] = Math.min(lo[j], x); hi[j] = Math.max(hi[j], x); }
+      box = [lo, hi];
+    }
+    const placed = box && Math.abs(box[0][0] + 400) < 0.2 && Math.abs(box[1][0] - 400) < 0.2 && Math.abs(box[0][1] + 300) < 0.2 && Math.abs(box[1][1] - 300) < 0.2 && Math.abs(box[1][2] + 500) < 0.2 && Math.abs(box[0][2] + 540) < 0.2;
+    if (r2.errors?.length || !placed) bad.push(`plate: ${JSON.stringify(r2.errors)} box ${JSON.stringify(box)}`);
+    return bad.length ? { ok: false, detail: bad.join('; ') } : { ok: true, detail: `scroll made (starts with a roll); the opening took ${r6(got)} mm³ (${r6(want)}); the holed plate stayed put with its flanges` };
+  },
+
+  // a whole cone as a Lofted Bend (formed) between two circles open only at a 0.5 mm seam (it came out 2.5 m long);
+  // a roll trimmed to a rounded panel by a cut round it (a ring: the panel kept, not lost); a sketch spline made a
+  // surface (one face) and converted to sheet metal; and a circular pattern's body copies called after their body
+  async 'sheet-cone-loft-ring-cut-spline-and-pattern-names'() {
+    const k = window.app.kernel, bad = [];
+    const vol = async (id) => { const m = await k.request('measure', { refs: [{ kind: 'body', id }] }); return (m.items?.[0] || m).volume; };
+    const boxOf = (r, b) => {
+      const V = r.body.vertices, T = r.body.triangles, lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+      for (let i = b.triStart; i < b.triStart + b.triCount; i++) for (let j = 0; j < 3; j++) { const x = V[3 * T[i] + j]; lo[j] = Math.min(lo[j], x); hi[j] = Math.max(hi[j], x); }
+      return [lo, hi];
+    };
+    const sketchOn = (d, plane, points, curves) => { const s = M.createFeature(d, 'sketch', { plane }); Object.assign(s, { points, curves: curves.map((c) => ({ construction: false, ...c })), constraints: [] }); return s; };
+    // the cone: R344.94 at Y 110 to R201.88 at Y 185, 2.5 thick
+    {
+      const d = M.newDoc(), prof = [];
+      for (const [y, r] of [[110, 344.94], [185, 201.88]]) {
+        const pl = M.createFeature(d, 'plane', { refs: [{ kind: 'plane', id: 'top' }], offset: y }), h = 0.25 / r;
+        const s = sketchOn(d, { ref: pl.id }, [{ id: 'a', x: r * Math.cos(h), y: r * Math.sin(h) }, { id: 'b', x: r * Math.cos(-h), y: r * Math.sin(-h) }], [{ id: 'c', type: 'arc', c: 'O', p1: 'a', p2: 'b' }]);
+        d.features.push(pl, s); prof.push(s.id);
+      }
+      d.features.push(M.createFeature(d, 'smLoft', { profileA: prof[0], profileB: prof[1], thickness: 2.5, method: 'formed', bends: 72 }));
+      const r = await k.rebuild(d, null, null), b = r.body?.bodies?.[0];
+      const box = b && boxOf(r, b), wide = box && Math.max(box[1][0] - box[0][0], box[1][2] - box[0][2]);
+      if (r.errors?.length || !b?.sheet || !(wide > 690 && wide < 694)) bad.push(`cone: ${JSON.stringify(r.errors)} ${wide} wide`);
+      // one piece of sheet: one smooth face each side (with the two ends and the seam: 6 faces), and its blank
+      // two arcs (concentric) and the two seam lines
+      else {
+        const f = await k.request('sheetFlat', { bodyId: b.id, flip: false });
+        const out = f.ents.filter((e) => e.layer === 'OUTLINE'), arcs = out.filter((e) => e.type === 'ARC');
+        const kinds = out.map((e) => e.type).sort().join(',');
+        const conc = arcs.length === 2 && Math.hypot(arcs[0].c[0] - arcs[1].c[0], arcs[0].c[1] - arcs[1].c[1]) < 0.05;
+        if (b.faceCount !== 6 || kinds !== 'ARC,ARC,LINE,LINE' || !conc) bad.push(`cone: ${b.faceCount} faces, blank ${kinds.length > 60 ? out.length + ' entities' : kinds}`);
+      }
+    }
+    // the ring cut: an R500 roll (50° to 130°, 300 deep) and a frame |x| < 350 (past the roll), Z -50..350, round a
+    // 400 x 200 R20 panel
+    {
+      const d = M.newDoc(), c5 = Math.cos((50 * Math.PI) / 180) * 500, s5 = Math.sin((50 * Math.PI) / 180) * 500;
+      const s = sketchOn(d, { ref: 'front' }, [{ id: 'a', x: c5, y: s5 }, { id: 'b', x: -c5, y: s5 }], [{ id: 'c', type: 'arc', c: 'O', p1: 'a', p2: 'b' }]);
+      const pl = M.createFeature(d, 'plane', { refs: [{ kind: 'plane', id: 'top' }], offset: 600 });
+      const P = [], C = [];
+      const pt = (x, y) => { const id = 'p' + P.length; P.push({ id, x, y }); return id; };
+      const fr = [pt(-350, -350), pt(350, -350), pt(350, 50), pt(-350, 50)];
+      fr.forEach((q, i) => C.push({ id: 'f' + i, type: 'line', p1: q, p2: fr[(i + 1) % 4] }));
+      const [u0, u1, v0, v1, rr] = [-200, 200, -250, -50, 20];
+      const lines = [[[u0 + rr, v0], [u1 - rr, v0]], [[u1, v0 + rr], [u1, v1 - rr]], [[u1 - rr, v1], [u0 + rr, v1]], [[u0, v1 - rr], [u0, v0 + rr]]];
+      const arcs = [[[u1 - rr, v0 + rr], [u1 - rr, v0], [u1, v0 + rr]], [[u1 - rr, v1 - rr], [u1, v1 - rr], [u1 - rr, v1]], [[u0 + rr, v1 - rr], [u0 + rr, v1], [u0, v1 - rr]], [[u0 + rr, v0 + rr], [u0, v0 + rr], [u0 + rr, v0]]];
+      const key = new Map(), at = (q) => { const kk = q.join(); if (!key.has(kk)) key.set(kk, pt(...q)); return key.get(kk); };
+      lines.forEach(([a, b], i) => C.push({ id: 'l' + i, type: 'line', p1: at(a), p2: at(b) }));
+      arcs.forEach(([c, a, b], i) => C.push({ id: 'r' + i, type: 'arc', c: pt(...c), p1: at(a), p2: at(b) }));
+      const cs = sketchOn(d, { ref: pl.id }, P, C);
+      d.features.push(s, M.createFeature(d, 'smExtrude', { sketch: s.id, depth: 300, thickness: 3, side: 'other', radius: 3 }), pl, cs,
+        M.createFeature(d, 'extrude', { sketch: cs.id, op: 'cut', end: 'blind', depth: 300, reverse: true }));
+      const r = await k.rebuild(d, null, null);
+      let area = 0;
+      for (let i = 0, n = 4000; i < n; i++) { const x = -200 + (400 * (i + 0.5)) / n; area += (Math.sqrt(503 * 503 - x * x) - Math.sqrt(500 * 500 - x * x)) * (400 / n); }
+      const want = 200 * area - (4 * (400 - Math.PI * 100) * 3) / Math.cos(Math.asin(190 / 501.5));
+      const vs = [];
+      for (const b of r.body?.bodies || []) vs.push(await vol(b.id));
+      const panel = Math.max(0, ...vs), pb = r.body?.bodies?.[vs.indexOf(panel)];
+      // (and its flat pattern, kept up to date by the cut: the panel alone, at the neutral radius 500 + 0.44 × 3; the
+      // cut's edges are traced where they cross the sheet's middle, R501.5)
+      const Rn = 500 + 0.44 * 3, Rm = 501.5;
+      const wantFlat = Rn * 2 * Math.asin(200 / Rm) * 200 - 4 * (400 - Math.PI * 100);
+      const flatOk = pb?.sheet && !pb.sheet.stale && Math.abs(pb.sheet.flatArea - wantFlat) < 0.01 * wantFlat;
+      if (r.errors?.length || Math.abs(panel - want) > 0.002 * want || !flatOk) bad.push(`ring cut: ${JSON.stringify(r.errors)} panel ${r6(panel)} mm³, want ${r6(want)}; flat ${JSON.stringify(pb?.sheet)}`);
+    }
+    // the spline: 7 points, a surface 100 deep (one face), made a 2 thick sheet
+    {
+      const d = M.newDoc(), q = [[0, 0], [40, 18], [80, 22], [120, 10], [160, -6], [200, -8], [240, 4]];
+      const s = sketchOn(d, { ref: 'top' }, q.map(([x, y], i) => ({ id: 'p' + i, x, y })), [{ id: 's', type: 'spline', pts: q.map((_, i) => 'p' + i), p1: 'p0', p2: 'p6', closed: false }]);
+      const sf = M.createFeature(d, 'surfExtrude', { sketch: s.id, depth: 100 });
+      d.features.push(s, sf);
+      let r = await k.rebuild(d, null, null);
+      const faces = r.body?.bodies?.[0]?.faceCount;
+      d.features.push(M.createFeature(d, 'smConvert', { face: { p: [120, 50, -10], n: [0, 0, 1] }, autoThickness: false, thickness: 2, thickSide: 'one' }));
+      r = await k.rebuild(d, null, null);
+      if (faces !== 1 || r.errors?.length || !r.body?.bodies?.some((b) => b.sheet)) bad.push(`spline: ${faces} faces, ${JSON.stringify(r.errors)}`);
+    }
+    // the pattern: a named block, 4 round Y
+    {
+      const d = M.newDoc(), q = [[100, -10], [140, -10], [140, 10], [100, 10]];
+      const s = sketchOn(d, { ref: 'top' }, q.map(([x, y], i) => ({ id: 'p' + i, x, y })), q.map((_, i) => ({ id: 'l' + i, type: 'line', p1: 'p' + i, p2: 'p' + ((i + 1) % 4) })));
+      const ex = M.createFeature(d, 'extrude', { sketch: s.id, depth: 10 });
+      d.features.push(s, ex, M.createFeature(d, 'cpattern', { bodies: [ex.id], axis: 'y', angle: 360, count: 4, equal: true }));
+      d.bodies = { [ex.id]: { name: 'Lug', material: null, description: '', props: [] } };
+      const r = await k.rebuild(d, null, null);
+      const names = (r.body?.bodies || []).map((b) => b.kname).filter(Boolean);
+      if (names.join() !== 'Lug (2),Lug (3),Lug (4)') bad.push(`pattern names ${JSON.stringify(names)}`);
+    }
+    return bad.length ? { ok: false, detail: bad.join('; ') } : { ok: true, detail: 'whole cone lofted; the ring cut kept the panel; the spline surface one face, converted; copies called Lug (2) … (4)' };
   },
 
   // motion studies: gear A turned two full turns (72 steps) carries gear B (−360°) and the rack (2π·10·2 mm) with

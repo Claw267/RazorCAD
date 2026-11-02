@@ -2325,6 +2325,7 @@ export class DrawingEditor {
       this.dirty = false;
       this.app.updateTitle();
       this.app.status('Saved ' + String(path).split(/[\\/]/).pop());
+      this.app.plugins?.emit('saved', { path, kind: 'drawing' });
       return true;
     } catch (err) {
       this.app.toast('Save failed: ' + err.message, true);
@@ -2793,7 +2794,9 @@ export class DrawingEditor {
   cmTab = 'layout';
   renderCommandManager() {
     if (this.app.drawing !== this) return;
-    const defs = this.commandDefs();
+    // (the plug-ins' tabs for drawings after its own)
+    const defs = { ...this.commandDefs(), ...(this.app.plugins?.ribbonDefs('drawing') || {}) };
+    if (!defs[this.cmTab]) this.cmTab = 'layout';
     const btns = $('#cm-buttons');
     btns.innerHTML = '';
     for (const d of defs[this.cmTab]) {
@@ -2804,8 +2807,9 @@ export class DrawingEditor {
     }
     const tabs = $('#cm-tabs');
     tabs.innerHTML = '';
-    for (const [id, label] of [['layout', 'View Layout'], ['annotation', 'Annotation'], ['sheet', 'Sheet']]) {
-      const t = el('button', { class: this.cmTab === id ? 'active' : '' }, esc(tr(label)));
+    for (const [id, label, title] of [['layout', tr('View Layout')], ['annotation', tr('Annotation')], ['sheet', tr('Sheet')], ...(this.app.plugins?.tabs('drawing') || []).map((p) => [p.id, p.label, p.title])]) {
+      const t = el('button', { class: (this.cmTab === id ? 'active' : '') + (id.startsWith('plugin:') ? ' cm-tab-plugin' : ''), title: title || '' }, esc(label));
+      t.dataset.tab = id;
       t.onclick = () => { this.cmTab = id; this.renderCommandManager(); };
       tabs.appendChild(t);
     }

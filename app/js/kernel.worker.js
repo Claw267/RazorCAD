@@ -4629,9 +4629,12 @@ async function rebuild(doc, previewId = null, opts = {}) {
         for (const id of ids) await instances(pf, id, xs);
         let flatLost = 0;
         for (const rec of bodyRecs) {
-          for (const X of xs) {
+          // (each copy is called after the body it is a copy of, numbered on from it: "Blade (2)", "Blade (3)"…)
+          const src = doc.bodies?.[rec.id]?.name || rec.name || doc.features.find((y) => y.id === String(rec.id).split('.')[0])?.name || 'Body';
+          for (const [k, X] of xs.entries()) {
             const shape = X.shape(rec.shape.clone());
             const nr = bodyRec(newId(pf.id), shape, pf.id, []);
+            nr.name = `${src} (${k + 2})`;
             if (rec.sheet) { nr.sheet = SM.transformSheet(rec.sheet, xMatrix(X)); if (!nr.sheet) flatLost++; }
             if (surfaces.includes(rec)) surfaces.push(nr); else solids.push(nr);
             applied.push({ op: 'add', tool: shape });
@@ -12312,6 +12315,27 @@ function controlSplineEdge(sk, c, fr) {
   } finally { owned.reverse().forEach((x) => x.delete()); }
 }
 
+// A run of cubic Bézier spans (a fit spline's, as S.chainSegs gives them, end to end) as one B-spline edge, so a
+// surface made from it is one face, not one per span. The joints are taken down to smooth knots where the curve is
+// smooth there (to 1e-6 mm), as a fit spline is.
+function bezierRunEdge(fr, segs) {
+  const oc = R.getOC(), owned = [], own = (x) => (owned.push(x), x);
+  try {
+    const n = segs.length, pts = [segs[0].a];
+    for (const g of segs) pts.push(g.c1, g.c2, g.b);
+    const poles = own(new oc.NCollection_Array1_gp_Pnt(1, pts.length));
+    pts.forEach((q, i) => { const p = new oc.gp_Pnt(...S.fromFrame2D(fr, q[0], q[1])); try { poles.SetValue(i + 1, p); } finally { p.delete(); } });
+    const knots = own(new oc.NCollection_Array1_double(1, n + 1)), mults = own(new oc.NCollection_Array1_int(1, n + 1));
+    for (let i = 0; i <= n; i++) { knots.SetValue(i + 1, i); mults.SetValue(i + 1, i === 0 || i === n ? 4 : 3); }
+    const curve = own(new oc.Geom_BSplineCurve(poles, knots, mults, 3, false));
+    for (let i = n; i >= 2; i--) {
+      try { if (!curve.RemoveKnot(i, 1, 1e-6)) curve.RemoveKnot(i, 2, 1e-6); } catch { /* the joint kept as it is */ }
+    }
+    const builder = own(new oc.BRepBuilderAPI_MakeEdge(curve));
+    return new R.Edge(builder.Edge());
+  } finally { owned.reverse().forEach((x) => x.delete()); }
+}
+
 // Region boundaries may contain only a trimmed portion of a source curve. Replace
 // a run only when it spans the complete spline; retain the selected boundary otherwise.
 function exactLoopWire(sk, fr, segs) {
@@ -12347,7 +12371,8 @@ function exactLoopWire(sk, fr, segs) {
 function sketchWires(sk, fr, exactSplines = false) {
   const wires = [];
   for (const ch of S.curveChains(sk)) {
-    if (exactSplines && ch.items.some(({ c }) => c.type === 'spline' && c.ctrl && !c.closed)) {
+    // (exact: a control-point spline as its own B-spline, a fit spline as one B-spline through its spans)
+    if (exactSplines && ch.items.some(({ c }) => c.type === 'spline' && !c.closed)) {
       const edges = [];
       try {
         for (const item of ch.items) {
@@ -12356,6 +12381,8 @@ function sketchWires(sk, fr, exactSplines = false) {
             const edge = controlSplineEdge(sk, c, fr);
             if (rev) { try { edges.push(R.cast(edge.wrapped.Reversed())); } finally { edge.delete(); } }
             else edges.push(edge);
+          } else if (c.type === 'spline' && !c.closed && S.chainSegs(sk, { items: [item] }).every((g) => g.type === 'bezier')) {
+            edges.push(bezierRunEdge(fr, S.chainSegs(sk, { items: [item] })));
           } else {
             const section = loftSection(fr, S.chainSegs(sk, { items: [item] })), wire = sectionWire(section);
             try { edges.push(...wire.edges); } finally { wire.delete(); }
@@ -12966,7 +12993,11 @@ function flatEntsTop(sheet) {
   const ents = [];
   for (const face of SM.facesOf(fp.region)) {
     const wires = [['OUTLINE', face.clone().outerWire()], ...face.clone().innerWires().map((w) => ['HOLES', w])];
-    for (const [layer, wire] of wires) for (const e of wire.edges) edgeEnts(e, layer, to2, diag, ents);
+    for (const [layer, wire] of wires) {
+      const own = [];
+      for (const e of wire.edges) edgeEnts(e, layer, to2, diag, own);
+      ents.push(...arcsOfChords(own, layer));
+    }
   }
   const sh = (p) => [p[0] - x0, p[1] - y0];
   const bends = [];
@@ -12998,6 +13029,72 @@ function flatEntsTop(sheet) {
     }
   }
   return { ents, fp, bends, x0, y0 };
+}
+
+// A loop's straight lines that are chords of one circle (a lofted or rolled blank's developed edge: many short
+// lines, each turning a little from the last, all within 0.02 mm, or 0.02% of the radius, of a circle: developed
+// edges drift that much from the true arc over a long one) written as one arc, as the edge is
+// cut. A polygon's corners turn further (10° or more) and stay lines. ents: one loop's entities, in order.
+function arcsOfChords(ents0, layer) {
+  const out = [];
+  const isLine = (e) => e?.type === 'LINE';
+  const turn = (e, f) => {
+    const u = [e.b[0] - e.a[0], e.b[1] - e.a[1]], w = [f.b[0] - f.a[0], f.b[1] - f.a[1]];
+    return Math.atan2(u[0] * w[1] - u[1] * w[0], u[0] * w[0] + u[1] * w[1]);
+  };
+  // (started at a corner, so an arc isn't split where the loop happens to start)
+  const m = ents0.length, at = ents0.findIndex((e, i) => { const p = ents0[(i + m - 1) % m]; return !isLine(e) || !isLine(p) || Math.abs(turn(p, e)) >= (10 * Math.PI) / 180; });
+  const ents = at > 0 ? [...ents0.slice(at), ...ents0.slice(0, at)] : ents0;
+  const circle = (a, m, b) => {
+    const d = 2 * (a[0] * (m[1] - b[1]) + m[0] * (b[1] - a[1]) + b[0] * (a[1] - m[1]));
+    if (Math.abs(d) < 1e-12) return null;
+    const a2 = a[0] ** 2 + a[1] ** 2, m2 = m[0] ** 2 + m[1] ** 2, b2 = b[0] ** 2 + b[1] ** 2;
+    const c = [(a2 * (m[1] - b[1]) + m2 * (b[1] - a[1]) + b2 * (a[1] - m[1])) / d, (a2 * (b[0] - m[0]) + m2 * (a[0] - b[0]) + b2 * (m[0] - a[0])) / d];
+    return { c, r: Math.hypot(a[0] - c[0], a[1] - c[1]) };
+  };
+  const tolOf = (r) => Math.max(0.02, 2e-4 * r), MAXTURN = (10 * Math.PI) / 180;
+  // the run of lines from i on that bend the same way, each a little, joined end to end
+  const runFrom = (i) => {
+    let j = i, sum = 0;
+    while (isLine(ents[j + 1]) && Math.hypot(ents[j + 1].a[0] - ents[j].b[0], ents[j + 1].a[1] - ents[j].b[1]) < 1e-6) {
+      const tq = turn(ents[j], ents[j + 1]);
+      if (!(Math.abs(tq) > 1e-6 && Math.abs(tq) < MAXTURN) || (sum && Math.sign(tq) !== Math.sign(sum)) || Math.abs(sum + tq) > 1.9 * Math.PI) break;
+      sum += tq; j++;
+    }
+    return j;
+  };
+  // the longest stretch of i..j whose points all lie on one circle through its two ends (so the outline stays
+  // closed): its centre on the line square to the chord between them, where the points stray from it least
+  const fits = (i, j) => {
+    const pts = [ents[i].a, ...ents.slice(i, j + 1).map((e) => e.b)];
+    const p0 = pts[0], p1 = pts[pts.length - 1];
+    const k0 = circle(p0, pts[pts.length >> 1], p1);
+    if (!k0) return null;
+    const mid = [(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2], ch = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
+    if (!(ch > 0)) return null;
+    const nrm = [-(p1[1] - p0[1]) / ch, (p1[0] - p0[0]) / ch];
+    const at = (s) => { const c = [mid[0] + nrm[0] * s, mid[1] + nrm[1] * s]; return { c, r: Math.hypot(p0[0] - c[0], p0[1] - c[1]) }; };
+    const worst = (s) => { const k = at(s); return Math.max(...pts.map((p) => Math.abs(Math.hypot(p[0] - k.c[0], p[1] - k.c[1]) - k.r))); };
+    const s0 = (k0.c[0] - mid[0]) * nrm[0] + (k0.c[1] - mid[1]) * nrm[1];
+    if (worst(s0) > 20 * tolOf(k0.r)) return null; // (nowhere near a circle: not searched)
+    let lo = s0 - 0.01 * k0.r - 1, hi = s0 + 0.01 * k0.r + 1;
+    for (let it = 0; it < 80; it++) { const a = lo + (hi - lo) * 0.382, b = lo + (hi - lo) * 0.618; if (worst(a) < worst(b)) hi = b; else lo = a; }
+    const s = (lo + hi) / 2;
+    return worst(s) < tolOf(at(s).r) ? at(s) : null;
+  };
+  for (let i = 0; i < ents.length;) {
+    if (!isLine(ents[i])) { out.push(ents[i++]); continue; }
+    let j = runFrom(i), k = null;
+    for (; j - i >= 2; j--) if ((k = fits(i, j))) break; // (at least three chords)
+    if (j - i < 2 || !k) { out.push(ents[i++]); continue; }
+    const p0 = ents[i].a, p1 = ents[j].b, pm = ents[(i + j) >> 1].b;
+    const ccw = (pm[0] - p0[0]) * (p1[1] - p0[1]) - (pm[1] - p0[1]) * (p1[0] - p0[0]) > 0;
+    const ang = (q) => (Math.atan2(q[1] - k.c[1], q[0] - k.c[0]) * 180) / Math.PI;
+    const [s0, s1] = ccw ? [p0, p1] : [p1, p0];
+    out.push({ type: 'ARC', layer, c: k.c, r: k.r, a0: ang(s0), a1: ang(s1) });
+    i = j + 1;
+  }
+  return out;
 }
 
 // DXF entities of one edge (lines, arcs and circles exact; other curves as fine polylines).
@@ -13239,7 +13336,7 @@ function exportSnaps(ids) {
       const t = topoType(raw);
       if (!lists[t]) {
         const all = exploreAll(comp, t), byHash = new Map();
-        temp.push(...all);
+        temp.push(all); // (not spread: a big part has more edges and vertices than a call can take as arguments)
         all.forEach((x, i) => { const h = oc.ReplicadShapeHasher.HashCode(x, R.HASH_CODE_MAX); if (!byHash.has(h)) byHash.set(h, []); byHash.get(h).push(i); });
         lists[t] = { all, byHash };
       }
@@ -13254,7 +13351,7 @@ function exportSnaps(ids) {
       try { return { c: leaves.map(place) }; } finally { leaves.forEach((x) => x.delete()); }
     });
     return { v: SNAP_VERSION, eqKey: c.eqKey, n: shapes.length, places, ...graph, brep: oc.BRepToolsWrapper.Write(comp) };
-  } catch (e) { if (isFatal(e)) throw e; return { v: 0, error: e.message }; } finally { temp.forEach((x) => x.delete()); comp.delete(); builder.delete(); }
+  } catch (e) { if (isFatal(e)) throw e; return { v: 0, error: e.message }; } finally { temp.forEach((l) => l.forEach((x) => x.delete())); comp.delete(); builder.delete(); }
 }
 // Put a written-out rebuild cache back. The next rebuild uses each state only while the features up to it
 // are exactly as they were (as with the cache in memory).

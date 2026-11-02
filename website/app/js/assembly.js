@@ -22,7 +22,7 @@ import { materialById, MATERIALS, DEFAULT_BODY_COLOR, docJSON, stripThumbnail, f
 import { STD_TYPES, makeStdPart, fitToHole, fitLength, stdLengths, lengthLabel, setParts, heightOf } from './stdparts.js';
 import { gauss } from './sketch3dmodel.js';
 import { fmt, evalEquations, isValidName } from './expr.js';
-import { ExplodeTool, explodeOffsets, drawExplodeLines, animateExplode } from './explode.js';
+import { ExplodeTool, explodeOffsets, explodePath, drawExplodeLines, animateExplode } from './explode.js';
 import { hashText, packResult, unpackResult } from './modelcache.js';
 import { packMesh, unpackMesh, MESH_CACHE } from './partmeshes.js';
 import { AssemblyView } from './asmview.js';
@@ -1296,7 +1296,7 @@ export class AssemblyEditor {
       if (!g?.mesh) return null;
       return { mesh: g.mesh, color: g.color ?? DEFAULT_BODY_COLOR, hidden: !!l.hidden, matrix: tops[l.ci].clone().multiply(l.M) };
     }));
-    this._exLines = drawExplodeLines(this.vp, this._exLines, this.showLines === false ? [] : [...offs].filter(([id, o]) => Math.hypot(...o) > 1e-9 && this.comp(id)).map(([id, o]) => { const a = this.compCenter(this.comp(id)); return [a, a.map((x, k) => x + o[k])]; }));
+    this._exLines = drawExplodeLines(this.vp, this._exLines, this.showLines === false ? [] : [...offs].filter(([id, o]) => Math.hypot(...o) > 1e-9 && this.comp(id)).map(([id]) => explodePath(this.compCenter(this.comp(id)), offs, id)));
     this.highlight();
   }
 
@@ -2886,6 +2886,7 @@ export class AssemblyEditor {
       this.app.updateTitle();
       this.renderTree();
       this.app.status('Saved ' + String(path).split(/[\\/]/).pop() + (written ? ` and ${written} part and sub-assembly file${written === 1 ? '' : 's'} beside it` : ''));
+      this.app.plugins?.emit('saved', { path, kind: 'assembly' });
       return true;
     } catch (err) {
       this.app.toast('Save failed: ' + err.message, true);
@@ -3082,7 +3083,9 @@ export class AssemblyEditor {
   }
   renderCommandManager() {
     if (!this.isActive()) return;
-    const defs = this.commandDefs();
+    // (the plug-ins' tabs for assemblies after its own)
+    const defs = { ...this.commandDefs(), ...(this.app.plugins?.ribbonDefs('assembly') || {}) };
+    if (!defs[this.cmTab]) this.cmTab = 'assembly';
     const btns = $('#cm-buttons');
     btns.innerHTML = '';
     for (const d of defs[this.cmTab]) {
@@ -3093,8 +3096,12 @@ export class AssemblyEditor {
     }
     const tabs = $('#cm-tabs');
     tabs.innerHTML = '';
-    const t = el('button', { class: 'active' }, esc(tr('Assembly')));
-    tabs.appendChild(t);
+    for (const [id, label, title] of [['assembly', tr('Assembly'), ''], ...(this.app.plugins?.tabs('assembly') || []).map((p) => [p.id, p.label, p.title])]) {
+      const t = el('button', { class: (this.cmTab === id ? 'active' : '') + (id.startsWith('plugin:') ? ' cm-tab-plugin' : ''), title }, esc(label));
+      t.dataset.tab = id;
+      t.onclick = () => { this.cmTab = id; this.renderCommandManager(); };
+      tabs.appendChild(t);
+    }
   }
   menuDefs() {
     const a = this.app, selC = this.selComp();

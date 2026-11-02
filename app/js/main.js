@@ -26,13 +26,14 @@ import { parsePoints, thinPoints, encodePoints, decodePoints } from './points.js
 import { CLAUDE_MODELS, RAZORCAD_GUIDE, describePart, parseReply, applyPlan } from './claudespec.js';
 import { DrawingEditor } from './drawingeditor.js';
 import { AssemblyEditor, isAssembly, newAssembly } from './assembly.js';
-import { ExplodeTool, explodeOffsets, offsetMesh, drawExplodeLines, animateExplode, newExplodeId } from './explode.js';
+import { ExplodeTool, explodeOffsets, explodePath, offsetMesh, drawExplodeLines, animateExplode, newExplodeId } from './explode.js';
 import { hashText, packResult, unpackResult } from './modelcache.js';
 import { unitOf, UNIT_SYSTEM } from './units.js';
 import { isTemplate, drawingFromTemplate } from './drawtemplates.js';
 import { bodySignature, groupBodies, sameBody } from './bodygroups.js';
 import * as D from './drawing.js';
 import { Macros } from './macros.js';
+import { Plugins } from './plugins.js';
 import { igesToStep } from './igesstep.js';
 import { installA11y, onControl } from './a11y.js';
 import { machineInfo, kernelBudget, memoryFor, threadsPerKernel } from './machine.js';
@@ -113,6 +114,7 @@ class App {
     this.tabKernelMax = 1;
     this.sizeKernels();
     this.macros = new Macros(this); // (Tools ▸ Macros: recording and running them)
+    this.plugins = new Plugins(this); // (Tools ▸ Plug-ins: tools of the user's own, each with a ribbon tab; started once the preferences are read)
     // the theme changed: the 3D view's and the sketch's lines in its colours
     window.addEventListener('razorcad-theme', () => {
       this.viewport.applyDisplayStyle();
@@ -722,6 +724,7 @@ class App {
 
   applyResult(r) {
     const doc = this.doc;
+    queueMicrotask(() => this.plugins?.emit('rebuilt', { doc, result: r }));
     this.annot3d?.refresh();
     showDecals(this.viewport, this.doc.decals);
     this.showPointClouds();
@@ -860,7 +863,7 @@ class App {
     (this.result.bodies || []).forEach((b, i) => { const o = offs.get(b.id); if (o) byIndex.set(i, o); });
     this.viewport.setBody(byIndex.size ? offsetMesh(this.result.body, byIndex) : this.result.body, colors, hidden, glass);
     this.viewport._shadowFlags();
-    this._exLines = drawExplodeLines(this.viewport, this._exLines, this.explodeShowLines === false ? [] : [...offs].filter(([, o]) => Math.hypot(...o) > 1e-9).map(([id, o]) => { const c = this.bodyCenter(id); return c ? [c, c.map((x, i) => x + o[i])] : null; }).filter(Boolean));
+    this._exLines = drawExplodeLines(this.viewport, this._exLines, this.explodeShowLines === false ? [] : [...offs].filter(([, o]) => Math.hypot(...o) > 1e-9).map(([id]) => { const c = this.bodyCenter(id); return c ? explodePath(c, offs, id) : null; }).filter(Boolean));
     // face appearances: those an import gave, then the part's own (each stored face found again by its point)
     const pairs = [];
     (this.result.body?.faceGroups || []).forEach((g, gi) => { if (g.look?.c != null) pairs.push([gi, g.look.c]); });
@@ -3607,7 +3610,8 @@ class App {
       const st = state(f.id);
       const cv = res.curves.get(f.id), many = Array.isArray(cv?.[0]?.[0]); // (some curves are several pieces)
       const shown = (this.refVisKind(f) ? this.refShown(f) : this.vis.axes) || (f.type === 'sketch3d' && datumPicking(f));
-      if (shown || st !== 'normal') for (const pts of many ? cv : [cv]) curves.push({ id: f.id, name: f.name, pts, state: st });
+      // (one name label per feature, on its first piece: an etch of many lines and arcs had one on every piece)
+      if (shown || st !== 'normal') (many ? cv : [cv]).forEach((pts, i) => curves.push({ id: f.id, name: i ? '' : f.name, pts, state: st }));
       // a 3D sketch being edited: its points, numbered
       if (f.type === 'sketch3d' && st === 'preview') (res.detected?.get(f.id)?.pts || []).forEach((p, i) => points.push({ id: f.id + ':' + i, name: 'P' + (i + 1), p: new THREE.Vector3(...p), state: 'preview' }));
     }
@@ -6475,13 +6479,15 @@ class App {
     // already open in a tab: go there
     const open = this.tabOfPath(file.path);
     if (open >= 0 && !recovered) { await this.activateTab(open); this.status(`${file.name} is already open`); return true; }
+    // (the plug-ins told what was opened)
+    const opened = (kind) => { this.plugins?.emit('opened', { path: file.path || null, name: file.name, kind }); return true; };
     try {
       const doc = M.stripThumbnail(JSON.parse(content));
       if (isAssembly(doc)) {
         this.openAssemblyTab(doc, file.path || null);
         this.status(`Opened ${file.name}`);
         breadcrumb(`Opened assembly: ${file.path || file.name}`);
-        return true;
+        return opened('assembly');
       }
       if (isTemplate(doc)) {
         const dwg = drawingFromTemplate(doc, { name: doc.name });
@@ -6491,14 +6497,14 @@ class App {
         this.openDrawingTab(dwg, file.path || null);
         this.status(`Editing the drawing template ${file.name}: change its sheets, title block and notes, then Save.`);
         breadcrumb(`Opened drawing template: ${file.path || file.name}`);
-        return true;
+        return opened('drawing');
       }
       if (D.isDrawing(doc)) {
         doc.nextId ??= 1;
         this.openDrawingTab(doc, file.path || null);
         this.status(`Opened ${file.name}`);
         breadcrumb(`Opened drawing: ${file.path || file.name}`);
-        return true;
+        return opened('drawing');
       }
       if (!Array.isArray(doc.features)) throw new Error('Not a RazorCAD part file');
       doc.equations ??= [];
@@ -6532,7 +6538,7 @@ class App {
       this.status(recovered ? `Recovered the auto-saved version of ${file.name} — save to keep it.` : `Opened ${file.name}`);
       breadcrumb(`Opened: ${file.path || file.name}${recovered ? ' (auto-save recovered)' : ''}`);
       rememberPart(this, true);
-      return true;
+      return opened('part');
     } catch (err) {
       this.toast('Could not open file: ' + err.message, true);
       return false;
@@ -6593,6 +6599,7 @@ class App {
       this.dirty = false;
       this.updateTitle();
       this.status('Saved ' + String(path).split(/[\\/]/).pop());
+      this.plugins?.emit('saved', { path, kind: 'part' });
     } catch (err) {
       this.toast('Save failed: ' + err.message, true);
     }

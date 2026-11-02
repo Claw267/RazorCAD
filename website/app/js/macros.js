@@ -315,21 +315,27 @@ export class Macros {
 
   // ---- running
   async run(code, name = 'Macro') {
-    if (this.running) return { ok: false, error: 'A macro is running already' };
+    const r = await this.runFn((rc, app) => new AsyncFunction('rc', 'app', code)(rc, app), name);
+    if (!r.ok && r.stack) { const m = /<anonymous>:(\d+):\d+/.exec(r.stack); r.line = m ? Number(m[1]) - 2 : null; }
+    delete r.stack;
+    return r;
+  }
+  // fn(rc, app) run as a macro (one undo step, rebuilt at the end): a plug-in's command too. { ok, log, ms | error, stack }
+  async runFn(fn, name = 'Macro') {
+    if (this.running) return { ok: false, error: 'A macro is running already', log: [] };
     this.running = true;
     const log = [], t0 = performance.now();
     const rc = makeRC(this.app, this, log);
     const a = this.app, empty = a.mode !== 'drawing' && !a.doc?.features?.some((f) => f.type !== 'sketch' && f.type !== 'plane' && f.type !== 'axis' && f.type !== 'point'), doc0 = a.doc;
     try {
-      await new AsyncFunction('rc', 'app', code)(rc, this.app);
+      await fn(rc, this.app);
       await rc._end();
-      // (a part that was empty: the model shown whole)
-      if (empty && a.doc === doc0 && a.mode !== 'drawing' && (a.result?.bodies || []).length) a.viewport.zoomToFit();
+      // (a part that was empty, or a new one: the model shown whole)
+      if ((empty || a.doc !== doc0) && a.mode !== 'drawing' && (a.result?.bodies || []).length) a.viewport.zoomToFit();
       return { ok: true, log, ms: Math.round(performance.now() - t0) };
     } catch (e) {
       await rc._end().catch(() => {});
-      const m = /<anonymous>:(\d+):\d+/.exec(e?.stack || '');
-      return { ok: false, error: e?.message || String(e), line: m ? Number(m[1]) - 2 : null, log };
+      return { ok: false, error: e?.message || String(e), stack: e?.stack || '', log };
     } finally { this.running = false; }
   }
   async runMacro(m) {

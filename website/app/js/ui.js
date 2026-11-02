@@ -1770,7 +1770,7 @@ export class UI {
     this.prefs = {};
     this.renderCommandManager();
     // the user's own toolbar layout (and other preferences), once the desktop app answers
-    platform.ready.then(() => platform.getPrefs()).then((p) => { this.prefs = p || {}; setThemePref(this.prefs.theme); if (this.prefs.lang && this.prefs.lang !== 'en') setLanguage(this.prefs.lang); this.applyIconSize(); this.app.setPerspective?.(!!this.prefs.perspective, true); this.renderCommandManager(); }).catch(() => {});
+    platform.ready.then(() => platform.getPrefs()).then((p) => { this.prefs = p || {}; setThemePref(this.prefs.theme); if (this.prefs.lang && this.prefs.lang !== 'en') setLanguage(this.prefs.lang); this.applyIconSize(); this.app.setPerspective?.(!!this.prefs.perspective, true); this.renderCommandManager(); this.app.plugins?.start(); }).catch(() => {});
     // another language: everything drawn again in it
     window.addEventListener('razorcad-lang', () => {
       document.querySelectorAll('#menubar > button[data-menu]').forEach((b) => { b.textContent = tr(b.dataset.menu); });
@@ -1805,6 +1805,7 @@ export class UI {
     const defs = this.baseMenuDefs();
     if (defs) defs.View = [...(defs.View || []), 'sep', ...this.upAxisItems(), 'sep', ...this.themeItems(), 'sep', ...this.languageItems()];
     if (defs && this.app.macros) defs.Tools = [...(defs.Tools || []), 'sep', ...this.app.macros.menuItems()];
+    if (defs && this.app.plugins) defs.Tools = [...(defs.Tools || []), 'sep', ...this.app.plugins.menuItems()];
     return defs;
   }
   // the world's up axis (the part's own; also for new parts): see wcs.js
@@ -2190,7 +2191,12 @@ export class UI {
   closeContext() { $('#ctxmenu').hidden = true; document.querySelectorAll('[data-sketch-variants][aria-expanded="true"]').forEach(b=>b.setAttribute('aria-expanded','false')); }
 
   // ------------------------------------------------------------ Command ribbon
+  // the part ribbon's buttons by tab, the plug-ins' tabs after the built-in ones
   commandDefs() {
+    const defs = this.builtinCommandDefs();
+    return this.app.plugins ? { ...defs, ...this.app.plugins.ribbonDefs('part') } : defs;
+  }
+  builtinCommandDefs() {
     const a = this.app;
     const sk = a.mode === 'sketch';
     // keyboard shortcuts of the sketch tools (shown on their buttons)
@@ -2534,7 +2540,7 @@ export class UI {
     const tabs = $('#cm-tabs');
     tabs.innerHTML = '';
     for (const t of tabsList) {
-      const b = el('button', { class: (this.cmTab === t.id ? 'active' : '') + (t.id === 'claude' ? ' cm-tab-claude' : '') + (t.custom ? ' cm-tab-custom' : ''), title: t.id === 'claude' ? 'Model with Claude: describe a part or a change' : t.custom ? 'Your own toolbar (right-click to rename or delete it)' : '' }, t.html || esc(t.custom ? t.label : tr(t.label)));
+      const b = el('button', { class: (this.cmTab === t.id ? 'active' : '') + (t.id === 'claude' ? ' cm-tab-claude' : '') + (t.custom ? ' cm-tab-custom' : '') + (t.plugin ? ' cm-tab-plugin' : ''), title: t.id === 'claude' ? 'Model with Claude: describe a part or a change' : t.plugin ? t.title : t.custom ? 'Your own toolbar (right-click to rename or delete it)' : '' }, t.html || esc(t.custom ? t.label : tr(t.label)));
       b.dataset.tab = t.id;
       if (t.custom) b.dataset.custom = '1';
       b.onclick = () => { this.cmTab = t.id; this.renderCommandManager(); };
@@ -2614,6 +2620,7 @@ export class UI {
   toolbarTabs() {
     const out = [['features', 'Features'], ['sketch', 'Sketch'], ['surfaces', 'Surfaces'], ['sheetmetal', 'Sheet Metal'], ['weldments', 'Fast Structure'], ['print', '3D Print'], ['render', 'Render'], ['evaluate', 'Evaluate']].map(([id, label]) => ({ id, label }));
     for (const c of this.tbPrefs().custom) out.push({ id: 'custom:' + c.id, label: c.name, custom: true });
+    out.push(...(this.app.plugins?.tabs('part') || []));
     out.push({ id: 'claude', label: 'Claude', html: `${icon('assistant')}Claude` });
     return out;
   }
@@ -2745,6 +2752,7 @@ export class UI {
   }
   toolbarTabMenu(t) {
     const tb = this.tbPrefs(), items = [];
+    if (t.plugin) items.push({ label: 'Plug-ins…', icon: 'plugin', action: () => this.app.plugins.showDialog() }, 'sep');
     if (t.custom) items.push({ label: 'Rename…', icon: 'rename', action: () => this.renameToolbar(t.id) }, { label: 'Delete Toolbar', icon: 'trash', action: () => this.deleteToolbar(t.id) }, 'sep');
     else if (t.id !== 'claude' && (tb.order[t.id] || tb.hidden[t.id]?.length)) items.push({ label: 'Reset This Toolbar', icon: '', action: () => this.resetToolbar(t.id) }, 'sep');
     items.push({ label: 'New Toolbar…', icon: '', action: () => this.newToolbar() }, { label: 'Customize Toolbars…', icon: 'gear', action: () => this.showToolbarCustomize(t.id === 'claude' ? 'features' : t.id) }, 'sep', ...this.iconSizeItems());

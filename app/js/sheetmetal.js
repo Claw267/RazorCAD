@@ -325,9 +325,10 @@ export function fold(sheet) {
     }
     return null;
   };
-  // the end of a rolled part: a bend with nothing beyond it, only when the part has no flat panel at all
+  // the end of a rolled part: a bend with nothing beyond it, when the part has no flat panel at all, or a bend
+  // marked as the profile's last (end: its B side) or first (endA: its A side), e.g. a scroll starting with an arc
   const endAt = (b, side) => {
-    if (panels.length && !(b.end && side === 'b')) return null;
+    if (panels.length && !((b.end && side === 'b') || (b.endA && side === 'a'))) return null;
     const key = `${b.id}|end-${side}`;
     if (!joints.has(key)) joints.set(key, { joint: true, key, M: null });
     return joints.get(key);
@@ -454,7 +455,31 @@ function bendSolidMade(b, t, piece, vcuts = null) {
   free(prof);
   if (partial) {
     const sf = stripFace(b), missing = bop('cut', sf, piece);
-    for (const face of facesOf(missing)) { const tool = wrapTool(b, t, face); sol = swap(sol, cut3(sol, tool)); free(tool); }
+    for (const face of facesOf(missing)) {
+      // (material missing all round an island of the bend that is kept, e.g. a rolled panel trimmed by a cut
+      // round it: the bend as it is inside each island is kept aside, the whole outline cut away, the islands put
+      // back; taking the islands out of the tool instead leaves its faces on top of each other, and that boolean
+      // fails)
+      const keeps = [];
+      for (const w of face.clone().innerWires()) {
+        // (the island's own face, from its outline traced as runs: lines stay lines, so wrapTool carries those
+        // that cross the bend onto it as curves; a face made straight from the hole's wire, which runs the other
+        // way round, can fail)
+        let wf = null;
+        try { wf = runsFace(wireRuns(w, 32).map((r) => ({ ...r, pts: r.pts.map((p) => [p[0], p[1]]) }))); } catch { wf = null; }
+        if (!wf) { try { wf = polyFace(wireLoop(w, 32).map((p) => [p[0], p[1]])); } catch { wf = null; } }
+        free(w);
+        if (!wf) continue;
+        const keepTool = wrapTool(b, t, wf);
+        free(wf);
+        const kept = bop('common', sol, keepTool);
+        free(keepTool);
+        if (kept) keeps.push(kept);
+      }
+      const tool = wrapTool(b, t, face);
+      sol = swap(sol, cut3(sol, tool)); free(tool);
+      for (const kept of keeps) sol = sol && [...R.iterTopo(sol.wrapped, 'solid')].length ? swap(sol, bop('fuse', sol, kept)) : kept;
+    }
     free(sf, missing);
   }
   for (const v of cuts) {
@@ -524,11 +549,21 @@ function wrapPoint(b, t, p, r) {
 // (each curved edge of the face is carried onto the bend as one smooth edge, so one face of the tool)
 function wrapTool(b, t, face, formed = false) {
   let runs = wireRuns(face.clone().outerWire(), 32).map((r) => r.pts.map((p) => [p[0], p[1]]));
-  // formed: a straight edge that runs across the bend is carried onto it as a curve (it is one when bent), not as
-  // a straight chord between its ends
-  if (formed) {
-    const across = (p, q) => Math.abs(d2(s2(q, p), b.d)) > 1e-9;
-    runs = runs.map((pts) => (pts.length === 2 && across(pts[0], pts[1]) ? Array.from({ length: 33 }, (_, i) => a2(pts[0], m2(s2(pts[1], pts[0]), i / 32))) : pts));
+  // a straight edge that runs across the bend is carried onto it as a curve (it is one when bent), not as a straight
+  // chord between its ends: on a big rolled bend (a scroll's) a chord across a large opening sags far inside the
+  // sheet, and the tool would cut only a sliver of the hole. formed: always as 33 points; otherwise as many as keep
+  // each chord's sag under 5 % of the thickness (none extra on a small bend's short edges: a 90° R2 bend in 2 mm
+  // takes 4)
+  {
+    const across = (p, q) => Math.abs(d2(s2(q, p), b.d));
+    const ro = b.R + 1.1 * t, step = 2 * Math.acos(Math.max(-1, 1 - (0.05 * t) / ro));
+    const steps = (p, q) => (formed ? 32 : Math.min(64, Math.ceil(((across(p, q) / b.ba) * b.ang) / step)));
+    runs = runs.map((pts) => {
+      if (pts.length !== 2 || !(across(pts[0], pts[1]) > 1e-9)) return pts;
+      const n = steps(pts[0], pts[1]);
+      if (n < 2) return pts;
+      return Array.from({ length: n + 1 }, (_, i) => a2(pts[0], m2(s2(pts[1], pts[0]), i / n)));
+    });
   }
   const polygon = () => wrapLoopTool(b, t, wireLoop(face.clone().outerWire(), 32).map((p) => [p[0], p[1]]));
   if (runs.every((pts) => pts.length === 2)) return polygon();
@@ -1003,6 +1038,33 @@ export function baseFlange({ region, frame, t, R: R0, K, reverse }) {
 function insidePoint(region, guess) {
   const fs = facesOf(region);
   if (faceAt(fs, guess)) return guess;
+  // (the guess is in a hole, e.g. a plate with a big hole in its middle: the point of the sheet farthest from every
+  // edge, so it stays on the panel it was on when flanges are added later; a point just inside an edge would end up
+  // in that edge's flange or bend, and the part would fold about the flange instead)
+  const segs = [];
+  for (const f of fs) for (const w of [f.clone().outerWire(), ...f.clone().innerWires()]) {
+    const loop = wireLoop(w, 16);
+    for (let i = 0; i < loop.length; i++) segs.push([loop[i], loop[(i + 1) % loop.length]]);
+  }
+  const clear = (q) => {
+    let d = Infinity;
+    for (const [a, b] of segs) {
+      const ab = s2(b, a), L2 = d2(ab, ab), k = L2 > 0 ? Math.max(0, Math.min(1, d2(s2(q, a), ab) / L2)) : 0;
+      d = Math.min(d, l2(s2(q, a2(a, m2(ab, k)))));
+    }
+    return d;
+  };
+  let best = null, bestD = -1;
+  for (const f of fs) {
+    const bb = bbox2(f), N = 8;
+    for (let i = 0; i <= N; i++) for (let j = 0; j <= N; j++) {
+      const q = [bb.min[0] + ((bb.max[0] - bb.min[0]) * (i + 0.5)) / (N + 1), bb.min[1] + ((bb.max[1] - bb.min[1]) * (j + 0.5)) / (N + 1)];
+      if (!faceAt(fs, q)) continue;
+      const d = clear(q);
+      if (d > bestD) { bestD = d; best = q; }
+    }
+  }
+  if (best) return best;
   for (const f of fs) {
     const loop = wireLoop(f.clone().outerWire(), 8);
     for (let i = 0; i < loop.length; i++) {
@@ -1458,19 +1520,31 @@ export function cutSheet(sheet, tool) {
       const surf = revolveEdge(line, [b.p0[0], b.p0[1], axisZ(b, t)], [b.e[0], b.e[1], 0], (bendSign(b) * b.ang * 180) / Math.PI);
       const foot = surf ? bop('common', surf, local) : null;
       free(local, line, surf);
-      for (const face of facesOf(foot)) {
-        // the footprint unrolled: traced at 48 points per curved edge, each edge then made one smooth
-        // B-spline (a polyline would give the pattern, and so the folded body, hundreds of tiny faces)
-        const outer = face.clone().outerWire();
-        const runs = wireRuns(outer, 48).map((r) => ({ ...r, pts: r.pts.map((p) => unwrapPoint(b, t, p)) }));
-        let hole = null;
-        try { hole = runsFace(runs); } catch { hole = null; }
-        if (!hole) {
+      // the footprint unrolled: traced at 48 points per curved edge, each edge then made one smooth
+      // B-spline (a polyline would give the pattern, and so the folded body, hundreds of tiny faces)
+      const unrolled = (wire) => {
+        const runs = wireRuns(wire, 48).map((r) => ({ ...r, pts: r.pts.map((p) => unwrapPoint(b, t, p)) }));
+        let f = null;
+        try { f = runsFace(runs); } catch { f = null; }
+        if (!f) {
           const loop = runs.flatMap((r, i) => (i ? r.pts.slice(1) : r.pts));
           if (loop.length > 1 && l2(s2(loop[0], loop[loop.length - 1])) < 1e-7) loop.pop();
-          if (loop.length >= 3) hole = polyFace(loop);
+          if (loop.length >= 3) f = polyFace(loop);
         }
-        free(outer, face);
+        return f;
+      };
+      for (const face of facesOf(foot)) {
+        const outer = face.clone().outerWire();
+        let hole = unrolled(outer);
+        free(outer);
+        // (a footprint with islands in it, e.g. a frame cut round the part of the sheet that is kept: the islands
+        // stay)
+        for (const w of face.clone().innerWires()) {
+          const island = hole && unrolled(w);
+          free(w);
+          if (island) { const h2 = bop('cut', hole, island); free(island); if (h2 !== hole) { free(hole); hole = h2; } }
+        }
+        free(face);
         if (hole) { holes = swap(holes, bop('fuse', holes, hole)); if (hole !== holes) free(hole); }
       }
       free(foot);
@@ -2125,6 +2199,31 @@ function stripOffset(A, B, t) {
   return { n, P, Q, a, b, live, big };
 }
 
+// Cubic curves through the points of each list (all the same length), every list with the same parameter at
+// its i-th point (the chord lengths of all of them, averaged, so the parameter follows the length along each):
+// their edges, or null when a curve can't be made.
+function interpolated(lists) {
+  const O = oc(), m = lists[0].length;
+  const u = [0];
+  for (let i = 1; i < m; i++) u.push(u[i - 1] + lists.reduce((s, P) => s + len3(sub3(P[i], P[i - 1])), 0) / lists.length);
+  if (!(u[m - 1] > 0) || u.some((x, i) => i && !(x > u[i - 1]))) return null;
+  const owned = [], own = (x) => (owned.push(x), x);
+  try {
+    const params = own(new O.NCollection_Array1_double(1, m));
+    u.forEach((x, i) => params.SetValue(i + 1, x / u[m - 1]));
+    const hParams = own(new O.NCollection_HArray1_double(params));
+    return lists.map((P) => {
+      const arr = own(new O.NCollection_Array1_gp_Pnt(1, m));
+      P.forEach((p, i) => { const q = new O.gp_Pnt(...p); try { arr.SetValue(i + 1, q); } finally { q.delete(); } });
+      const builder = own(new O.GeomAPI_Interpolate(own(new O.NCollection_HArray1_gp_Pnt(arr)), hParams, false, 1e-9));
+      builder.Perform();
+      if (!builder.IsDone()) throw new Error('not interpolated');
+      const mk = own(new O.BRepBuilderAPI_MakeEdge(builder.Curve()));
+      return new R.Edge(mk.Edge());
+    });
+  } finally { owned.reverse().forEach((x) => x.delete()); }
+}
+
 // Formed: a smooth closed solid of ruled faces sewn together — between each pair of corners (breaks) the
 // surface between the profiles, its other side a thickness into the material and the ends along the
 // profiles; and the two ends of the strip.
@@ -2143,11 +2242,29 @@ function formedSolid(A, B, t, breaks = []) {
   };
   const cuts = [0, ...[...new Set(breaks)].filter((i) => i > 0 && i < n).sort((x, y) => x - y), n];
   const parts = [];
+  const four = (cA, cB, cA2, cB2) => parts.push(ruled(cA, cB), ruled(cA2, cB2), ruled(cA, cA2), ruled(cB, cB2));
+  // (a span is one smooth face, as it is rolled from one piece of sheet: the four curves through its points, all
+  // with the same parameter at each point so the rulings join A[i] to B[i] — interpolated, as an approximation of
+  // a profile that turns much further than a third of a turn (a whole cone with only its seam open) comes out
+  // wrong; if the interpolation can't be made, the span is approximated in pieces of at most 120°)
+  const turnAt = (i) => {
+    const d1 = unit3(sub3(A[i], A[i - 1])), d2v = unit3(sub3(A[i + 1], A[i]));
+    return Math.acos(Math.max(-1, Math.min(1, dot3(d1, d2v))));
+  };
   for (let k = 0; k < cuts.length - 1; k++) {
     const [i0, i1] = [cuts[k], cuts[k + 1]];
-    const span = (pts) => curve(pts.slice(i0, i1 + 1));
-    const cA = span(A), cB = span(B), cA2 = span(A2), cB2 = span(B2);
-    parts.push(ruled(cA, cB), ruled(cA2, cB2), ruled(cA, cA2), ruled(cB, cB2));
+    if (i1 - i0 < 2) { four(...[A, B, A2, B2].map((P) => curve(P.slice(i0, i1 + 1)))); continue; }
+    let whole = null;
+    try { whole = interpolated([A, B, A2, B2].map((P) => P.slice(i0, i1 + 1))); } catch { whole = null; }
+    if (whole) { four(...whole); continue; }
+    const pieces = [i0];
+    let acc = 0, last = i0;
+    for (let i = i0 + 1; i < i1; i++) {
+      acc += turnAt(i);
+      if (acc > (2 * Math.PI) / 3 && i - last >= 2) { pieces.push(i); acc = 0; last = i; }
+    }
+    pieces.push(i1);
+    for (let j = 0; j < pieces.length - 1; j++) four(...[A, B, A2, B2].map((P) => curve(P.slice(pieces[j], pieces[j + 1] + 1))));
   }
   parts.push(ruled(R.makeLine(A[0], B[0]), R.makeLine(A2[0], B2[0])), ruled(R.makeLine(A[n], B[n]), R.makeLine(A2[n], B2[n])));
   const sw = new O.BRepBuilderAPI_Sewing(1e-4, true, true, true, false);
@@ -2377,7 +2494,9 @@ export function extrudedSheet(segs, { frame, z0, z1, t, K, R: R0, side: mode = '
   let nextBend = 1;
   for (const L of lay) {
     if (L.s.kind !== 'arc') continue;
-    bends.push({ id: 'b' + nextBend++, p0: [L.X, y0], e: [0, 1], d: [1, 0], w, ba: L.len, ang: L.s.sweep, up: L.up, R: L.R });
+    // (a profile that starts or ends with an arc: nothing beyond that bend, as the open end of a rolled part)
+    const ends = closedCircle ? {} : { ...(L === lay[0] ? { endA: true } : {}), ...(L === lay[lay.length - 1] ? { end: true } : {}) };
+    bends.push({ id: 'b' + nextBend++, p0: [L.X, y0], e: [0, 1], d: [1, 0], w, ba: L.len, ang: L.s.sweep, up: L.up, R: L.R, ...ends });
   }
   const rootPt = first.s.kind === 'line' ? [first.X + first.len / 2, y0 + w / 2] : null;
   return {

@@ -991,6 +991,8 @@ Patterns and mirrors copy features or bodies. Any feature that changes the bodie
 
 **Circular Pattern options** {idx:Circular Pattern, options}: **Angle grows by** (without equal spacing) makes each angle between copies that much more than the one before. **Symmetric** adds as many again the other way round (less than a whole turn). **Rings** makes rings of copies further out from the axis, **Ring spacing** apart, out through the feature's middle.
 
+Bodies patterned or mirrored are called after the body they copy, numbered on from it (Blade, Blade (2), Blade (3)…); rename them in the tree as any body. {idx:pattern, body names}
+
 **Instances to Skip** (Linear and Circular) {idx:pattern, skip instances}: instance numbers to leave out, separated by commas: 1 is the feature, 2 the first copy, -2 the first copy the other way (symmetric). With a second direction or rings, row.column: 3.2 is the third along the first direction (or round) in the second row (or ring).
 
 **What to copy.** Choose the **Feature**, and add any number of **More features**: each is copied the same way. In a Linear, Circular, Sketch Driven or Curve Driven Pattern, **Clicking the model picks** either **Faces**, where each face brings the feature that made it (click a hole's wall to copy the hole), or **Bodies**, which are copied whole to every place as new bodies. Mirror takes bodies too (tick them, or click them on the model). Fill Pattern copies features only. {idx:pattern, of bodies}{idx:pattern, of faces}
@@ -1454,14 +1456,15 @@ Base Flange, Sheet Metal Extrude and Transition / Reducer have a **Gauge** list:
 
 ## Sheet Metal Extrude
 
-Extrudes an open sketch of lines and arcs into a sheet metal part. Arcs in the sketch are bends of their own radius; sharp corners get a bend of the inside radius set in the panel. Material goes on one side, the other side or both sides of the sketch; depth one way, reversed or mid-plane. A circle on its own is rolled into a cylinder, leaving a seam gap. Flanges, hems, Flatten and DXF export work on it. {idx:Sheet Metal Extrude}
+Extrudes an open sketch of lines and arcs into a sheet metal part. Arcs in the sketch are bends of their own radius; sharp corners get a bend of the inside radius set in the panel. Material goes on one side, the other side or both sides of the sketch; depth one way, reversed or mid-plane. A circle on its own is rolled into a cylinder, leaving a seam gap. Arcs may follow one another with no straight between them, and the profile may start or end with an arc: a fan scroll is its arcs then its straight side, rolled. Flanges, hems, Flatten and DXF export work on it. {idx:Sheet Metal Extrude}
 
 ## Lofted Bend
 
 A sheet metal part between two open profile sketches (each one chain of lines and arcs), for example a round-to-square transition, hopper or duct piece. Points are matched along both profiles by length, keeping every corner of either profile. {idx:Lofted Bend}
 
-- **Method**: **Bent** makes flat facets folded along straight lines, each fold a bend line in the flat pattern and DXF; set the number of divisions. **Formed** makes a smooth sheet (rolled or pressed), with the set number of forming lines along the profiles.
-- The flat pattern is developed at the neutral layer (K-factor) and works with Flatten, DXF export and flat pattern drawings. **Material on the other side** flips the thickness.
+- **Method**: **Bent** makes flat facets folded along straight lines, each fold a bend line in the flat pattern and DXF; set the number of divisions. **Formed** makes a smooth sheet (rolled or pressed), with the set number of forming lines along the profiles: one smooth face each side between corners, as it is rolled from one piece.
+- The flat pattern is developed at the neutral layer (K-factor) and works with Flatten, DXF export and flat pattern drawings. **Material on the other side** flips the thickness. Curved edges of the blank that lie on a circle (a cone's two ends) are written to the DXF as arcs.
+- The ends of a lofted bend are square to the sheet, as a blank cut flat and then rolled. A whole cone (a shroud, an inlet cone) is lofted between two circles drawn as arcs that leave a small gap where the seam goes, each where the cone's end is on the profiles' side of the sheet (the inside corner, say): no cut is needed.
 - A cut through a lofted bend is carried into its flat pattern, and the cut edges are square to the sheet, as a laser-cut blank formed to shape would be. This makes trimmed conical parts possible: loft the cone between two arcs, then cut it to the outline with a revolved cut.
 - Edge flanges, corner reliefs and closed corners can't be added to a lofted bend; its shape comes from the profiles.
 - **Flanges** {idx:Lofted Bend, flanges}: tick **Flange at the first profile** and/or **at the second profile** for a flat bolting ring there, as on a Transition: a flat sheet metal plate of its own (with its flat pattern, holes and all), out past the profile's plane, away from the other profile, by its **Thickness**, and **Width** wide all round, sharp at the corners. It goes round the profile with its gap closed straight across, so it suits a part made in one piece, and the profile must lie flat (a sketch, or a 3D sketch that lies in a plane). Its opening is the inside of the part there: the profile when the material is outside it, the profile less the thickness when inside. Bolt holes (**Bolt hole diameter**, 0: none) go at each corner of a line round the middle of the flange and evenly between, at most the set distance apart; round a smooth profile, evenly round it.
@@ -1593,7 +1596,7 @@ Turns an ordinary body into sheet metal. Pick a flat face of a thin-walled body 
 - A body curved other than in plain bends (a square-to-round transition or a reducer from another program, a cone) is **unrolled**: laid out flat at the neutral layer, triangle by triangle, so its flat pattern keeps every length; a ring is cut open at a seam. For a cone, click its curved face. A closed tube (bends all the way round) is unrolled the same way, cut open at a seam. A face curved both ways (a dished end, a spherical cap) can't be laid flat exactly: it is spread out as nearly as it can be (from its middle out along its profile, then relaxed so its lengths change as little as they can), and scaled to the dish's own area (pressed, the sheet keeps its volume). The note gives how far it stretches (the most over 98 % of it, and on average): use it as a blank size to press from, and check it against a trial. Cuts in such a sheet are unrolled with it (the hole is in the flat pattern); flanges, hems and corners can't be added (as on a lofted bend).
 - A body that RazorCAD folded itself (for example its STEP export) gets its closed corners back as RazorCAD made them: the corner type (V cutout, closed mitre or butt), which flange covers which and the gap are worked out from the body, and the relief and curved V lines are made again exactly. Other corners are traced from the body as they are.
 - After converting, the sheet's volume is compared with the body's. The feature note warns when they differ by more than 0.5 % (for example a nut or motor part that isn't sheet metal).
-- A **curved surface** that is curved one way only (a cylinder, or a profile swept straight) is converted into a rolled sheet: its section is followed by smoothly joined arcs, each a bend of its own radius. **Arc fit tolerance** (default 0.05 mm) sets how closely it follows the surface. **Thickness** goes behind the surface, in front of it, or both sides.
+- A **curved surface** that is curved one way only (a cylinder, or a profile swept straight) is converted into a rolled sheet: its section is followed by smoothly joined arcs, each a bend of its own radius. **Arc fit tolerance** (default 0.05 mm) sets how closely it follows the surface. **Thickness** goes behind the surface, in front of it, or both sides. A surface extruded from a sketch spline (an aerofoil blade drawn through points) is one face and converts this way.
 - **Trim where the sheet would run into itself** (on by default) trims a rolled sheet back where its two ends would meet, leaving a small clearance.
 
 ## Etch Lines
@@ -1971,7 +1974,7 @@ The parts' own files are not changed: each component cut gets the feature in its
 1. Click components to pick them (click again to drop one).
 2. Pick a direction: ±X, ±Y, ±Z, or along a face's normal.
 3. Drag the picked items along the direction, or type the distance, then click **Add Step**. **Spread Out** spaces the picked items out along the direction, one step each.
-4. Click a step to change it, ✕ to delete it. **Explode lines** (dashed, from each item's place to where it is shown) can be switched off.
+4. Click a step to change it, ✕ to delete it. **Explode lines** (dashed, from each item's place to where it is shown, along each of its moves in turn, turning the corner where it changed direction) can be switched off.
 
 The tree's **Exploded Views** folder lists them. Double-click one to explode or collapse it (animated); right-click for Explode / Collapse, Animate, Edit, Rename and Delete. The **Explode / Collapse** button on the ribbon does the same for the last one. Dragging a component, adding a mate or editing collapses the view first. Exploded views are saved with the file.
 
@@ -2275,6 +2278,24 @@ Saved macros are in the Tools menu (**Macro: name**) and the command search, so 
 
 > Warning: Macros can do anything RazorCAD can. Run only macros you trust.
 
+## Plug-ins
+
+A plug-in adds tools of your own to RazorCAD: a generator that asks for sizes and builds the part, a set of checks, an exporter for your workshop. Each plug-in gets **a ribbon tab of its own** holding its commands, and they are also in the Tools menu and the command search, so they can have keyboard shortcuts. Plug-ins are written in JavaScript, apart from RazorCAD, and kept on your own PC: a plug-in for your own use, or your company's, is never shared unless you share it. {idx:plug-ins}{idx:Plugins}
+
+**Tools ▸ Plug-ins…** lists the plug-ins found, each with its version, author and state:
+
+- **The tick** turns a plug-in on or off. A plug-in found for the first time is off until you turn it on (RazorCAD asks first, as a plug-in can do anything RazorCAD can). The ones turned on start each time RazorCAD does.
+- **New Plug-in…** makes a plug-in to start from, with a generator of a plate with holes on its own tab, and opens its folder. Change it and press **Reload**.
+- **Install…** installs a plug-in someone gave you, as a .zip (in the browser version, its folder).
+- **Reload** loads all the plug-ins again, after you change one.
+- **Folder** opens a plug-in's folder (in the browser version, **Remove** takes it out).
+
+A plug-in that fails to start shows why in the list; the others carry on. A plug-in's command that goes wrong shows its error, and its changes to a part are one undo step, as a macro's are.
+
+On the desktop, plug-ins are folders in `Documents\RazorCAD\Plugins`, one each. The browser version keeps the plug-ins installed into it in the browser's own storage. To write one, see Writing a plug-in.
+
+> Warning: Plug-ins can do anything RazorCAD can, including changing and saving files. Turn on only plug-ins you trust.
+
 ## Edit Material
 
 **Tools ▸ Edit Material…** (or the Material item in the tree) sets the part material. See Appendix B for the list. {idx:Edit Material}
@@ -2358,9 +2379,72 @@ Editing a feature meshes again only the faces and edges it changed, and a part r
 | `%APPDATA%\RazorCAD\crashes\` | Crash reports |
 | `%LOCALAPPDATA%\RazorCAD\modelcache\` | Built models of parts and assemblies, and the geometry after each feature, for fast opening and editing, one folder per version of the geometry kernel (up to 1 GB; safe to delete) |
 | `Documents\RazorCAD\Templates\` | Your drawing templates |
+| `Documents\RazorCAD\Plugins\` | Your plug-ins, a folder each (which are turned on is kept in prefs.json) |
 | `Name.autosave.rcad` | Auto-save, next to the part file |
 
 # For Developers
+
+## Writing a plug-in
+
+A plug-in is a folder holding `plugin.json` and a JavaScript module. **Tools ▸ Plug-ins ▸ New Plug-in…** makes one to start from. {idx:writing a plug-in}{idx:plugin.json}
+
+```
+Documents\RazorCAD\Plugins\My Tools\
+  plugin.json
+  main.js
+  lib\sizes.js        (more modules, imported by main.js: import { table } from './lib/sizes.js')
+  tables\sizes.json   (data files, read with api.readJSON('tables/sizes.json'))
+```
+
+`plugin.json` describes it:
+
+| Key | Meaning |
+|---|---|
+| `name` | Its name, shown in Tools ▸ Plug-ins |
+| `version`, `description`, `author` | Shown in Tools ▸ Plug-ins |
+| `tab` | Its ribbon tab's name (the name when left out) |
+| `main` | Its module (`main.js` when left out) |
+| `razorcad` | The oldest RazorCAD it runs in, for example `"0.21.5"` |
+
+The module exports `activate(api)`, run when the plug-in starts, and may export `deactivate()`, run when it is turned off or reloaded. In `activate` it adds its commands:
+
+```
+export function activate(api) {
+  api.command({
+    id: 'plate', label: 'Plate with Holes', icon: 'extrude',
+    async run(rc) {
+      const v = await api.form('Plate with Holes', [
+        { key: 'width', label: 'Width', type: 'number', unit: 'mm', value: 120, min: 1 },
+        { key: 'thick', label: 'Thickness', type: 'number', unit: 'mm', value: 10, min: 0.1 },
+      ]);
+      if (!v) return;
+      await rc.newPart(`Plate ${v.width}`);
+      const sk = await rc.sketch('top', (s) => s.centerRect(0, 0, v.width, 80));
+      await rc.extrude(sk, v.thick);
+    },
+  });
+}
+```
+
+What `api` offers:
+
+| | |
+|---|---|
+| `api.command({ id, label, icon, tooltip, in, run })` | A command on the plug-in's tab. `in`: `'part'` (the default), `'assembly'`, `'drawing'`, or a list of them: the documents whose ribbon shows it. `icon`: the name of one of RazorCAD's icons, or SVG markup of its own. `run(rc, api)` runs as a macro does: `rc` is the macro API (see Macros and its API button), its changes to a part are one undo step and the part is rebuilt when it ends |
+| `api.separator()` | A separator between the tab's buttons |
+| `api.form(title, fields, { ok, hint, remember })` | A form of values; resolves with `{ key: value }`, or null if cancelled. Fields: `{ key, label, type, value, unit, min, max, options, hint }`, with type `'number'` (sums like `120/2` too), `'integer'`, `'text'`, `'select'` (options: `[[value, label], …]` or values) or `'checkbox'`. Numbers outside min and max are refused in the form. The values given last are offered again (unless `remember: false`) |
+| `api.ask(question, value)`, `api.choose(title, html, [[id, label, primary]…])`, `api.dialog(title, html or element, buttons)` | A question, a choice, a dialog of its own |
+| `api.status(text)`, `api.toast(text, error)` | A message in the status bar, a toast |
+| `api.settings.get(key, default)`, `.set(key, value)`, `.all()` | The plug-in's own settings, kept with RazorCAD's preferences |
+| `api.readFile(path)`, `api.readJSON(path)` | A file of the plug-in's own folder: a table of sizes, a template |
+| `api.on(event, fn)` | `'rebuilt'` (a part rebuilt: `{ doc, result }`), `'opened'` and `'saved'` (`{ path, kind }`); returns a function that stops listening |
+| `api.onStop(fn)` | Something to undo when the plug-in stops |
+| `api.run(id)` | One of its commands, run as from its button |
+| `api.app`, `api.M`, `api.S`, `api.razorcad.version` | The whole application, the part model and sketch modules (as macros have them), RazorCAD's version |
+
+The modules of a plug-in import each other with relative paths (`./lib/x.js`); modules importing each other in a circle aren't supported. A plug-in made of several files can be shared as a .zip of its folder, installed with **Install…**.
+
+Parts made by a plug-in are made of ordinary features, so they can be edited afterwards like any other part, and opened by anyone without the plug-in.
 
 ## Rebuilding the executable
 
@@ -2424,7 +2508,7 @@ Run `python serve.py` and open http://localhost:8765/ in a browser. In that mode
 | `app/js/drawing*.js`, `drawtemplates.js`, `pdf.js`, `dxf.js` | Drawings, templates, sheet formats, PDF and DXF export |
 | `app/js/claudespec.js` | Modelling guide used by Ask Claude |
 | `app/js/collide.js`, `asmfeatures.js`, `asmcuts.js`, `motion.js`, `stdparts.js` | Collision detection, assembly holes and cuts, motion studies, standard parts |
-| `app/js/macros.js`, `drawcheck.js`, `autodim.js`, `compare.js` | Macros, Check Drawing, Auto Dimension, Compare With |
+| `app/js/macros.js`, `plugins.js`, `drawcheck.js`, `autodim.js`, `compare.js` | Macros, plug-ins, Check Drawing, Auto Dimension, Compare With |
 | `app/js/a11y.js`, `machine.js`, `kernelclient.js` | Keyboard use and screen-reader labels; how many kernels the PC can run; the kernels |
 | `kernelsig.py` | The geometry kernel's signature (the model cache is kept per kernel) |
 | `Manual/` | This manual: source, build script and change tracking |
@@ -2527,6 +2611,7 @@ A body or part with no material uses 1.00 g/cm³ for mass calculations.
 
 | Date | Software version | Changes |
 |---|---|---|
+| 2026-11-03 | 0.21.5-beta | Plug-ins: tools of your own, each on a ribbon tab of its own (Plug-ins, Writing a plug-in). Explode lines follow each move round its corners. Lofted Bend cones in one piece, from two circles; cuts round a kept part of a bend; Sheet Metal Extrude profiles that start with a roll; surfaces from sketch splines convert to rolled sheet; pattern copies named after their body. |
 | 2026-11-02 | 0.21.4-beta | Edge Flange and Closed Corner at angles other than 90°: walls cut back or run on to meet, bends cut in the flat from the base's corner point, every edge square to the sheet. Section View no longer stops a rebuild. Esc no longer lost after the quick-sizes box. |
 | 2026-11-02 | 0.21.3-beta | Mechanical mates grouped under Standard, Advanced and Mechanical Mates: Hinge (with a turn limit), Universal Joint and Linear Coupler, with icons for Screw, Slot and Cam. Motion studies with more than one driver. Flexible sub-assemblies: mates stay on their parts and dragging moves the parts. Holes placed on the floor of a cut. |
 | 2026-11-01 | 0.21.2-beta | Holes, bosses and snap hooks keep to their faces as the part changes; references found again as the nearest look-alike marked to check; curved faces followed when they move. Sizes typed while drawing arcs, ellipses, slots and polygons; the sketch's own undo history. Drawings: views and their projected views scaled together, detail views on their own scale, Break from Parent View, Move to Sheet, Break Lines (was Break View), views and tables placed clear of dimensions, a scale or sheet offered when a view doesn't fit. Bolts through stacked plates; flat patterns named after the part; body colours in STEP. Exact spline surfaces, Split Body and Split Face, lofted surfaces from model edges. |

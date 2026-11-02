@@ -30,13 +30,34 @@ const unit = (a) => { const l = Math.hypot(...a) || 1; return a.map((x) => x / l
 const DIRS = [['+X', [1, 0, 0]], ['−X', [-1, 0, 0]], ['+Y', [0, 1, 0]], ['−Y', [0, -1, 0]], ['+Z', [0, 0, 1]], ['−Z', [0, 0, -1]]];
 const dirName = (d) => DIRS.find(([, v]) => v.every((x, i) => Math.abs(x - d[i]) < 1e-9))?.[0] || `(${d.map((x) => fmt(x)).join(', ')})`;
 
-// item id → its offset, from the steps (and a step being made), scaled by t (0 collapsed … 1 exploded)
+// item id → its offset, from the steps (and a step being made), scaled by t (0 collapsed … 1 exploded).
+// The map's .legs has each item's moves in step order (item id → [[dx, dy, dz]], a move along the same line
+// as the one before joined to it), for its explode line.
 export function explodeOffsets(ex, extra = null, t = 1) {
-  const m = new Map();
+  const m = new Map(), legs = new Map();
   for (const st of [...(ex?.steps || []), ...(extra ? [extra] : [])]) {
-    for (const id of st.items) { const o = m.get(id) || [0, 0, 0]; m.set(id, o.map((v, i) => v + st.dir[i] * Number(st.dist || 0) * t)); }
+    const d = st.dir.map((x) => x * Number(st.dist || 0) * t);
+    if (Math.hypot(...d) < 1e-9) continue;
+    for (const id of st.items) {
+      const o = m.get(id) || [0, 0, 0];
+      m.set(id, o.map((v, i) => v + d[i]));
+      const L = legs.get(id) || [], last = L[L.length - 1];
+      const cross = last && Math.hypot(last[1] * d[2] - last[2] * d[1], last[2] * d[0] - last[0] * d[2], last[0] * d[1] - last[1] * d[0]);
+      if (last && cross < 1e-6 * Math.hypot(...last) * Math.hypot(...d)) L[L.length - 1] = last.map((v, i) => v + d[i]);
+      else L.push(d);
+      legs.set(id, L);
+    }
   }
+  m.legs = legs;
   return m;
+}
+
+// An item's explode line from where it was (a): along each of its moves in turn, so an item moved one way
+// and then another shows the corner instead of a line straight across. offs from explodeOffsets.
+export function explodePath(a, offs, id) {
+  const L = offs.legs?.get(id) || [offs.get(id)], pts = [a];
+  for (const d of L) { const p = pts[pts.length - 1]; if (Math.hypot(...d) > 1e-9) pts.push(p.map((x, i) => x + d[i])); }
+  return pts;
 }
 
 // A mesh with some of its bodies moved (offsets: body index → [dx, dy, dz]); the mesh given is left as it is.
@@ -67,14 +88,16 @@ export function offsetMesh(mesh, offsets) {
   return { ...mesh, key: (mesh.key || '') + '|x' + Math.random().toString(36).slice(2, 7), vertices: V, edges };
 }
 
-// dashed explode lines (from → to pairs), drawn over the model; returns the group (pass it back to replace)
-export function drawExplodeLines(vp, old, pairs) {
+// dashed explode lines (each a list of points: from, the corners, to), drawn over the model; returns the group
+// (pass it back to replace)
+export function drawExplodeLines(vp, old, paths) {
   if (old) { vp.overlayGroup.remove(old); old.traverse((o) => { o.geometry?.dispose(); o.material?.dispose?.(); }); }
-  if (!pairs.length) return null;
+  paths = paths.filter((p) => p.length > 1);
+  if (!paths.length) return null;
   const g = new THREE.Group();
   const w = vp.worldPerPixel();
-  for (const [a, b] of pairs) {
-    const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a), new THREE.Vector3(...b)]),
+  for (const pts of paths) {
+    const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts.map((p) => new THREE.Vector3(...p))),
       new THREE.LineDashedMaterial({ color: 0xc2410c, dashSize: 6 * w, gapSize: 4 * w, depthTest: false, transparent: true, opacity: 0.85 }));
     l.computeLineDistances();
     l.renderOrder = 15;

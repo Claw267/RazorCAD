@@ -6,6 +6,93 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-11-03 09:06 — Version 0.21.5-beta
+
+- Version 0.21.5-beta: plug-ins (tools of your own on ribbon tabs of their own, kept on your own PC), explode lines
+  that follow each move round its corners, rolled cones in one piece with their blanks as arcs, big sheet metal parts
+  that no longer restart the geometry kernel, fan scrolls that start with a roll, openings in rolled sheet, holed
+  plates with flanges, cones lofted between circles, cuts round a kept part of a bend, surfaces from sketch splines,
+  pattern copies named after their body. User manual PDF, the manual in the app and online, the browser version.
+
+## 2026-11-03 09:06 — Explode lines follow each move
+
+- **Exploded views:** an item moved one way and then another in later steps had its dashed explode line drawn
+  straight across from where it was to where it ended up. The line now follows each move in turn, turning the corner
+  where the item changed direction (moves along the same line are joined into one), in parts and assemblies.
+- Tests: explode-line-corners.
+
+## 2026-11-03 09:05 — Rolled cones in one piece, their blanks as arcs
+
+- **Lofted Bend (formed):** a whole cone was made of three smooth pieces each side (a third of a turn each), so it
+  showed seams as if welded from three. Each side between corners is now one smooth face, as the cone is rolled
+  from one piece of sheet.
+- **Flat pattern DXF:** a lofted or rolled blank's curved edges came out as many short straight lines (a cone's
+  blank: 146 lines, or over 1,100 after a cut). Lines that lie on one circle (within 0.02 mm, or 0.02% of its
+  radius) and turn only a little from one to the next are now written as one arc, so a cone's blank is two arcs
+  and two lines. A polygon's corners turn further and stay lines.
+
+## 2026-11-03 07:09 — Big sheet metal parts no longer restart the geometry kernel after opening
+
+- **Opening a big part:** after a part that takes a while to build opened (a fan casing with 50 bodies, sheet metal
+  among them), RazorCAD keeps the state after each feature so the first change is quick. Writing those states out
+  listed every face and edge of every state at once, and with this many the kernel ran out of stack ("Maximum call
+  stack size exceeded"): it restarted, and what was asked of it next (a Flatten, a rebuild) failed with a kernel
+  error. The states are now written however big the part, and the part reopens from them.
+
+## 2026-11-02 23:02 — Lofted Bend cones, rolled panels trimmed round, spline surfaces to sheet metal, pattern copy names
+
+- **Lofted Bend (formed) between two circles:** a whole cone (two circles open only at a small seam: an impeller
+  shroud, an inlet cone) came out wildly wrong (its edges 4 times too long, the part 2.5 m across). The smooth
+  surface is now made in pieces of at most a third of a turn, and comes out as the cone it is.
+- **Cuts round a part of a bend that is kept:** a cut drawn as a frame round the part to keep (a rolled door trimmed
+  to a rounded outline) did nothing, or left the flat pattern out of date. The kept part is now the part, folded and
+  in the flat pattern.
+- **Surfaces from sketch splines:** a spline drawn through points, extruded or revolved as a surface, was one face per
+  span between its points, so Convert to Sheet Metal refused it ("convert one face"). It is now one smooth face, and
+  converts to a rolled sheet.
+- **Patterns of bodies:** the copies are called after the body they copy, numbered on from it ("Blade (2)",
+  "Blade (3)"…), not after the pattern ("Circular Pattern1[2]").
+- Tests: sheet-cone-loft-ring-cut-spline-and-pattern-names.
+
+## 2026-11-02 22:23 — Sheet metal: fan scrolls that start with a roll, big openings in rolled sheet, holed plates with flanges
+
+- **Sheet Metal Extrude:** a profile that starts with an arc (a fan scroll: rolled arcs, then a straight side) was
+  refused ("A bend is not joined to flat material on both sides"); only the last segment could be a free rolled end.
+  Either end can now be.
+- **Cuts in rolled sheet:** a cut with straight sides across a big bend (a 300 mm access opening in a scroll's
+  R600 roll) was right in the flat pattern but took only a sliver out of the folded part. The folded part now has
+  the whole opening.
+- **Base Flange with a hole in its middle:** made the other way (or on an offset plane) and then given Edge Flanges,
+  the plate could fold about one of its flanges and end up lying at 90° (an inlet plate with its inlet hole). The
+  plate now stays where it was drawn.
+- **Etch lines:** the etch's name was drawn at every line and arc of it; now once.
+- Tests: sheet-scroll-opening-and-holed-plate (a scroll that starts with a roll, a 300 x 200 opening cut in its
+  R500 roll taking what it should to 0.0001 %, and an offset, reversed plate with a big hole and two flanges).
+
+## 2026-11-02 18:20 — Plug-ins: one turned on while running starts once
+
+- **Plug-ins:** turning on a plug-in that was running already (or reloading it while it ran) ran its activate() a
+  second time, so its commands clashed ("There is a command … already") and it showed as failed. A plug-in is now
+  stopped before it starts again, and turning on one that runs leaves it running.
+- Tests: plugins turns a running plug-in on again and runs it again.
+
+## 2026-11-02 16:40 — Plug-ins: tools of your own, each on a ribbon tab of its own
+
+- **Plug-ins (Tools ▸ Plug-ins…):** tools written in JavaScript apart from RazorCAD and kept on your own PC, in
+  Documents\RazorCAD\Plugins (a folder each: plugin.json and its modules), so private plug-ins stay private. Each
+  plug-in gets a ribbon tab of its own with its commands, in parts, assemblies or drawings as each command asks, and
+  they are in the Tools menu and the command search too (so they can have shortcuts).
+- A plug-in's command runs as a macro does (the macro API, one undo step, rebuilt when it ends), and can ask for
+  values with a form of its own: numbers with units, limits, choices and ticks, the values given last offered again.
+  Plug-ins also keep settings, read their own files (tables of sizes), and hear when a part is rebuilt, opened or
+  saved.
+- The dialog turns plug-ins on and off (one found for the first time is off until turned on), reloads them after a
+  change, makes a new one to start from (a generator of a plate with holes on its own tab) and installs one from a
+  .zip (the browser version: its folder). A plug-in that fails to start shows why; the others carry on.
+- Manual: Plug-ins, and Writing a plug-in (plugin.json and everything api offers).
+- Tests: plugins (two modules, the form, part and assembly tabs, one undo step, settings, events, a failing plug-in,
+  the template's generator); the plug-in folders on the desktop (paths kept inside a plug-in, .zip installs).
+
 ## 2026-11-02 14:30 — Version 0.21.4-beta
 
 - Version 0.21.4-beta (0.21.3-beta was never published; its changes ship here): angled Edge-Flange and Closed Corner
