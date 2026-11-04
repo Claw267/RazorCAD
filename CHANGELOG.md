@@ -8,12 +8,18 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ## 2026-11-04 — Loft profiles from split model faces
 
+- Face profiles now accept G1/G2 endpoint joins to adjacent CAD surfaces, with automatic boundary alignment,
+  native contact, normal and curvature checks, and compatible adaptive rails. Extended sketch rails are checked
+  at their intersections with the profiles, rather than at their distant endpoints.
+- Guide selection has its own Chain selection switch: pick a single rail from Outline or another closed sketch
+  without changing how profiles are selected.
+
 - Open, unweighted high-degree control splines keep their original B-spline edges in automatic loft profiles,
   surface extrusions and sketch guide wires. Their fitted cubic pieces no longer create dozens of artificial
   face boundaries that fragment the heel of a neck and disrupt later face selections.
 - Loft accepts flat model faces as sections; Lofted Surface accepts model face boundaries, including curved faces.
   Select the smaller face after Split Face to use its trimmed boundary, then select sketch contours as guide rails.
-  Face sections use automatic correspondence and free ends; Thin Feature and guided face profiles with holes are
+  Face sections use automatic correspondence; Thin Feature and guided face profiles with holes are
   rejected explicitly. A missing source body asks for reselection rather than picking a nearby face.
 - Automatic lofts between corresponding spline profiles now accommodate different numbers of internal cubic spans.
 

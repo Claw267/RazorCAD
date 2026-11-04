@@ -6710,6 +6710,9 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     const a=window.app;await a.newDocument?.();closeModals();
     const settle=async()=>{await wait(180);await until(()=>!a.kernel.pending);};
     const d=fixture('loft',true);d.feature.profiles=[];
+    const S=await import('/js/sketchmodel.js'),rail=S.getCurve(d.guide,d.feature.guides[0].curves[0]);
+    const cornerA=S.addPoint(d.guide,8,20),cornerB=S.addPoint(d.guide,8,0);
+    S.addLine(d.guide,rail.p2,cornerA);S.addLine(d.guide,cornerA,cornerB);S.addLine(d.guide,cornerB,rail.p1);
     await a.setDoc(d.doc);a.editFeature(d.feature.id);await settle();
     if(!a.faceProfilePicking())return {ok:false,detail:'Loft does not accept model faces'};
     const vp=a.viewport;
@@ -6727,7 +6730,21 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     a.pm.loftSlot='guides';if(a.faceProfilePicking())return {ok:false,detail:'Guide selection accepts faces'};
     a.pm.loftSlot='profiles';await a.okPM();await settle();
     const body=a.result.bodies.find(b=>M.bodyOwner(b.id)===d.feature.id),m=body&&(await a.kernel.request('measure',{refs:[{kind:'body',id:body.id}]})).items[0];
-    return {ok:!a.result.errors.size&&Math.abs(m?.volume-400)<1e-4,detail:{native,volume:m?.volume,errors:[...a.result.errors]}};
+    if(a.result.errors.size||Math.abs(m?.volume-400)>1e-4)return {ok:false,detail:{profiles:a.doc.features.find(f=>f.id===d.feature.id)?.profiles,errors:[...a.result.errors]}};
+    a.editFeature(d.feature.id);await settle();
+    document.querySelector('[data-loft-slot="guides"]').click();await settle();
+    const chain=document.querySelector('[data-loft-chain="guides"]');
+    if(!chain)return {ok:false,detail:'Guides lack their own chain selection control'};
+    chain.checked=false;chain.dispatchEvent(new Event('change'));await settle();
+    if(a.pm.loftChain===false||a.pm.loftGuideChain!==false)return {ok:false,detail:'Guide and profile chain controls are coupled'};
+    a.pm.feature.guides=[];a.ui.renderPM();a.updateSketchDisplay();vp.setStandardView('iso',false);await settle();
+    await events.click(...events.toScreen(vp.camera.position.clone().set(5,0,10)));await settle();
+    if(a.pm.loftDraft?.curves.length!==1)return {ok:false,detail:'Could not select just one rail from a closed sketch outline'};
+    a.finishLoftSelection();await settle();
+    const chosen=a.pm.feature.guides;
+    if(chosen.length!==1||chosen[0].curves.length!==1||chosen[0].curves[0]!==rail.id)return {ok:false,detail:{message:'The guide selection expanded to the whole outline',chosen}};
+    a.cancelPM();await settle();
+    return {ok:!a.result.errors.size&&Math.abs(m?.volume-400)<1e-4,detail:{native,volume:m?.volume,profiles:a.doc.features.find(f=>f.id===d.feature.id)?.profiles,errors:[...a.result.errors]}};
   },
 
   async 'profile-faces-and-second-draft'() {

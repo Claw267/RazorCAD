@@ -1,6 +1,7 @@
 import * as M from '/js/model.js';
 import * as S from '/js/sketchmodel.js';
 import {KernelClient} from '/js/kernelclient.js';
+import {tangentFixture,curvatureFixture} from '/tests/loft-end-cases.js';
 
 // Split two 10 x 10 planar surfaces at x=3. Loft only the 2 x 10
 // portions at their right, keeping the original sketches behind the faces.
@@ -81,6 +82,31 @@ export async function run({threads=1}={}) {
     }
     // Two crossings split the U-shaped side into three faces; the flat side stays whole.
     results.push({name:'plane splits the complete high-degree extrusion face',ok:!shr.errors.length&&shb?.faceCount===4&&gaps.length===6&&gaps.every(d=>d<1e-6),faces:shb?.faceCount,gaps,errors:shr.errors});
+    const ends=tangentFixture({type:'surfLoft'}),{doc:endDoc,profiles:endSketches,loft:endLoft}=ends;
+    const upper=M.createFeature(endDoc,'extrude',{sketch:endSketches.at(-1).id,depth:20,merge:false});endDoc.features.splice(-1,0,upper);
+    endLoft.profiles=[{kind:'modelFace',p:[0,0,0],body:ends.supportFeature?.id||endDoc.features.find(f=>f.type==='extrude').id},{kind:'modelFace',p:[0,100,0],body:upper.id}];
+    endLoft.startCondition=endLoft.endCondition='curvature';
+    endLoft.endFaces=[[10,110,0],[-10,110,0],[0,110,10],[0,110,-10]].map(p=>({p,body:upper.id}));
+    for(const guided of [false,true]) {
+      if(guided){
+        const rail=M.createFeature(endDoc,'sketch',{plane:{ref:'front'}});
+        const curve=S.addCtrlSpline(rail,[[20,0],[20,20],[20,40],[10,60],[10,80],[10,100]].map(p=>S.addPoint(rail,...p)),5);
+        endDoc.features.splice(-1,0,rail);endLoft.guides=[{kind:'sketchContour',sketch:rail.id,curves:[curve]}];
+      }
+      const result=await k.rebuild(endDoc);
+      results.push({name:`model face sections, G2 at both supports, rail ${guided}`,ok:!result.errors.length&&result.notes[endLoft.id]?.includes('G2 curvature mismatch'),errors:result.errors,note:result.notes[endLoft.id]});
+    }
+    const railFeature=endDoc.features.find(f=>f.id===endLoft.guides[0].sketch),railSpline=railFeature.curves.find(c=>c.type==='spline');
+    endLoft.guides[0].curves.push(S.addLine(railFeature,S.addPoint(railFeature,20,-20),railSpline.pts[0]),S.addLine(railFeature,railSpline.pts.at(-1),S.addPoint(railFeature,10,120)));
+    const extended=await k.rebuild(endDoc);
+    results.push({name:'G2 uses rail contacts inside an extended sketch chain',ok:!extended.errors.length&&extended.notes[endLoft.id]?.includes('Adaptive guides'),errors:extended.errors,note:extended.notes[endLoft.id]});
+    const spherical=curvatureFixture({type:'surfLoft',both:true});
+    spherical.loft.profiles=spherical.profiles.map((sk,i)=>{
+      const cap=M.createFeature(spherical.doc,'surfPlanar',{sketch:sk.id});spherical.doc.features.splice(-1,0,cap);
+      return {kind:'modelFace',body:cap.id,p:[0,i?30:0,0]};
+    });
+    const sphericalResult=await k.rebuild(spherical.doc);
+    results.push({name:'model face profiles keep nonzero spherical G2 curvature',ok:!sphericalResult.errors.length&&sphericalResult.notes[spherical.loft.id]?.includes('G2 curvature mismatch'),errors:sphericalResult.errors,note:sphericalResult.notes[spherical.loft.id]});
     const curvedFaces=M.newDoc(),curvedRefs=[];
     for(const x of [0,20]) {
       const sk=M.createFeature(curvedFaces,'sketch',{plane:{ref:'front'}});

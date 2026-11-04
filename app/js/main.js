@@ -3044,7 +3044,7 @@ class App {
   }
 
   pickLoftContour(e) {
-    const sweep=this.sweepPicking(),slot=sweep?(this.pm.sweepSlot||'profile'):(this.pm.loftSlot||'profiles'),guide=sweep?slot!=='profile':slot==='guides',chain=sweep?this.pm.feature.selectionChains?.[slot]!==false:this.pm.loftChain!==false;
+    const sweep=this.sweepPicking(),slot=sweep?(this.pm.sweepSlot||'profile'):(this.pm.loftSlot||'profiles'),guide=sweep?slot!=='profile':slot==='guides',chain=sweep?this.pm.feature.selectionChains?.[slot]!==false:this.pm[guide?'loftGuideChain':'loftChain']!==false;
     const candidates = this.loftCandidates(), vp = this.viewport, m = vp.screenPos(e);
     let edge = null, distance = 7;
     for (const [id, s] of candidates) for (const line of this.loftPickData(id, s).lines) {
@@ -3135,7 +3135,7 @@ class App {
       const ref = this.pickLoftContour(e);
       if (!ref && this.faceProfilePicking()) { const fh = this.faceAt(e); if (fh) return this.addFaceProfile(fh); }
       if (!ref) { this.status('Click a sketch contour, or inside a closed profile.'); return; }
-      const chain=this.sweepPicking()?this.pm.feature.selectionChains?.[this.pm.sweepSlot||'profile']!==false:this.pm.loftChain!==false;
+      const chain=this.sweepPicking()?this.pm.feature.selectionChains?.[this.pm.sweepSlot||'profile']!==false:this.pm[this.pm.loftSlot==='guides'?'loftGuideChain':'loftChain']!==false;
       if (chain) return this.addLoftContour(ref);
       let draft = this.pm.loftDraft;
       if (draft && draft.sketch !== ref.sketch) throw new Error('Finish the current contour before selecting another sketch');
