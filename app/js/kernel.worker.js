@@ -2978,6 +2978,81 @@ async function rebuild(doc, previewId = null, opts = {}) {
   };
   const isFaceProfile = (ref) => !!ref && typeof ref === 'object' && ref.kind === 'modelFace';
   const sectionOf = (ref, thin) => (isFaceProfile(ref) ? faceSection(ref, thin) : getSketch(ref, thin));
+  // Loft the trimmed CAD wires themselves. In particular, a Split Face profile must
+  // never be replaced by the unsplit sketch that originally produced that face.
+  const faceLoft = (f, ids, surface) => {
+    if (f.thin) throw new Error('Thin Feature requires sketch profiles');
+    if (LC.hasManualConnections(f)) throw new Error('Model face profiles use Automatic profile connectors');
+    if (hasLoftEnds(f)) throw new Error('Model face profiles currently require unconstrained loft ends');
+    const owned = [], keep = w => (owned.push(w), w);
+    try {
+      const sections = ids.map((ref, i) => {
+        if (isFaceProfile(ref)) {
+          needEdges('Picking a loft profile face');
+          const bodies = ref.body ? [...solids, ...surfaces].filter(b => b.id === ref.body) : [...solids, ...surfaces];
+          const hit = findFaceAny(bodies, ref);
+          if (!hit) throw new Error(`Profile ${i + 1}: the selected face is missing; reselect it`);
+          if (!surface && hit.face.geomType !== 'PLANE') throw new Error('A solid loft needs flat profile faces. Use Surface Loft for curved face boundaries');
+          return { name: `Face profile ${i + 1}`, outer: keep(hit.face.clone().outerWire()), holes: surface ? [] : hit.face.clone().innerWires().map(keep) };
+        }
+        if (surface && curves.has(ref)) return { name: `Profile ${i + 1}`, outer: keep(curves.get(ref).wire.clone()), holes: [] };
+        const s = sketches.get(LR.sourceId(ref));
+        if (!s) throw new Error(`Profile ${i + 1}: the sketch is missing, suppressed or has errors`);
+        const selected = typeof ref === 'string' ? { sketch: s.sk } : LR.resolveContour(s.sk, ref);
+        const regions = selected.region ? [selected.region] : S.profileRegions(selected.sketch);
+        if (regions.length !== 1) throw new Error(`${s.sk.name} must have exactly one closed profile`);
+        return { name: s.sk.name, outer: keep(loopWire(s.frame, regions[0].outer.segs)), holes: surface ? [] : regions[0].holes.map(h => keep(loopWire(s.frame, h.segs))) };
+      });
+      const holes = sections[0].holes.length;
+      if (sections.some(s => s.holes.length !== holes)) throw new Error('Every profile needs the same number of holes (inner loops)');
+      const guides = (f.guides || []).filter(Boolean).map(ref => {
+        if (curves.has(ref)) return { name: 'Guide curve', wire: curves.get(ref).wire };
+        const s = sketches.get(LR.sourceId(ref));
+        if (!s) throw new Error('A guide sketch is missing, suppressed or has errors');
+        const wires = sketchWires(typeof ref === 'string' ? s.sk : LR.resolveContour(s.sk, ref, true).sketch, s.frame).map(keep);
+        if (wires.length !== 1) throw new Error(`The guide ${s.sk.name} must be one connected chain of curves`);
+        return { name: s.sk.name, wire: wires[0] };
+      });
+      if (guides.length && f.ruled) throw new Error('Guide curves require a smooth loft: untick straight (ruled) sides');
+      if (guides.length && holes) throw new Error('Guided lofts of model faces with holes are not supported yet');
+      const build = wires => {
+        const oc = R.getOC(), mk = new oc.BRepOffsetAPI_ThruSections(!surface, !!f.ruled, 1e-6);
+        try {
+          if (!f.ruled) {
+            mk.SetContinuity(oc.GeomAbs_Shape[f.continuity === 'C1' ? 'GeomAbs_C1' : 'GeomAbs_C2']);
+            if (f.smoothing) mk.SetSmoothing(true);
+          }
+          for (const w of wires) mk.AddWire(w.wrapped);
+          mk.Build();
+          const shape = R.cast(mk.Shape());
+          if (!surface && !solidsOf(shape).length) throw new Error('The face profiles could not be lofted into a solid');
+          return shape;
+        } finally { mk.delete(); }
+      };
+      const wires = sections.map(s => s.outer);
+      const g = guides.length ? buildGuidedLoft(wireSections(wires, false), guides, sections.map(s => s.name), [], 0,
+        { surface, profileWires: wires, constrained: f.guideMethod === 'constrained', guideContinuity: f.guideContinuity || 'C0', build }) : null;
+      let shape = g ? g.shape : build(wires);
+      for (let i = 0; i < holes; i++) shape = shape.cut(build(sections.map(s => s.holes[i])));
+      if (guides.length) res.notes[f.id] = `${ids.length} profiles, ${guides.length} guide curves` + guideConstraintNote(g);
+      return shape;
+    } finally { owned.forEach(w => w.delete()); }
+  };
+  // Fit splines with the same source topology can contain different numbers of
+  // cubic spans. Automatic CAD compatibility must match those spans, rather than
+  // require the user to split an already corresponding spline by hand.
+  const splineSpanMismatch = ids => {
+    const profiles = ids.map(ref => {
+      const s = sketches.get(LR.sourceId(ref));
+      if (!s) return null;
+      const selected = typeof ref === 'string' ? { sketch: s.sk } : LR.resolveContour(s.sk, ref);
+      const regions = selected.region ? [selected.region] : S.profileRegions(selected.sketch, true);
+      if (regions.length !== 1 || regions[0].holes.length) return null;
+      const types = [...new Set(regions[0].outer.segs.map(g => g.sourceCurve))].map(id => S.getCurve(s.sk, id)?.type).sort();
+      return { types, spans: regions[0].outer.segs.length };
+    });
+    return profiles.every(p => p && p.types.includes('spline') && JSON.stringify(p.types) === JSON.stringify(profiles[0].types)) && profiles.some(p => p.spans !== profiles[0].spans);
+  };
   // A surface extrusion's or revolution's contours: { frame, planar, wires: [{ wire, closed }], pts? } for each sketch
   // contour, flat model face (its outer and inner edges) and the chains of the picked model edges (f.edges)
   const surfaceSections = (f, revolve = false) => {
@@ -5527,6 +5602,10 @@ async function rebuild(doc, previewId = null, opts = {}) {
           // a surface through two or more profiles (open or closed chains of sketches / 3D sketches)
           const ids = (f.profiles || []).filter(Boolean);
           if (ids.length < 2) throw new Error('Select at least two profiles (in order)');
+          if (ids.some(isFaceProfile) || !LC.hasManualConnections(f) && !hasLoftEnds(f) && splineSpanMismatch(ids)) {
+            const shape = faceLoft(f, ids, true);
+            surfaces.push(bodyRec(newId(f.id), shape, f.id)); applied.push({ op: 'add', tool: shape }); break;
+          }
           const connectorControls=loftConnectionControls(f,ids);
           const wires = ids.map((id) => {
             if (curves.has(id)) return curves.get(id).wire;
@@ -7257,6 +7336,11 @@ async function rebuild(doc, previewId = null, opts = {}) {
         case 'loft': {
           const ids = (f.profiles || []).filter(Boolean);
           if (ids.length < 2) throw new Error('Select at least two profiles (in order)');
+          if (ids.some(isFaceProfile) || !f.thin && !LC.hasManualConnections(f) && !hasLoftEnds(f) && splineSpanMismatch(ids)) {
+            const tool = faceLoft(f, ids, false), scope = (f.op === 'cut' || f.op === 'intersect') && f.scopeAll === false ? f.scope || [] : null;
+            tools.set(f.id, { shape: tool, op: f.op, merge: f.merge !== false, scope });
+            apply(f.op, tool, f.merge !== false, scope); break;
+          }
           const connectorControls=loftConnectionControls(f,ids);
           const thin = f.thin ? { t: ev(f.thinT), dir: f.thinDir || 'one' } : null;
           const walls = thin && ids.some((id) => typeof id === 'string' && !sketches.get(id) && sketch3dOf(id)), thinR = walls ? null : thin;

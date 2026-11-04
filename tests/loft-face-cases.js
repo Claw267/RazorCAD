@@ -1,0 +1,76 @@
+import * as M from '/js/model.js';
+import * as S from '/js/sketchmodel.js';
+import {KernelClient} from '/js/kernelclient.js';
+
+// Split two 10 x 10 planar surfaces at x=3. Loft only the 2 x 10
+// portions at their right, keeping the original sketches behind the faces.
+export function fixture(type='loft', guided=false) {
+  const doc=M.newDoc(),profiles=[],faces=[];
+  for(const z of [0,20]) {
+    const sk=M.createFeature(doc,'sketch',{plane:{ref:'face',frame:{o:[0,0,z],u:[1,0,0],v:[0,1,0],n:[0,0,1]}}});
+    const pts=[[-5,-5],[5,-5],[5,5],[-5,5]].map(p=>S.addPoint(sk,...p));
+    pts.forEach((p,i)=>S.addLine(sk,p,pts[(i+1)%4]));doc.features.push(sk);
+    const face=M.createFeature(doc,'surfPlanar',{sketch:sk.id});doc.features.push(face);faces.push(face);
+    profiles.push({kind:'modelFace',body:face.id,p:[4,0,z],n:[0,0,1]});
+  }
+  const plane=M.createFeature(doc,'plane',{refs:[{kind:'plane',id:'right'}],offset:3});doc.features.push(plane);
+  const split=M.createFeature(doc,'splitLine',{tool:plane.id,faces:profiles.map(r=>({p:r.p.slice(),body:r.body}))});doc.features.push(split);
+  const guide=M.createFeature(doc,'sketch',{plane:{ref:'face',frame:{o:[0,0,0],u:[1,0,0],v:[0,0,1],n:[0,-1,0]}}});
+  const curve=S.addLine(guide,S.addPoint(guide,5,0),S.addPoint(guide,5,20));doc.features.push(guide);
+  const feature=M.createFeature(doc,type,{profiles,guides:guided?[{kind:'sketchContour',sketch:guide.id,curves:[curve]}]:[],merge:false});doc.features.push(feature);
+  return {doc,feature,guide,faces,split};
+}
+
+export async function run({threads=1}={}) {
+  const k=new KernelClient({threads}),results=[];await k.ready;
+  try {
+    for(const type of ['loft','surfLoft'])for(const guided of [false,true]) {
+      const d=fixture(type,guided),r=await k.rebuild(d.doc),body=r.body?.bodies?.find(b=>M.bodyOwner(b.id)===d.feature.id);
+      const m=body&&(await k.request('measure',{refs:[{kind:'body',id:body.id}]})).items[0];
+      const expected=type==='loft'?400:480,value=type==='loft'?m?.volume:m?.area;
+      results.push({name:`${type}, split face, guide ${guided}`,ok:!r.errors.length&&Math.abs(value-expected)<1e-4,errors:r.errors,value,expected});
+      if(guided) {
+        // A saved reference must still select the small trimmed face on reload.
+        const again=await k.rebuild(JSON.parse(JSON.stringify(d.doc)));
+        results.push({name:`${type}, saved face references`,ok:!again.errors.length,errors:again.errors});
+        d.guide.points.forEach(p=>p.x+=1);
+        const bad=await k.rebuild(d.doc);
+        results.push({name:`${type}, guide misses boundary`,ok:bad.errors.some(([id,e])=>id===d.feature.id&&/doesn't touch/.test(e)),errors:bad.errors});
+      }
+    }
+    const missing=fixture();missing.feature.profiles[0].body='deleted-body';
+    const r=await k.rebuild(missing.doc);
+    results.push({name:'missing face body is not replaced by a nearby face',ok:r.errors.some(([id,e])=>id===missing.feature.id&&/missing/.test(e)),errors:r.errors});
+    const curved=fixture('loft',true);curved.guide.curves=[];
+    const spline=S.addCtrlSpline(curved.guide,[[5,0],[8,20/3],[8,40/3],[5,20]].map(p=>S.addPoint(curved.guide,...p)),3);
+    curved.feature.guides=[{kind:'sketchContour',sketch:curved.guide.id,curves:[spline]}];
+    const cr=await k.rebuild(curved.doc),cb=cr.body?.bodies?.find(b=>M.bodyOwner(b.id)===curved.feature.id);
+    const gap=cb&&(await k.request('measure',{refs:[{kind:'vertex',p:[7.25,0,10]},{kind:'body',id:cb.id}]})).distance;
+    results.push({name:'split faces follow a curved sketch rail',ok:!cr.errors.length&&gap<=.01,errors:cr.errors,gap});
+    const splineDoc=M.newDoc(),splineRefs=[];
+    for(const [z,depth] of [[0,10],[20,15]]) {
+      const sk=M.createFeature(splineDoc,'sketch',{plane:{ref:'face',frame:{o:[0,0,z],u:[1,0,0],v:[0,1,0],n:[0,0,1]}}});
+      const pts=[[-5,0],[-5,-1],[-5,-depth],[0,-depth],[5,-depth],[5,-1],[5,0]].map(p=>S.addPoint(sk,...p));
+      S.addLine(sk,pts.at(-1),pts[0]);S.addCtrlSpline(sk,pts,5);splineDoc.features.push(sk);splineRefs.push(sk.id);
+    }
+    const spans=splineDoc.features.map(sk=>S.profileRegions(sk,true)[0].outer.segs.length);
+    const sf=M.createFeature(splineDoc,'surfLoft',{profiles:splineRefs});splineDoc.features.push(sf);
+    const sr=await k.rebuild(splineDoc);
+    results.push({name:'corresponding degree-five splines with unequal cubic span counts',ok:spans[0]!==spans[1]&&!sr.errors.length&&sr.body?.bodies?.some(b=>M.bodyOwner(b.id)===sf.id),spans,errors:sr.errors});
+    const curvedFaces=M.newDoc(),curvedRefs=[];
+    for(const x of [0,20]) {
+      const sk=M.createFeature(curvedFaces,'sketch',{plane:{ref:'front'}});
+      S.addArc(sk,S.addPoint(sk,x,0),S.addPoint(sk,x+5,0),S.addPoint(sk,x,5));curvedFaces.features.push(sk);
+      const side=M.createFeature(curvedFaces,'surfExtrude',{sketch:sk.id,depth:20});curvedFaces.features.push(side);
+      curvedRefs.push({kind:'modelFace',body:side.id,p:[x+5/Math.sqrt(2),5/Math.sqrt(2),18.5]});
+    }
+    const cut=M.createFeature(curvedFaces,'plane',{refs:[{kind:'plane',id:'front'}],offset:17});curvedFaces.features.push(cut);
+    curvedFaces.features.push(M.createFeature(curvedFaces,'splitLine',{tool:cut.id,faces:curvedRefs.map(r=>({p:r.p.slice(),body:r.body}))}));
+    const cf=M.createFeature(curvedFaces,'surfLoft',{profiles:curvedRefs});curvedFaces.features.push(cf);
+    const cfr=await k.rebuild(curvedFaces);
+    results.push({name:'surface loft between small curved split faces',ok:!cfr.errors.length&&cfr.body?.bodies?.some(b=>M.bodyOwner(b.id)===cf.id),errors:cfr.errors});
+    cf.type='loft';const solidCurved=await k.rebuild(curvedFaces);
+    results.push({name:'solid loft explains curved profile restriction',ok:solidCurved.errors.some(([id,e])=>id===cf.id&&/flat profile faces/.test(e)),errors:solidCurved.errors});
+    return {ok:results.every(r=>r.ok),results};
+  } finally { k.dispose(); }
+}

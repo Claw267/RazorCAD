@@ -6,6 +6,14 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-11-04 — Loft profiles from split model faces
+
+- Loft accepts flat model faces as sections; Lofted Surface accepts model face boundaries, including curved faces.
+  Select the smaller face after Split Face to use its trimmed boundary, then select sketch contours as guide rails.
+  Face sections use automatic correspondence and free ends; Thin Feature and guided face profiles with holes are
+  rejected explicitly. A missing source body asks for reselection rather than picking a nearby face.
+- Automatic lofts between corresponding spline profiles now accommodate different numbers of internal cubic spans.
+
 ## 2026-10-31 23:05 — The release attaches the user manual
 
 - The release workflow attaches the user manual PDF to the draft as `RazorCAD-User-Manual-<version>.pdf` (the PDF

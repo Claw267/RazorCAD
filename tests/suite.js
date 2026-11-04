@@ -6704,6 +6704,32 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     return {ok:true,detail:`${native.results.length} kernel cases (second side ends, drafts to and from angled planes, Intersect; angled, against the integrated volumes: ${angled}); the panel's Second Side and Intersect`};
   },
 
+  async 'loft-split-face-profiles'() {
+    const {run,fixture}=await import('/tests/loft-face-cases.js'),native=await run({threads:threadsPerKernel()});
+    if(!native.ok)return {ok:false,detail:native};
+    const a=window.app;await a.newDocument?.();closeModals();
+    const settle=async()=>{await wait(180);await until(()=>!a.kernel.pending);};
+    const d=fixture('loft',true);d.feature.profiles=[];
+    await a.setDoc(d.doc);a.editFeature(d.feature.id);await settle();
+    if(!a.faceProfilePicking())return {ok:false,detail:'Loft does not accept model faces'};
+    const vp=a.viewport;
+    vp.setStandardView('front',false);await settle();
+    const events=viewEvents(),point=vp.camera.position.clone().set(4,0,20);
+    await events.click(...events.toScreen(point));await settle();
+    if(a.pm.feature.profiles[0]?.kind!=='modelFace'||a.pm.feature.profiles[0]?.body!==d.faces[1].id)return {ok:false,detail:'Canvas click selected the unsplit sketch behind the face'};
+    for(const p of [[4,0,0]]) {
+      const i=vp.faceIndexNear(p);
+      if(i<0)return {ok:false,detail:'Split profile face missing in viewport'};
+      a.addFaceProfile({hit:{face:i,point:{toArray:()=>p}}});await settle();
+    }
+    if(a.pm.feature.profiles.length!==2||a.pm.feature.profiles.some(r=>r.kind!=='modelFace'))return {ok:false,detail:'Split face profiles not added'};
+    if(!document.querySelector('[data-loft-list="profiles"]')?.textContent.includes('Model face'))return {ok:false,detail:'Face profiles not listed'};
+    a.pm.loftSlot='guides';if(a.faceProfilePicking())return {ok:false,detail:'Guide selection accepts faces'};
+    a.pm.loftSlot='profiles';await a.okPM();await settle();
+    const body=a.result.bodies.find(b=>M.bodyOwner(b.id)===d.feature.id),m=body&&(await a.kernel.request('measure',{refs:[{kind:'body',id:body.id}]})).items[0];
+    return {ok:!a.result.errors.size&&Math.abs(m?.volume-400)<1e-4,detail:{native,volume:m?.volume,errors:[...a.result.errors]}};
+  },
+
   async 'profile-faces-and-second-draft'() {
     const {run,base}=await import('/tests/profile-face-cases.js'),native=await run({threads:threadsPerKernel()});if(!native.ok)return {ok:false,detail:native};
     const {fixture}=await import('/tests/extrusion-sides-cases.js');
