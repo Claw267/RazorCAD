@@ -56,7 +56,31 @@ export async function run({threads=1}={}) {
     const spans=splineDoc.features.map(sk=>S.profileRegions(sk,true)[0].outer.segs.length);
     const sf=M.createFeature(splineDoc,'surfLoft',{profiles:splineRefs});splineDoc.features.push(sf);
     const sr=await k.rebuild(splineDoc);
-    results.push({name:'corresponding degree-five splines with unequal cubic span counts',ok:spans[0]!==spans[1]&&!sr.errors.length&&sr.body?.bodies?.some(b=>M.bodyOwner(b.id)===sf.id),spans,errors:sr.errors});
+    const splineBody=sr.body?.bodies?.find(b=>M.bodyOwner(b.id)===sf.id);
+    results.push({name:'corresponding degree-five splines retain a single curved loft face',ok:spans[0]!==spans[1]&&!sr.errors.length&&splineBody?.faceCount===2,spans,faces:splineBody?.faceCount,errors:sr.errors});
+    const secondSpline=splineDoc.features.find(f=>f.id===splineRefs[1]);secondSpline.points.forEach(p=>{if(p.y===-15)p.y=-11;});
+    const sameSpans=S.profileRegions(secondSpline,true)[0].outer.segs.length,ssr=await k.rebuild(splineDoc),ssb=ssr.body?.bodies?.find(b=>M.bodyOwner(b.id)===sf.id);
+    results.push({name:'equal fitted span counts still retain the native spline face',ok:sameSpans===spans[0]&&!ssr.errors.length&&ssb?.faceCount===2,spans:sameSpans,faces:ssb?.faceCount,errors:ssr.errors});
+    // The heel's high-degree spline is also used as a surface extrusion. Keep
+    // it as one face so a later Split Face reference still selects the whole side.
+    splineDoc.features.pop();
+    const extrusion=M.createFeature(splineDoc,'surfExtrude',{sketch:splineRefs[0],depth:20});splineDoc.features.push(extrusion);
+    const er=await k.rebuild(splineDoc),eb=er.body?.bodies?.find(b=>M.bodyOwner(b.id)===extrusion.id);
+    results.push({name:'degree-five surface extrusion has no fitted-cubic seams',ok:!er.errors.length&&eb?.faceCount===2,faces:eb?.faceCount,errors:er.errors});
+    const cutPlane=M.createFeature(splineDoc,'plane',{refs:[{kind:'plane',id:'top'}],offset:-3});splineDoc.features.push(cutPlane);
+    // Pick inside the curved side, away from its shared edge with the flat face.
+    const source=splineDoc.features.find(f=>f.id===splineRefs[0]),sourceSpline=source.curves.find(c=>c.type==='spline');
+    const q=S.bezierAt(S.splinePieces(source,sourceSpline)[10],.5);
+    const splitHigh=M.createFeature(splineDoc,'splitLine',{tool:cutPlane.id,faces:[{p:[...q,10],body:extrusion.id}]});splineDoc.features.push(splitHigh);
+    const shr=await k.rebuild(splineDoc),shb=shr.body?.bodies?.find(b=>M.bodyOwner(b.id)===extrusion.id);
+    const poles=sourceSpline.pts.map(id=>{const p=S.getPoint(source,id);return [p.x,p.y];}),gaps=[];
+    if(shb)for(const piece of S.bsplineBeziers(poles,5))for(const t of [.1,.5,.9]) {
+      let points=piece.map(p=>p.slice());
+      while(points.length>1)points=points.slice(1).map((p,i)=>p.map((x,j)=>points[i][j]*(1-t)+x*t));
+      gaps.push((await k.request('measure',{refs:[{kind:'vertex',p:[...points[0],10]},{kind:'body',id:shb.id}]})).distance);
+    }
+    // Two crossings split the U-shaped side into three faces; the flat side stays whole.
+    results.push({name:'plane splits the complete high-degree extrusion face',ok:!shr.errors.length&&shb?.faceCount===4&&gaps.length===6&&gaps.every(d=>d<1e-6),faces:shb?.faceCount,gaps,errors:shr.errors});
     const curvedFaces=M.newDoc(),curvedRefs=[];
     for(const x of [0,20]) {
       const sk=M.createFeature(curvedFaces,'sketch',{plane:{ref:'front'}});

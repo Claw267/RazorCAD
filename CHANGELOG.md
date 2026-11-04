@@ -8,6 +8,9 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ## 2026-11-04 — Loft profiles from split model faces
 
+- Open, unweighted high-degree control splines keep their original B-spline edges in automatic loft profiles,
+  surface extrusions and sketch guide wires. Their fitted cubic pieces no longer create dozens of artificial
+  face boundaries that fragment the heel of a neck and disrupt later face selections.
 - Loft accepts flat model faces as sections; Lofted Surface accepts model face boundaries, including curved faces.
   Select the smaller face after Split Face to use its trimmed boundary, then select sketch contours as guide rails.
   Face sections use automatic correspondence and free ends; Thin Feature and guided face profiles with holes are

@@ -2999,9 +2999,9 @@ async function rebuild(doc, previewId = null, opts = {}) {
         const s = sketches.get(LR.sourceId(ref));
         if (!s) throw new Error(`Profile ${i + 1}: the sketch is missing, suppressed or has errors`);
         const selected = typeof ref === 'string' ? { sketch: s.sk } : LR.resolveContour(s.sk, ref);
-        const regions = selected.region ? [selected.region] : S.profileRegions(selected.sketch);
+        const regions = selected.region ? [selected.region] : S.profileRegions(selected.sketch, true);
         if (regions.length !== 1) throw new Error(`${s.sk.name} must have exactly one closed profile`);
-        return { name: s.sk.name, outer: keep(loopWire(s.frame, regions[0].outer.segs)), holes: surface ? [] : regions[0].holes.map(h => keep(loopWire(s.frame, h.segs))) };
+        return { name: s.sk.name, outer: keep(cadLoopWire(s.sk, s.frame, regions[0].outer.segs)), holes: surface ? [] : regions[0].holes.map(h => keep(cadLoopWire(s.sk, s.frame, h.segs))) };
       });
       const holes = sections[0].holes.length;
       if (sections.some(s => s.holes.length !== holes)) throw new Error('Every profile needs the same number of holes (inner loops)');
@@ -3038,20 +3038,21 @@ async function rebuild(doc, previewId = null, opts = {}) {
       return shape;
     } finally { owned.forEach(w => w.delete()); }
   };
-  // Fit splines with the same source topology can contain different numbers of
-  // cubic spans. Automatic CAD compatibility must match those spans, rather than
-  // require the user to split an already corresponding spline by hand.
-  const splineSpanMismatch = ids => {
+  // Corresponding control splines use their original CAD curves, even when the
+  // sketch picker fits the same number of cubics on both of them. Other spline
+  // profiles with unequal fitted spans can use automatic CAD compatibility too.
+  const cadSplineProfiles = ids => {
     const profiles = ids.map(ref => {
       const s = sketches.get(LR.sourceId(ref));
       if (!s) return null;
       const selected = typeof ref === 'string' ? { sketch: s.sk } : LR.resolveContour(s.sk, ref);
       const regions = selected.region ? [selected.region] : S.profileRegions(selected.sketch, true);
       if (regions.length !== 1 || regions[0].holes.length) return null;
-      const types = [...new Set(regions[0].outer.segs.map(g => g.sourceCurve))].map(id => S.getCurve(s.sk, id)?.type).sort();
-      return { types, spans: regions[0].outer.segs.length };
+      const sources = [...new Set(regions[0].outer.segs.map(g => g.sourceCurve))].map(id => S.getCurve(s.sk, id));
+      const types = sources.map(c => c?.type).sort();
+      return { types, spans: regions[0].outer.segs.length, native: sources.some(nativeControlSpline) };
     });
-    return profiles.every(p => p && p.types.includes('spline') && JSON.stringify(p.types) === JSON.stringify(profiles[0].types)) && profiles.some(p => p.spans !== profiles[0].spans);
+    return profiles.every(p => p && p.types.includes('spline') && JSON.stringify(p.types) === JSON.stringify(profiles[0].types)) && profiles.some(p => p.native || p.spans !== profiles[0].spans);
   };
   // A surface extrusion's or revolution's contours: { frame, planar, wires: [{ wire, closed }], pts? } for each sketch
   // contour, flat model face (its outer and inner edges) and the chains of the picked model edges (f.edges)
@@ -5602,7 +5603,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
           // a surface through two or more profiles (open or closed chains of sketches / 3D sketches)
           const ids = (f.profiles || []).filter(Boolean);
           if (ids.length < 2) throw new Error('Select at least two profiles (in order)');
-          if (ids.some(isFaceProfile) || !LC.hasManualConnections(f) && !hasLoftEnds(f) && splineSpanMismatch(ids)) {
+          if (ids.some(isFaceProfile) || !LC.hasManualConnections(f) && !hasLoftEnds(f) && cadSplineProfiles(ids)) {
             const shape = faceLoft(f, ids, true);
             surfaces.push(bodyRec(newId(f.id), shape, f.id)); applied.push({ op: 'add', tool: shape }); break;
           }
@@ -7336,7 +7337,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
         case 'loft': {
           const ids = (f.profiles || []).filter(Boolean);
           if (ids.length < 2) throw new Error('Select at least two profiles (in order)');
-          if (ids.some(isFaceProfile) || !f.thin && !LC.hasManualConnections(f) && !hasLoftEnds(f) && splineSpanMismatch(ids)) {
+          if (ids.some(isFaceProfile) || !f.thin && !LC.hasManualConnections(f) && !hasLoftEnds(f) && cadSplineProfiles(ids)) {
             const tool = faceLoft(f, ids, false), scope = (f.op === 'cut' || f.op === 'intersect') && f.scopeAll === false ? f.scope || [] : null;
             tools.set(f.id, { shape: tool, op: f.op, merge: f.merge !== false, scope });
             apply(f.op, tool, f.merge !== false, scope); break;
@@ -12078,10 +12079,58 @@ function bodyAt(bodies, p) {
   return best && bd < Math.max(1e-3, bbox(best.shape).diag * 1e-4) ? best : null;
 }
 
+// High-degree control splines are sampled into cubics for sketch picking. Keep
+// the original B-spline in CAD: each fitted cubic must not become a separate
+// face in an extrusion or loft (and invalidate subsequent face references).
+const nativeControlSpline = c => c?.type === 'spline' && c.ctrl && c.degree > 3 && !c.closed && !c.weights;
+function controlSplineEdge(sk, c, fr, reverse) {
+  const oc = R.getOC(), degree = Math.min(c.degree, c.pts.length - 1), spans = c.pts.length - degree;
+  const poles = new oc.NCollection_Array1_gp_Pnt(1, c.pts.length), knots = new oc.NCollection_Array1_double(1, spans + 1), mults = new oc.NCollection_Array1_int(1, spans + 1);
+  let curve, mk;
+  try {
+    c.pts.forEach((id, i) => {
+      const q = S.getPoint(sk, id), p = R.asPnt(S.fromFrame2D(fr, q.x, q.y));
+      try { poles.SetValue(i + 1, p); } finally { p.delete(); }
+    });
+    for (let i = 0; i <= spans; i++) { knots.SetValue(i + 1, i); mults.SetValue(i + 1, i === 0 || i === spans ? degree + 1 : 1); }
+    curve = new oc.Geom_BSplineCurve(poles, knots, mults, degree, false);
+    mk = new oc.BRepBuilderAPI_MakeEdge(curve);
+    const edge = new R.Edge(mk.Edge());
+    if (!reverse) return edge;
+    try { return edge.flipOrientation(); } finally { edge.delete(); }
+  } finally { mk?.delete(); curve?.delete(); poles.delete(); knots.delete(); mults.delete(); }
+}
+
+// Only replace a complete source curve. A region can use just a trimmed portion
+// of a spline; its boundary must keep the selected pieces in that case.
+function cadLoopWire(sk, fr, segs) {
+  const edges = [];
+  try {
+    for (let i = 0; i < segs.length;) {
+      const first = segs[i], c = S.getCurve(sk, first.sourceCurve);
+      let end = i + 1;
+      if (c) while (end < segs.length && segs[end].sourceCurve === first.sourceCurve) end++;
+      if (nativeControlSpline(c)) {
+        const a = S.getPoint(sk, c.pts[0]), b = S.getPoint(sk, c.pts.at(-1)), last = segs[end - 1];
+        const near = (p, q) => p && Math.hypot(p[0] - q.x, p[1] - q.y) < 1e-7;
+        const forward = near(first.a, a) && near(last.b, b), backward = near(first.a, b) && near(last.b, a);
+        if (forward || backward) { edges.push(controlSplineEdge(sk, c, fr, backward)); i = end; continue; }
+      }
+      // A one-segment wire also preserves arcs and circles exactly.
+      edges.push(loopWire(fr, [first])); i++;
+    }
+    return R.assembleWire(edges);
+  } finally { edges.forEach(e => e.delete()); }
+}
+
 // Wires of a sketch's (non-construction) chains, on the sketch plane.
 function sketchWires(sk, fr) {
   const wires = [];
   for (const ch of S.curveChains(sk)) {
+    if (ch.items.some(({ c }) => nativeControlSpline(c))) {
+      const segs = ch.items.flatMap(it => S.chainSegs(sk, { ...ch, items: [it] }).map(g => ({ ...g, sourceCurve: it.c.id })));
+      wires.push(cadLoopWire(sk, fr, segs)); continue;
+    }
     const segs = S.chainSegs(sk, ch);
     if (segs.length === 1 && segs[0].type === 'circle') {
       wires.push(R.drawSingleCircle(segs[0].r).translate(segs[0].c[0], segs[0].c[1]).sketchOnPlane(rPlane(fr)).wire);
