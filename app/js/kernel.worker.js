@@ -427,6 +427,41 @@ function seamEdges(shape) {
   return seams;
 }
 
+// The straight edges where a face of a sheet's formed curve meets another of its faces, or a flat, smoothly (the arcs
+// that follow a formed curve, a blade's skin): the surface is one smooth shape there, so no line is drawn.
+function formedJoints(shape, sheet) {
+  const oc = R.getOC();
+  const T = oc.TopAbs_ShapeEnum;
+  // (a formed curve's faces, known by their radii: each arc's inside and outside; a real bend's, e.g. a blade's
+  // nose, keep their lines)
+  const radii = sheet.bends.filter((b) => b.formed).flatMap((b) => [b.R, b.R + sheet.t]);
+  const radiusOf = (f) => { const ad = new oc.BRepAdaptor_Surface(f.wrapped, true); try { const c = ad.Cylinder(), r = c.Radius(); c.delete?.(); return r; } finally { ad.delete(); } };
+  const curved = shape.faces.filter((f) => f.geomType === 'CYLINDRE' && radii.some((r) => Math.abs(r - radiusOf(f)) < 1e-6));
+  // (and flat faces: a straight run within the curve, or a flat it runs smoothly into)
+  const flats = shape.faces.filter((f) => f.geomType === 'PLANE');
+  const owners = [];
+  for (const face of [...curved, ...flats]) {
+    const ex = new oc.TopExp_Explorer(face.wrapped, T.TopAbs_EDGE, T.TopAbs_SHAPE);
+    while (ex.More()) {
+      const e = ex.Current(), o = owners.find((x) => x.e.IsSame(e));
+      if (o) { if (!o.faces.includes(face)) o.faces.push(face); } else owners.push({ e, faces: [face] });
+      ex.Next();
+    }
+    ex.delete();
+  }
+  const out = [];
+  for (const { e, faces } of owners) {
+    if (faces.length !== 2 || !faces.some((f) => curved.includes(f))) continue;
+    const edge = R.cast(e);
+    if (edge.geomType !== 'LINE') continue;
+    try {
+      const m = curvePoints(edge, 2)[1], n1 = vec(faces[0].normalAt(m)), n2 = vec(faces[1].normalAt(m));
+      if (Math.abs(dot(unit(n1), unit(n2))) > 1 - 1e-6) out.push(e);
+    } catch { /* drawn */ }
+  }
+  return out;
+}
+
 function regionsDrawing(regions) {
   let all = null;
   for (const r of regions) {
@@ -1449,9 +1484,11 @@ function meshPart(s, tol, diagQ, onWork, ang = 0.2) {
   const labInfo = LAB_INFO.get(s.shape)?.diagQ === diagQ ? LAB_INFO.get(s.shape) : null;
   LAB_INFO.delete(s.shape);
   if (!dense) {
-    if (labInfo && labInfo.edges.every(Boolean)) { for (const d of labInfo.edges) edges.push(d); }
+    const formed = !!s.sheet?.bends?.some((b) => b.formed);
+    if (labInfo && labInfo.edges.every(Boolean) && !formed) { for (const d of labInfo.edges) edges.push(d); }
     else {
       const seams = seamEdges(s.shape);
+      if (formed) seams.push(...formedJoints(s.shape, s.sheet));
       for (const e of s.shape.edges) {
         if (seams.some((x) => x.IsSame(e.wrapped))) continue;
         edges.push(edgeKept(e, diagQ));
@@ -9125,6 +9162,7 @@ async function rebuild(doc, previewId = null, opts = {}) {
             }
           }
           for (const list of Object.values(textOutlines(s.sk.texts || []))) for (const pl of list) polys.push(pl);
+          for (const af of s.sk.airfoils || []) { const pl = S.airfoilPolyline(s.sk, af, 3); if (pl) polys.push(pl); } // (an airfoil: where a blade goes)
           if (!polys.length) throw new Error('The sketch has no curves or text to etch');
           const P3 = polys.map((pl) => pl.map(([x, y]) => S.fromFrame2D(s.frame, x, y)));
           const rec = sheetRecs().find((r) => !r.sheet.stale && P3.some((pl) => pl.some((p) => SM.pointOnSheet(r.sheet, p))));
@@ -9166,15 +9204,27 @@ async function rebuild(doc, previewId = null, opts = {}) {
           if (!f.sketch) throw new Error('Select the sketch: an open chain of lines / arcs, or a circle');
           const s = sketches.get(f.sketch);
           if (!s) throw new Error('The sketch is missing, suppressed or has errors');
-          const chains = S.curveChains(s.sk);
-          if (chains.length !== 1) throw new Error(`The sketch must hold one chain of lines / arcs joined end to end, or one circle (it has ${chains.length || 'none'})`);
-          const segs = S.chainSegs(s.sk, chains[0]);
-          if (chains[0].closed && !(segs.length === 1 && segs[0].type === 'circle')) throw new Error('The profile is closed: leave a gap where the seam goes (only a lone circle is rolled closed, with its seam gap)');
+          // (an airfoil open at its trailing edge is the profile of a folded blade: its curves, nose to tail)
+          const foils = s.sk.airfoils || [];
+          let segs;
+          if (foils.length) {
+            if (foils.length > 1) throw new Error('The sketch holds more than one airfoil: Sheet Metal Extrude takes one profile');
+            if (s.sk.curves.some((c) => !c.construction && c.id !== foils[0].line)) throw new Error('The sketch holds an airfoil and other curves: keep the airfoil on its own (other lines as construction)');
+            if (!foils[0].open) throw new Error('The airfoil is closed: tick "Open at the trailing edge" in its panel, so it is a blade\'s profile');
+            const why = S.airfoilProblem(s.sk, foils[0]);
+            if (why) throw new Error(`The airfoil can't be drawn: ${why}`);
+            segs = S.airfoilPieces(s.sk, foils[0]).map((q) => (q.arc ? { type: 'arc', a: q.a, m: q.m, b: q.b } : q.c1 ? { type: 'bezier', a: q.a, c1: q.c1, c2: q.c2, b: q.b } : { type: 'line', a: q.a, b: q.b }));
+          } else {
+            const chains = S.curveChains(s.sk);
+            if (chains.length !== 1) throw new Error(`The sketch must hold one chain of lines / arcs / splines joined end to end, or one circle (it has ${chains.length || 'none'})`);
+            segs = S.chainSegs(s.sk, chains[0]);
+            if (chains[0].closed && !(segs.length === 1 && segs[0].type === 'circle')) throw new Error('The profile is closed: leave a gap where the seam goes (only a lone circle is rolled closed, with its seam gap)');
+          }
           const t = ev(f.thickness), R0 = ev(f.radius), K = sheetKFactor(f, R0, t), depth = ev(f.depth);
           if (!(R0 >= 0)) throw new Error('The bend radius can\'t be negative');
           if (!(depth > 0)) throw new Error('The depth must be greater than zero');
           const [z0, z1] = f.direction === 'mid' ? [-depth / 2, depth / 2] : f.direction === 'reverse' ? [-depth, 0] : [0, depth];
-          const out = SM.extrudedSheet(segs, { frame: s.frame, z0, z1, t, K, R: R0, side: f.side || 'one', gap: ev(f.seamGap ?? 0.5) });
+          const out = SM.extrudedSheet(segs, { frame: s.frame, z0, z1, t, K, R: R0, side: f.side || 'one', gap: ev(f.seamGap ?? 0.5), trim: f.trimSelf !== false, trimAt: f.trimAt || 'auto' });
           const shape = SM.toSolid(out.sheet);
           const rec = bodyRec(newId(f.id), shape, f.id);
           rec.sheet = out.sheet;
@@ -9182,7 +9232,12 @@ async function rebuild(doc, previewId = null, opts = {}) {
           body = compoundOf(solids);
           applied.push({ op: 'add', tool: shape });
           const pl = (k, w) => `${k} ${w}${k === 1 ? '' : 's'}`;
-          res.notes[f.id] = out.rolled ? 'Rolled from flat (a cylinder with its seam gap)' : !out.sheet.bends.length ? 'A flat plate (no bends)' : [out.drawn ? pl(out.drawn, 'drawn bend') : '', out.corners ? `${pl(out.corners, 'bend')} at sharp corners` : ''].filter(Boolean).join(' · ');
+          const tr = out.trimmed;
+          res.notes[f.id] = out.rolled ? 'Rolled from flat (a cylinder with its seam gap)' : !out.sheet.bends.length ? 'A flat plate (no bends)' : [
+            out.drawn ? pl(out.drawn, 'drawn bend') : '', out.corners ? `${pl(out.corners, 'bend')} at sharp corners` : '',
+            out.formed ? `${pl(out.formed, 'curve')} formed (rolled to shape: no bend lines)` : '',
+            tr?.at ? `trimmed back ${+tr.length.toFixed(2)} mm at its ${tr.at} (it would run into itself)` : tr?.overlaps ? '⚠ the sheet runs into itself (tick "Trim where it would run into itself")' : '',
+          ].filter(Boolean).join(' · ');
           break;
         }
         case 'smTransition': {
@@ -10568,13 +10623,31 @@ function projectView(shape, box, v, solids = null) {
   } finally {
     shapes.delete(); proj.delete(); ax.delete(); hlr.delete();
   }
+  // (the joints between the faces of a formed curve, a blade's rolled skin: no line, as in the 3D view; the
+  // lines lying along one seen from this side are dropped)
+  const joints = formedJointSegs(solids).map(([a, b]) => [to2(a), to2(b)]).filter(([a, b]) => Math.hypot(b[0] - a[0], b[1] - a[1]) > 1e-6);
+  if (joints.length) {
+    const tol = box.diag * 1e-5 + 1e-4;
+    // (every point of the line on the same joint: a line from one joint's end to the next one's is kept)
+    const on = ([a, b], p) => {
+      const d = [b[0] - a[0], b[1] - a[1]], L = Math.hypot(d[0], d[1]), t = ((p[0] - a[0]) * d[0] + (p[1] - a[1]) * d[1]) / L;
+      return t >= -tol && t <= L + tol && Math.abs((p[0] - a[0]) * d[1] - (p[1] - a[1]) * d[0]) / L <= tol;
+    };
+    const alongJoint = (pts) => joints.some((j) => pts.every((p) => on(j, p)));
+    for (let i = edges.length - 1; i >= 0; i--) {
+      const { g } = edges[i];
+      if ((g.t === 'l' && alongJoint([g.a, g.b])) || (g.t === 'p' && alongJoint(g.pts))) edges.splice(i, 1);
+    }
+  }
   // (an edge reaching far outside the part itself is a projection fault, e.g. a swept bead seen end on: dropped)
   {
     const corners = [0, 1, 2, 3, 4, 5, 6, 7].map((m) => [m & 1 ? box.max[0] : box.min[0], m & 2 ? box.max[1] : box.min[1], m & 4 ? box.max[2] : box.min[2]]);
     const xs = corners.map((q) => dot(q, x)), ys = corners.map((q) => dot(q, y)), mg = box.diag * 0.002 + 0.01;
     const lo = [Math.min(...xs) - mg, Math.min(...ys) - mg], hi = [Math.max(...xs) + mg, Math.max(...ys) + mg];
     const inside = (q) => q[0] >= lo[0] && q[0] <= hi[0] && q[1] >= lo[1] && q[1] <= hi[1];
-    const ok = ({ g }) => (g.t === 'l' ? inside(g.a) && inside(g.b) : g.t === 'p' ? g.pts.every(inside) : inside([g.c[0] - g.r, g.c[1] - g.r]) && inside([g.c[0] + g.r, g.c[1] + g.r]));
+    // (an arc by the points it reaches, not its whole circle: a long flat arc, as on an aerofoil's skin or a fan
+    // scroll, has a circle far bigger than the part)
+    const ok = ({ g }) => (g.t === 'l' ? inside(g.a) && inside(g.b) : g.t === 'p' ? g.pts.every(inside) : extentPts(g).every(inside));
     for (let i = edges.length - 1; i >= 0; i--) if (!ok(edges[i])) edges.splice(i, 1);
   }
   // the view's extent (visible and hidden lines)
@@ -10582,16 +10655,36 @@ function projectView(shape, box, v, solids = null) {
   const grow = (p) => { b2.min[0] = Math.min(b2.min[0], p[0]); b2.min[1] = Math.min(b2.min[1], p[1]); b2.max[0] = Math.max(b2.max[0], p[0]); b2.max[1] = Math.max(b2.max[1], p[1]); };
   for (const { g } of edges) {
     if (g.t === 'l') { grow(g.a); grow(g.b); } else if (g.t === 'p') g.pts.forEach(grow);
-    else if (g.t === 'c') { grow([g.c[0] - g.r, g.c[1] - g.r]); grow([g.c[0] + g.r, g.c[1] + g.r]); }
-    else {
-      // an arc: its ends and the quadrant points it passes
-      const span = ((g.a1 - g.a0) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
-      const at = (t) => [g.c[0] + g.r * Math.cos(t), g.c[1] + g.r * Math.sin(t)];
-      grow(at(g.a0)); grow(at(g.a0 + span));
-      for (let q = Math.ceil(g.a0 / (Math.PI / 2)) * (Math.PI / 2); q < g.a0 + span; q += Math.PI / 2) grow(at(q));
-    }
+    else extentPts(g).forEach(grow);
   }
   return { edges, cut, cutBody, box: isFinite(b2.min[0]) ? b2 : { min: [0, 0], max: [0, 0] } };
+}
+
+// The formed curves' joints (formedJoints) of the sheet metal bodies drawn, as 3D segments: worked out once for
+// the bodies of a drawing.
+const FORMED_SEGS = new WeakMap();
+function formedJointSegs(solids) {
+  if (!solids?.length) return [];
+  let segs = FORMED_SEGS.get(solids);
+  if (segs) return segs;
+  segs = [];
+  for (const r of solids) {
+    if (!r.shape || !r.sheet?.bends?.some((b) => b.formed)) continue;
+    try { for (const e of formedJoints(r.shape, r.sheet)) { const ed = R.cast(e); segs.push([vec(ed.startPoint), vec(ed.endPoint)]); } } catch (e) { if (isFatal(e)) throw e; }
+  }
+  FORMED_SEGS.set(solids, segs);
+  return segs;
+}
+
+// The points that bound a 2D circle or arc primitive: a circle's box corners; an arc's ends and the quadrant
+// points it passes.
+function extentPts(g) {
+  if (g.t === 'c') return [[g.c[0] - g.r, g.c[1] - g.r], [g.c[0] + g.r, g.c[1] + g.r]];
+  const span = ((g.a1 - g.a0) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+  const at = (t) => [g.c[0] + g.r * Math.cos(t), g.c[1] + g.r * Math.sin(t)];
+  const pts = [at(g.a0), at(g.a0 + span)];
+  for (let q = Math.ceil(g.a0 / (Math.PI / 2)) * (Math.PI / 2); q < g.a0 + span; q += Math.PI / 2) pts.push(at(q));
+  return pts;
 }
 
 // An HLR result edge (already in the projection plane: x, y) as a 2D primitive.
@@ -11524,12 +11617,14 @@ function airfoilDrawings(sk) {
   for (const af of sk.airfoils || []) {
     const why = S.airfoilProblem(sk, af);
     if (why) throw new Error(`An airfoil in the sketch can't be drawn: ${why}`);
+    if (af.open) throw new Error('An airfoil open at its trailing edge (a sheet metal blade\'s profile) has no inside to extrude: use Sheet Metal Extrude, or untick "Open at the trailing edge"');
     const pieces = S.airfoilPieces(sk, af);
     const pen = R.draw(pieces[0].a);
     pieces.forEach((q, i) => {
       const last = i === pieces.length - 1;
-      if (last && !q.c1) return; // (the straight piece across a blunt trailing edge: close() draws it)
-      if (q.c1) pen.cubicBezierCurveTo(q.b, q.c1, q.c2); else pen.lineTo(q.b);
+      if (last && !q.c1 && !q.arc) return; // (the straight piece across a blunt trailing edge: close() draws it)
+      if (q.arc) pen.threePointsArcTo(q.b, q.m);
+      else if (q.c1) pen.cubicBezierCurveTo(q.b, q.c1, q.c2); else pen.lineTo(q.b);
     });
     out.push({ outline: pen.close(), bore: null });
   }

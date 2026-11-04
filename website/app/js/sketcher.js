@@ -622,6 +622,26 @@ export class Sketcher {
     return r;
   }
 
+  // A dimension's new value the solver could not reach in one go, tried a step at a time from its old value: a big
+  // change (a whole outline moved far, dragging small arcs with it) can leave it stuck where the same change made
+  // gradually solves. The shape is put back as it was between tries; k keeps the value typed.
+  solveInSteps(k, old) {
+    const target = k.value, from = this.ev(old), to = this.ev(target);
+    if (!Number.isFinite(from) || !Number.isFinite(to)) return { ok: false };
+    const pts = this.f.points.map((p) => ({ ...p })), cvs = this.f.curves.map((c) => ({ ...c }));
+    const restore = () => { this.f.points.forEach((p, i) => Object.assign(p, pts[i])); this.f.curves.forEach((c, i) => Object.assign(c, cvs[i])); };
+    let r = { ok: false };
+    for (const n of [4, 16, 64]) {
+      restore();
+      r = { ok: true };
+      for (let i = 1; i <= n && r.ok; i++) { k.value = i === n ? target : from + ((to - from) * i) / n; r = this.solve(); }
+      if (r.ok) return r;
+    }
+    restore();
+    k.value = target;
+    return r;
+  }
+
   analyze() {
     try { this.analysis = analyzeSketch(this.f, this.ev); } catch { this.analysis = null; }
   }
@@ -824,7 +844,9 @@ export class Sketcher {
         }
       }
     }
-    if (texts && curves && this.tool === 'select') {
+    // (a point under the cursor wins over an airfoil's outline: its chord's ends lie on the outline)
+    const onPoint = points && [S.ORIGIN, ...this.f.points].some((q) => !exclude?.has(q.id) && Math.hypot(q.x - p.x, q.y - p.y) < tol);
+    if (texts && curves && this.tool === 'select' && !onPoint) {
       // an airfoil: near its outline
       for (const af of this.f.airfoils || []) {
         const pl = S.airfoilPolyline(this.f, af, 4);
@@ -962,6 +984,10 @@ export class Sketcher {
       }
     }
     if(prev&&this.autoRelations&&lineTool){const inference=this.lineInference(p,prev,tol);if(inference&&(inference.infer==='collinear'||!res.infer))return inference;}
+    // A grid point where a sketch point already is (the click just outside the point's own snap distance): that
+    // point, so the new geometry joins it instead of making a second, unconnected point on top of it.
+    const on = [S.ORIGIN, ...this.f.points].find((q) => !exclude.has(q.id) && Math.hypot(q.x - res.x, q.y - res.y) < 1e-6);
+    if (on) return { x: on.x, y: on.y, kind: 'point', id: on.id };
     return res;
   }
 
@@ -1096,7 +1122,7 @@ export class Sketcher {
       const equalled = this.equalToFirstBlend(t, hit.id, created);
       this.hover = null;
       this.changed();
-      if (equalled) this.app.status(t === 'sfillet' ? 'Corner rounded, equal to the first fillet (Equal). Leave the tool to start a new size.' : 'Corner chamfered, equal to the first chamfer (Equal Distance). Leave the tool to start a new size.');
+      if (equalled) this.app.status(t === 'sfillet' ? 'Corner rounded, equal to the first fillet (Equal). Type another radius to start a new size.' : 'Corner chamfered, equal to the first chamfer (Equal Distance). Type another distance to start a new size.');
       return;
     }
     if (t === 'convert' || t === 'intersect') {
@@ -1206,15 +1232,16 @@ export class Sketcher {
     }
     // two-click tools
     if (!this.draw) this.draw = { tool: t, s0: s, p0: s, p1: s, downAt: screen };
-    else { this.draw.s1 = s; this.draw.p1 = s; this.commit(); }
+    else { const s1 = this.sizePoint(s, raw); this.draw.s1 = s1; this.draw.p1 = s1; this.commit(); }
     this.redraw();
   }
 
-  // Sketch Fillet / Chamfer: the first one made since the tool was picked keeps its dimension(s); each later one
-  // gets Equal (radius) / Equal Distance relations to it instead. Returns true when it was made equal.
+  // Sketch Fillet / Chamfer: the first one made since the tool was picked (or its size typed) keeps its
+  // dimension(s); each later one of that size gets Equal (radius) / Equal Distance relations to it instead. Another
+  // size typed in the panel starts again: the next one keeps its own dimension. Returns true when it was made equal.
   equalToFirstBlend(t, P, created) {
-    const sk = this.f, fillet = t === 'sfillet';
-    const first = this.blendFirst?.tool === t ? this.blendFirst : null;
+    const sk = this.f, fillet = t === 'sfillet', size = fillet ? this.filletR : this.chamferD;
+    const first = this.blendFirst?.tool === t && this.blendFirst.size === size ? this.blendFirst : null;
     const isDimOf = (k, kind, refs) => k.type === 'dim' && k.kind === kind && k.refs.length === refs.length && refs.every((x, i) => k.refs[i] === x);
     if (fillet) {
       const arc = created[created.length - 1];
@@ -1223,7 +1250,7 @@ export class Sketcher {
         S.addRel(sk, 'equal', [first.arc, arc]);
         return true;
       }
-      this.blendFirst = { tool: t, arc };
+      this.blendFirst = { tool: t, arc, size };
       return false;
     }
     const [T1, T2] = created;
@@ -1236,7 +1263,7 @@ export class Sketcher {
     // (the first chamfer: one distance, both sides equal, so one value sizes it and the later ones)
     sk.constraints = sk.constraints.filter((k) => !isDimOf(k, 'distance', [P, T2]));
     S.addRel(sk, 'equalDist', [P, T2, P, T1]);
-    this.blendFirst = { tool: t, P, T: T1 };
+    this.blendFirst = { tool: t, P, T: T1, size };
     return false;
   }
 
@@ -1372,9 +1399,18 @@ export class Sketcher {
             d.lastAng = a;
           }
         }
-      } else if (d.p0) d.p1 = s;
+      } else if (d.p0) d.p1 = this.sizePoint(s, raw);
     }
     this.redraw();
+  }
+
+  // The second point of a two-click shape (a circle's edge, a rectangle's corner). When it snaps back onto the
+  // first point (a small circle's edge caught by its own centre, or by the grid point the centre is on), the
+  // pointer's own position is used, so the shape is still made and can be sized by its dimension.
+  sizePoint(s, raw) {
+    const p0 = this.draw?.p0;
+    if (!p0 || Math.hypot(s.x - p0.x, s.y - p0.y) > 1e-6 || Math.hypot(raw.x - p0.x, raw.y - p0.y) < 1e-6) return s;
+    return { x: raw.x, y: raw.y, kind: 'grid' };
   }
 
   dragMove(raw, screen) {
@@ -2158,12 +2194,15 @@ export class Sketcher {
   // ------------------------------------------------------------ sketch patterns and blocks
   // The selected entities (curves and lone points) for a pattern / block.
   patternSource() {
-    return [...this.sel].filter((id) => id !== 'O' && (S.getCurve(this.f, id) || this.f.points.some((q) => q.id === id)));
+    // (an airfoil selected: its chord line, which brings the airfoil with it)
+    const ids = [...this.sel].map((id) => (id.startsWith?.('airfoil:') ? S.airfoilById(this.f, id.slice(8))?.line || id : id));
+    return [...new Set(ids)].filter((id) => id !== 'O' && (S.getCurve(this.f, id) || this.f.points.some((q) => q.id === id)));
   }
 
   linearPatternSel(id = null) {
     const selected = S.patternEntities(this.f);
     const p = this.f.patterns?.find((p) => p.id === id || [...this.sel].some((q) => p.generated?.curves.includes(q) || p.generated?.points.includes(q)));
+    if (p?.kind === 'circular') return this.circularPatternSel(p.id);
     this.setTool('select');
     this.patternDraft = p ? JSON.parse(JSON.stringify(p)) : { sources: this.patternSource().filter((id) => !selected.has(id)), path: '', n1: '3', d1: '20', a1: '0', n2: '1', d2: '20', a2: '90', turn: false };
     this.patternDraft.pick = 'sources';
@@ -2200,28 +2239,39 @@ export class Sketcher {
     else { this.redraw(); this.app.ui.renderPM(); }
   }
 
-  async circularPatternSel() {
-    const ids = this.patternSource();
-    // a selected point that no selected curve uses is the centre (else the origin)
-    const used = new Set(ids.flatMap((id) => { const c = S.getCurve(this.f, id); return c ? [c.p1, c.p2, c.c, c.a, ...(c.pts || [])] : []; }));
-    const ctrId = [...this.sel].find((id) => (id === 'O' || this.f.points.some((q) => q.id === id)) && !used.has(id));
-    const curves = ids.filter((id) => id !== ctrId);
-    if (!curves.length) { this.app.toast('Select the entities to pattern first (and a point to turn them about; the origin otherwise)', true); return; }
-    const C = ctrId ? S.getPoint(this.f, ctrId) : { x: 0, y: 0 };
+  // A circular sketch pattern (kept, as a linear one is: the copies follow the sources, the count and angle can be
+  // edited, and they are fully defined when the sources are). id: an existing pattern to edit.
+  async circularPatternSel(id = null) {
+    const old = id ? this.f.patterns?.find((p) => p.id === id) : null;
+    let sources, ctrId;
+    if (old) { sources = old.sources; ctrId = old.centre || null; } else {
+      const taken = S.patternEntities(this.f), ids = this.patternSource().filter((x) => !taken.has(x));
+      // a selected point that no selected curve uses is the centre (else the origin)
+      const used = new Set(ids.flatMap((x) => { const c = S.getCurve(this.f, x); return c ? [c.p1, c.p2, c.c, c.a, ...(c.pts || [])] : []; }));
+      ctrId = [...this.sel].find((x) => (x === 'O' || this.f.points.some((q) => q.id === x)) && !used.has(x)) || null;
+      sources = ids.filter((x) => x !== ctrId);
+    }
+    if (!sources.length) { this.app.toast('Select the entities to pattern first (and a point to turn them about; the origin otherwise)', true); return; }
+    const C = ctrId ? S.getPoint(this.f, ctrId) : { x: +(old?.cx ?? 0), y: +(old?.cy ?? 0) };
     const v = await this.app.ui.promptFields('Circular Sketch Pattern', 'skCirPattern', [
-      { key: 'n', label: 'Number of instances (including the original)', type: 'expr', value: 6 },
-      { key: 'total', label: 'Total angle (°; 360 spreads them evenly round)', type: 'expr', value: 360 },
-      { key: 'cx', label: 'Centre X (mm)', type: 'expr', value: +C.x.toFixed(4) },
-      { key: 'cy', label: 'Centre Y (mm)', type: 'expr', value: +C.y.toFixed(4) },
-    ], ctrId ? 'Turned about the selected point.' : 'Turned about the centre below (select a point with the entities to use it).');
+      { key: 'n', label: 'Number of instances (including the original)', type: 'expr', value: old?.n ?? 6 },
+      { key: 'total', label: 'Total angle (°; 360 spreads them evenly round)', type: 'expr', value: old?.total ?? 360 },
+      ...(ctrId ? [] : [
+        { key: 'cx', label: 'Centre X (mm)', type: 'expr', value: +C.x.toFixed(4) },
+        { key: 'cy', label: 'Centre Y (mm)', type: 'expr', value: +C.y.toFixed(4) },
+      ]),
+    ], ctrId ? `Turned about the ${ctrId === 'O' ? 'origin' : 'selected point'}; the copies follow the originals.` : 'Turned about the centre below (select a point with the entities to use it); the copies follow the originals.');
     if (!v || !this.active) return;
-    const n = (x) => this.ev(String(x));
-    const o = { n: Math.round(n(v.n)), total: n(v.total), cx: n(v.cx), cy: n(v.cy) };
-    if (![o.n, o.total, o.cx, o.cy].every(Number.isFinite) || o.n < 2 || o.n > 500 || !(Math.abs(o.total) > 1e-6)) { this.app.toast('Enter numbers: 2 to 500 instances over a non-zero angle', true); return; }
-    const made = S.circularPattern(this.f, curves, o);
-    this.sel = new Set(made);
+    const spec = { ...(old ? { id: old.id } : {}), kind: 'circular', sources, n: String(v.n), total: String(v.total), centre: ctrId, ...(ctrId ? {} : { cx: String(v.cx), cy: String(v.cy) }) };
+    const before = JSON.stringify({ points: this.f.points, curves: this.f.curves, constraints: this.f.constraints, patterns: this.f.patterns || [], nextSid: this.f.nextSid });
+    let p;
+    try { p = S.setSketchPattern(this.f, spec, this.ev); } catch (e) {
+      Object.assign(this.f, JSON.parse(before));
+      this.app.toast(e.message, true); return;
+    }
+    this.sel = new Set(p.generated.curves);
     this.changed();
-    this.app.status(`Circular sketch pattern: ${o.n - 1} cop${o.n === 2 ? 'y' : 'ies'} made.`);
+    this.app.status(`Circular sketch pattern: ${p.made} cop${p.made === 1 ? 'y' : 'ies'}, following the originals.`);
   }
 
   // Import a DXF file's lines, arcs, circles, ellipses, splines and points into this sketch.
@@ -3757,7 +3807,8 @@ export class Sketcher {
         if (!['hdist', 'vdist', 'pointLine', 'arcDist'].includes(k.kind) && v <= 0) throw new Error('Value must be greater than zero');
         if (k.kind === 'arcDist' && v < 0 && (k.cond || 'center') !== 'min') throw new Error('Value must not be negative');
         k.value = lenValue(input.value, U);
-        const r = this.solve();
+        let r = this.solve();
+        if (!r.ok) r = this.solveInSteps(k, old);
         if (!r.ok) { k.value = old; this.solve(); throw new Error('The sketch cannot be solved with that value'); }
         this.closeModify();
         this.changed();

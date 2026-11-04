@@ -6,6 +6,124 @@ Detailed status of the change-request documents: `Change requests\Progress.md`.
 
 ---
 
+## 2026-11-04 21:50 — Version 0.21.6-beta
+
+- Version 0.21.6-beta: Update Now in a window of its own, and a failed update always says so; sheet metal aerofoil
+  blades with one bend at the nose and formed skins; circular sketch patterns that stay linked; small circles drawn
+  with two clicks, clicks that land on a point join it; fillets of a new size; Wireframe picks; the wheel over labels;
+  big dimension changes; open sub-assemblies; mates far apart; drawings of formed sheet metal. User manual PDF, the
+  manual in the app and online, the browser version.
+
+---
+
+## 2026-11-04 21:36 — Update Now runs the setup in a window of its own, and a failed update always says so
+
+- **A report (GitHub issue 14): RazorCAD said it was installing and closed, and when it was opened again it was still
+  the old version.** The update was run by a hidden helper script, which security software can stop with no message,
+  and its error box could open behind other windows. The exact cause on that PC isn't known yet, so every way an update
+  can go wrong now shows.
+- **No more hidden script:** RazorCAD starts the new setup itself, and only closes once the setup has answered. A setup
+  that is blocked or never starts leaves RazorCAD open, with the reason and **Run the Setup**.
+- **The RazorCAD Update window:** a small window stays on top. It waits for RazorCAD to close, for as long as it takes
+  (reopening RazorCAD too soon only holds the update up, and the window asks you to close it), installs, checks the
+  version and that the program was really replaced, and starts the new version (never as administrator). If something
+  fails it says why, with **Try Again**.
+- **At the next start:** if the last update didn't finish, RazorCAD says so, with the reason, the log and **Run the
+  Setup**.
+- **A failed copy** (a full disk) puts the old RazorCAD.exe back instead of leaving none. **Updates leave the shortcuts
+  as they were.** Start RazorCAD now, at the end of Setup, starts it with a clean environment.
+- **Translations:** 12 texts that were only in the built language files (Break Lines, Hinge, More Drivers…) are now in
+  their sources, so rebuilding the languages keeps them. New texts in German, French and Spanish.
+- Versions up to 0.21.5-beta still update with their old helper, which keeps working with the new setup (/S).
+- Tests: test_updater.py rewritten for the new hand-over; update-outcome checks the dialog; update_e2e.py builds a real
+  setup and updates a throwaway folder with real processes, on every push (waiting, cancelling, the old /S way).
+
+---
+
+## 2026-11-04 — Drawings of formed sheet metal: no line where a formed skin's arcs meet; long flat arcs drawn
+
+- **Drawings:** a sheet metal blade with formed (rolled) skins, an aerofoil folded at its nose, was drawn with a
+  line wherever two of the skin's arcs met — dozens of lines up the blade, in the side view, the section and the
+  isometric — though the 3D view rightly leaves them out. Drawing views now leave them out too: only the nose's
+  bend, the ends and the outline are drawn.
+- **Drawings:** seen end on, the same blade's outline was mostly missing. The skins' long flat arcs (radii of 1 to 3
+  metres on a blade 165 long) were taken for projection faults, because their whole circles reached far outside the
+  part, and dropped. An arc is now judged by the part of its circle it is. The same check had left a fan scroll's
+  profile with gaps, and small gaps in other outlines (a swept part's iso view gains two short arcs, a revolved
+  pattern's one hidden arc).
+- **Drawings ▸ Dimension:** a diameter can be shown as a leader only (one arrow onto the circle, in line with its
+  centre) instead of a line across the circle: tick **Leader only** in the dimension's dialog. Busy views stay clear.
+- Tests: drawing-formed-blade (both, on a Clark Y blade folded at the nose), drawing-diameter-leader; the stored drawing results measure an
+  arc by the part of its circle it covers.
+
+## 2026-11-03 18:14 — Small circles drawn with two clicks; clicks that land on an existing point join it; fillets of a new size; Wireframe picks; the wheel over labels; big dimension changes; open sub-assemblies; mates far away
+
+- **Sketch Fillet / Sketch Chamfer** (2D and 3D sketches): after the first corner, every later one was made Equal
+  to it, even after another radius was typed in the panel — R10 typed, R20 made, with the panel still showing 10.
+  Typing another size now starts again: the next corner gets its own dimension and the ones after it are Equal to
+  that one.
+- **Wireframe:** edges and vertices behind a face were drawn but could not be clicked (an edge where one part sits
+  against another, hidden behind a third). In Wireframe every edge drawn can be picked, as for Tab and Slot, edge
+  flanges and fillets.
+- **View:** the mouse wheel over a dimension (or any other label on the view) did nothing, so zooming in on a corner
+  full of dimensions stopped whenever the cursor was on one. It zooms there as it does over the model.
+- **Sketch dimensions:** a new value the solver could not reach in one go was refused ("The sketch cannot be solved
+  with that value") though the same change made in two steps went through — an outline with 1 mm relief slots,
+  moved 12 mm by its position dimension. The change is now tried a step at a time before it is refused.
+- **Assembly ▸ Mate:** a motor inserted a metre from the casing, its flange face picked and then the casing's back
+  plate (at right angles to it), gave "This mate conflicts with the others or can't be reached" either way round:
+  the turn and the long move together were out of the solver's reach. When that happens the mate is tried again
+  with the part turned so the picked face (or axis) lines up with the other and moved so the picked spots meet.
+- **Assembly ▸ Insert Components:** assemblies open in other tabs were not listed (only parts), so a sub-assembly
+  had to be browsed for even when it was open. They are listed now (not the assembly itself, nor one that holds it)
+  and go in whole, as when browsed for.
+- **Sketch ▸ Circle:** a small circle's edge click, a few pixels from its centre, snapped back onto the centre (the
+  same grid point when zoomed out, or the centre point itself when starting a concentric circle), so the radius
+  came out 0 and no circle was made, without a word. The pointer's own position is used then, so the circle is
+  made at about the size clicked and its dimension sizes it. The same goes for a rectangle's second corner.
+- **Sketch, all drawing tools:** a click a little too far from a point to catch it, but whose grid snap lands
+  exactly on that point (an arc started at the end of a line drawn on the grid), made a second point on top of
+  it, not joined — the outline looked closed and wasn't. The click now uses the point that is there.
+- Tests: sketch-small-circle-click, sketch-grid-snap-joins-point, sketch-fillet-new-size, wireframe-picks-hidden-edge,
+  wheel-over-label-zooms, dimension-change-in-steps, assembly-insert-open-subassembly, assembly-mate-far-quarter-turn.
+
+## 2026-11-03 17:40 — Sketching blades: picking, patterns, etch, highlight
+
+- **Sketch:** a point under the cursor is picked before an airfoil's outline, so the chord's end points (which lie
+  on the outline) can be dragged and dimensioned again.
+- **Sketch patterns** (linear, along a curve, circular) copy an airfoil drawn on a chord line with the chord, and the
+  copies follow it: one blade outline patterned round an impeller's back plate.
+- **Etch:** outlines traced in many short pieces (airfoils) were clipped piece by piece against the plate, dozens of
+  tests each: 11 blade outlines took minutes. Short pieces on the face are now kept whole; it takes a second or two.
+- **Feature highlight:** selecting a feature outlined each of its faces, so a formed blade showed a line at every arc;
+  the outline now follows the feature's shape, with no lines where its faces meet smoothly.
+- Tests: sketch-pattern-circular (an airfoil patterned with its chord).
+
+## 2026-11-03 16:40 — Circular sketch patterns stay linked
+
+- **Circular Sketch Pattern:** the copies were plain loose geometry, each with its own size but free to move, so a
+  bolt circle drawn as one hole and its pattern left the sketch under defined (18 freedoms for 10 holes). The pattern
+  is now kept, as a linear sketch pattern is: the copies follow the original's size and position and the centre
+  point, the sketch is fully defined when the original is, and **Sketch Patterns ▸ Edit Circular Pattern** changes
+  the count or angle later (expressions allowed).
+- Tests: sketch-pattern-circular.
+
+## 2026-11-03 15:40 — Sheet metal aerofoil blades: one bend at the nose, formed skins
+
+- **Airfoil:** new **Sheet Metal Blade** options in its panel. **Nose radius** rounds the leading edge to an arc
+  touching both surfaces (a blade's press-brake bend: the inside radius plus the thickness, e.g. R2 + 2.5 = 4.5);
+  **Open at the trailing edge** leaves it an open chain, a folded blade's profile.
+- **Sheet Metal Extrude** takes that airfoil, and splines: the curves are formed (rolled to shape), each followed by
+  arcs to within 0.01 mm, with no bend lines in the flat pattern, the DXF or Sheet Metal Check, and no lines across
+  them in the view. The nose, a drawn arc, stays a bend with its bend line. A blade made this way has one bend line
+  in its blank instead of one for every arc that followed its curve (dozens).
+- **Sheet Metal Extrude:** where the sheet would run into itself (a blade's skins at its tail) one end is cut back,
+  with a small clearance (**Trim where it would run into itself**, on by default; **Cut back**: the end that needs
+  less, the start or the end). Gaps left on purpose, such as a seam, stay.
+- **Convert to Sheet Metal:** a curved surface converted to rolled sheet is formed too: no bend lines.
+- **Etch:** an airfoil in the etch sketch is marked, for setting out blades on a back plate.
+- Tests: sheet-airfoil-blade.
+
 ## 2026-11-03 09:06 — Version 0.21.5-beta
 
 - Version 0.21.5-beta: plug-ins (tools of your own on ribbon tabs of their own, kept on your own PC), explode lines

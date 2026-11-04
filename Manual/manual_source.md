@@ -90,9 +90,9 @@ A little after it starts (at most once a day), RazorCAD asks GitHub for the newe
 
 **Help ▸ Check for Updates…** checks at once and says what it found. Its window also turns the check at start on or off. **Help ▸ About RazorCAD** shows the version you have.
 
-**Update Now** (in the notice and in Check for Updates) updates in one click: RazorCAD downloads the new setup from its GitHub release, checks it against the release (size and SHA-256), installs it into the same folder (asking for administrator rights only when it was installed for all users), closes and starts again as the new version. Unsaved work is saved first (**Save All and Update**), or the update waits. The helper waits for this installation's app and launcher processes to close, checks the installer result, verifies that the executable was replaced and that the installed version matches the download, then restarts. A failed installation shows an error and its log path instead of silently reopening the old version. A copy of RazorCAD that wasn't installed with the setup offers **Download** instead. {idx:Update Now}
+**Update Now** (in the notice and in Check for Updates) updates in one click: RazorCAD downloads the new setup from its GitHub release, checks it against the release (size and SHA-256) and starts it. A small **RazorCAD Update** window then shows what is happening: it waits for RazorCAD to close, installs into the same folder (asking for administrator rights only when RazorCAD was installed for all users), checks that the new version is really there and starts it. If you reopen RazorCAD too soon, the window asks you to close it and the update carries on. Unsaved work is saved first (**Save All and Update**), or the update waits. A copy of RazorCAD that wasn't installed with the setup offers **Download** instead. {idx:Update Now}
 
-If updating fails, inspect `%TEMP%\RazorCAD-update\update.log` and run the downloaded setup in that folder manually after closing RazorCAD. The helper script is saved beside it as `install-update.ps1`. Fixes to the updater itself take effect once a build containing them has been installed; an older installation may need the newer setup run manually once.
+If an update fails, its window says why and offers **Try Again**. When the setup can't start, or stops without finishing (security software can do this), RazorCAD says so, on the spot or the next time it starts, and offers **Run the Setup**, which opens the downloaded setup as a normal install. The log is `%TEMP%\RazorCAD-update\update.log`, and helps a problem report. This way of updating comes with 0.21.6-beta. If Update Now doesn't work on 0.21.5-beta or older, download the new setup from the release page and run it once.
 
 ## The start window
 
@@ -487,7 +487,7 @@ In the sketch Property panel, **Rotate 90°** turns the sketch axes about the sk
 | **Midpoint Line** | | Midpoint, then one endpoint; the opposite endpoint is mirrored and a Midpoint relation preserves the centre |
 | **Corner Rectangle** | [[R]] | Built with horizontal and vertical relations |
 | **Center Rectangle** | | Also adds construction diagonals with a midpoint relation |
-| **Circle** | [[C]] | Centre, then radius |
+| **Circle** | [[C]] | Centre, then radius (a point on the circle). Click an existing point first for a concentric circle; a small one can be clicked a few pixels out and sized by its dimension |
 | **Centerpoint Arc** | [[A]] | Centre, start, end; the direction follows the mouse |
 | **3 Point Arc** | | Start, end, then a point it runs through |
 | **Tangent Arc** | | From the end of a line or arc, kept tangent by a Tangent relation |
@@ -511,12 +511,12 @@ In the sketch Property panel, **Rotate 90°** turns the sketch axes about the sk
 | **Sketch Picture** | | A picture (PNG, JPEG, BMP, GIF or WebP) on the sketch plane, to trace over. See below |
 | **Equation Curve** | | A spline through the points of **y = f(x)** (x from / to) or of **x = f(t), y = g(t)** (t from / to), in a number of **Pieces**. Part variables can be used and the curve follows them; sin, cos and tan take degrees. A parametric curve that ends where it starts is closed. An **Equation** relation holds it (it is fully defined); select it and use Equation Curve again to change it. {idx:equation curve} |
 | **Linear Sketch Pattern** | | Opens a side panel with an orange preview. Select source entities before or after opening it, then choose an angle, line or curve as direction/path. Copies stay linked to their sources, path, quantity and spacing. Along a curve, spacing is measured along it and copies can rotate with it; open paths stop at their end. A straight direction also supports a second direction. |
-| **Circular Sketch Pattern** | | Copies the selected entities with the relations and dimensions among them. A selected point is the pattern's centre. |
+| **Circular Sketch Pattern** | | Copies the selected entities round a centre: enter the number of instances (the original included) and the total angle (360 spreads them evenly). A selected point is the centre (it may move later); otherwise enter its X and Y. The copies stay linked to the originals, as a linear pattern's do: they follow their size and position, so a bolt circle drawn as one dimensioned hole and its pattern is fully defined. Change the count or angle with **Sketch Patterns ▸ Edit Circular Pattern** in the sketch's panel. An airfoil on a patterned chord line is copied with it. |
 | **Make Block / Insert Block / Explode Block** | | Make Block saves the selection (with its relations) under a name in your settings. Insert Block places copies with a click, in any sketch, turned by an angle, and can delete blocks from the library. A **linked** copy (the default) moves and turns as one (a rigid Block relation holds it) and follows the block: Make Block again under the same name updates every copy in the sketch where it is, keeping relations from other geometry to it. Explode Block makes the selected copies plain geometry with the block's own relations and dimensions. Untick **Linked** for plain copies. |
 | **Text** | | See below |
 | **Gears** | | See the Gears chapter |
 | **Airfoil** | | See the Airfoils chapter |
-| **Sketch Fillet / Sketch Chamfer** | | Set the radius or distance, then click corners (a fillet: where two lines, a line and an arc, two arcs, or a fit-point spline and a line or an arc meet: the spline is cut back to the fillet, which stays tangent to it; a chamfer: two lines). The first one made gets the dimension; the others made before you leave the tool are made Equal to it, so one value changes them all. |
+| **Sketch Fillet / Sketch Chamfer** | | Set the radius or distance, then click corners (a fillet: where two lines, a line and an arc, two arcs, or a fit-point spline and a line or an arc meet: the spline is cut back to the fillet, which stays tangent to it; a chamfer: two lines). The first one made gets the dimension; the others of the same size made before you leave the tool are made Equal to it, so one value changes them all. Type another size to start again: the next one gets its own dimension and the ones after it are Equal to that. |
 | **Intersection Curve** | | Click earlier sketch curves to create linked intersections with the active sketch plane, or select a model section |
 | **Construction Geometry** | [[Q]] | Toggles selected curves to/from construction; with no curves selected, toggles construction mode for newly drawn geometry. The drawing panel also has **For construction**. Preview and resulting geometry are dashed and ignored by features. |
 | **Display Relations** | | Shows or hides the relation glyphs |
@@ -762,6 +762,15 @@ The **Airfoil** tool on the Sketch tab draws a wing or blade section on a line. 
 | Custom | 4-digit: maximum camber, its position and thickness. 5-digit: design lift coefficient, camber position, reflexed camber line and thickness. Clark Y: thickness. Decimals are allowed. |
 
 Options: sharp or blunt trailing edge, camber to the other side, and the leading edge at the other end of the line.
+
+## A sheet metal blade {idx:airfoil, sheet metal blade}{idx:blade, aerofoil}
+
+A fan's aerofoil blade is folded from one sheet: bent round its nose on a press brake and formed (rolled) to shape along both surfaces. Under **Sheet Metal Blade** in the airfoil's panel:
+
+- **Nose radius** rounds the leading edge to an arc of that radius touching both surfaces. Draw the airfoil on the outside of the blade and enter the outside radius of the press-brake bend: the inside radius plus the thickness (R2 inside, 2.5 thick: 4.5). 0 leaves the nose as the section has it.
+- **Open at the trailing edge** leaves the two surfaces unjoined at the tail, so the airfoil is one open chain, nose round to both ends.
+
+Then make it with **Sheet Metal Extrude**, the material inside the airfoil. The nose is the blade's one bend (one bend line in the blank); the two surfaces are formed: no bend lines in the flat pattern, and no lines across them in the view. Where the two skins meet at the tail, one is cut back so the sheet doesn't run into itself (**Cut back**: the end that needs less, or the upper or the lower skin). The blank is a plain rectangle: cut the blade's top to the shroud afterwards (a revolved cut, say) and the blank follows. An open airfoil can't be extruded as a solid. An Etch sketch can hold airfoils too, to mark where blades go on a back plate: draw one blade's outline (and its web) and pattern the chord with a Circular Sketch Pattern, which copies the airfoil with it.
 
 # Tutorial: a Guided Loft and a Sheet Metal Tray
 
@@ -1456,7 +1465,7 @@ Base Flange, Sheet Metal Extrude and Transition / Reducer have a **Gauge** list:
 
 ## Sheet Metal Extrude
 
-Extrudes an open sketch of lines and arcs into a sheet metal part. Arcs in the sketch are bends of their own radius; sharp corners get a bend of the inside radius set in the panel. Material goes on one side, the other side or both sides of the sketch; depth one way, reversed or mid-plane. A circle on its own is rolled into a cylinder, leaving a seam gap. Arcs may follow one another with no straight between them, and the profile may start or end with an arc: a fan scroll is its arcs then its straight side, rolled. Flanges, hems, Flatten and DXF export work on it. {idx:Sheet Metal Extrude}
+Extrudes an open sketch of lines and arcs into a sheet metal part. Arcs in the sketch are bends of their own radius; sharp corners get a bend of the inside radius set in the panel. Splines (and the surfaces of an airfoil open at its trailing edge, see Airfoils) are **formed**, rolled to shape rather than bent on a brake: each is followed by smoothly joined arcs to within 0.01 mm, with no bend lines in the flat pattern or DXF, not listed by Sheet Metal Check, and no lines across them in the view or in drawing views. **Trim where it would run into itself** (on by default) cuts one end back where the sheet would overlap itself, as a blade's two skins do at its tail, leaving a small clearance; **Cut back** picks the end (the one that needs less, the start or the end of the profile). A gap left on purpose, a seam, stays as drawn. {idx:formed curves} Material goes on one side, the other side or both sides of the sketch; depth one way, reversed or mid-plane. A circle on its own is rolled into a cylinder, leaving a seam gap. Arcs may follow one another with no straight between them, and the profile may start or end with an arc: a fan scroll is its arcs then its straight side, rolled. Flanges, hems, Flatten and DXF export work on it. {idx:Sheet Metal Extrude}
 
 ## Lofted Bend
 
@@ -1596,7 +1605,7 @@ Turns an ordinary body into sheet metal. Pick a flat face of a thin-walled body 
 - A body curved other than in plain bends (a square-to-round transition or a reducer from another program, a cone) is **unrolled**: laid out flat at the neutral layer, triangle by triangle, so its flat pattern keeps every length; a ring is cut open at a seam. For a cone, click its curved face. A closed tube (bends all the way round) is unrolled the same way, cut open at a seam. A face curved both ways (a dished end, a spherical cap) can't be laid flat exactly: it is spread out as nearly as it can be (from its middle out along its profile, then relaxed so its lengths change as little as they can), and scaled to the dish's own area (pressed, the sheet keeps its volume). The note gives how far it stretches (the most over 98 % of it, and on average): use it as a blank size to press from, and check it against a trial. Cuts in such a sheet are unrolled with it (the hole is in the flat pattern); flanges, hems and corners can't be added (as on a lofted bend).
 - A body that RazorCAD folded itself (for example its STEP export) gets its closed corners back as RazorCAD made them: the corner type (V cutout, closed mitre or butt), which flange covers which and the gap are worked out from the body, and the relief and curved V lines are made again exactly. Other corners are traced from the body as they are.
 - After converting, the sheet's volume is compared with the body's. The feature note warns when they differ by more than 0.5 % (for example a nut or motor part that isn't sheet metal).
-- A **curved surface** that is curved one way only (a cylinder, or a profile swept straight) is converted into a rolled sheet: its section is followed by smoothly joined arcs, each a bend of its own radius. **Arc fit tolerance** (default 0.05 mm) sets how closely it follows the surface. **Thickness** goes behind the surface, in front of it, or both sides. A surface extruded from a sketch spline (an aerofoil blade drawn through points) is one face and converts this way.
+- A **curved surface** that is curved one way only (a cylinder, or a profile swept straight) is converted into a rolled sheet: its section is followed by smoothly joined arcs, each a bend of its own radius, formed (rolled to shape): no bend lines in the flat pattern or DXF. **Arc fit tolerance** (default 0.05 mm) sets how closely it follows the surface. **Thickness** goes behind the surface, in front of it, or both sides. A surface extruded from a sketch spline (an aerofoil blade drawn through points) is one face and converts this way.
 - **Trim where the sheet would run into itself** (on by default) trims a rolled sheet back where its two ends would meet, leaving a small clearance.
 
 ## Etch Lines
@@ -1942,7 +1951,7 @@ The copies are components of their own (in the bill of materials, mateable), fix
 
 ## Sub-assemblies
 
-An assembly can hold other assemblies as components. **Insert Components ▸ Browse for a Part or Assembly…** takes a .rasm file, and STEP assemblies keep their sub-assemblies when they open as an assembly. An assembly can't go inside itself. {idx:sub-assembly}
+An assembly can hold other assemblies as components. **Insert Components** lists the assemblies open in other tabs (double-click one to put it in whole), **Browse for a Part or Assembly…** takes a .rasm file, and STEP assemblies keep their sub-assemblies when they open as an assembly. An assembly can't go inside itself. {idx:sub-assembly}
 
 - A sub-assembly is kept whole, with its own parts, placements and configurations, and moves, hides, suppresses and explodes as one. Clicking any of its parts picks it.
 - Mates can use the faces, edges and vertices of the parts inside it.
@@ -2117,7 +2126,7 @@ A flat pattern view shows a sheet metal body unfolded with its outline and holes
 
 | Command | How |
 |---|---|
-| **Dimension** | Click a line for its length, a circle for its diameter (an arc: radius), two points, lines or circles for the distance between them (two lines at an angle: the angle), then click where the text goes. Horizontal, vertical or aligned depends on where you place it. Prefix, suffix, tolerance and override text can be set. |
+| **Dimension** | Click a line for its length, a circle for its diameter (an arc: radius), two points, lines or circles for the distance between them (two lines at an angle: the angle), then click where the text goes. Horizontal, vertical or aligned depends on where you place it. Prefix, suffix, tolerance and override text can be set; a diameter can be a **Leader only** (one arrow onto the circle) instead of a line across it. |
 | **Auto Dimension** | Dimensions the selected views, or every view on the sheet (see below) |
 | **Check Drawing** | Lists what the drawing still lacks (see below) |
 | **Note** | Click on the sheet; click an edge first to add a leader |
@@ -2611,6 +2620,7 @@ A body or part with no material uses 1.00 g/cm³ for mass calculations.
 
 | Date | Software version | Changes |
 |---|---|---|
+| 2026-11-04 | 0.21.6-beta | Update Now runs the setup in a window of its own and a failed update always says so, with **Run the Setup** (Update Now). Sheet metal aerofoil blades with one bend at the nose and formed skins; linked circular sketch patterns; small circles drawn with two clicks; clicks that land on a point join it. |
 | 2026-11-03 | 0.21.5-beta | Plug-ins: tools of your own, each on a ribbon tab of its own (Plug-ins, Writing a plug-in). Explode lines follow each move round its corners. Lofted Bend cones in one piece, from two circles; cuts round a kept part of a bend; Sheet Metal Extrude profiles that start with a roll; surfaces from sketch splines convert to rolled sheet; pattern copies named after their body. |
 | 2026-11-02 | 0.21.4-beta | Edge Flange and Closed Corner at angles other than 90°: walls cut back or run on to meet, bends cut in the flat from the base's corner point, every edge square to the sheet. Section View no longer stops a rebuild. Esc no longer lost after the quick-sizes box. |
 | 2026-11-02 | 0.21.3-beta | Mechanical mates grouped under Standard, Advanced and Mechanical Mates: Hinge (with a turn limit), Universal Joint and Linear Coupler, with icons for Screw, Slot and Cam. Motion studies with more than one driver. Flexible sub-assemblies: mates stay on their parts and dragging moves the parts. Holes placed on the floor of a cut. |

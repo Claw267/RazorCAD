@@ -2084,11 +2084,13 @@ export class DrawingEditor {
       <div class="kv"><div class="k">Prefix</div><div><input type="text" class="d-pre"></div>
       <div class="k">Suffix</div><div><input type="text" class="d-suf"></div>
       <div class="k">Tolerance</div><div><input type="text" class="d-tol" placeholder="e.g. ±0.1  or  H7"></div>
-      <div class="k">Override text</div><div><input type="text" class="d-ovr" placeholder="(empty: the measured value)"></div></div>`;
+      <div class="k">Override text</div><div><input type="text" class="d-ovr" placeholder="(empty: the measured value)"></div>
+      ${a.kind === 'diameter' ? '<div class="k"></div><div><label><input type="checkbox" class="d-lead"> Leader only (one arrow, not across the circle)</label></div>' : ''}</div>`;
     const q = (c) => box.querySelector(c);
     q('.d-pre').value = a.prefix || ''; q('.d-suf').value = a.suffix || ''; q('.d-tol').value = a.tol || ''; q('.d-ovr').value = a.override || '';
+    if (q('.d-lead')) q('.d-lead').checked = !!a.leaderOnly;
     this.app.ui.modal('Dimension', 'smartdim', box, [
-      { label: 'OK', primary: true, action: () => { a.prefix = q('.d-pre').value; a.suffix = q('.d-suf').value; a.tol = q('.d-tol').value.trim(); a.override = q('.d-ovr').value.trim() || null; this.changed(); } },
+      { label: 'OK', primary: true, action: () => { a.prefix = q('.d-pre').value; a.suffix = q('.d-suf').value; a.tol = q('.d-tol').value.trim(); a.override = q('.d-ovr').value.trim() || null; if (q('.d-lead')) { if (q('.d-lead').checked) a.leaderOnly = true; else delete a.leaderOnly; } this.changed(); } },
       { label: 'Cancel' },
     ]);
   }

@@ -1902,6 +1902,7 @@ export function flatPattern(sheet) {
     for (const [a, b] of sheet.lofted.cuts?.length ? clipSegment(fs, L.a, L.b) : [[L.a, L.b]]) bendLines.push({ a, b, up: L.up, ang: L.ang, R: sheet.R, id: 'lb' + (i + 1), t0: [], t1: [] });
   }
   for (const b of sheet.bends) {
+    if (b.formed) continue; // (a formed curve is rolled to shape, not folded on a line)
     const [x0, x1] = zoneSpan(b);
     const mid = (s) => [a2(a2(b.p0, m2(b.d, s)), m2(b.e, x0)), a2(a2(b.p0, m2(b.d, s)), m2(b.e, x1))];
     // the bend line, clipped to the pattern
@@ -1942,7 +1943,7 @@ export function sheetInfo(sheet) {
   const bb = bbox2(region);
   const cut = cutInfo(region);
   return {
-    t: sheet.t, R: sheet.R, K: sheet.K, bends: sheet.bends.length + (sheet.lofted?.bendLines?.length || 0), lofted: sheet.lofted ? sheet.lofted.method : null,
+    t: sheet.t, R: sheet.R, K: sheet.K, bends: sheet.bends.filter((b) => !b.formed).length + (sheet.lofted?.bendLines?.length || 0), formed: sheet.bends.filter((b) => b.formed).length, lofted: sheet.lofted ? sheet.lofted.method : null,
     flatSize: [bb.max[0] - bb.min[0], bb.max[1] - bb.min[1]], flatArea: areaOf(region),
     cutLength: cut.length + cutLines(sheet), pierces: cut.loops,
     flat: !!sheet.flat, stale: sheet.stale || null,
@@ -2369,10 +2370,17 @@ function facetSolid(A, B, t) {
 // A sheet extruded from an open sketch profile (a chain of lines and arcs; segs as S.chainSegs gives
 // them, in sketch coordinates) or a lone circle (rolled, with a seam gap). Drawn arcs are bends of their
 // own radius; sharp corners get a bend of inside radius R (the sketch stays on the sheet's face, so its
-// lines are the face's virtual sharps). side: the material 'one' (left of the profile's direction of
-// travel) | 'other' | 'mid' (the sketch is the middle of the thickness). The sheet runs from z0 to z1
-// along the sketch normal. Returns { sheet, corners (bends added at corners), drawn (drawn arcs) }.
-export function extrudedSheet(segs, { frame, z0, z1, t, K, R: R0, side: mode = 'one', gap = 0.5 }) {
+// lines are the face's virtual sharps). Curves (spline / ellipse pieces, an airfoil's surfaces: cubic
+// Béziers) are formed, rolled to shape on rolls or a press rather than folded on a brake: each run is
+// followed by smoothly joined arcs to within FORM_TOL, bends flagged formed, which have no bend lines in
+// the flat pattern. side: the material 'one' (left of the profile's direction of travel) | 'other' | 'mid'
+// (the sketch is the middle of the thickness). The sheet runs from z0 to z1 along the sketch normal.
+// trim: where the sheet would run into itself (a blade's two skins meeting at its trailing edge), one end
+// is cut back: trimAt 'auto' (the end that needs the least) | 'start' | 'end' (of the profile; an airfoil
+// starts with its upper skin). Returns { sheet, corners (bends added at corners), drawn
+// (drawn arcs), formed (formed curves), trimmed }.
+export const FORM_TOL = 0.01; // mm: largest distance between a formed curve and the arcs that follow it
+export function extrudedSheet(segs, { frame, z0, z1, t, K, R: R0, side: mode = 'one', gap = 0.5, trim = true, trimAt = 'auto' }) {
   if (!(t > 0)) throw new Error('The thickness must be greater than zero');
   if (!(z1 - z0 > 1e-9)) throw new Error('The depth must be greater than zero');
   const side = mode === 'other' ? -1 : 1, off = mode === 'mid' ? t / 2 : 0;
@@ -2387,7 +2395,7 @@ export function extrudedSheet(segs, { frame, z0, z1, t, K, R: R0, side: mode = '
     return g.ccw ? [-Math.sin(phi), Math.cos(phi)] : [Math.sin(phi), -Math.cos(phi)];
   };
   let list = [];
-  let closedCircle = false;
+  let closedCircle = false, formed = 0, trimmed = null;
   if (segs.length === 1 && segs[0].type === 'circle') {
     const { c, r } = segs[0];
     if (!(gap > 0)) throw new Error('A rolled circle needs a seam gap greater than zero');
@@ -2395,9 +2403,30 @@ export function extrudedSheet(segs, { frame, z0, z1, t, K, R: R0, side: mode = '
     list.push(arcEnds({ kind: 'arc', c, r, a0: gap / 2 / r, sweep: TAU2 - gap / r, ccw: true, drawn: true }));
     closedCircle = true;
   } else {
-    for (const g of segs) {
+    for (let k = 0; k < segs.length; k++) {
+      const g = segs[k];
       if (g.type === 'line') { if (l2(s2(g.b, g.a)) > 1e-9) list.push({ kind: 'line', a: g.a, b: g.b }); continue; }
-      if (g.type !== 'arc') throw new Error('Only lines and arcs (or one circle) can be extruded as sheet metal');
+      if (g.type === 'bezier') {
+        // a run of curve pieces, followed by arcs (and straight runs) to within FORM_TOL: formed
+        const pts = [], tg = [];
+        for (let first = true; k < segs.length && segs[k].type === 'bezier'; k++, first = false) {
+          const q = segs[k], n = 24;
+          for (let j = first ? 0 : 1; j <= n; j++) {
+            const u = j / n, w = 1 - u;
+            pts.push([0, 1].map((c) => w * w * w * q.a[c] + 3 * w * w * u * q.c1[c] + 3 * w * u * u * q.c2[c] + u * u * u * q.b[c]));
+            const d = [0, 1].map((c) => 3 * (w * w * (q.c1[c] - q.a[c]) + 2 * w * u * (q.c2[c] - q.c1[c]) + u * u * (q.b[c] - q.c2[c])));
+            tg.push(l2(d) > 1e-12 ? u2(d) : u2(s2(q.b, q.a)));
+          }
+        }
+        k--;
+        const fit = fitArcs(pts, tg, FORM_TOL);
+        if (!fit.length) continue;
+        // (the run's last arc ends exactly on the curve's end, so the next piece joins it there)
+        for (const s of fit) list.push(s.kind === 'arc' ? { ...s, formed: true } : { kind: 'line', a: s.a, b: s.b });
+        formed++;
+        continue;
+      }
+      if (g.type !== 'arc') throw new Error('Only lines, arcs and splines (or one circle) can be extruded as sheet metal');
       // the circle through a, m, b and the way round from a to b
       const [a, m, b] = [g.a, g.m, g.b];
       const d = 2 * (a[0] * (m[1] - b[1]) + m[0] * (b[1] - a[1]) + b[0] * (a[1] - m[1]));
@@ -2466,6 +2495,34 @@ export function extrudedSheet(segs, { frame, z0, z1, t, K, R: R0, side: mode = '
       return arcEnds({ ...g, r });
     });
   }
+  // where the sheet would run into itself: one end cut back (whichever needs less), with a little clearance
+  if (!closedCircle) {
+    const total = list.reduce((s, g) => s + (g.kind === 'line' ? l2(s2(g.b, g.a)) : g.r * g.sweep), 0);
+    const step = Math.max(t / 4, total / 1500), ref = [], mat = [];
+    for (const g of list) {
+      const n = Math.max(1, Math.ceil((g.kind === 'line' ? l2(s2(g.b, g.a)) : g.r * g.sweep) / step));
+      for (let i = ref.length ? 1 : 0; i <= n; i++) {
+        const f = i / n;
+        if (g.kind === 'line') { ref.push(a2(g.a, m2(s2(g.b, g.a), f))); mat.push(m2(left(u2(s2(g.b, g.a))), side)); continue; }
+        const phi = g.a0 + (g.ccw ? 1 : -1) * g.sweep * f, rv = [Math.cos(phi), Math.sin(phi)];
+        ref.push(a2(g.c, m2(rv, g.r)));
+        mat.push(m2(left(g.ccw ? [-rv[1], rv[0]] : [rv[1], -rv[0]]), side));
+      }
+    }
+    const S = [0];
+    for (let i = 1; i < ref.length; i++) S.push(S[i - 1] + l2(s2(ref[i], ref[i - 1])));
+    // (only a real overlap is trimmed, cut back then with the clearance: a gap left on purpose, e.g. a seam, stays)
+    const clear = Math.max(0.05, 0.05 * t), N = ref.length - 1;
+    const hits = trim && selfOverlaps(ref, mat, t, S, 0).length ? selfOverlaps(ref, mat, t, S, clear) : [];
+    if (hits.length) {
+      const startTo = Math.max(...hits.map(([i]) => i)) + 1, endTo = Math.min(...hits.map(([, j]) => j));
+      const cutStart = S[startTo], cutEnd = S[N] - S[endTo];
+      const at = trimAt === 'start' || trimAt === 'end' ? trimAt : cutStart <= cutEnd ? 'start' : 'end', cut = at === 'start' ? cutStart : cutEnd;
+      if (cut > S[N] / 2) throw new Error(`The sheet would run into itself well away from its ${trimAt === 'auto' ? 'ends' : trimAt}, so it cannot be trimmed back there: ${trimAt === 'auto' ? 'use a thinner sheet or put the material on the other side' : 'cut back the other end'}`);
+      trimmed = { at, length: cut };
+      list = trimChain(list, trimmed.at, trimmed.length * (S[N] > 0 ? total / S[N] : 1), arcEnds);
+    } else if (!trim && selfOverlaps(ref, mat, t, S, 0).length) trimmed = { at: null, length: 0, overlaps: true };
+  }
   // lay it out flat: straight runs as they are, arcs as bends (bend allowance)
   let X = 0;
   const lay = [];
@@ -2496,13 +2553,32 @@ export function extrudedSheet(segs, { frame, z0, z1, t, K, R: R0, side: mode = '
     if (L.s.kind !== 'arc') continue;
     // (a profile that starts or ends with an arc: nothing beyond that bend, as the open end of a rolled part)
     const ends = closedCircle ? {} : { ...(L === lay[0] ? { endA: true } : {}), ...(L === lay[lay.length - 1] ? { end: true } : {}) };
-    bends.push({ id: 'b' + nextBend++, p0: [L.X, y0], e: [0, 1], d: [1, 0], w, ba: L.len, ang: L.s.sweep, up: L.up, R: L.R, ...ends });
+    bends.push({ id: 'b' + nextBend++, p0: [L.X, y0], e: [0, 1], d: [1, 0], w, ba: L.len, ang: L.s.sweep, up: L.up, R: L.R, ...ends, ...(L.s.formed ? { formed: true } : {}) });
   }
   const rootPt = first.s.kind === 'line' ? [first.X + first.len / 2, y0 + w / 2] : null;
   return {
     sheet: { t, K, R: R0, frame: fr, region, bends, rootPt, flat: null, stale: null, nextBend },
-    corners, drawn: lay.filter((L) => L.s.kind === 'arc').length - corners, rolled: closedCircle,
+    corners, drawn: lay.filter((L) => L.s.kind === 'arc' && !L.s.formed).length - corners, formed, trimmed, rolled: closedCircle,
   };
+}
+// A chain of lines and arcs (as extrudedSheet holds them) with length cut off its start or end.
+function trimChain(list, at, length, arcEnds) {
+  const out = at === 'end' ? [...list].reverse() : [...list];
+  let left = length;
+  while (out.length && left > 1e-9) {
+    const g = out[0], L = g.kind === 'line' ? l2(s2(g.b, g.a)) : g.r * g.sweep;
+    if (L <= left + 1e-9) { out.shift(); left -= L; continue; }
+    if (g.kind === 'line') {
+      const dir = u2(s2(g.b, g.a));
+      out[0] = at === 'end' ? { ...g, b: s2(g.b, m2(dir, left)) } : { ...g, a: a2(g.a, m2(dir, left)) };
+    } else {
+      const da = left / g.r;
+      out[0] = arcEnds(at === 'end' ? { ...g, sweep: g.sweep - da } : { ...g, a0: g.a0 + (g.ccw ? da : -da), sweep: g.sweep - da });
+    }
+    left = 0;
+  }
+  if (!out.length) throw new Error('Nothing of the sheet is left after trimming it back');
+  return at === 'end' ? out.reverse() : out;
 }
 // Where two curves (a line { a, d } or a circle { c, r }) meet: the point nearest P.
 function nearestMeet(A, B, P) {
@@ -2579,11 +2655,13 @@ export function sheetCheck(sheet) {
   const { links } = fold(sheet);
   const pts = (face) => wireLoop(face.clone().outerWire(), 16).map((q) => [q[0], q[1]]);
   const minFlange = 3 * t;
-  const order = sheet.bends.map((b) => b.id);
+  // (formed curves are rolled to shape, not bent on a brake: counted, not listed)
+  const order = sheet.bends.filter((b) => !b.formed).map((b) => b.id);
+  out.formed = sheet.bends.length - order.length;
   const seen = new Set();
   for (const lk of links) {
     const b = lk.b;
-    if (seen.has(b.id)) continue;
+    if (seen.has(b.id) || b.formed) continue;
     seen.add(b.id);
     const n = order.indexOf(b.id) + 1;
     const reach = (P, from, dir) => (P?.face ? Math.max(...pts(P.face).map((q) => d2(s2(q, from), dir))) : null);
@@ -2602,6 +2680,7 @@ export function sheetCheck(sheet) {
       h++;
       const loop = wireLoop(w, 24).map((q) => [q[0], q[1]]);
       for (const b of sheet.bends) {
+        if (b.formed) continue;
         // distance from the hole to the bend zone (a rectangle along the bend line)
         let dmin = Infinity;
         for (const q of loop) {
@@ -2990,9 +3069,16 @@ export function addEtch(sheet, polylines, id) {
   if (!best) throw new Error('The etch sketch is not on a flat face of the sheet: draw it on the top or bottom face of a flat part');
   const marks = [...(sheet.marks || [])];
   let count = 0;
-  for (const pl of polylines) for (let i = 1; i < pl.length; i++) {
-    const a = apM(best.L, pl[i - 1]), b = apM(best.L, pl[i]);
-    for (const [ca, cb] of clipSegment([best.P.face], [a[0], a[1]], [b[0], b[1]])) { marks.push({ kind: 'etch', id, a: ca, b: cb }); count++; }
+  // (a short segment with its ends and middle on the face is kept whole: an outline traced as many short pieces,
+  // an airfoil's say, would otherwise take dozens of tests a piece; longer ones, or ones leaving the face, are clipped)
+  const fs = [best.P.face], on = (q) => !!faceAt(fs, q, 1e-7), short = Math.max(2, 20 * t);
+  for (const pl of polylines) {
+    const q = pl.map((p) => { const r = apM(best.L, p); return [r[0], r[1]]; }), inside = q.map(on);
+    for (let i = 1; i < q.length; i++) {
+      const a = q[i - 1], b = q[i];
+      if (inside[i - 1] && inside[i] && l2(s2(b, a)) <= short && on(m2(a2(a, b), 0.5))) { marks.push({ kind: 'etch', id, a, b }); count++; continue; }
+      for (const [ca, cb] of clipSegment(fs, a, b)) { marks.push({ kind: 'etch', id, a: ca, b: cb }); count++; }
+    }
   }
   return { sheet: { ...sheet, marks }, count };
 }
@@ -3838,7 +3924,8 @@ export function developedSheet(solid, faces, P0, { t, K, coarse = false }) {
 // ------------------------------------------------------------ convert a curved surface (a rolled sheet)
 // A face curved one way only: a cylinder, or any surface swept straight along one direction D (e.g. an
 // extruded airfoil). Its section across D is fitted with arcs (and straight runs) that join smoothly,
-// to within tol (ROLL_TOL by default); each arc becomes a bend of its own radius, so the sheet is rolled.
+// to within tol (ROLL_TOL by default); each arc becomes a bend of its own radius, so the sheet is rolled
+// (the bends are formed: no bend lines in the flat pattern).
 // The flat pattern is the face's own outline unrolled along the section. side: where the material is,
 // 'one' (behind the face, against its normal), 'other' (in front) or 'mid' (half each side). trim: where
 // the sheet would run into itself (e.g. the two sides of a blade meeting at its trailing edge), one end
@@ -3971,7 +4058,8 @@ function rolledSheet(face, { t, K, mode, tol, trim, at, u0, u1, v0, v1 }) {
   let nextBend = 1;
   for (const L of lay) {
     if (L.s.kind !== 'arc') continue;
-    bends.push({ id: 'b' + nextBend++, p0: [L.X, bb.min[1]], e: [0, 1], d: [1, 0], w: bb.max[1] - bb.min[1], ba: L.len, ang: L.s.sweep, up: L.up, R: L.R });
+    // (each arc follows the curved surface: rolled to shape, formed, no bend line)
+    bends.push({ id: 'b' + nextBend++, p0: [L.X, bb.min[1]], e: [0, 1], d: [1, 0], w: bb.max[1] - bb.min[1], ba: L.len, ang: L.s.sweep, up: L.up, R: L.R, formed: true });
   }
   const rootPt = first.s.kind === 'line' ? insidePoint(region, [first.X + first.len / 2, (bb.min[1] + bb.max[1]) / 2]) : null;
   const radii = bends.map((b) => b.R);

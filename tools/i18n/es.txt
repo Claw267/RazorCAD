@@ -998,3 +998,18 @@
 998|Aristas del modelo
 999|Añadir aristas seleccionadas como perfil
 1000|Borrar aristas seleccionadas
+1001|Ejecutar el instalador
+1002|Ejecuta tú mismo el nuevo instalador para actualizar. Tus piezas y ajustes se conservan.
+1003|Sigue el instalador y luego vuelve a iniciar RazorCAD
+1004|Líneas de rotura
+1005|Quitar líneas de rotura
+1006|Separar de la vista principal
+1007|Mover a la hoja…
+1008|Relaciones estándar
+1009|Relaciones avanzadas
+1010|Relaciones mecánicas
+1011|Bisagra
+1012|Junta universal
+1013|Acoplador lineal
+1014|Más impulsores
+1015|+ Añadir un impulsor

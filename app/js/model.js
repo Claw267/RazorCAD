@@ -458,7 +458,9 @@ export function createFeature(doc, type, props = {}) {
     // a flange of up to four segments (len / ang; a negative angle folds back the other way) along edges
     smProfileFlange: { edges: [], segments: '2', len1: 20, ang1: 90, len2: 10, ang2: 90, len3: 10, ang3: 90, len4: 10, ang4: 90, position: 'inside', flip: false, useDefaultRadius: true, radius: 2, corner: 'closed', cornerGap: 0.1, reliefType: 'rect', reliefRatio: 0.5 },
     smTabSlot: { edge: null, face: null, count: 3, length: 15, height: '', clearance: 0.1, margin: '' },
-    smExtrude: { sketch: null, depth: 100, direction: 'one', thickness: 2, side: 'one', radius: 2, kFactor: 0.44, seamGap: 0.5 },
+    // trimSelf: a sheet that would run into itself (a blade's skins at its trailing edge) is cut back at one end,
+    // trimAt: 'auto' (the end needing less) | 'start' | 'end' of the profile (an airfoil starts with its upper skin)
+    smExtrude: { sketch: null, depth: 100, direction: 'one', thickness: 2, side: 'one', radius: 2, kFactor: 0.44, seamGap: 0.5, trimSelf: true, trimAt: 'auto' },
     // hemType: 'closed' | 'open' (gap) | 'teardrop' (radius, angle 181-269) | 'rolled' (radius, angle)
     smHem: { edges: [], hemType: 'closed', length: 10, gap: 1, radius: 1, angle: 270, tearAngle: 225, position: 'inside', flip: false, reliefType: 'rect', reliefRatio: 0.5 },
     // lengthRef: 'outer' | 'inner' (virtual sharp) | 'tangent'; position: 'inside' | 'outside' | 'bend'

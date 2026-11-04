@@ -998,3 +998,18 @@
 998|Modellkanten
 999|Ausgewählte Kanten als Profil hinzufügen
 1000|Ausgewählte Kanten löschen
+1001|Setup ausführen
+1002|Führen Sie das neue Setup selbst aus, um zu aktualisieren. Ihre Teile und Einstellungen bleiben erhalten.
+1003|Folgen Sie dem Setup und starten Sie RazorCAD danach neu
+1004|Bruchlinien
+1005|Bruchlinien entfernen
+1006|Von übergeordneter Ansicht lösen
+1007|In Blatt verschieben…
+1008|Standardverknüpfungen
+1009|Erweiterte Verknüpfungen
+1010|Mechanische Verknüpfungen
+1011|Scharnier
+1012|Kardangelenk
+1013|Linearkoppler
+1014|Weitere Antriebe
+1015|+ Antrieb hinzufügen

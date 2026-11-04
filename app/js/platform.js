@@ -244,6 +244,8 @@ export const platform = {
   async checkUpdate(force = false) { return desktop ? api().check_update(force) : null; },
   // Update now (desktop, installed with the setup): { ok } once the setup is downloaded and started, else { error }
   async startUpdate(setup) { return desktop ? api().start_update(setup.url, setup.size, setup.digest) : { error: 'The browser version updates by itself' }; },
+  async updateResult() { return desktop ? api().update_result() : null; },
+  async runSetup() { return desktop ? api().run_setup() : false; },
   // a RazorCAD page (on GitHub) in the web browser
   // crash reports as GitHub issues (desktop): the reports kept, and one (or none: a plain problem report) as
   // { title, body, url } with personal details taken out

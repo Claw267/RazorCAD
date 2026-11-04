@@ -554,7 +554,7 @@ const PM_SCHEMAS = {
   smExtrude: [
     { title: 'Profile', fields: [
       { key: 'sketch', type: 'sketch', label: 'Sketch (open, or a circle)' },
-      { key: 'pHint', type: 'hint', text: 'One chain of lines and arcs joined end to end. Arcs you draw are bends of their own radius; sharp corners get a bend of the radius below. A circle on its own is rolled into a cylinder, leaving the seam gap.' },
+      { key: 'pHint', type: 'hint', text: 'One chain of lines, arcs and splines joined end to end, or an airfoil open at its trailing edge (a blade). Arcs you draw are bends of their own radius; sharp corners get a bend of the radius below. Splines and the surfaces of an airfoil are formed (rolled to shape): no bend lines in the flat pattern. A circle on its own is rolled into a cylinder, leaving the seam gap.' },
     ] },
     { title: 'Extrude', fields: [
       { key: 'depth', type: 'expr', label: 'Depth', unit: 'mm' },
@@ -566,6 +566,8 @@ const PM_SCHEMAS = {
       { key: 'side', type: 'select', label: 'Material', options: (f, a) => (smCircle(f, a) ? [['one', 'Inside the circle'], ['other', 'Outside the circle'], ['mid', 'Both sides (the circle in the middle)']] : [['one', 'One side of the sketch'], ['other', 'Other side of the sketch'], ['mid', 'Both sides (the sketch in the middle)']]) },
       { key: 'radius', type: 'expr', label: 'Bend radius (inside, at sharp corners)', unit: 'mm', show: (f, a) => !smCircle(f, a) },
       { key: 'seamGap', type: 'expr', label: 'Seam gap', unit: 'mm', show: (f, a) => smCircle(f, a) },
+      { key: 'trimSelf', type: 'check', label: 'Trim where it would run into itself (cut one end back)', show: (f, a) => !smCircle(f, a) },
+      { key: 'trimAt', type: 'select', label: 'Cut back', options: [['auto', 'The end that needs less'], ['start', 'The start of the profile (an airfoil: its upper skin)'], ['end', 'The end of the profile (an airfoil: its lower skin)']], show: (f, a) => !smCircle(f, a) && f.trimSelf !== false },
       ...SM_BEND_CALC,
     ] },
   ],
@@ -5041,7 +5043,7 @@ export class UI {
       const g = this.pmGroup(root, 'Sketch Patterns', 'sk:patterns');
       for (const [i, p] of f.patterns.entries()) {
         const row = el('div', { class: 'pm-row' });
-        row.appendChild(el('button', { onclick: () => sk.linearPatternSel(p.id) }, `Edit Pattern ${i + 1}`));
+        row.appendChild(el('button', { onclick: () => (p.kind === 'circular' ? sk.circularPatternSel(p.id) : sk.linearPatternSel(p.id)) }, `Edit ${p.kind === 'circular' ? 'Circular ' : ''}Pattern ${i + 1}`));
         row.appendChild(el('button', { onclick: () => { SM.removeSketchPattern(f, p.id); sk.sel.clear(); sk.changed(); } }, 'Delete'));
         g.appendChild(row);
       }
@@ -5469,6 +5471,21 @@ export class UI {
       const lab = el('label'); lab.append(cb, document.createTextNode(' ' + label));
       og.appendChild(this.row(null, lab, 'check'));
     }
+    // a sheet metal blade: the nose rounded for the press brake, open at the tail
+    const bg = this.pmGroup(root, 'Sheet Metal Blade', 'sk:airfoilb');
+    bg.appendChild(this.row('Nose radius', this.exprInput(af.noseR || 0, 'mm', (v) => {
+      const x = num(v);
+      if (!(x >= 0)) { a.status('Not changed — the nose radius can\'t be negative'); return; }
+      const why = SM.airfoilProblem(f, { ...af, noseR: x });
+      if (why) { a.status(`Not changed — ${why}`); return; }
+      set((y) => { y.noseR = x; });
+    }, { min: 0 })));
+    const ob = el('input', { type: 'checkbox' });
+    ob.checked = !!af.open;
+    ob.onchange = () => set((x) => { x.open = ob.checked; });
+    const olab = el('label'); olab.append(ob, document.createTextNode(' Open at the trailing edge'));
+    bg.appendChild(this.row(null, olab, 'check'));
+    bg.appendChild(el('div', { class: 'pm-hint' }, 'For a blade folded from one sheet: round the nose to the outside radius of its press-brake bend (inside radius + thickness, e.g. R2 + 2.5 = 4.5) and open the trailing edge, then make it with Sheet Metal Extrude, the material inside. The nose is a bend; the surfaces are formed (rolled), with no bend lines. 0: the nose as drawn.'));
     og.appendChild(el('div', { class: 'pm-hint' }, 'The airfoil follows its chord line: drag the line\'s ends, or dimension it, and the airfoil scales with it. Extrude the sketch to make a wing section.'));
     og.appendChild(el('button', { class: 'pm-btn', style: 'margin-top:6px', onclick: () => { sk.deleteAirfoil(af); sk.sel.clear(); sk.changed(); } }, 'Delete airfoil'));
   }
@@ -6870,7 +6887,7 @@ export class UI {
       let r;
       try { r = await a.kernel.request('sheetCheck', { bodyId: b.id }); } catch (e) { box.appendChild(el('div', { class: 'pm-msg err' }, esc(`${b.name}: ${e.message}`))); continue; }
       const sec = el('div', { class: 'sm-check-body' });
-      sec.appendChild(el('div', { class: 'sm-check-h' }, `<b>${esc(b.name)}</b> · t ${r.t} mm · K ${r.K} · ${r.bends.length} bend${r.bends.length === 1 ? '' : 's'}${r.holes ? ` · ${r.holes} hole${r.holes === 1 ? '' : 's'}` : ''}${r.forms ? ` · ${r.forms} form${r.forms === 1 ? '' : 's'}` : ''}${r.lofted ? ` · lofted (${r.lofted})` : ''}`));
+      sec.appendChild(el('div', { class: 'sm-check-h' }, `<b>${esc(b.name)}</b> · t ${r.t} mm · K ${r.K} · ${r.bends.length} bend${r.bends.length === 1 ? '' : 's'}${r.formed ? ` · formed (rolled) curves, no bend lines` : ''}${r.holes ? ` · ${r.holes} hole${r.holes === 1 ? '' : 's'}` : ''}${r.forms ? ` · ${r.forms} form${r.forms === 1 ? '' : 's'}` : ''}${r.lofted ? ` · lofted (${r.lofted})` : ''}`));
       if (r.bends.length) {
         const f2 = (x) => (x == null ? '—' : +(+x).toFixed(2));
         const tbl = el('table', { class: 'sm-check-t' }, `<tr><th>Bend</th><th>Direction</th><th>Angle</th><th>Inside R</th><th>Length</th><th>Flange</th><th>Flange</th></tr>` + r.bends.map((x) => `<tr><td>B${x.n}</td><td>${x.up ? 'Up' : 'Down'}</td><td>${f2(x.ang)}°</td><td>${f2(x.R)}</td><td>${f2(x.w)}</td><td>${f2(x.flangeA)}</td><td>${f2(x.flangeB)}</td></tr>`).join(''));
@@ -7749,8 +7766,9 @@ export class UI {
     ]);
   }
 
-  // Update Now: the new setup downloaded (checked against the release) and run silently into this installation;
-  // RazorCAD closes and starts again once it is installed. Unsaved work is saved first, or the update waits.
+  // Update Now: the new setup downloaded (checked against the release) and started for this installation, in a
+  // small window of its own; RazorCAD closes once it answers, and the setup starts the new version when it has
+  // checked it. Unsaved work is saved first, or the update waits.
   async updateNow(r) {
     const a = this.app;
     if (a.dirtyTabs().length) {
@@ -7760,9 +7778,27 @@ export class UI {
       if (!ok || a.dirtyTabs().length) { a.toast('Not everything was saved: the update waits', true); return; }
     }
     const res = await a.withProgress(`Downloading RazorCAD ${r.latest}…`, () => platform.startUpdate(r.setup)).catch((e) => ({ error: e.message }));
-    if (!res?.ok) { a.toast(`${res?.error || 'The update could not start'}`, true); return; }
+    if (!res?.ok) {
+      if (res?.setup) return this.updateFailed(r.latest, res.error);
+      a.toast(`${res?.error || 'The update could not start'}`, true);
+      return;
+    }
     a.status(`Installing RazorCAD ${r.latest}… RazorCAD restarts after the update is verified${res.allUsers ? ' (Windows asks for permission first)' : ''}.`);
     setTimeout(() => platform.closeApp(), 600);
+  }
+
+  // What became of the last Update Now, at start: an update that did not get through says so here.
+  async updateOutcome() {
+    const r = await platform.updateResult().catch(() => null);
+    if (r?.state === 'installing') this.app.toast(`RazorCAD ${r.to} is still being installed. Close RazorCAD so it can finish.`, true);
+    else if (r?.state === 'failed') await this.updateFailed(r.to, r.error, r.log);
+  }
+  async updateFailed(version, reason, log = '') {
+    const c = await this.choose('Update RazorCAD', 'error', `<p><b>RazorCAD ${esc(version)} was not installed.</b></p><p>${esc(reason)}</p>${log ? `<p class="pm-hint">${esc(log)}</p>` : ''}<p class="pm-hint">Run the new setup yourself to update. Your parts and settings stay.</p>`,
+      [['setup', 'Run the Setup', true], ['later', 'Later']]);
+    if (c !== 'setup') return;
+    if (await platform.runSetup().catch(() => false)) this.app.toast('Follow the setup, then start RazorCAD again');
+    else platform.openUrl('https://github.com/Labs9119/RazorCAD/releases');
   }
 
   // ---- Reporting a problem (opt-in): a crash report, or none, as a GitHub issue. The text is shown (and can be

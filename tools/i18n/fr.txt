@@ -998,3 +998,18 @@
 998|Arêtes du modèle
 999|Ajouter les arêtes sélectionnées comme profil
 1000|Effacer les arêtes sélectionnées
+1001|Lancer le programme d’installation
+1002|Lancez vous-même le nouveau programme d’installation pour mettre à jour. Vos pièces et réglages sont conservés.
+1003|Suivez le programme d’installation, puis relancez RazorCAD
+1004|Lignes de rupture
+1005|Supprimer les lignes de rupture
+1006|Détacher de la vue parente
+1007|Déplacer vers la feuille…
+1008|Contraintes standard
+1009|Contraintes avancées
+1010|Contraintes mécaniques
+1011|Charnière
+1012|Joint de cardan
+1013|Coupleur linéaire
+1014|Autres moteurs
+1015|+ Ajouter un moteur

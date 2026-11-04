@@ -1693,6 +1693,18 @@ export class AssemblyEditor {
       li.ondblclick = () => { pick(li, { doc, path: i === a.tabIndex ? a.filePath : t.filePath, tab: t }); dlg.close(); go(); };
       list.appendChild(li);
     }
+    // (other assemblies open in tabs: they go in whole, as sub-assemblies, as when browsed for; not this one or one
+    // that has this one inside it)
+    for (const t of a.tabs) {
+      const ed = t.kind === 'drawing' ? t.drawing : null;
+      if (!ed || ed === this || !isAssembly(ed.doc)) continue;
+      if (sameFile(t.filePath, this.filePath) || this.usesFile(ed.doc, this.filePath)) continue;
+      const val = { asm: ed.doc, path: t.filePath || null };
+      const li = el('div', { class: 'li' }, `${icon('assembly')}<span>${esc(ed.doc.name)}</span><span class="pm-hint" style="margin-left:auto">${t.filePath ? 'open assembly' : 'open assembly, not saved'}</span>`);
+      li.onclick = () => pick(li, val);
+      li.ondblclick = () => { pick(li, val); dlg.close(); go(); };
+      list.appendChild(li);
+    }
     for (const p of this.doc.parts) {
       const li = el('div', { class: 'li' }, `${icon('component')}<span>${esc(p.name)}</span><span class="pm-hint" style="margin-left:auto">in this assembly</span>`);
       li.onclick = () => pick(li, { existing: p.id });
@@ -1718,6 +1730,7 @@ export class AssemblyEditor {
       if (!chosen) return;
       const cfg = cfgRow.style.display === 'none' ? undefined : cfgSel.value || null;
       if (chosen.existing) return this.addComponent(chosen.existing, cfg);
+      if (chosen.asm) return this.addComponent(this.addPart(stripThumbnail(JSON.parse(JSON.stringify(chosen.asm))), chosen.path, null));
       const pid = this.addPart(chosen.doc, chosen.path, chosen.tab);
       await this.addComponent(pid, cfg);
     };
@@ -2684,6 +2697,31 @@ export class AssemblyEditor {
       const r2 = solveAssembly(v, { only: [...others, m2] });
       if (r2.ok) { this.pm.align = m2.align; r = r2; }
       else Object.assign(this.doc.components, JSON.parse(this.pmBefore).map((x, i) => Object.assign(this.doc.components[i], x)));
+    }
+    // (a part far from where the mate puts it, needing a turn as well, can be out of the solver's reach from where it
+    // is — a motor inserted a metre away, its flange to go on a plate at right angles: tried again with the part
+    // turned so the picked face (or axis) lines up with the other and moved so the picked spots meet, either way
+    // round unless Flip was used)
+    if (!r.ok) {
+      const comp = (ref) => this.doc.components.find((c) => c.id === ref.comp && !c.fixed);
+      const mv = comp(m.a) ? m.a : comp(m.b) ? m.b : null;
+      const aligns = this.pm.align && !this.pm.flipped && ['coincident', 'parallel'].includes(m.type) ? [m.align, -m.align] : [m.align];
+      for (const al of mv ? aligns : []) {
+        Object.assign(this.doc.components, JSON.parse(this.pmBefore).map((x, i) => Object.assign(this.doc.components[i], x)));
+        const c = comp(mv), to = this.worldRef(mv === m.a ? m.b : m.a), from = this.worldRef(mv);
+        if (!c || !to || !from) break;
+        const df = from.n || from.d, dt = to.n || to.d;
+        if (df && dt) {
+          const want = from.n && to.n ? mul(dt, al || -1) : dot(df, dt) < 0 ? mul(dt, -1) : dt;
+          const turn = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(...unit(df)), new THREE.Vector3(...unit(want)));
+          const q = turn.multiply(new THREE.Quaternion(...c.rot));
+          c.rot = [q.x, q.y, q.z, q.w];
+        }
+        c.pos = add(c.pos, sub(to.p, this.worldRef(mv).p));
+        const r3 = solveAssembly(v, { only: [...others, { ...m, align: al }] });
+        if (r3.ok) { r = r3; if (al !== undefined) this.pm.align = al; break; }
+      }
+      if (!r.ok) Object.assign(this.doc.components, JSON.parse(this.pmBefore).map((x, i) => Object.assign(this.doc.components[i], x)));
     }
     this.pm.error = r.ok ? null : 'This mate conflicts with the others (over-defined) or can\'t be reached: try Flip, another type or other entities.';
     if (r.ok) this.dofs = r.dofs || this.dofs;

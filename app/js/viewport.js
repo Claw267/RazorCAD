@@ -104,6 +104,9 @@ export class Viewport {
       onChange: () => { this.anim = null; },
     });
     this.setLeftRotate(true);
+    // (the wheel over a dimension or another label zooms as it does over the model, which it would otherwise stop
+    // there: zooming in on a corner full of dimensions; not over a box being typed in)
+    labelsEl?.addEventListener('wheel', (e) => { if (!e.target.closest?.('.modify, input, textarea, select')) this.controls.wheel(e); }, { passive: false });
 
     this.bodyGroup = new THREE.Group();
     this.planeGroup = new THREE.Group();
@@ -592,16 +595,23 @@ export class Viewport {
     return isFinite(min[0]) ? { min, max } : null;
   }
 
+  // How deep under the cursor an edge or point can be and still be picked: the face hit there (things behind it are
+  // hidden), or, in Wireframe, which draws every edge, any depth.
+  pickDepthLimit(ev, depth) {
+    if (this.displayStyle === 'wireframe') return Infinity;
+    const hit = this.pickBody(ev);
+    return hit ? depth(hit.point) : Infinity;
+  }
+
   // Closest visible B-rep edge to the cursor (within tolPx pixels).
   pickEdge(ev, tolPx = 6) {
     if (!this.edgeList?.length) return null;
     const m = this.screenPos(ev);
-    const hit = this.pickBody(ev);
     const viewDir = new THREE.Vector3();
     this.camera.getWorldDirection(viewDir);
     const depth = (p) => p.clone().sub(this.camera.position).dot(viewDir);
     const slack = (this.bodyGeo?.boundingSphere?.radius || 50) * 0.02 + 0.5;
-    const hitDepth = hit ? depth(hit.point) : Infinity;
+    const hitDepth = this.pickDepthLimit(ev, depth);
     // (each edge's nearest place to the cursor; of edges about as near on the screen, the one nearest the eye: on a
     // thin sheet the top edge, not the bottom one just behind it)
     const near = [];
@@ -634,12 +644,11 @@ export class Viewport {
   pickVertex(ev, tolPx = 8) {
     if (!this.edgeList?.length) return null;
     const m = this.screenPos(ev);
-    const hit = this.pickBody(ev);
     const viewDir = new THREE.Vector3();
     this.camera.getWorldDirection(viewDir);
     const depth = (p) => p.clone().sub(this.camera.position).dot(viewDir);
     const slack = (this.bodyGeo?.boundingSphere?.radius || 50) * 0.02 + 0.5;
-    const hitDepth = hit ? depth(hit.point) : Infinity;
+    const hitDepth = this.pickDepthLimit(ev, depth);
     let best = null, bd = tolPx;
     for (const e of this.edgeList) {
       if (e.hidden) continue;
@@ -657,10 +666,10 @@ export class Viewport {
   // the model: { point, kind: 'mid' | 'centre' }.
   pickSnap(ev, { mids = true, centres = true } = {}, tolPx = 8) {
     if (!this.edgeList?.length || (!mids && !centres)) return null;
-    const m = this.screenPos(ev), hit = this.pickBody(ev), viewDir = new THREE.Vector3();
+    const m = this.screenPos(ev), viewDir = new THREE.Vector3();
     this.camera.getWorldDirection(viewDir);
     const depth = (p) => p.clone().sub(this.camera.position).dot(viewDir);
-    const slack = (this.bodyGeo?.boundingSphere?.radius || 50) * 0.02 + 0.5, hitDepth = hit ? depth(hit.point) : Infinity;
+    const slack = (this.bodyGeo?.boundingSphere?.radius || 50) * 0.02 + 0.5, hitDepth = this.pickDepthLimit(ev, depth);
     let best = null, bd = tolPx;
     const consider = (w, kind, behindOk) => {
       const s = this.project(w), d = Math.hypot(s.x - m.x, s.y - m.y);
@@ -1567,6 +1576,7 @@ export class Viewport {
     if (!infos?.length) return;
     const color = key === 'featureHover' || key === 'cycle' ? 0xf59e0b : 0x2b7de9; // cycle: candidate (orange)
     const grp = new THREE.Group();
+    const all = []; // (every face's triangles, for one outline: where two of the faces meet smoothly, no line)
     for (const info of infos) {
       if (!info) continue;
       const m = new THREE.Mesh(info.geometry.clone(), new THREE.MeshBasicMaterial({
@@ -1583,13 +1593,25 @@ export class Viewport {
           clippingPlanes: this.bodyMat.clippingPlanes,
         }));
         xray.renderOrder = 8;
-        const outline = new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry, 30), new THREE.LineBasicMaterial({
-          color: new THREE.Color(color).multiplyScalar(0.75), transparent: true, opacity: 0.85, depthTest: false,
-          clippingPlanes: this.bodyMat.clippingPlanes,
-        }));
-        outline.renderOrder = 9;
-        grp.add(xray, outline);
+        grp.add(xray);
+        const flat = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry;
+        all.push(flat.attributes.position.array);
+        if (flat !== m.geometry) flat.dispose();
       }
+    }
+    if (all.length) {
+      const pos = new Float32Array(all.reduce((n, a) => n + a.length, 0));
+      let at = 0;
+      for (const a of all) { pos.set(a, at); at += a.length; }
+      const merged = new THREE.BufferGeometry();
+      merged.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      const outline = new THREE.LineSegments(new THREE.EdgesGeometry(merged, 30), new THREE.LineBasicMaterial({
+        color: new THREE.Color(color).multiplyScalar(0.75), transparent: true, opacity: 0.85, depthTest: false,
+        clippingPlanes: this.bodyMat.clippingPlanes,
+      }));
+      merged.dispose();
+      outline.renderOrder = 9;
+      grp.add(outline);
     }
     this._faceSets[key] = grp;
     this.highlightGroup.add(grp);

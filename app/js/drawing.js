@@ -597,7 +597,8 @@ export function arrowHead(tip, d, dwg) {
 // Points of annotations that belong to a view are stored in that view's coordinates, so they move
 // with the view; `pos` (where the text is) is stored relative to the view's origin on the sheet.
 //   dim linear: { kind: 'linear', view, p1, p2, orient: 'h' | 'v' | 'a', pos }
-//   dim diameter / radius: { kind, view, c, r, pos }      dim angle: { kind: 'angle', view, l1, l2, pos }
+//   dim diameter / radius: { kind, view, c, r, pos, leaderOnly? (a diameter: one arrow, not across the circle) }
+//   dim angle: { kind: 'angle', view, l1, l2, pos }
 //   note: { type: 'note', text, pos, view?, leader?: point (view coordinates) }
 //   center mark: { type: 'cmark', view, c, r }           centerline: { type: 'cline', view, a, b }
 export function annPos(dwg, a) {
@@ -744,7 +745,11 @@ export function annPrims(dwg, a, ctx) {
     const end = [P[0] + shoulder * (tw + 2), P[1]];
     if (a.kind === 'diameter') {
       const far = sub2(c, mul2(u, r));
-      if (outside) {
+      if (outside && a.leaderOnly) {
+        // (leader only: one arrow onto the near side, in line with the centre; the circle left clear)
+        out.push({ t: 'line', a: near, b: P, w: LW.thin }, { t: 'line', a: P, b: end, w: LW.thin });
+        out.push(arrowHead(near, mul2(u, -1), dwg));
+      } else if (outside) {
         out.push({ t: 'line', a: far, b: P, w: LW.thin }, { t: 'line', a: P, b: end, w: LW.thin });
         out.push(arrowHead(near, mul2(u, -1), dwg), arrowHead(far, u, dwg));
       } else {

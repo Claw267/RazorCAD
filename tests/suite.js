@@ -1276,6 +1276,102 @@ const UI = {
   // dimensioned); the grid's step in the status bar; the undo history (described, and gone straight back to); ✔+
   // starts another of the same; a drawing made with Dimension the views ticked is dimensioned; a view placed over
   // the title block moved clear of it; an edge picked on a thin sheet is the one nearer the eye
+  // A small circle drawn with two clicks a few pixels apart: the edge click snaps back onto the centre (the same
+  // grid point, or the centre point itself), which gave a radius of 0 and silently no circle. The pointer's own
+  // position is used instead, so the circle is made and can be sized by its dimension.
+  async 'sketch-small-circle-click'() {
+    const a=window.app;
+    await a.newDocument?.();closeModals();await a.setDoc(M.newDoc());await until(()=>!a.kernel.pending,60000,50);
+    a.select({kind:'plane',id:'front'});await a.startSketch();await until(()=>a.mode==='sketch',5000,50);
+    const sk=a.sketcher,cv=a.viewport.canvas.getBoundingClientRect(),cx=cv.left+cv.width/2+37,cy=cv.top+cv.height/2+23;
+    const at=(dx,dy)=>({button:0,clientX:cx+dx,clientY:cy+dy,ctrlKey:false,shiftKey:false,metaKey:false});
+    const click=(p)=>{sk.pointerMove(at(...p));sk.pointerDown(at(...p));sk.pointerUp(at(...p));};
+    sk.setTool('circle');click([0,0]);click([3,0]);
+    const n=sk.f.curves.filter(c=>c.type==='circle').length;
+    return {ok:n===1,detail:n===1?'two clicks 3 px apart make a circle':`${n} circles from two clicks 3 px apart`};
+  },
+
+  // A click whose grid snap lands on an existing sketch point, just outside the point's own snap distance: it joins
+  // that point instead of making a second, unconnected one on top of it (an arc started there was left loose).
+  async 'sketch-grid-snap-joins-point'() {
+    const a=window.app,S=await import('/js/sketchmodel.js');
+    await a.newDocument?.();closeModals();await a.setDoc(M.newDoc());await until(()=>!a.kernel.pending,60000,50);
+    a.select({kind:'plane',id:'front'});await a.startSketch();await until(()=>a.mode==='sketch',5000,50);
+    // (a zoom of 0.2 mm a pixel: a 5 mm grid, 25 px apart; the pointer 12 px right of the point, past its snap
+    // distance and still nearest that grid point)
+    const sk=a.sketcher;sk.wpp=()=>0.2;
+    const g=sk.gridStep(),id=S.addPoint(sk.f,3*g,2*g);
+    sk.setTool('arc');
+    const s=sk.snap({x:3*g+12*0.2,y:2*g});delete sk.wpp;
+    const ok=s.kind==='point'&&s.id===id;
+    return {ok,detail:ok?'a grid snap onto an existing point uses that point':`snapped to a ${s.kind} at (${s.x}, ${s.y}), not the point`};
+  },
+
+  // Sketch Fillet: corners after the first are made Equal to it, but another radius typed starts again (they were
+  // all made equal to the first, R20, with R10 showing in the panel).
+  async 'sketch-fillet-new-size'() {
+    const a=window.app,S=await import('/js/sketchmodel.js');
+    await a.newDocument?.();closeModals();await a.setDoc(M.newDoc());await until(()=>!a.kernel.pending,60000,50);
+    a.select({kind:'plane',id:'front'});await a.startSketch();await until(()=>a.mode==='sketch',5000,50);
+    const sk=a.sketcher,q=[[0,0],[100,0],[100,60],[0,60]].map(([x,y])=>S.addPoint(sk.f,x,y));q.forEach((p,i)=>S.addLine(sk.f,p,q[(i+1)%4]));
+    sk.setTool('sfillet');
+    const round=(i,r)=>{sk.filletR=r;const c=S.blendCorner(sk.f,q[i],r);return sk.equalToFirstBlend('sfillet',q[i],c)?'equal':'own';};
+    const got=[round(0,20),round(1,20),round(2,10),round(3,10)].join(' ');
+    const radii=sk.f.constraints.filter(k=>k.type==='dim'&&k.kind==='radius').map(k=>k.value).sort((x,y)=>x-y).join(' ');
+    const ok=got==='own equal own equal'&&radii==='10 20';
+    return {ok,detail:ok?'R20, R20 equal to it, then R10 typed: its own dimension and the next equal to that':`fillets ${got}, radius dimensions ${radii}`};
+  },
+
+  // A dimension's new value the solver can't reach in one go is tried a step at a time from the old value (an
+  // outline with 0.5 mm slot arcs, under defined, failed a 12 mm move that went through as 2 mm + 10 mm). Here a
+  // stand-in solver that can only move 3 mm at once.
+  async 'dimension-change-in-steps'() {
+    const a=window.app,S=await import('/js/sketchmodel.js');
+    await a.newDocument?.();closeModals();await a.setDoc(M.newDoc());await until(()=>!a.kernel.pending,60000,50);
+    a.select({kind:'plane',id:'front'});await a.startSketch();await until(()=>a.mode==='sketch',5000,50);
+    const sk=a.sketcher,p=S.addPoint(sk.f,10,0),q=S.addPoint(sk.f,10,30),l=S.addLine(sk.f,p,q);
+    S.addRel(sk.f,'vertical',[l]);S.addRel(sk.f,'dim',['O',l],{kind:'pointLine',value:10});sk.solve();
+    const k=sk.f.constraints.at(-1),real=sk.solve.bind(sk);let at=10;
+    sk.solve=(o)=>{const v=sk.ev(k.value);if(Math.abs(v-at)>3+1e-9)return {ok:false,bad:[]};at=v;return real(o);};
+    let r;try{k.value=22;r=sk.solve();if(!r.ok)r=sk.solveInSteps(k,10);}finally{delete sk.solve;}
+    const x=S.getPoint(sk.f,p).x,ok=r.ok&&k.value===22&&Math.abs(Math.abs(x)-22)<1e-6;
+    return {ok,detail:ok?'10 → 22 in steps where one go failed':`solved ${r.ok}, value ${k.value}, line at ${x}`};
+  },
+
+  // The wheel over a dimension label zooms the view, as over the model (it did nothing there: zooming in on a
+  // corner full of dimensions stopped whenever the cursor was on one).
+  async 'wheel-over-label-zooms'() {
+    const a=window.app,S=await import('/js/sketchmodel.js');
+    await a.newDocument?.();closeModals();await a.setDoc(M.newDoc());await until(()=>!a.kernel.pending,60000,50);
+    a.select({kind:'plane',id:'front'});await a.startSketch();await until(()=>a.mode==='sketch',5000,50);
+    const sk=a.sketcher,p=S.addPoint(sk.f,0,0),q=S.addPoint(sk.f,40,0);S.addLine(sk.f,p,q);S.addRel(sk.f,'dim',[p,q],{kind:'distance',value:40});sk.changed();await wait(50);
+    const lab=a.viewport.labelsEl.querySelector('.dim');
+    if(!lab)return {ok:false,detail:'no dimension label drawn'};
+    const r=lab.getBoundingClientRect(),z0=a.viewport.camera.zoom;
+    lab.dispatchEvent(new WheelEvent('wheel',{deltaY:-100,clientX:r.left+r.width/2,clientY:r.top+r.height/2,bubbles:true,cancelable:true}));
+    const z1=a.viewport.camera.zoom,ok=z1>z0*1.05;
+    return {ok,detail:ok?'the wheel over a dimension label zooms the view':`zoom ${z0} → ${z1} with the wheel over the label`};
+  },
+
+  // Wireframe draws every edge, so every edge can be picked: one behind the part's faces was drawn but not clickable.
+  async 'wireframe-picks-hidden-edge'() {
+    const a=window.app,S=await import('/js/sketchmodel.js'),done=()=>until(()=>!a.kernel.pending,60000,50);
+    const d=M.newDoc(),s=M.createFeature(d,'sketch',{plane:{ref:'top'}}),q=[[-40,-30],[40,-30],[40,30],[-40,30]].map(([u,w])=>S.addPoint(s,u,w));q.forEach((p,i)=>S.addLine(s,p,q[(i+1)%4]));
+    d.features.push(s,M.createFeature(d,'extrude',{sketch:s.id,depth:20}));
+    await a.newDocument?.();closeModals();await a.setDoc(d);await done();
+    const vp=a.viewport;vp.setStandardView('iso',false);vp.fitAll?.();await wait(80);
+    // (the straight edge furthest from the eye: behind the faces)
+    const dir=new vp.camera.position.constructor();vp.camera.getWorldDirection(dir);
+    const mid=(e)=>e.pts[0].clone().lerp(e.pts[e.pts.length-1],.5),depth=(p)=>p.clone().sub(vp.camera.position).dot(dir);
+    const back=vp.edgeList.filter((e)=>e.pts.length===2).reduce((x,y)=>(depth(mid(y))>depth(mid(x))?y:x));
+    const m=mid(back),sp=vp.project(m),r=vp.canvas.getBoundingClientRect(),ev={clientX:r.left+sp.x,clientY:r.top+sp.y};
+    const onIt=(h)=>!!h&&h.point.distanceTo(m)<1,keep=vp.displayStyle;
+    const shaded=onIt(vp.pickEdge(ev,6));
+    vp.displayStyle='wireframe';const wire=onIt(vp.pickEdge(ev,6));vp.displayStyle=keep;
+    const ok=!shaded&&wire;
+    return {ok,detail:ok?'the edge behind the faces: not picked shaded, picked in Wireframe':`picked shaded ${shaded}, in Wireframe ${wire}`};
+  },
+
   async 'bigger-usability'() {
     const a=window.app,S=await import('/js/sketchmodel.js'),bad=[];
     const done=()=>until(()=>!a.kernel.pending,60000,50);
@@ -2112,6 +2208,49 @@ const UI = {
   // Plug-ins (plugins.js), as the browser version keeps them: one with two modules (a relative import), a form, a
   // part command and an assembly command on a tab of its own, its settings and the rebuilt event; one that fails in
   // activate() (shown, the other unharmed); the New Plug-in template's generator; turned off, its tab goes
+  // an Update Now that did not get through says so at the next start and offers the setup (the release page when
+  // that can't run); nothing is shown when there is nothing to tell
+  async 'update-outcome'() {
+    const a = window.app, { platform } = await import('/js/platform.js');
+    const saved = { updateResult: platform.updateResult, runSetup: platform.runSetup, openUrl: platform.openUrl };
+    const modal = () => document.querySelector('.modal-back');
+    const press = (label) => [...modal().querySelectorAll('button')].find((b) => b.textContent.trim() === label).click();
+    let ran = 0, setupRuns = true;
+    const pages = [];
+    closeModals();
+    Object.assign(platform, {
+      updateResult: async () => ({ state: 'failed', to: '9.9.9', error: 'The disk is full', log: 'C:\\t\\update.log' }),
+      runSetup: async () => { ran++; return setupRuns; }, openUrl: (url) => pages.push(url),
+    });
+    try {
+      const shown = a.ui.updateOutcome();
+      await until(modal, 5000);
+      const text = modal().textContent;
+      for (const part of ['9.9.9 was not installed', 'The disk is full', 'update.log']) if (!text.includes(part)) return { ok: false, detail: `Not said: ${part} (${text})` };
+      press('Run the Setup');
+      await shown;
+      if (ran !== 1 || pages.length) return { ok: false, detail: `Setup runs ${ran}, pages ${pages.length}` };
+      setupRuns = false;
+      const gone = a.ui.updateOutcome();
+      await until(modal, 5000);
+      press('Run the Setup');
+      await gone;
+      if (!pages[0]?.endsWith('/releases')) return { ok: false, detail: `A setup that can't run opens ${pages[0]}` };
+      const later = a.ui.updateOutcome();
+      await until(modal, 5000);
+      press('Later');
+      await later;
+      if (ran !== 2) return { ok: false, detail: 'Later ran the setup' };
+      platform.updateResult = async () => null;
+      await a.ui.updateOutcome();
+      if (modal()) return { ok: false, detail: 'A dialog with nothing to tell' };
+      return { ok: true, detail: 'failed update reported; setup, release page and Later work' };
+    } finally {
+      Object.assign(platform, saved);
+      closeModals();
+    }
+  },
+
   async 'plugins'() {
     const a = window.app, { platform } = await import('/js/platform.js'), { pluginTemplate, linkModules } = await import('/js/plugins.js');
     const P = a.plugins, KEY = 'razorcad.plugins.v1';
@@ -3864,6 +4003,53 @@ const UI = {
     return { ok: true, detail: 'a titled table from rows pasted with tabs and |, the header bold, a drawing property filled in, its grid' };
   },
 
+  // Insert Components lists assemblies open in other tabs (not itself) and puts the chosen one in whole, as a
+  // sub-assembly; only parts were listed, so a sub-assembly had to be browsed for even when it was open.
+  async 'assembly-insert-open-subassembly'() {
+    const a = window.app, S = await import('/js/sketchmodel.js');
+    const p = M.newDoc(); p.name = 'Plate'; const s = M.createFeature(p, 'sketch', { plane: { ref: 'front' } });
+    const P = [[0, 0], [40, 0], [40, 20], [0, 20]].map((q) => S.addPoint(s, ...q)); P.forEach((id, i) => S.addLine(s, id, P[(i + 1) % 4]));
+    p.features.push(s, M.createFeature(p, 'extrude', { sketch: s.id, depth: 5 }));
+    a.newAssembly(); await wait(300); closeModals();
+    const sub = a.drawing; sub.doc.name = 'Sub assembly';
+    await sub.addComponent(sub.addPart(p, null, null));
+    a.newAssembly(); await wait(300); closeModals();
+    const top = a.drawing;
+    top.insertComponents(); await wait(100);
+    const rows = [...document.querySelectorAll('.modal .pm-list .li')];
+    const row = rows.find((r) => r.textContent.includes('Sub assembly')), self = rows.some((r) => r.textContent.includes(top.doc.name));
+    if (!row) { closeModals(); return { ok: false, detail: `the open assembly is not listed (${rows.map((r) => r.textContent).join(' | ')})` }; }
+    row.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); await wait(300);
+    const part = top.doc.parts[0], ok = !self && top.doc.components.length === 1 && part && Array.isArray(part.doc?.components) && part.doc !== sub.doc;
+    return { ok, detail: ok ? 'the other open assembly listed (not this one) and inserted whole, as a copy' : `listed itself ${self}, components ${top.doc.components.length}, part ${JSON.stringify(part && Object.keys(part))}` };
+  },
+
+  // One coincident mate between faces at right angles, the part inserted a metre away: reached (the solver turned the
+  // part to close the distance instead of moving it and gave up: "can't be reached").
+  async 'assembly-mate-far-quarter-turn'() {
+    const a = window.app, S = await import('/js/sketchmodel.js'), A = await import('/js/assembly.js');
+    const box = (name, x0, x1, y0, y1, d) => { const p = M.newDoc(); p.name = name; const s = M.createFeature(p, 'sketch', { plane: { ref: 'front' } }); const P = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]].map((q) => S.addPoint(s, ...q)); P.forEach((id, i) => S.addLine(s, id, P[(i + 1) % 4])); p.features.push(s, M.createFeature(p, 'extrude', { sketch: s.id, depth: d })); return p; };
+    a.newAssembly(); await wait(300); closeModals();
+    const asm = a.drawing;
+    await asm.addComponent(asm.addPart(box('Plate', -600, 600, -500, 500, 5), null, null));
+    await asm.addComponent(asm.addPart(box('Motor', -350, 285.5, -200, 200, 300), null, null));
+    const [plate, motor] = asm.doc.components;
+    motor.pos = [1136.352393, -305.415314, -36]; motor.rot = [0, 0, 0, 1];
+    const fa = { comp: motor.id, kind: 'plane', p: [285.51, 0, 0], n: [1, 0, 0], what: 'Face' }, fb = { comp: plate.id, kind: 'plane', p: [-116.165042, 96.557399, 5], n: [0, 0, 1], what: 'Face' };
+    // (the solver alone, from where the motor was put: out of reach)
+    const alone = A.solveAssembly(asm.view(), { only: [{ id: 't', type: 'coincident', a: fa, b: fb, align: -1, side: 1, value: null }] });
+    motor.pos = [1136.352393, -305.415314, -36]; motor.rot = [0, 0, 0, 1];
+    asm.startMate(); asm.pmPick(fa); asm.pmPick(fb);
+    const on = () => { const w = asm.worldRef(fa); return !asm.pm.error && Math.abs(Math.abs(w.n[2]) - 1) < 1e-6 && Math.abs(w.p[2] - 5) < 1e-6 ? Math.sign(w.n[2]) : 0; };
+    const first = on();
+    // (the other way round, as the panel's Aligned / Anti-Aligned button does)
+    asm.pm.align = -asm.pm.align; asm.pm.flipped = true; asm.previewMate();
+    const second = on();
+    asm.cancelMate?.();
+    const ok = first !== 0 && second === -first;
+    return { ok, detail: ok ? `the motor turned a quarter turn and moved across onto the plate, either way round (the solver alone from there: ${alone.ok ? 'reached' : 'not reached'})` : `first ${first}, flipped ${second}` };
+  },
+
   async 'drawing-alternate-position'() {
     const a = window.app, S = await import('/js/sketchmodel.js'), Dm = await import('/js/drawing.js');
     const box = (name, w, h) => { const p = M.newDoc(); p.name = name; const s = M.createFeature(p, 'sketch', { plane: { ref: 'front' } }); const P = [[-w / 2, 0], [w / 2, 0], [w / 2, h], [-w / 2, h]].map((q) => S.addPoint(s, ...q)); P.forEach((id, i) => S.addLine(s, id, P[(i + 1) % 4])); p.features.push(s, M.createFeature(p, 'extrude', { sketch: s.id, depth: 10 })); return p; };
@@ -4682,6 +4868,98 @@ ENDSEC;END-ISO-10303-21;`;
       if (names.join() !== 'Lug (2),Lug (3),Lug (4)') bad.push(`pattern names ${JSON.stringify(names)}`);
     }
     return bad.length ? { ok: false, detail: bad.join('; ') } : { ok: true, detail: 'whole cone lofted; the ring cut kept the panel; the spline surface one face, converted; copies called Lug (2) … (4)' };
+  },
+
+  // a fan blade folded from one sheet: a Clark Y airfoil (13.8 %, chord 164.5) with its nose rounded R4.5 (R2
+  // inside, 2.5 thick) and open at the tail, made by Sheet Metal Extrude 180 deep with the material inside. The nose
+  // is the one bend (one bend line, R2, in the blank); the two skins are formed (no bend lines, and no lines where
+  // their arcs meet in the view); the upper skin (the profile's start) is cut back where it would run into the lower
+  // one. Closed, the airfoil is refused; a solid extrude of the open one is too.
+  async 'sheet-airfoil-blade'() {
+    const k = window.app.kernel, bad = [];
+    const make = (open, type = 'smExtrude') => {
+      const d = M.newDoc(), s = M.createFeature(d, 'sketch', { plane: { ref: 'top' } });
+      Object.assign(s, {
+        points: [{ id: 'p1', x: 0, y: 220 }, { id: 'p2', x: 155, y: 275 }],
+        curves: [{ id: 'c1', type: 'line', p1: 'p1', p2: 'p2', construction: true }], constraints: [],
+        airfoils: [{ id: 'a1', line: 'c1', spec: { kind: 'clarky', t: 13.8 }, sharpTE: true, flip: false, swap: false, noseR: 4.5, open }],
+      });
+      const f = M.createFeature(d, type, type === 'smExtrude' ? { sketch: s.id, depth: 180, thickness: 2.5, side: 'one', radius: 2, trimAt: 'start' } : { sketch: s.id, depth: 180 });
+      d.features.push(s, f);
+      return { d, f };
+    };
+    const { d, f } = make(true);
+    const r = await k.rebuild(d, null, null), b = r.body?.bodies?.[0], note = r.notes?.[f.id] || '';
+    if (r.errors?.length || !b?.sheet) bad.push(`blade: ${JSON.stringify(r.errors)}`);
+    else {
+      const fl = await k.request('sheetFlat', { bodyId: b.id, flip: false });
+      const bends = fl.ents.filter((e) => e.layer === 'BEND_UP' || e.layer === 'BEND_DOWN'), out = fl.ents.filter((e) => e.layer === 'OUTLINE');
+      const xs = out.flatMap((e) => [e.a[0], e.b[0]]), ys = out.flatMap((e) => [e.a[1], e.b[1]]);
+      const w = Math.max(...xs) - Math.min(...xs), h = Math.max(...ys) - Math.min(...ys);
+      // (the blank: a rectangle 180 wide; its length the profile's neutral layer, about 300)
+      if (bends.length !== 1 || !/R2\b/.test(bends[0].note) || out.length !== 4 || Math.abs(Math.min(w, h) - 180) > 1e-6 || !(Math.max(w, h) > 290 && Math.max(w, h) < 330)) bad.push(`blank: ${bends.length} bend lines (${bends.map((e) => e.note)}), ${out.length} outline edges, ${w} × ${h}`);
+      if (b.sheet.bends !== 1 || !(b.sheet.formed > 10)) bad.push(`sheet info: ${JSON.stringify(b.sheet)}`);
+      if (!/2 curves formed/.test(note) || !/trimmed back [\d.]+ mm at its start/.test(note)) bad.push(`note: ${note}`);
+      // (shown: the outlines at both ends, the nose's own lines and the sheet's ends, not a line per arc)
+      // (the lines up the blade, along Y: where faces meet; the outlines at the two ends are drawn)
+      const up = (e) => { const p = e.pts, n = p.length; return Math.abs(p[n - 3] - p[0]) < 1e-6 && Math.abs(p[n - 1] - p[2]) < 1e-6 && Math.abs(p[n - 2] - p[1]) > 1; };
+      const lines = r.body.edges.slice(b.edgeStart, b.edgeStart + b.edgeCount).filter((e) => e.type === 'LINE' && up(e)).length;
+      if (lines > 8) bad.push(`${lines} lines up the blade shown (${b.faceCount} faces)`);
+    }
+    const closed = await k.rebuild(make(false).d, null, null);
+    if (!/Open at the trailing edge/.test(JSON.stringify(closed.errors))) bad.push(`closed airfoil: ${JSON.stringify(closed.errors)}`);
+    const solid = await k.rebuild(make(true, 'extrude').d, null, null);
+    if (!/open at its trailing edge/.test(JSON.stringify(solid.errors))) bad.push(`solid extrude of the open one: ${JSON.stringify(solid.errors)}`);
+    return bad.length ? { ok: false, detail: bad.join('; ') } : { ok: true, detail: `one bend line (R2), formed skins, ${note}` };
+  },
+
+  // the same blade in drawing views: seen end on, its outline is there (the skins' long flat arcs, R up to ~3 m,
+  // were dropped as "reaching far outside the part" by their whole circles); seen from the side, no line where the
+  // formed skins' arcs meet (as in the 3D view), only the nose's and the ends'
+  async 'drawing-formed-blade'() {
+    const k = window.app.kernel, bad = [];
+    const d = M.newDoc(), s = M.createFeature(d, 'sketch', { plane: { ref: 'top' } });
+    Object.assign(s, {
+      points: [{ id: 'p1', x: 0, y: 220 }, { id: 'p2', x: 155, y: 275 }],
+      curves: [{ id: 'c1', type: 'line', p1: 'p1', p2: 'p2', construction: true }], constraints: [],
+      airfoils: [{ id: 'a1', line: 'c1', spec: { kind: 'clarky', t: 13.8 }, sharpTE: true, flip: false, swap: false, noseR: 4.5, open: true }],
+    });
+    d.features.push(s, M.createFeature(d, 'smExtrude', { sketch: s.id, depth: 180, thickness: 2.5, side: 'one', radius: 2, trimAt: 'start' }));
+    const r = await k.rebuild(d, null, null);
+    if (r.errors?.length) return { ok: false, detail: JSON.stringify(r.errors) };
+    const views = await k.request('drawingViews', { doc: JSON.stringify(d), views: [{ id: 'end', dir: [0, 1, 0], up: [0, 0, -1] }, { id: 'side', dir: [0, 0, 1], up: [0, 1, 0] }] });
+    const end = views.find((v) => v.id === 'end'), side = views.find((v) => v.id === 'side');
+    // end on: the arcs of the outline seen (about 25 a skin side), the big flat ones among them
+    const arcs = end.edges.filter((e) => e.k === 'v' && e.g.t === 'a');
+    if (arcs.length < 40 || !arcs.some((e) => e.g.r > 1000)) bad.push(`end view: ${arcs.length} arcs, largest R${Math.round(Math.max(0, ...arcs.map((e) => e.g.r)))}`);
+    // from the side: the lines up the blade (180 long, along the view's y)
+    const up = side.edges.filter((e) => e.g.t === 'l' && Math.abs(e.g.a[0] - e.g.b[0]) < 1e-3 && Math.abs(Math.abs(e.g.a[1] - e.g.b[1]) - 180) < 0.5);
+    // (the nose's lines are within 5 of x 0, the trimmed skin's end at 138, the tail at 154 to 155; none between)
+    const mid = up.filter((e) => e.g.a[0] > 8 && e.g.a[0] < 135);
+    if (mid.length || up.length < 4) bad.push(`side view: lines up the blade at x ${up.map((e) => e.g.a[0].toFixed(1)).join(' ')}`);
+    // (and the ends' outlines still drawn: lines across at the bottom and top, each made of the arcs seen edge on)
+    const across = (y) => side.edges.filter((e) => e.k === 'v' && e.g.t === 'l' && Math.abs(e.g.a[1] - y) < 1e-3 && Math.abs(e.g.b[1] - y) < 1e-3).reduce((t, e) => t + Math.abs(e.g.a[0] - e.g.b[0]), 0);
+    if (!(across(0) > 100 && across(180) > 100)) bad.push(`side view: ${across(0).toFixed(1)} and ${across(180).toFixed(1)} mm of line across the ends`);
+    return bad.length ? { ok: false, detail: bad.join('; ') } : { ok: true, detail: `end on ${arcs.length} arcs; from the side ${up.length} lines up the blade` };
+  },
+
+  // a diameter dimension as a leader only: one arrow onto the circle and no line across it (the usual one has two
+  // arrows and its line through the centre)
+  async 'drawing-diameter-leader'() {
+    const D = await import('/js/drawing.js');
+    const dwg = D.newDrawing();
+    dwg.views.push({ id: 'v1', type: 'model', model: 'm1', sheet: 's1', orient: 'front', x: 100, y: 100, scale: null });
+    const a = { id: 'a1', type: 'dim', kind: 'diameter', view: 'v1', sheet: 's1', c: [0, 0], r: 20, pos: [40, -40] };
+    const arrows = (ps) => ps.filter((p) => p.t === 'poly' && p.fill).length;
+    // (the closest any line comes to the circle's centre, on the sheet: [100, 100])
+    const nearest = (ps) => Math.min(...ps.filter((p) => p.t === 'line').map(({ a: p, b: q }) => {
+      const d = [q[0] - p[0], q[1] - p[1]], t = Math.max(0, Math.min(1, ((100 - p[0]) * d[0] + (100 - p[1]) * d[1]) / (d[0] * d[0] + d[1] * d[1])));
+      return Math.hypot(p[0] + t * d[0] - 100, p[1] + t * d[1] - 100);
+    }));
+    const full = D.annPrims(dwg, a, {}), lead = D.annPrims(dwg, { ...a, leaderOnly: true }, {});
+    const ok = arrows(full) === 2 && nearest(full) < 1e-6 && arrows(lead) === 1 && nearest(lead) > 19.9 && D.dimText(dwg, { ...a, leaderOnly: true }) === D.dimText(dwg, a);
+    return ok ? { ok: true, detail: `across: ${arrows(full)} arrows through the centre; leader: ${arrows(lead)} arrow, ${nearest(lead).toFixed(1)} from it` }
+      : { ok: false, detail: `across ${arrows(full)} arrows, ${nearest(full)}; leader ${arrows(lead)} arrows, ${nearest(lead)}` };
   },
 
   // motion studies: gear A turned two full turns (72 steps) carries gear B (−360°) and the rack (2π·10·2 mm) with
@@ -6466,6 +6744,39 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     if (resized.errors.length || resized.sketches[f.id]?.data.patterns[0].made !== 2) return { ok: false, detail: 'Changing the quantity equation did not rebuild the stored pattern' };
     S.deleteItems(sk, [circle]);
     return { ok: !sk.patterns.length && !sk.curves.some((c) => c.id === first), detail: 'Source dimension, path, quantity expression and spacing followed; stable IDs; save/reopen and kernel rebuild; source deletion removes copies' };
+  },
+
+  // a bolt hole Ø12.5 on PCD 250 (a horizontal centerline from the origin, 125 long) patterned 10 round the origin: the
+  // copies are kept with the pattern, so the sketch is fully defined, they follow the hole and the PCD, and the count
+  // can be changed later; and an airfoil's chord patterned brings the airfoil
+  async 'sketch-pattern-circular'() {
+    const S = await import('/js/sketchmodel.js'), V = await import('/js/solver.js');
+    const sk = S.newSketchData(), ev = Number;
+    const c = S.addPoint(sk, 125, 0), hole = S.addCircle(sk, c, 6.25), cl = S.addLine(sk, 'O', c, true);
+    S.addRel(sk, 'horizontal', [cl]);
+    const pcd = S.addRel(sk, 'dim', ['O', c], { kind: 'distance', value: 125 }), dia = S.addRel(sk, 'dim', [hole], { kind: 'diameter', value: 12.5 });
+    const p = S.setSketchPattern(sk, { kind: 'circular', sources: [hole], n: '10', total: '360', centre: 'O' }, ev);
+    const at = (k) => S.getPoint(sk, S.getCurve(sk, p.generated.curves[k]).c);
+    const near = (q, a, r) => Math.hypot(q.x - r * Math.cos((a * Math.PI) / 180), q.y - r * Math.sin((a * Math.PI) / 180)) < 1e-6;
+    let r = V.solveSketch(sk, ev);
+    const dof = V.analyzeSketch(sk, ev).dofDefined;
+    if (!r.ok || p.made !== 9 || !near(at(0), 36, 125) || !near(at(8), 324, 125) || dof !== 0) return { ok: false, detail: `made ${p.made}, first at ${JSON.stringify(at(0))}, ${dof} freedoms` };
+    pcd.value = 150; dia.value = 14; p.n = '8';
+    r = V.solveSketch(sk, ev);
+    const rr = S.getCurve(sk, p.generated.curves[6]).r;
+    if (!r.ok || p.made !== 7 || !near(at(0), 45, 150) || Math.abs(rr - 7) > 1e-6) return { ok: false, detail: `after the change: made ${p.made}, first at ${JSON.stringify(at(0))}, radius ${rr}` };
+    // an airfoil on a chord line, patterned 11 round: each copy of the chord carries its airfoil, which follows the
+    // original's section; deleting the pattern takes them away
+    const sa = S.newSketchData(), le = S.addPoint(sa, 0, 220), te = S.addPoint(sa, 155, 275), ch = S.addLine(sa, le, te, true);
+    sa.airfoils = [{ id: 'af1', line: ch, spec: { kind: 'clarky', t: 13.8 }, sharpTE: true, flip: false, swap: false, noseR: 4.5, open: true }];
+    const pa = S.setSketchPattern(sa, { kind: 'circular', sources: [ch], n: '11', total: '360', centre: 'O' }, ev);
+    sa.airfoils[0].spec.t = 12;
+    V.solveSketch(sa, ev);
+    const foils = sa.airfoils.filter((a) => a.pattern === pa.id);
+    if (foils.length !== 10 || !foils.every((a) => pa.generated.curves.includes(a.line) && a.spec.t === 12 && a.noseR === 4.5)) return { ok: false, detail: `airfoil copies: ${JSON.stringify(foils.map((a) => [a.line, a.spec.t]))}` };
+    S.removeSketchPattern(sa, pa.id);
+    if (sa.airfoils.length !== 1) return { ok: false, detail: `${sa.airfoils.length} airfoils left after removing the pattern` };
+    return { ok: true, detail: '9 copies, fully defined; followed the PCD, the hole size and a count of 8; an airfoil patterned with its chord' };
   },
 
   async 'sketch-pattern-curved-updates'() {
@@ -9127,7 +9438,13 @@ async function drawingResult(doc) {
       const key = `${k}:${g.t}`;
       counts[key] = (counts[key] || 0) + 1;
       if (k !== 'v' && k !== 't') continue;
-      if (g.t === 'l') { pt(g.a); pt(g.b); } else if (g.t === 'c' || g.t === 'a') { pt([g.c[0] - g.r, g.c[1] - g.r]); pt([g.c[0] + g.r, g.c[1] + g.r]); } else if (g.pts) g.pts.forEach(pt);
+      if (g.t === 'l') { pt(g.a); pt(g.b); } else if (g.t === 'c') { pt([g.c[0] - g.r, g.c[1] - g.r]); pt([g.c[0] + g.r, g.c[1] + g.r]); }
+      else if (g.t === 'a') {
+        // (an arc: its ends and the quadrant points it passes, not its whole circle)
+        const span = ((g.a1 - g.a0) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI), at = (t) => [g.c[0] + g.r * Math.cos(t), g.c[1] + g.r * Math.sin(t)];
+        pt(at(g.a0)); pt(at(g.a0 + span));
+        for (let q = Math.ceil(g.a0 / (Math.PI / 2)) * (Math.PI / 2); q < g.a0 + span; q += Math.PI / 2) pt(at(q));
+      } else if (g.pts) g.pts.forEach(pt);
     }
     out[r.id] = { counts: Object.fromEntries(Object.entries(counts).sort()), size: Number.isFinite(x0) ? [r6(x1 - x0), r6(y1 - y0)] : null };
   }
