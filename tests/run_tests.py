@@ -452,10 +452,11 @@ def main():
     for name, r in results['ui'].items():
         print(f'  {"PASS" if r.get("ok") else "FAIL"}  {name:24} {r.get("ms", "?")} ms  {r.get("detail", "")}')
         failures += not r.get('ok')
-    # the desktop app's own tests (Python: the updater's hand-over to the setup), with the whole run or --only updater
-    if (not args.only and first) or (args.only and 'updater' in args.only):
+    # the desktop app's own tests (Python: the updater's hand-over to the setup, the plug-ins' folders), with the
+    # whole run or --only updater / desktop
+    if (not args.only and first) or (args.only and ('updater' in args.only or 'desktop' in args.only)):
         import unittest
-        suite = unittest.defaultTestLoader.discover(os.path.dirname(os.path.abspath(__file__)), pattern='test_updater.py')
+        suite = unittest.defaultTestLoader.discover(os.path.dirname(os.path.abspath(__file__)), pattern='test_*.py')
         ids = [x.id() for g in suite for s in g for x in s]  # (a suite lets go of its tests once run)
         outcome = unittest.TestResult()
         suite.run(outcome)

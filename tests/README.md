@@ -172,6 +172,11 @@ Checks analytic volumes for holes and all three Thin directions, open Thin profi
 whole run includes it; on its own: `python tests/run_tests.py --only updater`, or
 `python -m unittest discover -s tests -p test_updater.py`.
 
+`python tests/update_e2e.py` (Windows, needs PyInstaller) builds a small setup from `installer/setup.py` around
+stand-in programs and runs a real update on a throwaway folder: it waits for the running program, replaces it,
+verifies it and starts the new one; it can be cancelled while waiting; and `/S`, which versions up to 0.21.5-beta run,
+still installs. It stays out of the registry and the shortcuts, so it is safe on a PC with RazorCAD installed.
+
 ### Surface Patch continuity
 
 `python tests/run_tests.py --only surface-patch-chain-selection surface-patch-continuity surface-differential-analysis --jobs 1`

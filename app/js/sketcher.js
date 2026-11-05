@@ -44,6 +44,50 @@ const CURSORS = {
   convert: mkCursor('<rect x="13" y="18" width="18" height="12" rx="2" fill="#fff" stroke="#0b7a2b"/><path d="M22 20 V27 M19 24.5 L22 27.5 L25 24.5" stroke="#0b7a2b" stroke-width="1.6" fill="none"/><path d="M15 28.5 H29" stroke="#1d4ed8" stroke-width="1" stroke-dasharray="2 1"/>'),
 };
 
+// What changed from one sketch undo step to the next, in words
+const CURVE_NAMES = { line: 'Line', arc: 'Arc', circle: 'Circle', ellipse: 'Ellipse', earc: 'Elliptical Arc', spline: 'Spline', cspline: 'Spline' };
+function sketchStepText(before, after) {
+  const A = JSON.parse(before), B = JSON.parse(after);
+  const diff = (k) => {
+    const pa = new Map((A[k] || []).map((x) => [x.id, x])), pb = new Map((B[k] || []).map((x) => [x.id, x]));
+    return {
+      added: [...pb.values()].filter((x) => !pa.has(x.id)),
+      removed: [...pa.values()].filter((x) => !pb.has(x.id)),
+      changed: [...pb.values()].filter((x) => pa.has(x.id) && JSON.stringify(pa.get(x.id)) !== JSON.stringify(x)).map((x) => [pa.get(x.id), x]),
+    };
+  };
+  // ("2 Lines, Arc": how many of each, in the order made)
+  const names = (list, nameOf) => {
+    const n = new Map();
+    for (const x of list) { const k = nameOf(x); n.set(k, (n.get(k) || 0) + 1); }
+    return [...n].map(([k, c]) => (c > 1 ? `${c} ${k}s` : k)).join(', ');
+  };
+  const curveName = (c) => (c.construction ? 'Construction ' : '') + (CURVE_NAMES[c.type] || 'Curve');
+  const consName = (k) => (k.type === 'dim' ? 'Dimension' : RELATION_INFO[k.type]?.label || 'Relation');
+  const c = diff('curves'), k = diff('constraints'), p = diff('points'), t = diff('texts');
+  const dims = k.added.filter((x) => x.type === 'dim');
+  if (c.added.length) return `Added ${names(c.added, curveName)}${dims.length ? ` with ${dims.length} dimension${dims.length > 1 ? 's' : ''}` : ''}`;
+  if (c.removed.length) return `Deleted ${names(c.removed, curveName)}`;
+  if (dims.length === 1 && k.added.length === 1) return `Dimension ${dims[0].value}`;
+  if (k.added.length) return `Added ${names(k.added, consName)}`;
+  if (k.removed.length) return `Deleted ${names(k.removed, consName)}`;
+  const values = k.changed.filter(([x, y]) => x.type === 'dim' && String(x.value) !== String(y.value));
+  if (values.length === 1) return `Dimension ${values[0][0].value} → ${values[0][1].value}`;
+  if (values.length) return `Changed ${values.length} dimensions`;
+  if (t.added.length) return 'Added Text';
+  if (t.removed.length) return 'Deleted Text';
+  if (t.changed.length) return 'Edited Text';
+  if (c.changed.length) return `Changed ${names(c.changed.map(([, y]) => y), curveName)}`;
+  if (p.changed.length || p.added.length || p.removed.length) return 'Moved';
+  if (k.changed.length) return 'Moved a dimension';
+  return 'Edited';
+}
+
+// (sizes typed while drawing: the slots, the tools whose clicks are set from the sizes, the sizes without units)
+const TYPED_SLOTS = new Set(['slot', 'cslot', 'oslot']);
+const TYPED_STAGED = new Set(['arc', 'arc3', 'tarc', 'ellipse', ...TYPED_SLOTS]);
+const TYPED_PLAIN = new Set(['a', 's', 'n']);
+
 export const SKETCH_TOOLS = {
   select: { label: 'Select', hint: 'Click to select, Ctrl+click to add to the selection, drag points or lines to move them. Model edges and vertices can be selected too (e.g. a hole edge and a circle for Concentric or Equal). Selected entities show Add Relations in the Property panel.' },
   dim: { label: 'Dimension', hint: 'Click a line, circle, arc, or two entities, then click where to place the dimension. Move the mouse to switch between horizontal, vertical and aligned. Model edges/vertices and other sketches can be used as references too.' },
@@ -141,6 +185,7 @@ export class Sketcher {
     grid.renderOrder = 1;
     this.drawGroup = new THREE.Group();
     this.picGroup = new THREE.Group();
+    this.grid = grid;
     this.group.add(grid, this.picGroup, this.drawGroup);
     this.refreshPictures();
 
@@ -172,6 +217,9 @@ export class Sketcher {
     this.endGearPick();
     this.clearSection();
     this.closeModify();
+    this.closeTypeBox();
+    const ge = document.getElementById('status-grid'); if (ge) ge.hidden = true;
+    this._gridStep = null;
     this.vp.frameCallbacks.delete(this.onFrame);
     this.vp.overlayGroup.remove(this.group);
     this.group.traverse((o) => o.geometry?.dispose());
@@ -574,6 +622,26 @@ export class Sketcher {
     return r;
   }
 
+  // A dimension's new value the solver could not reach in one go, tried a step at a time from its old value: a big
+  // change (a whole outline moved far, dragging small arcs with it) can leave it stuck where the same change made
+  // gradually solves. The shape is put back as it was between tries; k keeps the value typed.
+  solveInSteps(k, old) {
+    const target = k.value, from = this.ev(old), to = this.ev(target);
+    if (!Number.isFinite(from) || !Number.isFinite(to)) return { ok: false };
+    const pts = this.f.points.map((p) => ({ ...p })), cvs = this.f.curves.map((c) => ({ ...c }));
+    const restore = () => { this.f.points.forEach((p, i) => Object.assign(p, pts[i])); this.f.curves.forEach((c, i) => Object.assign(c, cvs[i])); };
+    let r = { ok: false };
+    for (const n of [4, 16, 64]) {
+      restore();
+      r = { ok: true };
+      for (let i = 1; i <= n && r.ok; i++) { k.value = i === n ? target : from + ((to - from) * i) / n; r = this.solve(); }
+      if (r.ok) return r;
+    }
+    restore();
+    k.value = target;
+    return r;
+  }
+
   analyze() {
     try { this.analysis = analyzeSketch(this.f, this.ev); } catch { this.analysis = null; }
   }
@@ -581,6 +649,8 @@ export class Sketcher {
   statusText() {
     if (!this.solveOk) return { text: this.solveMsg || 'Over Defined', cls: 'err' };
     if (!this.analysis) return { text: '', cls: '' };
+    // (nothing drawn yet: nothing to define)
+    if (!this.f.curves.length && !this.f.points.some((p) => p.id !== 'O') && !(this.f.texts || []).length) return { text: 'Empty: pick a tool (Line, Rectangle, Circle…) and draw', cls: '' };
     const dof = this.analysis.dofDefined ?? this.analysis.dof;
     if (dof === 0) return { text: 'Fully Defined', cls: 'ok' };
     return { text: `Under Defined — ${dof} degree${dof > 1 ? 's' : ''} of freedom`, cls: '' };
@@ -609,6 +679,23 @@ export class Sketcher {
     if (!s) return;
     this.hist.push(s);
     this.restoreData(s);
+  }
+
+  // The sketch's steps, oldest first (those undone after the one it is at), for the undo history
+  steps() { return { list: [...this.hist, ...[...this.redoStack].reverse()], idx: this.hist.length - 1 }; }
+  // Straight back (or forward) to just after step i
+  undoTo(i) {
+    const { list, idx } = this.steps();
+    if (i === idx || i < 0 || i >= list.length) return;
+    if (this.patternDraft) this.finishPattern(false);
+    this.hist = list.slice(0, i + 1);
+    this.redoStack = list.slice(i + 1).reverse();
+    this.restoreData(list[i]);
+  }
+  // A step in words ("Added 4 Lines", "Dimension 40", "Dimension 40 → 50", "Deleted Arc", "Moved")
+  describeStep(i) {
+    const { list } = this.steps();
+    return i ? sketchStepText(list[i - 1], list[i]) : 'Opened';
   }
 
   restoreData(s) {
@@ -757,7 +844,9 @@ export class Sketcher {
         }
       }
     }
-    if (texts && curves && this.tool === 'select') {
+    // (a point under the cursor wins over an airfoil's outline: its chord's ends lie on the outline)
+    const onPoint = points && [S.ORIGIN, ...this.f.points].some((q) => !exclude?.has(q.id) && Math.hypot(q.x - p.x, q.y - p.y) < tol);
+    if (texts && curves && this.tool === 'select' && !onPoint) {
       // an airfoil: near its outline
       for (const af of this.f.airfoils || []) {
         const pl = S.airfoilPolyline(this.f, af, 4);
@@ -895,6 +984,10 @@ export class Sketcher {
       }
     }
     if(prev&&this.autoRelations&&lineTool){const inference=this.lineInference(p,prev,tol);if(inference&&(inference.infer==='collinear'||!res.infer))return inference;}
+    // A grid point where a sketch point already is (the click just outside the point's own snap distance): that
+    // point, so the new geometry joins it instead of making a second, unconnected point on top of it.
+    const on = [S.ORIGIN, ...this.f.points].find((q) => !exclude.has(q.id) && Math.hypot(q.x - res.x, q.y - res.y) < 1e-6);
+    if (on) return { x: on.x, y: on.y, kind: 'point', id: on.id };
     return res;
   }
 
@@ -912,6 +1005,7 @@ export class Sketcher {
   pointerDown(ev) {
     if (ev.button !== 0) return;
     this.closeModify();
+    this.closeTypeBox();
     const raw = this.localFromEvent(ev);
     const t = this.tool;
     const multi = ev.ctrlKey || ev.shiftKey || ev.metaKey || this.gearPick; // picking gear lines: clicks add to the selection
@@ -1028,7 +1122,7 @@ export class Sketcher {
       const equalled = this.equalToFirstBlend(t, hit.id, created);
       this.hover = null;
       this.changed();
-      if (equalled) this.app.status(t === 'sfillet' ? 'Corner rounded, equal to the first fillet (Equal). Leave the tool to start a new size.' : 'Corner chamfered, equal to the first chamfer (Equal Distance). Leave the tool to start a new size.');
+      if (equalled) this.app.status(t === 'sfillet' ? 'Corner rounded, equal to the first fillet (Equal). Type another radius to start a new size.' : 'Corner chamfered, equal to the first chamfer (Equal Distance). Type another distance to start a new size.');
       return;
     }
     if (t === 'convert' || t === 'intersect') {
@@ -1138,15 +1232,16 @@ export class Sketcher {
     }
     // two-click tools
     if (!this.draw) this.draw = { tool: t, s0: s, p0: s, p1: s, downAt: screen };
-    else { this.draw.s1 = s; this.draw.p1 = s; this.commit(); }
+    else { const s1 = this.sizePoint(s, raw); this.draw.s1 = s1; this.draw.p1 = s1; this.commit(); }
     this.redraw();
   }
 
-  // Sketch Fillet / Chamfer: the first one made since the tool was picked keeps its dimension(s); each later one
-  // gets Equal (radius) / Equal Distance relations to it instead. Returns true when it was made equal.
+  // Sketch Fillet / Chamfer: the first one made since the tool was picked (or its size typed) keeps its
+  // dimension(s); each later one of that size gets Equal (radius) / Equal Distance relations to it instead. Another
+  // size typed in the panel starts again: the next one keeps its own dimension. Returns true when it was made equal.
   equalToFirstBlend(t, P, created) {
-    const sk = this.f, fillet = t === 'sfillet';
-    const first = this.blendFirst?.tool === t ? this.blendFirst : null;
+    const sk = this.f, fillet = t === 'sfillet', size = fillet ? this.filletR : this.chamferD;
+    const first = this.blendFirst?.tool === t && this.blendFirst.size === size ? this.blendFirst : null;
     const isDimOf = (k, kind, refs) => k.type === 'dim' && k.kind === kind && k.refs.length === refs.length && refs.every((x, i) => k.refs[i] === x);
     if (fillet) {
       const arc = created[created.length - 1];
@@ -1155,7 +1250,7 @@ export class Sketcher {
         S.addRel(sk, 'equal', [first.arc, arc]);
         return true;
       }
-      this.blendFirst = { tool: t, arc };
+      this.blendFirst = { tool: t, arc, size };
       return false;
     }
     const [T1, T2] = created;
@@ -1168,7 +1263,7 @@ export class Sketcher {
     // (the first chamfer: one distance, both sides equal, so one value sizes it and the later ones)
     sk.constraints = sk.constraints.filter((k) => !isDimOf(k, 'distance', [P, T2]));
     S.addRel(sk, 'equalDist', [P, T2, P, T1]);
-    this.blendFirst = { tool: t, P, T: T1 };
+    this.blendFirst = { tool: t, P, T: T1, size };
     return false;
   }
 
@@ -1279,6 +1374,7 @@ export class Sketcher {
       return;
     }
     this.vp.canvas.style.cursor = 'crosshair';
+    if (this.typeEl) return; // (sizes being typed: the shape follows them, not the mouse)
     const d = this.draw;
     let prev = null;
     if (d?.tool === 'line' || d?.tool === 'centerline') prev = S.getPoint(this.f, d.last);
@@ -1303,9 +1399,18 @@ export class Sketcher {
             d.lastAng = a;
           }
         }
-      } else if (d.p0) d.p1 = s;
+      } else if (d.p0) d.p1 = this.sizePoint(s, raw);
     }
     this.redraw();
+  }
+
+  // The second point of a two-click shape (a circle's edge, a rectangle's corner). When it snaps back onto the
+  // first point (a small circle's edge caught by its own centre, or by the grid point the centre is on), the
+  // pointer's own position is used, so the shape is still made and can be sized by its dimension.
+  sizePoint(s, raw) {
+    const p0 = this.draw?.p0;
+    if (!p0 || Math.hypot(s.x - p0.x, s.y - p0.y) > 1e-6 || Math.hypot(raw.x - p0.x, raw.y - p0.y) < 1e-6) return s;
+    return { x: raw.x, y: raw.y, kind: 'grid' };
   }
 
   dragMove(raw, screen) {
@@ -1429,7 +1534,264 @@ export class Sketcher {
     this._updateCursorUI();
   }
 
+  // ------------------------------------------------------------ sizes typed while drawing
+  // With a shape on the go (its first point placed), typing a number opens a small box by the cursor with its sizes:
+  // a rectangle's Width and Height, a circle's Ø, a polygon's Ø and Sides, a line's Length and Angle, an arc's Radius
+  // and Sweep, an ellipse's Major and Minor R, a slot's Length and Width (only those still to be set: an arc whose
+  // start is clicked takes its Sweep, a slot whose length is clicked its Width). Tab goes between them; Enter makes
+  // the shape at the sizes typed and dimensions the lengths typed (an angle or a number of sides only shapes it; the
+  // sizes not typed follow the mouse); Esc closes the box.
+  typeFields(d) {
+    if (!d) return null;
+    const st = d.typeSnap?.stage ?? d.stage;
+    if ((d.tool === 'rect' || d.tool === 'crect') && d.p0) return [['w', 'Width'], ['h', 'Height']];
+    if (d.tool === 'circle' && d.p0) return [['d', 'Ø']];
+    if (d.tool === 'polygon' && d.p0) return [['d', 'Ø'], ['n', 'Sides']];
+    if ((d.tool === 'line' || d.tool === 'centerline') && d.last) return [['l', 'Length'], ['a', 'Angle °']];
+    if (d.tool === 'arc' && d.p0) return st === 1 ? [['r', 'Radius'], ['s', 'Sweep °']] : [['s', 'Sweep °']];
+    if (d.tool === 'arc3' && st === 2) return [['r', 'Radius']];
+    if (d.tool === 'tarc' && d.t) return [['r', 'Radius'], ['s', 'Sweep °']];
+    if (d.tool === 'ellipse' && d.p0) return st === 1 ? [['ra', 'Major R'], ['rb', 'Minor R']] : [['rb', 'Minor R']];
+    if (TYPED_SLOTS.has(d.tool) && d.p0) return st === 1 ? [['l', d.tool === 'oslot' ? 'Overall length' : 'Length'], ['w', 'Width']] : [['w', 'Width']];
+    return null;
+  }
+  // The sizes the shape has now (where the mouse left it)
+  typeNow(d) {
+    const q = { ...d, ...(d.typeSnap || {}) }, dist = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
+    if (d.tool === 'line' || d.tool === 'centerline') {
+      const a = S.getPoint(this.f, d.last), p = this.cursor?.p || a;
+      return { l: Math.hypot(p.x - a.x, p.y - a.y), a: (Math.atan2(p.y - a.y, p.x - a.x) * 180) / Math.PI };
+    }
+    if (d.tool === 'arc') return { r: dist(q.p0, q.p1), s: q.stage === 1 ? 90 : Math.abs((q.sweep * 180) / Math.PI) };
+    if (d.tool === 'arc3') { const C = S.circleThrough([q.p0.x, q.p0.y], [q.p1.x, q.p1.y], [q.p2.x, q.p2.y]); return { r: C && C.r < 1e6 ? C.r : dist(q.p0, q.p1) / 2 }; }
+    if (d.tool === 'tarc') {
+      const g = this.tarcGeom(q);
+      if (!g) return { r: 10, s: 90 };
+      const a0 = Math.atan2(q.p0.y - g.cy, q.p0.x - g.cx), a1 = Math.atan2(q.p1.y - g.cy, q.p1.x - g.cx);
+      let span = g.ccw ? a1 - a0 : a0 - a1;
+      while (span <= 0) span += 2 * Math.PI;
+      return { r: g.r, s: (span * 180) / Math.PI };
+    }
+    if (d.tool === 'ellipse') {
+      const ra = dist(q.p0, q.p1);
+      if (q.stage === 1 || ra < 1e-9) return { ra, rb: ra / 2 };
+      return { ra, rb: Math.abs(-(q.p2.x - q.p0.x) * ((q.p1.y - q.p0.y) / ra) + (q.p2.y - q.p0.y) * ((q.p1.x - q.p0.x) / ra)) };
+    }
+    if (TYPED_SLOTS.has(d.tool)) {
+      const l = (d.tool === 'cslot' ? 2 : 1) * dist(q.p0, q.p1), g = q.stage === 1 ? null : S.slotLayout(d.tool, [q.p0, q.p1, q.p2]);
+      return { l, w: g ? 2 * g.r : l / 4 };
+    }
+    const dx = d.p1.x - d.p0.x, dy = d.p1.y - d.p0.y;
+    if (d.tool === 'rect') return { w: Math.abs(dx), h: Math.abs(dy) };
+    if (d.tool === 'crect') return { w: 2 * Math.abs(dx), h: 2 * Math.abs(dy) };
+    return { d: 2 * Math.hypot(dx, dy), n: this.polySides };
+  }
+  // The shape's far point for sizes v (those not typed as they are now), in the direction the mouse went when the
+  // box opened (a rectangle, circle, polygon or line)
+  typedEnd(d, v, typed) {
+    const now = this.typeNow(d), g = d.typeDir;
+    if (d.tool === 'line' || d.tool === 'centerline') {
+      const a = S.getPoint(this.f, d.last), l = typed.has('l') ? v.l : now.l, t = ((typed.has('a') ? v.a : now.a) * Math.PI) / 180;
+      return { x: a.x + l * Math.cos(t), y: a.y + l * Math.sin(t) };
+    }
+    if (d.tool === 'rect') return { x: d.p0.x + g.sx * (typed.has('w') ? v.w : now.w), y: d.p0.y + g.sy * (typed.has('h') ? v.h : now.h) };
+    if (d.tool === 'crect') return { x: d.p0.x + (g.sx * (typed.has('w') ? v.w : now.w)) / 2, y: d.p0.y + (g.sy * (typed.has('h') ? v.h : now.h)) / 2 };
+    const r = (typed.has('d') ? v.d : now.d) / 2;
+    return { x: d.p0.x + r * Math.cos(g.ang), y: d.p0.y + r * Math.sin(g.ang) };
+  }
+  // An arc, ellipse or slot at sizes v (those not typed as the mouse left them): its clicks set as if made there,
+  // from the clicks made so far (d as when the box opened). A message when the sizes can't make it.
+  typedSet(d, v, typed) {
+    const q = d.typeSnap, now = this.typeNow(d), val = (k) => (typed.has(k) ? v[k] : now[k]), g = d.typeDir;
+    const at = (c, r, ang) => ({ x: c.x + r * Math.cos(ang), y: c.y + r * Math.sin(ang), kind: 'grid' });
+    const dirOf = (a, b) => Math.atan2(b.y - a.y, b.x - a.x);
+    const sweepOk = (s) => Math.abs(s) > 1e-6 && Math.abs(s) < 2 * Math.PI - 1e-6;
+    if (d.tool === 'arc') {
+      const s = (val('s') * Math.PI) / 180, sign = q.stage === 1 ? 1 : Math.sign(q.sweep) || 1;
+      if (!sweepOk(s)) return 'The sweep must be between 0° and 360°';
+      if (q.stage === 1) d.s1 = d.p1 = at(d.p0, val('r'), g.ang);
+      const r = Math.hypot(d.p1.x - d.p0.x, d.p1.y - d.p0.y), a0 = dirOf(d.p0, d.p1);
+      if (!(r > 1e-6)) return 'Type the radius';
+      d.sweep = sign * s; d.lastAng = a0 + d.sweep; d.stage = 2;
+      d.s2 = d.p2 = at(d.p0, r, d.lastAng);
+      return null;
+    }
+    if (d.tool === 'arc3') {
+      const r = val('r'), A = d.p0, B = d.p1, h = Math.hypot(B.x - A.x, B.y - A.y) / 2;
+      if (!(r >= h - 1e-9)) return `The radius must be at least half the distance between the ends (${fmt(h)})`;
+      const M = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 }, n = [-(B.y - A.y) / (2 * h), (B.x - A.x) / (2 * h)];
+      const side = Math.sign((q.p2.x - M.x) * n[0] + (q.p2.y - M.y) * n[1]) || 1, sag = r - Math.sqrt(Math.max(0, r * r - h * h));
+      d.p2 = { x: M.x + side * sag * n[0], y: M.y + side * sag * n[1], kind: 'grid' };
+      return null;
+    }
+    if (d.tool === 'tarc') {
+      const r = val('r'), s = (val('s') * Math.PI) / 180, P = d.p0, t = d.t;
+      if (!sweepOk(s)) return 'The sweep must be between 0° and 360°';
+      // (turning the way the mouse went: left of the tangent or right)
+      const k = (this.tarcGeom(d)?.ccw === false ? -1 : 1) * r, c = { x: P.x - t[1] * k, y: P.y + t[0] * k };
+      d.s1 = d.p1 = at(c, r, dirOf(c, P) + (k > 0 ? s : -s));
+      return null;
+    }
+    if (d.tool === 'ellipse') {
+      if (q.stage === 1) d.s1 = d.p1 = at(d.p0, val('ra'), g.ang);
+      if (!(Math.hypot(d.p1.x - d.p0.x, d.p1.y - d.p0.y) > 1e-6)) return 'Type the major radius';
+      d.p2 = at(d.p0, val('rb'), dirOf(d.p0, d.p1) + Math.PI / 2); d.stage = 2;
+      return null;
+    }
+    if (TYPED_SLOTS.has(d.tool)) {
+      if (q.stage === 1) {
+        const l = val('l');
+        if (!(l > 1e-6)) return 'Type the length';
+        d.s1 = d.p1 = at(d.p0, d.tool === 'cslot' ? l / 2 : l, g.ang);
+      }
+      d.p2 = at(d.p1, val('w') / 2, dirOf(d.p0, d.p1) + Math.PI / 2); d.stage = 2;
+      if (!S.slotLayout(d.tool, [d.p0, d.p1, d.p2])) return d.tool === 'oslot' ? 'The width must be less than the overall length' : 'Type a width greater than zero';
+      return null;
+    }
+    return 'Not a shape sizes can be typed for';
+  }
+  // The values in the box (those typed, or all): lengths in the drawing's units, angles in degrees, sides a whole
+  // number from 3 to 40. Throws on one that can't be used, naming it (inp.dataset.typeSize on the error).
+  typedValues(inputs, keys) {
+    const U = this.app.units, v = {}, raw = {};
+    for (const inp of inputs) {
+      const k = inp.dataset.typeSize;
+      if (!keys.has(k)) continue;
+      try {
+        raw[k] = TYPED_PLAIN.has(k) ? normalizeValue(inp.value) : lenValue(inp.value, U);
+        v[k] = this.ev(raw[k]);
+        if (k === 'n' && !(Number.isInteger(v[k]) && v[k] >= 3 && v[k] <= 40)) throw new Error('A polygon has 3 to 40 sides');
+        if (!TYPED_PLAIN.has(k) && !(v[k] > 0)) throw new Error('A size must be greater than zero');
+      } catch (ex) { ex.input = inp; throw ex; }
+    }
+    return { v, raw };
+  }
+  // The shape drawn at the sizes typed so far (those that can't be worked out yet left as they are)
+  previewTyped(inputs, typed) {
+    const d = this.draw;
+    if (!d) return;
+    let v;
+    try { ({ v } = this.typedValues(inputs, typed)); } catch { return; }
+    if (d.typeSnap) {
+      Object.assign(d, d.typeSnap);
+      if (this.typedSet(d, v, typed)) Object.assign(d, d.typeSnap);
+      this.redraw();
+      return;
+    }
+    if (d.tool === 'polygon' && typed.has('n')) this.polySides = v.n;
+    const p = this.typedEnd(d, v, typed);
+    if (d.tool === 'line' || d.tool === 'centerline') this.cursor = { ...this.cursor, p: { ...p, kind: 'grid' } };
+    else d.p1 = { ...p, kind: 'grid' };
+    this.redraw();
+  }
+  openTypeBox(first) {
+    this.closeTypeBox();
+    const d = this.draw, fields = this.typeFields(d), now = this.typeNow(d), U = this.app.units;
+    if (d.p0 && d.p1) d.typeDir = { sx: Math.sign(d.p1.x - d.p0.x) || 1, sy: Math.sign(d.p1.y - d.p0.y) || 1, ang: Math.atan2(d.p1.y - d.p0.y, d.p1.x - d.p0.x) || 0 };
+    // (an arc, ellipse or slot: its clicks so far kept, to go back to when the box closes without making it)
+    if (TYPED_STAGED.has(d.tool)) d.typeSnap = { stage: d.stage, p1: d.p1, p2: d.p2, p3: d.p3, s1: d.s1, s2: d.s2, sweep: d.sweep, lastAng: d.lastAng };
+    if (d.tool === 'polygon') d.typeSides0 = this.polySides;
+    const el = document.createElement('div');
+    el.className = 'modify sk-type';
+    el.innerHTML = `<div class="mh"><span>${SKETCH_TOOLS[d.tool]?.label || 'Size'}</span></div>${fields.map(([k, l]) => `<label class="sk-type-row"><span>${l}</span><input type="text" spellcheck="false" data-type-size="${k}"></label>`).join('')}<div class="merr">Tab: next · Enter: make it · Esc: close</div>`;
+    el.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+    const inputs = [...el.querySelectorAll('input')], typed = new Set();
+    inputs.forEach((inp) => {
+      const k = inp.dataset.typeSize;
+      inp.value = k === 'n' ? String(now.n) : TYPED_PLAIN.has(k) ? fmt(now[k], 2) : String(lenText(+now[k].toFixed(4), U));
+      inp.addEventListener('input', () => { typed.add(k); inp.classList.remove('bad'); this.previewTyped(inputs, typed); });
+      inp.addEventListener('keydown', (ev) => {
+        ev.stopPropagation();
+        if (ev.key === 'Escape') { ev.preventDefault(); this.closeTypeBox(); this.redraw(); }
+        else if (ev.key === 'Enter') { ev.preventDefault(); this.applyTyped(inputs, typed); }
+        else if (ev.key === 'Tab') { ev.preventDefault(); const nx = inputs[(inputs.indexOf(inp) + (ev.shiftKey ? inputs.length - 1 : 1)) % inputs.length]; nx.focus(); nx.select(); }
+      });
+    });
+    const sc = this.cursor?.screen;
+    el.style.left = `${(sc?.x ?? 100) + 16}px`; el.style.top = `${(sc?.y ?? 100) + 16}px`;
+    this.vp.labelsEl.appendChild(el);
+    this.typeEl = el;
+    inputs[0].value = first; typed.add(inputs[0].dataset.typeSize);
+    this.previewTyped(inputs, typed);
+    setTimeout(() => { inputs[0].focus(); const n = inputs[0].value.length; inputs[0].setSelectionRange(n, n); }, 0);
+  }
+  // (restore: the shape back as the mouse left it, as when the box is closed without making it)
+  closeTypeBox(restore = true) {
+    const d = this.draw;
+    if (restore && d?.typeSnap) Object.assign(d, d.typeSnap);
+    if (restore && d?.typeSides0) this.polySides = d.typeSides0;
+    if (d) { delete d.typeSnap; delete d.typeSides0; }
+    this.typeEl?.remove(); this.typeEl = null;
+  }
+  // Make the shape on the go at the sizes typed, dimensioned
+  applyTyped(inputs, typed) {
+    const d = this.draw;
+    if (!d) return this.closeTypeBox();
+    const all = new Set(inputs.map((i) => i.dataset.typeSize)), h0 = this.hist.length;
+    let v, raw;
+    try { ({ v, raw } = this.typedValues(inputs, all)); } catch (ex) { ex.input?.classList.add('bad'); this.typeEl.querySelector('.merr').textContent = ex.message; ex.input?.focus(); return; }
+    const dims = [];
+    if (d.typeSnap) {
+      Object.assign(d, d.typeSnap);
+      const why = this.typedSet(d, v, all);
+      if (why) { Object.assign(d, d.typeSnap); this.typeEl.querySelector('.merr').textContent = why; inputs[0].classList.add('bad'); inputs[0].focus(); return; }
+      this.closeTypeBox(false);
+      this._built = null;
+      this.commit();
+      const b = this._built;
+      if (!b) return;
+      if (b.arc && typed.has('r')) dims.push(['dim', [b.arc], { kind: 'radius', value: raw.r }]);
+      if (b.ellipse) {
+        if (typed.has('ra')) dims.push(['dim', [b.ellipse], { kind: 'radius', axis: 'major', value: raw.ra }]);
+        if (typed.has('rb')) dims.push(['dim', [b.ellipse], { kind: 'radius', value: raw.rb }]);
+      }
+      if (b.slot) {
+        const ln = S.getCurve(this.f, b.slot.axis || b.slot.centerline);
+        if (typed.has('l') && ln) dims.push(['dim', [ln.p1, ln.p2], { kind: 'distance', value: raw.l, off: 6 * this.wpp() }]);
+        if (typed.has('w')) dims.push(['dim', [b.slot.arcs[0]], { kind: 'diameter', value: raw.w }]);
+      }
+    } else if (d.tool === 'line' || d.tool === 'centerline') {
+      this.closeTypeBox(false);
+      const end = this.typedEnd(d, v, all);
+      const pid = S.addPoint(this.f, end.x, end.y);
+      const lid = S.addLine(this.f, d.last, pid, d.tool === 'centerline' || this.constructionMode);
+      // (along an axis: horizontal or vertical; any other angle only places it)
+      const deg = ((v.a % 180) + 180) % 180;
+      if (deg < 1e-9 || 180 - deg < 1e-9) S.addRel(this.f, 'horizontal', [lid]);
+      else if (Math.abs(deg - 90) < 1e-9) S.addRel(this.f, 'vertical', [lid]);
+      if (typed.has('l')) dims.push(['dim', [d.last, pid], { kind: 'distance', value: raw.l, off: 6 * this.wpp() }]);
+      d.count++; d.last = pid;
+      if (d.tool === 'centerline') this.draw = null;
+      this.solve();
+    } else {
+      const end = this.typedEnd(d, v, all), { sx, sy } = d.typeDir;
+      if ((d.tool === 'rect' || d.tool === 'crect') && !(Math.abs(end.x - d.p0.x) > 1e-6 && Math.abs(end.y - d.p0.y) > 1e-6)) { this.app.toast('Type both sizes (the other is still nothing where the mouse is)', true); return; }
+      if (d.tool === 'polygon') this.polySides = v.n;
+      this.closeTypeBox(false);
+      d.s1 = { ...end, kind: 'grid' }; d.p1 = d.s1;
+      this._built = null;
+      this.commit();
+      const b = this._built;
+      if (!b) return;
+      if (d.tool === 'rect') {
+        if (typed.has('w')) dims.push(['dim', [b.corners[0], b.corners[1]], { kind: 'hdist', value: raw.w, s: sx }]);
+        if (typed.has('h')) dims.push(['dim', [b.corners[1], b.corners[2]], { kind: 'vdist', value: raw.h, s: sy }]);
+      } else if (d.tool === 'crect') {
+        if (typed.has('w')) dims.push(['dim', [b.corners[0], b.corners[1]], { kind: 'hdist', value: raw.w, s: 1 }]);
+        if (typed.has('h')) dims.push(['dim', [b.corners[1], b.corners[2]], { kind: 'vdist', value: raw.h, s: 1 }]);
+      } else if (typed.has('d')) dims.push(['dim', [b.circle], { kind: 'diameter', value: raw.d, ang: Math.PI / 4 }]);
+      if (d.tool === 'polygon') this.app.ui.renderPM();
+    }
+    for (const x of dims) this.tryAddConstraints([x], { asDriven: true, quiet: true });
+    this.changed();
+    // (one undo step: the shape with its dimensions)
+    if (this.hist.length > h0 + 1) this.hist.splice(h0, this.hist.length - h0 - 1);
+    this.redraw();
+    this.app.status(`Made at the sizes typed${dims.length ? `, with ${dims.length} dimension${dims.length === 1 ? '' : 's'}` : ''}.`);
+  }
+
   endDraw(changed = false) {
+    this.closeTypeBox();
     const had = !!this.draw;
     // a spline being drawn is made from the points placed so far (two at least)
     if (this.draw?.tool === 'spline' || this.draw?.tool === 'cspline') {
@@ -1459,6 +1821,7 @@ export class Sketcher {
       if (this.sel.size) { this.sel.clear(); this.redraw(); this.app.ui.renderPM(); this.app.ui.refreshCommandStates(); return true; }
       return false;
     }
+    if (/^[0-9.]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey && this.typeFields(this.draw)) { this.openTypeBox(e.key); return true; }
     if (e.key === 'Enter' && this.modifyEl) { this.modifyEl.querySelector('input')?.focus(); return true; }
     if (e.key === 'Enter' && (this.draw?.tool === 'line' || this.draw?.tool === 'spline' || this.draw?.tool === 'cspline')) { this.endDraw(true); return true; }
     if ((e.key === 'Delete' || e.key === 'Backspace') && this.sel.size) { this.deleteSelected(); return true; }
@@ -1722,24 +2085,27 @@ export class Sketcher {
     } else if (d.tool === 'rect') {
       if (Math.abs(d.p1.x - d.p0.x) < 1e-6 || Math.abs(d.p1.y - d.p0.y) < 1e-6) return this.redraw();
       const A = this.resolve(d.s0), C = this.resolve(d.s1);
-      S.buildRect(sk, A, C);
+      this._built = S.buildRect(sk, A, C);
     } else if (d.tool === 'crect') {
       const hw = Math.abs(d.p1.x - d.p0.x), hh = Math.abs(d.p1.y - d.p0.y);
       if (hw < 1e-6 || hh < 1e-6) return this.redraw();
       const M = this.resolve(d.s0);
       const m = S.getPoint(sk, M);
       const r = S.buildCenterRect(sk, M, m.x, m.y, hw, hh);
+      this._built = r;
       this.attachCorner(r.corners, d.s1);
     } else if (d.tool === 'circle') {
       const rad = Math.hypot(d.p1.x - d.p0.x, d.p1.y - d.p0.y);
       if (rad < 1e-6) return this.redraw();
       const c = this.resolve(d.s0);
       const cid = S.addCircle(sk, c, r4(rad));
+      this._built = { circle: cid };
       if (d.s1?.kind === 'point') S.addRel(sk, 'onCurve', [d.s1.id, cid]);
     } else if (d.tool === 'polygon') {
       if (near(d.p0, d.p1)) return this.redraw();
       const c = this.resolve(d.s0);
       const p = S.buildPolygon(sk, c, d.p1.x, d.p1.y, this.polySides);
+      this._built = p;
       if (d.s1?.kind === 'point') S.addRel(sk, 'coincident', [p.points[0], d.s1.id]);
     } else if (d.tool === 'arc') {
       const rad = Math.hypot(d.p1.x - d.p0.x, d.p1.y - d.p0.y);
@@ -1752,7 +2118,7 @@ export class Sketcher {
         const a = Math.atan2(d.p2.y - d.p0.y, d.p2.x - d.p0.x);
         eId = S.addPoint(sk, d.p0.x + rad * Math.cos(a), d.p0.y + rad * Math.sin(a));
       }
-      if (d.sweep >= 0) S.addArc(sk, c, sId, eId); else S.addArc(sk, c, eId, sId);
+      this._built = { arc: d.sweep >= 0 ? S.addArc(sk, c, sId, eId) : S.addArc(sk, c, eId, sId) };
     } else if (d.tool === 'arc3') {
       const C = S.circleThrough([d.p0.x, d.p0.y], [d.p1.x, d.p1.y], [d.p2.x, d.p2.y]);
       if (!C || near(d.p0, d.p1) || C.r > 1e6) return this.redraw();
@@ -1760,7 +2126,7 @@ export class Sketcher {
       const c = S.addPoint(sk, r4(C.cx), r4(C.cy));
       // counter-clockwise from the start through the third point to the end, or the other way
       const ccw = (d.p2.x - d.p0.x) * (d.p1.y - d.p0.y) - (d.p2.y - d.p0.y) * (d.p1.x - d.p0.x) > 0;
-      if (ccw) S.addArc(sk, c, a, b); else S.addArc(sk, c, b, a);
+      this._built = { arc: ccw ? S.addArc(sk, c, a, b) : S.addArc(sk, c, b, a) };
     } else if (d.tool === 'tarc') {
       const g = this.tarcGeom(d);
       if (!g) return this.redraw();
@@ -1768,6 +2134,7 @@ export class Sketcher {
       const c = S.addPoint(sk, g.cx, g.cy);
       const arc = g.ccw ? S.addArc(sk, c, d.from, e) : S.addArc(sk, c, e, d.from);
       S.addRel(sk, 'tangent', [d.curve, arc]);
+      this._built = { arc };
     } else if (d.tool === 'ellipse') {
       const ra = Math.hypot(d.p1.x - d.p0.x, d.p1.y - d.p0.y);
       if (ra < 1e-6) return this.redraw();
@@ -1775,7 +2142,7 @@ export class Sketcher {
       const rb = Math.abs(-(d.p2.x - d.p0.x) * uy + (d.p2.y - d.p0.y) * ux);
       if (rb < 1e-6) return this.redraw();
       const c = this.resolve(d.s0), a = this.resolve(d.s1);
-      S.addEllipse(sk, c, a, r4(rb));
+      this._built = { ellipse: S.addEllipse(sk, c, a, r4(rb)) };
     } else if (['slot', 'cslot', 'oslot', 'arcslot', 'arcslot3'].includes(d.tool)) {
       const g = S.slotLayout(d.tool, [d.p0, d.p1, d.p2, d.p3], d.sweep);
       if (!g) { this.app.toast('Invalid slot: use a positive width smaller than the overall length or centre-arc diameter, without overlapping ends', true); return this.redraw(); }
@@ -1784,12 +2151,14 @@ export class Sketcher {
         const c1 = d.tool === 'slot' ? this.resolve(d.s0) : point(g.a);
         const c2 = d.tool === 'oslot' ? point(g.b) : this.resolve(d.s1);
         const sl = S.buildSlot(sk, c1, c2, g.r);
+        this._built = { slot: { arcs: sl.arcs, centerline: sl.centerline } };
         if (d.tool === 'cslot') {
           const m = this.resolve(d.s0); if (m !== 'O') S.getPoint(sk, m).keep = true;
           S.addRel(sk, 'midpoint', [m, sl.centerline]);
         }
         if (d.tool === 'oslot') {
           const a = this.resolve(d.s0), b = this.resolve(d.s1), axis = S.addLine(sk, a, b, true);
+          this._built.slot.axis = axis;
           S.addRel(sk, 'collinear', [axis, sl.centerline]);
           S.addRel(sk, 'onCurve', [a, sl.arcs[0]]); S.addRel(sk, 'onCurve', [b, sl.arcs[1]]);
           if (d.s1.infer) S.addRel(sk, d.s1.infer, [axis]);
@@ -1825,12 +2194,15 @@ export class Sketcher {
   // ------------------------------------------------------------ sketch patterns and blocks
   // The selected entities (curves and lone points) for a pattern / block.
   patternSource() {
-    return [...this.sel].filter((id) => id !== 'O' && (S.getCurve(this.f, id) || this.f.points.some((q) => q.id === id)));
+    // (an airfoil selected: its chord line, which brings the airfoil with it)
+    const ids = [...this.sel].map((id) => (id.startsWith?.('airfoil:') ? S.airfoilById(this.f, id.slice(8))?.line || id : id));
+    return [...new Set(ids)].filter((id) => id !== 'O' && (S.getCurve(this.f, id) || this.f.points.some((q) => q.id === id)));
   }
 
   linearPatternSel(id = null) {
     const selected = S.patternEntities(this.f);
     const p = this.f.patterns?.find((p) => p.id === id || [...this.sel].some((q) => p.generated?.curves.includes(q) || p.generated?.points.includes(q)));
+    if (p?.kind === 'circular') return this.circularPatternSel(p.id);
     this.setTool('select');
     this.patternDraft = p ? JSON.parse(JSON.stringify(p)) : { sources: this.patternSource().filter((id) => !selected.has(id)), path: '', n1: '3', d1: '20', a1: '0', n2: '1', d2: '20', a2: '90', turn: false };
     this.patternDraft.pick = 'sources';
@@ -1867,28 +2239,39 @@ export class Sketcher {
     else { this.redraw(); this.app.ui.renderPM(); }
   }
 
-  async circularPatternSel() {
-    const ids = this.patternSource();
-    // a selected point that no selected curve uses is the centre (else the origin)
-    const used = new Set(ids.flatMap((id) => { const c = S.getCurve(this.f, id); return c ? [c.p1, c.p2, c.c, c.a, ...(c.pts || [])] : []; }));
-    const ctrId = [...this.sel].find((id) => (id === 'O' || this.f.points.some((q) => q.id === id)) && !used.has(id));
-    const curves = ids.filter((id) => id !== ctrId);
-    if (!curves.length) { this.app.toast('Select the entities to pattern first (and a point to turn them about; the origin otherwise)', true); return; }
-    const C = ctrId ? S.getPoint(this.f, ctrId) : { x: 0, y: 0 };
+  // A circular sketch pattern (kept, as a linear one is: the copies follow the sources, the count and angle can be
+  // edited, and they are fully defined when the sources are). id: an existing pattern to edit.
+  async circularPatternSel(id = null) {
+    const old = id ? this.f.patterns?.find((p) => p.id === id) : null;
+    let sources, ctrId;
+    if (old) { sources = old.sources; ctrId = old.centre || null; } else {
+      const taken = S.patternEntities(this.f), ids = this.patternSource().filter((x) => !taken.has(x));
+      // a selected point that no selected curve uses is the centre (else the origin)
+      const used = new Set(ids.flatMap((x) => { const c = S.getCurve(this.f, x); return c ? [c.p1, c.p2, c.c, c.a, ...(c.pts || [])] : []; }));
+      ctrId = [...this.sel].find((x) => (x === 'O' || this.f.points.some((q) => q.id === x)) && !used.has(x)) || null;
+      sources = ids.filter((x) => x !== ctrId);
+    }
+    if (!sources.length) { this.app.toast('Select the entities to pattern first (and a point to turn them about; the origin otherwise)', true); return; }
+    const C = ctrId ? S.getPoint(this.f, ctrId) : { x: +(old?.cx ?? 0), y: +(old?.cy ?? 0) };
     const v = await this.app.ui.promptFields('Circular Sketch Pattern', 'skCirPattern', [
-      { key: 'n', label: 'Number of instances (including the original)', type: 'expr', value: 6 },
-      { key: 'total', label: 'Total angle (°; 360 spreads them evenly round)', type: 'expr', value: 360 },
-      { key: 'cx', label: 'Centre X (mm)', type: 'expr', value: +C.x.toFixed(4) },
-      { key: 'cy', label: 'Centre Y (mm)', type: 'expr', value: +C.y.toFixed(4) },
-    ], ctrId ? 'Turned about the selected point.' : 'Turned about the centre below (select a point with the entities to use it).');
+      { key: 'n', label: 'Number of instances (including the original)', type: 'expr', value: old?.n ?? 6 },
+      { key: 'total', label: 'Total angle (°; 360 spreads them evenly round)', type: 'expr', value: old?.total ?? 360 },
+      ...(ctrId ? [] : [
+        { key: 'cx', label: 'Centre X (mm)', type: 'expr', value: +C.x.toFixed(4) },
+        { key: 'cy', label: 'Centre Y (mm)', type: 'expr', value: +C.y.toFixed(4) },
+      ]),
+    ], ctrId ? `Turned about the ${ctrId === 'O' ? 'origin' : 'selected point'}; the copies follow the originals.` : 'Turned about the centre below (select a point with the entities to use it); the copies follow the originals.');
     if (!v || !this.active) return;
-    const n = (x) => this.ev(String(x));
-    const o = { n: Math.round(n(v.n)), total: n(v.total), cx: n(v.cx), cy: n(v.cy) };
-    if (![o.n, o.total, o.cx, o.cy].every(Number.isFinite) || o.n < 2 || o.n > 500 || !(Math.abs(o.total) > 1e-6)) { this.app.toast('Enter numbers: 2 to 500 instances over a non-zero angle', true); return; }
-    const made = S.circularPattern(this.f, curves, o);
-    this.sel = new Set(made);
+    const spec = { ...(old ? { id: old.id } : {}), kind: 'circular', sources, n: String(v.n), total: String(v.total), centre: ctrId, ...(ctrId ? {} : { cx: String(v.cx), cy: String(v.cy) }) };
+    const before = JSON.stringify({ points: this.f.points, curves: this.f.curves, constraints: this.f.constraints, patterns: this.f.patterns || [], nextSid: this.f.nextSid });
+    let p;
+    try { p = S.setSketchPattern(this.f, spec, this.ev); } catch (e) {
+      Object.assign(this.f, JSON.parse(before));
+      this.app.toast(e.message, true); return;
+    }
+    this.sel = new Set(p.generated.curves);
     this.changed();
-    this.app.status(`Circular sketch pattern: ${o.n - 1} cop${o.n === 2 ? 'y' : 'ies'} made.`);
+    this.app.status(`Circular sketch pattern: ${p.made} cop${p.made === 1 ? 'y' : 'ies'}, following the originals.`);
   }
 
   // Import a DXF file's lines, arcs, circles, ellipses, splines and points into this sketch.
@@ -3315,9 +3698,23 @@ export class Sketcher {
 
   _frame() {
     if (!this.active) return;
+    this.updateGrid();
     const w = this.wpp();
     if (Math.abs(w - this.lastWpp) / (this.lastWpp || 1) > 0.04 && !this.drag) this.redraw();
     else this._placeLabels();
+  }
+
+  // The grid drawn at the snap step (finer as the view zooms in), round the middle of the view; its step shown in
+  // the status bar
+  updateGrid() {
+    const step = this.gridStep(), c = G.toLocal(this.frame, this.vp.controls.target), cell = step * 10;
+    const cx = Math.round(c.x / cell) * cell, cy = Math.round(c.y / cell) * cell;
+    if (step === this._gridStep && cx === this._gridAt?.[0] && cy === this._gridAt?.[1]) return;
+    this._gridStep = step; this._gridAt = [cx, cy];
+    this.grid.scale.set(step / 10, 1, step / 10);
+    this.grid.position.set(cx, cy, 0);
+    const el = document.getElementById('status-grid');
+    if (el) { el.hidden = false; el.textContent = `Grid ${this.L(step)}${this.app.units === 'in' ? ' in' : ' mm'}`; el.title = 'The sketch grid: points snap to it. It gets finer as you zoom in.'; }
   }
 
   _updateCursorUI() {
@@ -3369,6 +3766,7 @@ export class Sketcher {
       if (d.tool === 'tarc') { const g = this.tarcGeom(d); if (g) tip = `R ${fmt(g.r)}`; }
     }
     this.tipEl.hidden = false;
+    if (this.typeFields(d) && !this.typeEl) tip += '   · type a size';
     this.tipEl.textContent = infer ? `${infer}   ${tip}` : tip;
     this.tipEl.style.left = c.screen.x + 'px';
     this.tipEl.style.top = c.screen.y + 'px';
@@ -3409,7 +3807,8 @@ export class Sketcher {
         if (!['hdist', 'vdist', 'pointLine', 'arcDist'].includes(k.kind) && v <= 0) throw new Error('Value must be greater than zero');
         if (k.kind === 'arcDist' && v < 0 && (k.cond || 'center') !== 'min') throw new Error('Value must not be negative');
         k.value = lenValue(input.value, U);
-        const r = this.solve();
+        let r = this.solve();
+        if (!r.ok) r = this.solveInSteps(k, old);
         if (!r.ok) { k.value = old; this.solve(); throw new Error('The sketch cannot be solved with that value'); }
         this.closeModify();
         this.changed();

@@ -69,6 +69,7 @@ STL_TYPES = ('STL Mesh (*.stl)', 'All files (*.*)')
 STEP_TYPES = ('STEP File (*.step;*.stp)', 'All files (*.*)')
 DXF_TYPES = ('DXF Drawing (*.dxf)', 'All files (*.*)')
 MACRO_TYPES = ('RazorCAD macro (*.js)', 'All files (*.*)')
+PLUGIN_TYPES = ('RazorCAD plug-in (*.zip)', 'All files (*.*)')
 IMPORT_TYPES = ('STEP IGES STL OBJ or 3MF (*.step;*.stp;*.igs;*.iges;*.stl;*.obj;*.3mf)', 'STEP File (*.step;*.stp)', 'IGES File (*.igs;*.iges)', 'STL Mesh (*.stl)', 'OBJ Mesh (*.obj)', '3MF Model (*.3mf)', 'All files (*.*)')
 # files imported (as a new part, or into one) rather than opened as RazorCAD documents
 IMPORT_EXTS = ('.step', '.stp', '.igs', '.iges', '.stl', '.obj', '.3mf')
@@ -108,6 +109,140 @@ def templates_dir():
         path = os.path.join(data_dir(), 'Templates')  # (tests: inside their own data folder)
     os.makedirs(path, exist_ok=True)
     return path
+
+
+def plugins_dir():
+    """Documents\\RazorCAD\\Plugins: the user's own plug-ins, a folder each (kept apart from RazorCAD, so private
+    plug-ins stay on this PC)."""
+    path = os.path.join(documents_dir(), APP_NAME, 'Plugins')
+    if os.environ.get('RAZORCAD_DATA_DIR'):
+        path = os.path.join(data_dir(), 'Plugins')  # (tests: inside their own data folder)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+PLUGIN_ID = re.compile(r'^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$')
+PLUGIN_CODE_EXTS = ('.js', '.mjs')
+PLUGIN_MAX_BYTES = 8 << 20  # (a plug-in's code, all its modules together)
+
+
+def plugin_path(folder, pid, rel=''):
+    """A file in plug-in pid's folder (rel with / between folders), or ValueError for anything outside it."""
+    if not isinstance(pid, str) or not PLUGIN_ID.match(pid) or pid in ('.', '..'):
+        raise ValueError('Not a plug-in: %r' % (pid,))
+    parts = [p for p in str(rel or '').replace('\\', '/').split('/') if p]
+    if any(':' in p for p in parts):
+        raise ValueError('That is outside the plug-in: %r' % (rel,))
+    root = os.path.realpath(os.path.join(folder, pid))
+    path = os.path.realpath(os.path.join(root, *parts))
+    if path != root and not path.startswith(root + os.sep):
+        raise ValueError('That is outside the plug-in: %r' % (rel,))
+    return path
+
+
+def list_plugins(folder):
+    """The plug-ins in folder: [{ id (its folder's name), manifest (plugin.json) or error, modified }]."""
+    out = []
+    for name in sorted(os.listdir(folder), key=str.lower):
+        path = os.path.join(folder, name)
+        if not os.path.isdir(path) or not PLUGIN_ID.match(name):
+            continue
+        entry = {'id': name, 'modified': 0}
+        try:
+            mf = os.path.join(path, 'plugin.json')
+            with open(mf, encoding='utf-8-sig') as f:
+                manifest = json.load(f)
+            if not isinstance(manifest, dict):
+                raise ValueError('plugin.json must hold an object')
+            entry['manifest'] = manifest
+            # (the newest of its files: a plug-in changed since it was loaded is loaded again by Reload)
+            entry['modified'] = max([os.path.getmtime(os.path.join(d, n)) for d, _, ns in os.walk(path) for n in ns] or [0]) * 1000
+        except FileNotFoundError:
+            entry['error'] = 'It has no plugin.json'
+        except Exception as e:
+            entry['error'] = 'plugin.json: %s' % e
+        out.append(entry)
+    return out
+
+
+def read_plugin(folder, pid):
+    """A plug-in's code: { files: { 'main.js': text, 'lib/util.js': text, … } } (its .js and .mjs files)."""
+    root, files, total = plugin_path(folder, pid), {}, 0
+    for d, dirs, names in os.walk(root):
+        dirs[:] = [x for x in dirs if not x.startswith('.') and x != 'node_modules']
+        for n in names:
+            if not n.lower().endswith(PLUGIN_CODE_EXTS):
+                continue
+            p = os.path.join(d, n)
+            total += os.path.getsize(p)
+            if total > PLUGIN_MAX_BYTES:
+                raise ValueError('The plug-in\'s code is bigger than %d MB' % (PLUGIN_MAX_BYTES >> 20))
+            with open(p, encoding='utf-8-sig') as f:
+                files[os.path.relpath(p, root).replace(os.sep, '/')] = f.read()
+    return {'files': files}
+
+
+def read_plugin_file(folder, pid, rel, binary=False):
+    """A file of the plug-in's own (text, or base64 when binary)."""
+    path = plugin_path(folder, pid, rel)
+    if os.path.getsize(path) > PLUGIN_MAX_BYTES:
+        raise ValueError('That file is too big')
+    if binary:
+        with open(path, 'rb') as f:
+            return base64.b64encode(f.read()).decode('ascii')
+    with open(path, encoding='utf-8-sig') as f:
+        return f.read()
+
+
+def plugin_free_id(folder, name):
+    """A folder name for a new plug-in called name, not taken yet."""
+    base = re.sub(r'[^A-Za-z0-9 ._-]+', '', str(name or '')).strip(' .') or 'Plugin'
+    base, pid, n = base[:48], base[:48], 2
+    while os.path.exists(os.path.join(folder, pid)):
+        pid, n = '%s %d' % (base, n), n + 1
+    return pid
+
+
+def write_new_plugin(folder, name, files):
+    """A new plug-in folder holding files ({ rel: text }): its id."""
+    pid = plugin_free_id(folder, name)
+    for rel, text in (files or {}).items():
+        path = plugin_path(folder, pid, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'w', encoding='utf-8', newline='\n') as f:
+            f.write(text)
+    return pid
+
+
+def install_plugin_zip(folder, zip_path):
+    """A plug-in from a .zip (plugin.json at its top, or in the one folder at its top) into a folder of its own:
+    its id."""
+    import zipfile
+    with zipfile.ZipFile(zip_path) as z:
+        names = [n for n in z.namelist() if not n.endswith('/')]
+        tops = {n.split('/', 1)[0] for n in names}
+        prefix = ''
+        if 'plugin.json' not in names:
+            if len(tops) == 1 and (next(iter(tops)) + '/plugin.json') in names:
+                prefix = next(iter(tops)) + '/'
+            else:
+                raise ValueError('There is no plugin.json in that .zip')
+        if sum(i.file_size for i in z.infolist()) > 64 << 20:
+            raise ValueError('That .zip is too big for a plug-in')
+        try:
+            manifest = json.loads(z.read(prefix + 'plugin.json').decode('utf-8-sig'))
+        except Exception as e:
+            raise ValueError('plugin.json: %s' % e)
+        name = (manifest.get('name') if isinstance(manifest, dict) else None) or os.path.splitext(os.path.basename(zip_path))[0]
+        pid = plugin_free_id(folder, name)
+        for n in names:
+            if not n.startswith(prefix):
+                continue
+            path = plugin_path(folder, pid, n[len(prefix):])
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with z.open(n) as src, open(path, 'wb') as dst:
+                shutil.copyfileobj(src, dst)
+    return pid
 
 
 def resource_dir():
@@ -154,6 +289,8 @@ REPO_URL = 'https://github.com/Labs9119/RazorCAD'
 
 RELEASE_DOWNLOADS = REPO_URL + '/releases/download/'
 UNINSTALL_KEY = r'Software\Microsoft\Windows\CurrentVersion\Uninstall\RazorCAD'
+UPDATE_MUTEX = 'RazorCAD-Update'  # (the same as installer/setup.py's)
+SETUP_ANSWER_SECONDS = 120  # (a security scan of a new setup can take this long)
 
 
 def install_info():
@@ -202,71 +339,17 @@ def download_verified(url, path, size=None, digest=None, timeout=60):
     return n
 
 
-def update_script(setup, folder, all_users, log, pid, expected_version=''):
-    """Wait for this installation to close, install and verify replacement before restarting.
-
-    PyInstaller's one-file parent can outlive the Python process. Waiting only for
-    pid races that parent's executable lock and extraction-directory cleanup.
-    """
-    q = lambda value: "'" + str(value).replace("'", "''") + "'"
-    args = ["'/S'", q('"/D=' + folder + '"')] + (["'/ALLUSERS'"] if all_users else [])
-    run = 'Start-Process -FilePath %s -ArgumentList %s -Wait -PassThru%s' % (q(setup), ','.join(args), ' -Verb RunAs' if all_users else '')
-    template = r'''$ErrorActionPreference = 'Stop'
-$log = __LOG__
-$application = __APPLICATION__
-$versionFile = __VERSION_FILE__
-$expected = __EXPECTED__
-function Write-UpdateLog($text) {
-    Add-Content -LiteralPath $log -Value ((Get-Date -Format o) + ' ' + $text) -Encoding UTF8 -ErrorAction SilentlyContinue
-}
-function Fail-Update($message) {
-    Write-UpdateLog ('FAILED: ' + $message)
-    try {
-        Add-Type -AssemblyName PresentationFramework
-        [System.Windows.MessageBox]::Show($message + "`n`nUpdate log: " + $log, 'RazorCAD update failed') | Out-Null
-    } catch { }
-    exit 1
-}
-Write-UpdateLog ('Starting update to ' + $expected + ' in ' + $application)
-try {
-    Get-Process -Id __PID__ -ErrorAction SilentlyContinue | Wait-Process -Timeout 120 -ErrorAction Stop
-} catch { Fail-Update ('RazorCAD did not close: ' + $_) }
-try {
-    $deadline = (Get-Date).AddSeconds(120)
-    while ($true) {
-        $running = @(Get-Process -Name __PROCESS_NAME__ -ErrorAction SilentlyContinue | Where-Object {
-            try { !$_.Path -or $_.Path -eq $application } catch { $true }
-        })
-        if ($running.Count -eq 0) { break }
-        if ((Get-Date) -gt $deadline) { Fail-Update ('RazorCAD is still running. Close its other windows and run setup again.') }
-        Start-Sleep -Milliseconds 200
-    }
-} catch { Fail-Update ('Could not wait for RazorCAD to close: ' + $_) }
-try {
-    $before = (Get-FileHash -LiteralPath $application -Algorithm SHA256).Hash
-    $env:PYINSTALLER_RESET_ENVIRONMENT = '1'
-    $p = __RUN__
-    Write-UpdateLog ('setup exit ' + $p.ExitCode)
-    if ($p.ExitCode -ne 0) { Fail-Update ('The installer failed with exit code ' + $p.ExitCode + '. Run the downloaded setup manually for more details.') }
-    if (!(Test-Path -LiteralPath $application -PathType Leaf)) { Fail-Update 'The installer did not create RazorCAD.exe.' }
-    $after = (Get-FileHash -LiteralPath $application -Algorithm SHA256).Hash
-    if ($before -eq $after) { Fail-Update 'The installer left the application executable unchanged. The update was not applied.' }
-    if ($expected) {
-        $installed = (Get-Content -LiteralPath $versionFile -Raw).Trim() -replace '^v', ''
-        if ($installed -ne $expected) { Fail-Update ('Installed version ' + $installed + ' differs from expected version ' + $expected + '.') }
-    }
-} catch { Fail-Update ('The update could not be installed: ' + $_) }
-try {
-    $env:PYINSTALLER_RESET_ENVIRONMENT = '1'
-    Start-Process -FilePath $application -WorkingDirectory __FOLDER__
-    Write-UpdateLog ('Verified replacement and restarted version ' + $expected)
-} catch { Fail-Update ('The update was installed, but RazorCAD could not restart: ' + $_) }
-'''
-    values = {'__LOG__': q(log), '__APPLICATION__': q(os.path.join(folder, APP_NAME + '.exe')),
-              '__VERSION_FILE__': q(os.path.join(folder, 'version.txt')), '__EXPECTED__': q(expected_version),
-              '__PID__': str(int(pid)), '__PROCESS_NAME__': q(APP_NAME), '__RUN__': run, '__FOLDER__': q(folder)}
-    # One substitution pass: path text is data even if it contains a placeholder.
-    return re.sub(r'__[A-Z_]+__', lambda match: values[match.group()], template)
+def update_setup_running():
+    """Is the setup of an Update Now still at work? It holds a named mutex until it closes."""
+    if os.name != 'nt':
+        return False
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.OpenMutexW.restype = ctypes.c_void_p
+    handle = kernel.OpenMutexW(0x00100000, False, UPDATE_MUTEX)  # (SYNCHRONIZE)
+    if handle:
+        kernel.CloseHandle(ctypes.c_void_p(handle))
+        return True
+    return ctypes.get_last_error() != 2  # (anything but "not found": an elevated setup refuses to be opened)
 
 
 def issue_url(title, body):
@@ -641,6 +724,7 @@ class Api:
         self._window = None
         self._dirty = False
         self._force_close = False
+        self._setup = None  # (the setup of an update that did not get through)
         self._close_pending = 0  # when the interface was asked to confirm closing
         self._close_ack = False
         self._has_file = False
@@ -1267,6 +1351,29 @@ class Api:
         os.startfile(templates_dir())
         return True
 
+    # --- plug-ins (Documents\RazorCAD\Plugins; plugins.js) ------------------
+    def list_plugins(self):
+        folder = plugins_dir()
+        return {'folder': folder, 'plugins': list_plugins(folder)}
+
+    def read_plugin(self, pid):
+        return read_plugin(plugins_dir(), pid)
+
+    def read_plugin_file(self, pid, rel, binary=False):
+        return read_plugin_file(plugins_dir(), pid, rel, binary)
+
+    def new_plugin(self, name, files):
+        return write_new_plugin(plugins_dir(), name, files)
+
+    def install_plugin(self):
+        """A plug-in .zip picked and unpacked into the plug-ins folder: its id, or None."""
+        path = first(self._file_dialog(webview.FileDialog.OPEN, file_types=PLUGIN_TYPES))
+        return install_plugin_zip(plugins_dir(), path) if path else None
+
+    def open_plugins_folder(self, pid=''):
+        os.startfile(plugin_path(plugins_dir(), pid) if pid else plugins_dir())
+        return True
+
     # --- files opened from Windows ---------------------------------------
     def take_open_requests(self):
         """Files to open: those on the command line, then ones other launches handed over."""
@@ -1322,14 +1429,17 @@ class Api:
     def _update_path(self):
         return os.path.join(data_dir(), 'update.json')
 
-    def update_settings(self, changes=None):
+    def _update_state(self):
         try:
             with open(self._update_path(), encoding='utf-8') as f:
-                s = json.load(f)
+                return json.load(f)
         except (OSError, ValueError):
-            s = {}
+            return {}
+
+    def update_settings(self, changes=None):
+        s = self._update_state()
         if changes:
-            s.update({k: v for k, v in changes.items() if k in ('auto', 'skip', 'last')})
+            s.update({k: v for k, v in changes.items() if k in ('auto', 'skip', 'last', 'pending')})
             write_atomic(self._update_path(), json.dumps(s))
         return {'auto': s.get('auto', True), 'skip': s.get('skip', ''), 'last': s.get('last', 0), 'version': APP_VERSION}
 
@@ -1359,8 +1469,10 @@ class Api:
                 'installed': install_info().get('installed', False)}
 
     def start_update(self, url, size=None, digest=None):
-        """Update now: downloads the new setup (checked against the release), then a helper runs it silently into this
-        installation, waits, and starts RazorCAD again; the app closes itself after this returns ok."""
+        """Update now: downloads the new setup (checked against the release) and starts it. The setup shows its own
+        window, waits for RazorCAD to close, installs, checks the result and starts the new version. The app closes
+        itself only after the setup has answered, so one that never ran (stopped by security software…) can be told
+        about here. A failed result carries setup: True when the downloaded setup can still be run by hand."""
         url = str(url or '')
         name = url.rsplit('/', 1)[-1]
         if not url.startswith(RELEASE_DOWNLOADS) or not re.fullmatch(r'RazorCAD-Setup-[\w.\-]+\.exe', name):
@@ -1376,22 +1488,64 @@ class Api:
             download_verified(url, path, size, digest)
         except Exception as e:
             return {'error': 'Download failed: %s' % getattr(e, 'reason', e)}
-        expected = name[len('RazorCAD-Setup-'):-4].lstrip('vV')
-        script = update_script(path, info['folder'], info['allUsers'], os.path.join(folder, 'update.log'), os.getpid(), expected)
-        helper = os.path.join(folder, 'install-update.ps1')
-        # The helper outlives this one-file application. On restart PyInstaller must extract the new
-        # executable, rather than reuse this process's old (or already removed) _MEI directory.
+        status = os.path.join(folder, 'update-status.json')
+        self._setup = path
+        # The setup outlives this one-file application, and is a one-file program of its own: it must extract its
+        # own files, rather than take this process's _MEI directory for them.
         env = dict(os.environ, PYINSTALLER_RESET_ENVIRONMENT='1')
         flags = getattr(subprocess, 'DETACHED_PROCESS', 0) | getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0) | NO_WINDOW
         try:
-            # Windows PowerShell 5 reads non-ASCII paths correctly with a UTF-8 BOM.
-            with open(helper, 'w', encoding='utf-8-sig') as stream:
-                stream.write(script)
-            subprocess.Popen(['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', helper],
-                             env=env, creationflags=flags, close_fds=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if os.path.exists(status):
+                os.remove(status)
+            self.update_settings({'pending': {'to': name[len('RazorCAD-Setup-'):-4].lstrip('vV'), 'setup': path, 'status': status}})
+            setup = subprocess.Popen([path, '/UPDATE', '/D=' + info['folder'], '/STATUS=' + status] + (['/ALLUSERS'] if info['allUsers'] else []),
+                                     env=env, creationflags=flags, close_fds=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except OSError as e:
-            return {'error': 'The update helper could not start: %s' % e}
-        return {'ok': True, 'allUsers': info['allUsers']}
+            self.update_settings({'pending': None})
+            return {'error': 'The update setup could not start: %s' % e, 'setup': True}
+        deadline = time.time() + SETUP_ANSWER_SECONDS
+        while time.time() < deadline:
+            if os.path.exists(status):
+                return {'ok': True, 'allUsers': info['allUsers']}
+            if setup.poll() is not None:
+                break
+            time.sleep(0.1)
+        self.update_settings({'pending': None})
+        return {'error': 'The update setup did not start. Security software may have stopped it.', 'setup': True}
+
+    def update_result(self):
+        """What became of the last Update Now, asked once at each start: None (nothing to tell), { state: 'installing',
+        to } (its setup still waits for this window to close) or { state: 'failed', to, error, log }."""
+        p = self._update_state().get('pending')
+        if not p:
+            return None
+        if version_key(APP_VERSION) >= version_key(p.get('to') or ''):
+            self.update_settings({'pending': None})
+            return None
+        if update_setup_running():
+            return {'state': 'installing', 'to': p.get('to')}
+        self.update_settings({'pending': None})
+        try:
+            with open(p.get('status') or '', encoding='utf-8') as f:
+                status = json.load(f)
+        except (OSError, ValueError):
+            status = {}
+        if status.get('state') == 'cancelled':
+            return None
+        self._setup = p.get('setup')
+        return {'state': 'failed', 'to': p.get('to'), 'log': os.path.join(os.path.dirname(p.get('status') or ''), 'update.log'),
+                'error': status.get('error') or 'The update setup stopped before it finished. Security software may have stopped it.'}
+
+    def run_setup(self):
+        """The downloaded setup of an update that did not install, as its normal window. False: it cannot be run."""
+        path = self._setup
+        if not path or not os.path.isfile(path):
+            return False
+        try:
+            subprocess.Popen([path], env=dict(os.environ, PYINSTALLER_RESET_ENVIRONMENT='1'), close_fds=True)
+        except OSError:
+            return False
+        return True
 
     def open_url(self, url):
         """Opens a RazorCAD page (its GitHub pages only) in the web browser."""

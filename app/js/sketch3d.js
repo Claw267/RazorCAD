@@ -405,8 +405,8 @@ export class Sketcher3D {
       arc: 'Centerpoint Arc: click the centre, then the start, then the end (the arc follows the mouse round). It lies on the drawing plane.',
       arc3: '3 Point Arc: click the start, then the end, then a point the arc runs through (on the drawing plane through the start).',
       polygon: `Polygon: click the centre, then a corner (${this.polySides} sides — set them in the Property panel). It lies on the drawing plane and stays regular.`,
-      sfillet: `Sketch Fillet: click corners where two lines meet. Radius ${this.filletR} mm (set it in the Property panel); further fillets are made equal to the first until you leave the tool.`,
-      schamfer: `Sketch Chamfer: click corners where two lines meet. Distance ${this.chamferD} mm (set it in the Property panel); further chamfers are made equal to the first until you leave the tool.`,
+      sfillet: `Sketch Fillet: click corners where two lines meet. Radius ${this.filletR} mm (set it in the Property panel); further fillets of that radius are made equal to the first.`,
+      schamfer: `Sketch Chamfer: click corners where two lines meet. Distance ${this.chamferD} mm (set it in the Property panel); further chamfers of that distance are made equal to the first.`,
       trim: 'Trim: click the piece of a line, arc or circle to remove, up to where other entities cross or touch it (nothing crosses it: the whole entity goes).',
       spline: 'Spline: click points it runs through (they snap like line points). Double-click or Enter ends it; click the first point to close it. A Tangent relation with a line at an end makes it leave the line smoothly.',
       tarc: 'Tangent Arc: click the free end of a line, arc or spline, then where the arc ends. It carries on tangent from there; keep clicking for more arcs, Esc ends.',
@@ -832,8 +832,9 @@ export class Sketcher3D {
     for (const r of f.rels) if (r.type === 'length' && lines.some((l) => l.id === r.refs[0])) { const i = lines.findIndex((l) => l.id === r.refs[0]); r.type = 'distance'; r.refs = [far[i], pid]; }
     lines.forEach((l) => f.rels.push({ id: newId(f, 'r'), type: 'onLine', refs: [pid, l.id] }));
     lines.forEach((l) => f.rels.push({ id: newId(f, 'r'), type: 'tangent', refs: [arcId, l.id] }));
-    // the first fillet of this use of the tool gets the radius; the later ones are equal to it
-    const first = this.blendFirst?.kind === 'fillet' && getSeg(f, this.blendFirst.arc) ? this.blendFirst.arc : null;
+    // the first fillet of this use of the tool (or since another radius was typed) gets the radius; the later ones
+    // of that radius are equal to it
+    const first = this.sameBlend('fillet', R) && getSeg(f, this.blendFirst.arc) ? this.blendFirst.arc : null;
     if (first) f.rels.push({ id: newId(f, 'r'), type: 'equalR', refs: [first, arcId] });
     else f.rels.push({ id: newId(f, 'r'), type: 'radius', refs: [arcId], value: +R.toFixed(4) });
     if (!solve3d(f, this.ev).ok) {
@@ -841,10 +842,14 @@ export class Sketcher3D {
       this.app.toast('The fillet conflicts with the relations already on those lines', true);
       return;
     }
-    if (!first) this.blendFirst = { kind: 'fillet', arc: arcId };
+    if (!first) this.blendFirst = { kind: 'fillet', arc: arcId, size: R };
     this.changed();
-    this.app.status(first ? 'Corner rounded, equal to the first fillet (Equal Radius). Leave the tool to start a new size.' : `Corner rounded (R ${fmt(R)} mm). Further fillets are made equal to it; double-click the radius to change them all.`);
+    this.app.status(first ? 'Corner rounded, equal to the first fillet (Equal Radius). Type another radius to start a new size.' : `Corner rounded (R ${fmt(R)} mm). Further fillets of this radius are made equal to it; double-click the radius to change them all.`);
   }
+
+  // The first fillet / chamfer of this use of the tool, when it was made at this size (another size typed in the
+  // panel starts a new one)
+  sameBlend(kind, size) { return this.blendFirst?.kind === kind && this.blendFirst.size === size; }
 
   // Sketch Chamfer: the corner where two lines meet is cut by a line d from it along both. The first chamfer of
   // this use of the tool gets the distances; the later ones are made equal to it (Equal Distance).
@@ -865,7 +870,7 @@ export class Sketcher3D {
     f.segs.push({ id: cl, a: t[0], b: t[1], ...(lines.every((l) => l.construction) ? { construction: true } : {}) });
     for (const r of f.rels) if (r.type === 'length' && lines.some((l) => l.id === r.refs[0])) { const i = lines.findIndex((l) => l.id === r.refs[0]); r.type = 'distance'; r.refs = [far[i], pid]; }
     lines.forEach((l) => f.rels.push({ id: newId(f, 'r'), type: 'onLine', refs: [pid, l.id] }));
-    const first = this.blendFirst?.kind === 'chamfer' && getPt(f, this.blendFirst.p) && getPt(f, this.blendFirst.t) ? this.blendFirst : null;
+    const first = this.sameBlend('chamfer', d) && getPt(f, this.blendFirst.p) && getPt(f, this.blendFirst.t) ? this.blendFirst : null;
     // (the first chamfer: one distance, both sides equal to it; the later ones equal to the first)
     if (first) for (const ti of t) f.rels.push({ id: newId(f, 'r'), type: 'equalDist', refs: [pid, ti, first.p, first.t] });
     else {
@@ -877,9 +882,9 @@ export class Sketcher3D {
       this.app.toast('The chamfer conflicts with the relations already on those lines', true);
       return;
     }
-    if (!first) this.blendFirst = { kind: 'chamfer', p: pid, t: t[0] };
+    if (!first) this.blendFirst = { kind: 'chamfer', p: pid, t: t[0], size: d };
     this.changed();
-    this.app.status(first ? 'Corner chamfered, equal to the first chamfer (Equal Distance). Leave the tool to start a new size.' : `Corner chamfered (${fmt(d)} mm). Further chamfers are made equal to it; double-click a distance to change them all.`);
+    this.app.status(first ? 'Corner chamfered, equal to the first chamfer (Equal Distance). Type another distance to start a new size.' : `Corner chamfered (${fmt(d)} mm). Further chamfers of this distance are made equal to it; double-click a distance to change them all.`);
   }
 
   // ---------------------------------------------------------------- Trim
@@ -1505,8 +1510,8 @@ export class Sketcher3D {
       m.renderOrder = 23;
       g.add(m);
     }
-    if (this.tool === 'sfillet' && this.hover) tip = this.blendFirst?.kind === 'fillet' ? 'Round this corner (equal to the first fillet)' : `Round this corner (R ${fmt(this.filletR)} mm)`;
-    if (this.tool === 'schamfer' && this.hover) tip = this.blendFirst?.kind === 'chamfer' ? 'Chamfer this corner (equal to the first chamfer)' : `Chamfer this corner (${fmt(this.chamferD)} mm)`;
+    if (this.tool === 'sfillet' && this.hover) tip = this.sameBlend('fillet', this.filletR) ? 'Round this corner (equal to the first fillet)' : `Round this corner (R ${fmt(this.filletR)} mm)`;
+    if (this.tool === 'schamfer' && this.hover) tip = this.sameBlend('chamfer', this.chamferD) ? 'Chamfer this corner (equal to the first chamfer)' : `Chamfer this corner (${fmt(this.chamferD)} mm)`;
     if (this.tool === 'trim' && this.hover) tip = 'Trim this piece';
     if (this.tool === 'tarc' && this.tarc && this.cand) { const g = this.tangentArcTo(this.cand.p); tip = g ? `R ${fmt(g.R)} mm · ${fmt((g.th * 180) / Math.PI)}°` : 'Straight ahead'; }
     if (this.tool === 'spline' && this.spl) tip = `${this.planeLabel()}\nSpline: ${this.spl.ids.length + 1} points · double-click or Enter ends`;

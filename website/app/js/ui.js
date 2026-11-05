@@ -17,7 +17,7 @@ import { RELATION_INFO, analyzeSketch } from './solver.js';
 import * as SM from './sketchmodel.js';
 import * as DIM from './dimids.js';
 import * as LR from './loftrefs.js';
-import { axisCandidates, PATTERN_SKIP, fileStem, folderOfFeature, newFeatureFolder, putFeatureInFolder } from './model.js';
+import { axisCandidates, PATTERN_SKIP, fileStem, folderOfFeature, newFeatureFolder, putFeatureInFolder, guessedRefs } from './model.js';
 import { BUILTIN_TEMPLATES, DEFAULT_TEMPLATE_ID, templateSummary, isTemplate } from './drawtemplates.js';
 import { SHEET_SIZES as DW_SIZES } from './drawingformats.js';
 import { inferPlaneType, planeRefs, legacyDatumRefs, useReferenceRelations } from './refgeom.js';
@@ -554,7 +554,7 @@ const PM_SCHEMAS = {
   smExtrude: [
     { title: 'Profile', fields: [
       { key: 'sketch', type: 'sketch', label: 'Sketch (open, or a circle)' },
-      { key: 'pHint', type: 'hint', text: 'One chain of lines and arcs joined end to end. Arcs you draw are bends of their own radius; sharp corners get a bend of the radius below. A circle on its own is rolled into a cylinder, leaving the seam gap.' },
+      { key: 'pHint', type: 'hint', text: 'One chain of lines, arcs and splines joined end to end, or an airfoil open at its trailing edge (a blade). Arcs you draw are bends of their own radius; sharp corners get a bend of the radius below. Splines and the surfaces of an airfoil are formed (rolled to shape): no bend lines in the flat pattern. A circle on its own is rolled into a cylinder, leaving the seam gap.' },
     ] },
     { title: 'Extrude', fields: [
       { key: 'depth', type: 'expr', label: 'Depth', unit: 'mm' },
@@ -566,6 +566,8 @@ const PM_SCHEMAS = {
       { key: 'side', type: 'select', label: 'Material', options: (f, a) => (smCircle(f, a) ? [['one', 'Inside the circle'], ['other', 'Outside the circle'], ['mid', 'Both sides (the circle in the middle)']] : [['one', 'One side of the sketch'], ['other', 'Other side of the sketch'], ['mid', 'Both sides (the sketch in the middle)']]) },
       { key: 'radius', type: 'expr', label: 'Bend radius (inside, at sharp corners)', unit: 'mm', show: (f, a) => !smCircle(f, a) },
       { key: 'seamGap', type: 'expr', label: 'Seam gap', unit: 'mm', show: (f, a) => smCircle(f, a) },
+      { key: 'trimSelf', type: 'check', label: 'Trim where it would run into itself (cut one end back)', show: (f, a) => !smCircle(f, a) },
+      { key: 'trimAt', type: 'select', label: 'Cut back', options: [['auto', 'The end that needs less'], ['start', 'The start of the profile (an airfoil: its upper skin)'], ['end', 'The end of the profile (an airfoil: its lower skin)']], show: (f, a) => !smCircle(f, a) && f.trimSelf !== false },
       ...SM_BEND_CALC,
     ] },
   ],
@@ -687,6 +689,7 @@ const PM_SCHEMAS = {
         { key: 'position', type: 'select', label: 'Position', options: [['inside', 'Material inside (outer face on the edge)'], ['outside', 'Material outside (inner face on the edge)'], ['bend', 'Bend outside (the bend starts at the edge)']] },
         { key: 'offset', type: 'expr', label: 'Offset (moves the flange outward)', unit: 'mm' },
         { key: 'flip', type: 'check', label: 'Flip direction' },
+        { key: 'sameSide', type: 'check', label: 'Every flange the same way as the first edge’s', show: (f) => (f.edges?.length || 0) > 1 },
       ],
     },
     {
@@ -701,7 +704,7 @@ const PM_SCHEMAS = {
         { key: 'cornerGap', type: 'expr', label: 'Gap', unit: 'mm', show: (f) => f.corner !== 'open' },
         { key: 'cornerBend', type: 'select', label: 'Bend region', options: [['vcut', 'V cutout (as formed from the flat; lens-shaped opening)'], ['mitre', 'Closed (the bends meet on the diagonal)']], show: (f) => f.corner === 'closed' },
         { key: 'cornerSwap', type: 'check', label: 'Swap which flange covers the other', show: (f) => f.corner === 'closed' },
-        { key: 'cHint', type: 'hint', show: (f) => f.corner !== 'open', text: 'For 90° flanges picked in this feature that meet at a corner. Corner to corner: each runs square up to the other\'s inside face, their inside edges the gap apart, the outside corner left open; the bends end in a V cutout. Mitred: the two meet on the diagonal, the gap apart. Overlap: one runs on to cover the other\'s end (bends included), the other runs up to it, leaving the gap.' },
+        { key: 'cHint', type: 'hint', show: (f) => f.corner !== 'open', text: 'For flanges picked in this feature that meet at a corner. Corner to corner: each runs square up to the other\'s inside face, their inside edges the gap apart, the outside corner left open; the bends end in a V cutout. Mitred: the two meet on the diagonal, the gap apart. Overlap: one runs on to cover the other\'s end (bends included), the other runs up to it, leaving the gap. Flanges at other angles than 90° (leaning in or out) or edges meeting at another angle: the walls are cut back or run on to meet in the same way, and the bends are cut along a line in the flat that keeps them the gap apart, every edge cut square to the sheet (as a laser cuts it).' },
       ],
     },
     {
@@ -736,7 +739,7 @@ const PM_SCHEMAS = {
         { key: 'gap', type: 'expr', label: 'Gap', unit: 'mm' },
         { key: 'bendCorner', type: 'select', label: 'Bend region', options: [['vcut', 'V cutout (as formed from the flat; lens-shaped opening)'], ['mitre', 'Closed (the bends meet on the diagonal)']], show: (f) => f.cornerType === 'overlap' || f.cornerType === 'underlap' },
         { key: 'swap', type: 'check', label: 'Swap which flange covers the other', show: (f) => !f.faces?.length && (f.cornerType === 'overlap' || f.cornerType === 'underlap') },
-        { key: 'ccHint', type: 'hint', text: 'For corners between 90° flanges. Bend region: V cutout runs each bend on as it would form from the flat (a lens-shaped opening is left between them); Closed meets them on the diagonal with the gap.' },
+        { key: 'ccHint', type: 'hint', text: 'For corners between flanges (at other angles than 90°, the walls are cut back or run on to meet and the bends are cut in the flat to keep the gap, every edge square to the sheet). Bend region: V cutout runs each bend on as it would form from the flat (a lens-shaped opening is left between them); Closed meets them on the diagonal with the gap.' },
       ],
     },
   ],
@@ -943,7 +946,7 @@ const PM_SCHEMAS = {
       { key: 'eHint', type: 'hint', show: (f) => f.end === 'upToNext', text: 'Up To Next: each hole goes until its axis first comes out of the material (through the wall it starts in).' },
     ] },
     { title: 'Positions', fields: [
-      { key: 'faces', type: 'faceList', hint: 'Click points on a face for the holes (flat or curved: a curved face is drilled square to it there), or (for exact places) select a sketch on the face with points or circles: each point / circle centre gets a hole.', itemLabel: 'Hole' },
+      { key: 'faces', type: 'faceList', hint: 'Click points on a face for the holes (flat or curved: a curved face is drilled square to it there), then type each one’s distances from the face’s left and bottom edges; or select a sketch on the face with points or circles: each point / circle centre gets a hole.', itemLabel: 'Hole', holePos: true },
       { key: 'sketch', type: 'sketch', label: 'Sketch or 3D sketch (points / circle centres)', with3d: true },
     ] },
   ],
@@ -1433,8 +1436,17 @@ const PM_SCHEMAS = {
     { title: 'Surfaces to Delete', fields: [{ key: 'bodies', type: 'bodyList', kinds: ['surface'], hint: 'Click surface bodies on the model or tick them here. Delete or suppress this feature to bring them back.' }] },
   ],
   split: [
-    { title: 'Trim Tool', fields: [{ key: 'tool', type: 'splitTool', label: 'Split with' }, { key: 'keep', type: 'select', label: 'Keep', options: [['all', 'All pieces'], ['positive', 'The piece on the normal side'], ['negative', 'The piece on the other side']], show: (f) => !window.app?.bodyById(f.tool) }] },
-    { title: 'Target Bodies', fields: [{ key: 'bodies', type: 'bodyList', kinds: ['solid'], hint: 'Leave empty to split every solid body the tool crosses.' }] },
+    { title: 'Bodies to Split', fields: [
+      { type: 'splitPick', slot: 'targets', label: 'Select bodies' },
+      { key: 'bodies', type: 'bodyList', kinds: ['solid','surface'], hint: 'Select solid or surface bodies. The splitting tool is kept.' },
+      { key: 'allBodies', type: 'check', label: 'All intersected bodies' },
+    ] },
+    { title: 'Splitting Tool', fields: [
+      { type: 'splitPick', slot: 'tool', label: 'Select splitting tool' },
+      { key: 'tool', type: 'splitTool', label: 'Splitting Tool' },
+      { key: 'extendTool', type: 'check', label: 'Extend Splitting Tool' },
+    ] },
+    { title: 'Result', fields: [{ key: 'keep', type: 'select', label: 'Keep', options: [['all','All bodies'],['positive','Positive side'],['negative','Negative side']], show: f => !f.tool || !!STD_PLANES[f.tool] || window.app?.doc.features.find(x=>x.id===f.tool)?.type==='plane' }] },
   ],
   moveBody: [
     { title: 'Bodies to Move/Copy', fields: [{ key: 'bodies', type: 'bodyList', kinds: ['solid', 'surface'] }, { key: 'copy', type: 'check', label: 'Copy (keep the original bodies)' }, { key: 'copies', type: 'expr', label: 'Copies', unit: '#', show: (f) => f.copy && f.mode !== 'mates' }] },
@@ -1479,7 +1491,7 @@ const PM_SCHEMAS = {
     { title: 'Model Boundary Edges', fields: [{ key: 'edges', type: 'edges' }] },
   ],
   surfLoft: [
-    { title: 'Profiles', fields: [{ key: 'profiles', type: 'loftSelection', with3d: true }] },
+    { title: 'Profiles', fields: [{ key: 'profiles', type: 'loftSelection', with3d: true },{key:'modelEdgeHint',type:'hint',show:f=>(f.profiles||[]).some(LR.isModelEdgeChain),text:'Model-edge profiles currently use Free end conditions, Automatic correspondence and no guide curves.'}] },
     {title:'Profile Correspondence',fields:[{key:'loftCorrespondence',type:'loftCorrespondence'}]},
     ...LOFT_END_GROUPS,
     { title: 'Guide Curves', fields: [
@@ -1660,7 +1672,7 @@ const PM_SCHEMAS = {
     { title: 'Faces to Flatten', fields: [
       { key: 'faces', type: 'faceList', hint: 'Click the faces (of a surface or a solid) to unroll. They are laid flat beside the model as a surface body.' },
       { key: 'iterations', type: 'expr', label: 'Relaxing passes (doubly curved faces)', unit: '#' },
-      { key: 'flHint', type: 'hint', text: 'Faces that unroll (cylinders, cones, bent sheets) come out exact. A doubly curved face (e.g. a dome) cannot lie flat without stretching: it is spread out keeping its edge lengths as well as possible, and the note gives the area change. A closed tube needs a seam (Split Line) to open out.' },
+      { key: 'flHint', type: 'hint', text: 'Faces that unroll (cylinders, cones, bent sheets) come out exact. A doubly curved face (e.g. a dome) cannot lie flat without stretching: it is spread out keeping its edge lengths as well as possible, and the note gives the area change. A closed tube needs a seam (Split Face) to open out.' },
     ] },
   ],
   projCurve: [
@@ -1670,9 +1682,17 @@ const PM_SCHEMAS = {
     ] },
   ],
   splitLine: [
-    { title: 'Split With', fields: [
-      { key: 'tool', type: 'trimTool', label: 'Split with' },
-      { key: 'faces', type: 'faceList', hint: 'Click the faces to split. A sketch is projected onto them along its normal; a plane or surface splits them where it crosses them. The body stays one body, with the faces split (e.g. for a part line, a draft, or a face to colour).' },
+    { title: 'Faces to Split', fields: [
+      { type: 'splitPick', slot: 'targets', label: 'Select faces' },
+      { key: 'faces', type: 'faceList', hint: 'Select faces on solid or surface bodies. Split Face keeps each body as one body.' },
+    ] },
+    { title: 'Splitting Tool', fields: [
+      { type: 'splitPick', slot: 'tool', label: 'Select splitting tool' },
+      { key: 'tool', type: 'splitTool', label: 'Splitting Tool' },
+      { key: 'splitType', type: 'select', label: 'Split Type', options: [['auto','Automatic'],['projection','Projection'],['intersection','Intersection']] },
+      { key: 'projection', type: 'select', label: 'Projection Direction', options: [['normal','Sketch normal'],['vector','Along Vector']], show: f => f.splitType!=='intersection' && window.app?.doc.features.find(x=>x.id===f.tool)?.type==='sketch' },
+      { key: 'direction', type: 'direction', label: 'Direction', show: f => f.projection==='vector' && f.splitType!=='intersection' && window.app?.doc.features.find(x=>x.id===f.tool)?.type==='sketch' },
+      { key: 'extendTool', type: 'check', label: 'Extend Splitting Tool' },
     ] },
   ],
   compCurve: [
@@ -1752,7 +1772,7 @@ export class UI {
     this.prefs = {};
     this.renderCommandManager();
     // the user's own toolbar layout (and other preferences), once the desktop app answers
-    platform.ready.then(() => platform.getPrefs()).then((p) => { this.prefs = p || {}; setThemePref(this.prefs.theme); if (this.prefs.lang && this.prefs.lang !== 'en') setLanguage(this.prefs.lang); this.applyIconSize(); this.app.setPerspective?.(!!this.prefs.perspective, true); this.renderCommandManager(); }).catch(() => {});
+    platform.ready.then(() => platform.getPrefs()).then((p) => { this.prefs = p || {}; setThemePref(this.prefs.theme); if (this.prefs.lang && this.prefs.lang !== 'en') setLanguage(this.prefs.lang); this.applyIconSize(); this.app.setPerspective?.(!!this.prefs.perspective, true); this.renderCommandManager(); this.app.plugins?.start(); }).catch(() => {});
     // another language: everything drawn again in it
     window.addEventListener('razorcad-lang', () => {
       document.querySelectorAll('#menubar > button[data-menu]').forEach((b) => { b.textContent = tr(b.dataset.menu); });
@@ -1787,6 +1807,7 @@ export class UI {
     const defs = this.baseMenuDefs();
     if (defs) defs.View = [...(defs.View || []), 'sep', ...this.upAxisItems(), 'sep', ...this.themeItems(), 'sep', ...this.languageItems()];
     if (defs && this.app.macros) defs.Tools = [...(defs.Tools || []), 'sep', ...this.app.macros.menuItems()];
+    if (defs && this.app.plugins) defs.Tools = [...(defs.Tools || []), 'sep', ...this.app.plugins.menuItems()];
     return defs;
   }
   // the world's up axis (the part's own; also for new parts): see wcs.js
@@ -1995,6 +2016,7 @@ export class UI {
       Edit: [
         { label: 'Undo', icon: 'undo', key: 'Ctrl+Z', action: () => a.undo(), disabled: !a.history.canUndo() || a.mode === 'sketch' },
         { label: 'Redo', icon: 'redo', key: 'Ctrl+Y', action: () => a.redo(), disabled: !a.history.canRedo() || a.mode === 'sketch' },
+        { label: 'Undo History…', icon: 'undo', action: () => this.showUndoHistory($('#hud') || document.body), disabled: a.mode === 'sketch' ? a.sketcher.steps().list.length < 2 : a.mode === 'sketch3d' || a.history.stack.length < 2 },
         'sep',
         { label: 'Rebuild', icon: 'rebuild', key: 'Ctrl+B', action: () => a.rebuild({ force: true }) },
         { label: 'Delete', icon: 'trash', key: 'Del', action: () => a.deleteSelection(), disabled: a.selection?.kind !== 'feature' },
@@ -2045,7 +2067,8 @@ export class UI {
         { label: 'Features ▸ Combine…', icon: 'combine', action: () => a.startFeature('combine') },
         { label: 'Features ▸ Subtract Bodies…', icon: 'subtract', action: () => a.startFeature('combine', 'subtract') },
         { label: 'Features ▸ Delete Body…', icon: 'deleteBody', action: () => a.startFeature('deleteBody') },
-        { label: 'Features ▸ Split…', icon: 'split', action: () => a.startFeature('split') },
+        { label: 'Features ▸ Split Body…', icon: 'split', action: () => a.startFeature('split') },
+        { label: 'Features ▸ Split Face…', icon: 'splitLine', action: () => a.startFeature('splitLine') },
         { label: 'Features ▸ Move/Copy Bodies…', icon: 'moveBody', action: () => a.startFeature('moveBody') },
         { label: 'Features ▸ Imported Body (STEP / STL)…', icon: 'import', action: () => a.importFile() },
         'sep',
@@ -2170,7 +2193,12 @@ export class UI {
   closeContext() { $('#ctxmenu').hidden = true; document.querySelectorAll('[data-sketch-variants][aria-expanded="true"]').forEach(b=>b.setAttribute('aria-expanded','false')); }
 
   // ------------------------------------------------------------ Command ribbon
+  // the part ribbon's buttons by tab, the plug-ins' tabs after the built-in ones
   commandDefs() {
+    const defs = this.builtinCommandDefs();
+    return this.app.plugins ? { ...defs, ...this.app.plugins.ribbonDefs('part') } : defs;
+  }
+  builtinCommandDefs() {
     const a = this.app;
     const sk = a.mode === 'sketch';
     // keyboard shortcuts of the sketch tools (shown on their buttons)
@@ -2185,6 +2213,12 @@ export class UI {
     const only2d = (d) => (s3 ? { ...d, disabled: true, active: false } : d);
     return {
       features: [
+        // (Sketch here too: a part starts with one)
+        sk ? { icon: 'exitSketch', label: 'Exit Sketch', action: () => a.exitSketch(true) }
+          : s3 ? { icon: 'exitSketch', label: 'Exit 3D Sketch', action: () => a.exitSketch3D(true) }
+            : { icon: 'sketch', label: 'Sketch', action: () => a.startSketch() },
+        { icon: 'sketch3d', label: '3D Sketch', action: () => (s3 ? null : a.startFeature('sketch3d')), active: s3 },
+        'sep',
         { icon: 'extrude', label: 'Extrude', action: () => a.startFeature('extrude', 'add') },
         { icon: 'revolve', label: 'Revolve', action: () => a.startFeature('revolve', 'add') },
         'sep',
@@ -2230,7 +2264,8 @@ export class UI {
         'sep',
         { icon: 'combine', label: 'Combine', action: () => a.startFeature('combine') },
         { icon: 'subtract', label: 'Subtract Bodies', action: () => a.startFeature('combine', 'subtract') },
-        { icon: 'split', label: 'Split', action: () => a.startFeature('split') },
+        { icon: 'split', label: 'Split Body', action: () => a.startFeature('split') },
+        { icon: 'splitLine', label: 'Split Face', action: () => a.startFeature('splitLine') },
         { icon: 'moveBody', label: 'Move/Copy Bodies', action: () => a.startFeature('moveBody') },
         { icon: 'deleteBody', label: 'Delete Body', action: () => a.startFeature('deleteBody') },
         'sep',
@@ -2310,12 +2345,13 @@ export class UI {
         { icon: 'surfTrim', label: 'Trim Surface', action: () => a.startFeature('surfTrim') },
         { icon: 'surfExtend', label: 'Extend Surface', action: () => a.startFeature('surfExtend') },
         { icon: 'untrim', label: 'Untrim Surface', action: () => a.startFeature('untrim') },
-        { icon: 'splitLine', label: 'Split Line', action: () => a.startFeature('splitLine') },
+        { icon: 'splitLine', label: 'Split Face', action: () => a.startFeature('splitLine') },
         { icon: 'projCurve', label: 'Projected Curve', action: () => a.startFeature('projCurve') },
         { icon: 'compCurve', label: 'Composite Curve', action: () => a.startFeature('compCurve') },
         { icon: 'ruledSurface', label: 'Ruled Surface', action: () => a.startFeature('ruledSurface') },
         { icon: 'knit', label: 'Knit Surface', action: () => a.startFeature('knit') },
         { icon: 'surfSolid', label: 'Convert to Solid', action: () => a.startFeature('surfSolid') },
+        { icon: 'thicken', label: 'Thicken', action: () => a.startFeature('thicken') },
         { icon: 'deleteFace', label: 'Delete Face', action: () => a.startFeature('deleteFace') },
         { icon: 'fillet', label: 'Delete / Resize Fillet', action: () => a.startFeature('editFillet') },
         { icon: 'deleteFace', label: 'Defeature', action: () => a.startFeature('defeature') },
@@ -2323,14 +2359,15 @@ export class UI {
         { icon: 'surfFill', label: 'Freeform', action: () => a.startFeature('freeform') },
         { icon: 'surfPlanar', label: 'Fit Surface to Points', action: () => a.startFeature('fitSurface') },
         { icon: 'meshRepair', label: 'Repair Mesh', action: () => a.startFeature('meshRepair') },
-        { icon: 'thicken', label: 'Thicken', action: () => a.startFeature('thicken') },
         { icon: 'flattenSurf', label: 'Flatten Surface', action: () => a.startFeature('flattenSurf') },
         'sep',
-        { icon: 'split', label: 'Split (with a surface)', action: () => a.startFeature('split') },
+        { icon: 'split', label: 'Split Body', action: () => a.startFeature('split') },
         { icon: 'moveBody', label: 'Move/Copy Surfaces', action: () => a.startFeature('moveBody', null, { surfaces: true }) },
         { icon: 'deleteSurface', label: 'Delete Surface', action: () => a.startFeature('deleteSurface') },
       ],
       weldments: [
+        // (the frame: a sketch (flat frames) or 3D sketch)
+        sk ? { icon: 'exitSketch', label: 'Exit Sketch', action: () => a.exitSketch(true) } : { icon: 'sketch', label: 'Sketch', action: () => a.startSketch() },
         { icon: 'sketch3d', label: '3D Sketch', action: () => a.startFeature('sketch3d') },
         { icon: 'structMember', label: 'Structural Member', action: () => a.startFeature('structMember') },
         { icon: 'sweep', label: 'Pipe Route', action: () => a.startFeature('pipeRoute') },
@@ -2490,20 +2527,22 @@ export class UI {
         const open=()=>{this.closeContext();const r=group.getBoundingClientRect();this.showContext(r.left,r.bottom,d.children);arrow.setAttribute('aria-expanded','true');};
         arrow.onclick=open;b.onkeydown=e=>{if(e.key==='ArrowDown'){e.preventDefault();open();}};
         group.addEventListener('contextmenu',(e)=>{e.preventDefault();this.showToolbarCustomize('sketch');});
-        group.append(b,arrow);btns.appendChild(group);continue;
+        group._def=d;group.append(b,arrow);btns.appendChild(group);continue;
       }
       // (the click that ends a drag is not a press)
       b.addEventListener('click', (e) => { if (this._tbJustDragged) { e.preventDefault(); return; } this.app.macros?.note(d.label); d.action(); });
       b.addEventListener('contextmenu', (e) => { e.preventDefault(); this.showContext(e.clientX, e.clientY, this.toolbarButtonMenu(d)); });
       this.toolbarDraggable(b);
+      b._def = d;
       btns.appendChild(b);
     }
+    this.fitCommandManager(btns);
     if (custom && !custom.items.length) btns.appendChild(el('div', { class: 'cm-empty' }, `<b>${esc(custom.name)}</b> is empty. Drag buttons from the other toolbars onto its tab, right-click a button ▸ Add to "${esc(custom.name)}", or use <a href="#" class="cm-cust">Customize…</a>`));
     btns.querySelector('.cm-cust')?.addEventListener('click', (e) => { e.preventDefault(); this.showToolbarCustomize(this.cmTab); });
     const tabs = $('#cm-tabs');
     tabs.innerHTML = '';
     for (const t of tabsList) {
-      const b = el('button', { class: (this.cmTab === t.id ? 'active' : '') + (t.id === 'claude' ? ' cm-tab-claude' : '') + (t.custom ? ' cm-tab-custom' : ''), title: t.id === 'claude' ? 'Model with Claude: describe a part or a change' : t.custom ? 'Your own toolbar (right-click to rename or delete it)' : '' }, t.html || esc(t.custom ? t.label : tr(t.label)));
+      const b = el('button', { class: (this.cmTab === t.id ? 'active' : '') + (t.id === 'claude' ? ' cm-tab-claude' : '') + (t.custom ? ' cm-tab-custom' : '') + (t.plugin ? ' cm-tab-plugin' : ''), title: t.id === 'claude' ? 'Model with Claude: describe a part or a change' : t.plugin ? t.title : t.custom ? 'Your own toolbar (right-click to rename or delete it)' : '' }, t.html || esc(t.custom ? t.label : tr(t.label)));
       b.dataset.tab = t.id;
       if (t.custom) b.dataset.custom = '1';
       b.onclick = () => { this.cmTab = t.id; this.renderCommandManager(); };
@@ -2513,6 +2552,31 @@ export class UI {
     const add = el('button', { class: 'cm-tab-add', title: 'New toolbar (your own, with any tools)' }, '+');
     add.onclick = () => this.newToolbar();
     tabs.appendChild(add);
+  }
+
+  // The buttons that don't fit the window's width: under a More button at the end of the ribbon instead of a
+  // scroll bar (left in place, hidden, so dragging the others keeps their order); fitted again as the window
+  // changes size
+  fitCommandManager(btns) {
+    if (!btns._fitObs && window.ResizeObserver) {
+      btns._fitObs = new ResizeObserver(() => {
+        clearTimeout(this._fitTimer);
+        this._fitTimer = setTimeout(() => { if (!this._tbDrag && btns.clientWidth !== btns._fitW && this.app.mode !== 'drawing') this.renderCommandManager(); }, 120);
+      });
+      btns._fitObs.observe(btns);
+    }
+    btns._fitW = btns.clientWidth;
+    if (btns.scrollWidth <= btns.clientWidth + 1) return;
+    const kids = [...btns.children].filter((k) => k._def || k.classList.contains('cm-sep'));
+    const more = el('button', { class: 'cm-btn cm-more', title: tr('More commands'), 'aria-haspopup': 'menu' }, `<span class="cm-ic">${icon('more')}</span><span>${esc(tr('More'))}</span>`);
+    btns.appendChild(more);
+    const hidden = [];
+    for (let i = kids.length - 1; i >= 0 && btns.scrollWidth > btns.clientWidth + 1; i--) { kids[i].classList.add('cm-hidden'); hidden.unshift(kids[i]); }
+    // (a separator left last: hidden too)
+    for (let i = kids.length - hidden.length - 1; i >= 0 && kids[i].classList.contains('cm-sep'); i--) { kids[i].classList.add('cm-hidden'); hidden.unshift(kids[i]); }
+    const items = hidden.flatMap((k) => (k._def ? (k._def.children || [k._def]) : ['sep'])).filter((d, i, all) => d !== 'sep' || (i && all[i - 1] !== 'sep'));
+    if (items[0] === 'sep') items.shift();
+    more.onclick = () => { const r = more.getBoundingClientRect(); this.showContext(r.left, r.bottom, items.map((d) => (d === 'sep' ? 'sep' : { ...d, action: () => { this.app.macros?.note(d.label); d.action(); } }))); };
   }
 
   // ------------------------------------------------------------ toolbar layout (the user's own)
@@ -2558,6 +2622,7 @@ export class UI {
   toolbarTabs() {
     const out = [['features', 'Features'], ['sketch', 'Sketch'], ['surfaces', 'Surfaces'], ['sheetmetal', 'Sheet Metal'], ['weldments', 'Fast Structure'], ['print', '3D Print'], ['render', 'Render'], ['evaluate', 'Evaluate']].map(([id, label]) => ({ id, label }));
     for (const c of this.tbPrefs().custom) out.push({ id: 'custom:' + c.id, label: c.name, custom: true });
+    out.push(...(this.app.plugins?.tabs('part') || []));
     out.push({ id: 'claude', label: 'Claude', html: `${icon('assistant')}Claude` });
     return out;
   }
@@ -2689,6 +2754,7 @@ export class UI {
   }
   toolbarTabMenu(t) {
     const tb = this.tbPrefs(), items = [];
+    if (t.plugin) items.push({ label: 'Plug-ins…', icon: 'plugin', action: () => this.app.plugins.showDialog() }, 'sep');
     if (t.custom) items.push({ label: 'Rename…', icon: 'rename', action: () => this.renameToolbar(t.id) }, { label: 'Delete Toolbar', icon: 'trash', action: () => this.deleteToolbar(t.id) }, 'sep');
     else if (t.id !== 'claude' && (tb.order[t.id] || tb.hidden[t.id]?.length)) items.push({ label: 'Reset This Toolbar', icon: '', action: () => this.resetToolbar(t.id) }, 'sep');
     items.push({ label: 'New Toolbar…', icon: '', action: () => this.newToolbar() }, { label: 'Customize Toolbars…', icon: 'gear', action: () => this.showToolbarCustomize(t.id === 'claude' ? 'features' : t.id) }, 'sep', ...this.iconSizeItems());
@@ -3265,7 +3331,7 @@ export class UI {
       });
       n.style.paddingLeft = 6 + (opts.depth || 0) * 16 + 'px';
       if (opts.fid) n.dataset.fid = opts.fid;
-      n.innerHTML = `<span class="tw">${opts.twisty ?? ''}</span><span class="ti">${icon(opts.icon)}</span><span class="tl">${esc(tr(opts.label))}</span>${opts.sub ? `<span class="tsub">${esc(opts.sub)}</span>` : ''}${opts.error ? `<span class="terr" title="${esc(opts.error)}">!</span>` : ''}<span class="tvis"></span>`;
+      n.innerHTML = `<span class="tw">${opts.twisty ?? ''}</span><span class="ti">${icon(opts.icon)}</span><span class="tl">${esc(tr(opts.label))}</span>${opts.sub ? `<span class="tsub">${esc(opts.sub)}</span>` : ''}${opts.error ? `<span class="terr" title="${esc(opts.error)}">!</span>` : opts.warn ? `<span class="twarn" title="${esc(opts.warn)}">?</span>` : ''}<span class="tvis"></span>`;
       // the visibility column: an eye to show or hide the item
       if (opts.vis && opts.vis.on !== null && opts.vis.on !== undefined) {
         const v = n.querySelector('.tvis');
@@ -3475,10 +3541,13 @@ export class UI {
       const dof = f.type === 'sketch' && !err && !rolled ? this.sketchFreedom(f) : 0;
       // (⚠ a sketch's note, e.g. the face it is on no longer in the model: a sketch has no Property panel to show it)
       const note = f.type === 'sketch' && !err && !rolled ? res?.notes?.get(f.id) : null;
+      // (? references found again as the nearest of look-alikes, after the model changed: to be checked)
+      const guessed = !err && !rolled ? guessedRefs(f).length : 0;
       const shown = a.featureVisible(f);
       const hidden = shown === false;
       const n = node({
         icon: iconFor(f), label: (note ? '⚠ ' : '') + (dof > 0 ? '(-) ' : '') + f.name, depth, error: err, fid: f.id,
+        warn: guessed ? `${guessed} reference${guessed > 1 ? 's were' : ' was'} found again after the model changed by taking the nearest of faces or edges that look the same: check ${guessed > 1 ? 'they are' : 'it is'} still the right one${guessed > 1 ? 's' : ''}. Right-click ▸ Accept Found References, or edit the feature and click ✔.` : null,
         title: rolled ? 'Rolled back (below the rollback bar)' : err || (note ? note + '\n' : '') + (dof > 0 ? `Under defined: ${dof} degree${dof > 1 ? 's' : ''} of freedom` : '') + (hidden ? (dof > 0 ? '\n' : '') + 'Hidden (click the eye, or right-click ▸ Show)' : ''),
         cls: (hidden ? 'hidden-item' : '') + (rolled ? ' rolled' : ''),
         vis: { on: shown, toggle: () => a.toggleFeatureVisible(f.id) },
@@ -4217,6 +4286,7 @@ export class UI {
     }
     else {
       if (a.result?.errors.has(f.id)) items.push({ label: 'Fix References…', icon: 'fix', action: () => this.showFixReferences(f.id) });
+      if (guessedRefs(f).length) items.push({ label: 'Accept Found References', icon: 'fix', action: () => a.acceptFoundRefs(f.id) });
       items.push(f.type === 'sketch3d' ? { label: 'Edit 3D Sketch', icon: 'sketch3d', action: () => a.editFeature(f.id) } : { label: 'Edit Feature', icon: 'edit', action: () => a.editFeature(f.id) });
       if (f.sketch) items.push({ label: 'Edit Sketch', icon: 'sketch', action: () => a.editSketch(f.sketch) });
     }
@@ -4324,16 +4394,18 @@ export class UI {
       return;
     }
     const missed = !err && this.app.result?.previewOf === f.id && this.app.result?.preview?.missed;
-    msg.className = 'pm-msg pm-status' + (err ? ' err' : missed ? ' warn' : '');
+    msg.className = 'pm-msg pm-status' + (err && !this.app.waitingFor(f) ? ' err' : missed ? ' warn' : '');
     msg.textContent = err || (missed
       ? '⚠ This cut does not remove any material. Check the profile (which loops are closed), the direction and the end condition.'
       : 'Preview updated. Click ✔ to accept.');
   }
 
-  pmHeader(root, iconName, title, { ok = true, cancel = true } = {}) {
+  pmHeader(root, iconName, title, { ok = true, cancel = true, next = false } = {}) {
     root.appendChild(el('div', { class: 'pm-head' }, `<span class="ti">${icon(iconName)}</span><span>${esc(tr(title))}</span>`));
     const act = el('div', { class: 'pm-actions' });
     if (ok) act.appendChild(el('button', { title: 'OK (Enter)', onclick: () => this.app.okPM() }, icon('ok')));
+    // (a new feature: applied, and another of the same kind started straight away)
+    if (ok && next) act.appendChild(el('button', { class: 'pm-next', title: 'OK and start another (Shift+Enter)', 'aria-label': 'OK and start another', 'data-pm-next': '', onclick: () => this.app.okAndNext() }, `${icon('ok')}<b>+</b>`));
     if (cancel) act.appendChild(el('button', { title: 'Cancel (Esc)', onclick: () => this.app.cancelPM() }, icon('cancel')));
     act.appendChild(el('button', { class: 'pm-help', title: `${tr(title)} in the manual (F1)`, 'aria-label': `${tr(title)} in the manual`, 'data-pm-help': '', onclick: () => this.helpForPM() }, '?'));
     root.appendChild(act);
@@ -4484,6 +4556,73 @@ export class UI {
     }
     return keys;
   }
+  // The sizes of a feature in a small box by the cursor (double-click on the model): its values that are dimensions
+  // and the dimensions of the sketches it is made from, each typed and applied with Enter (one undo step each);
+  // Edit Feature opens its panel. Closed with Esc, ✕ or a click elsewhere.
+  showQuickDims(f, x, y) {
+    const a = this.app;
+    // (a box already open closed properly: its key and click handlers go with it)
+    const open = document.querySelector('.quick-dims');
+    if (open) (open._close || (() => open.remove()))();
+    const sketches = new Set(sketchesUsedBy(f));
+    const labelOf = (key) => { for (const g of PM_SCHEMAS[f.type] || []) for (const fd of g.fields || []) if (fd.key === key) { try { return typeof fd.label === 'function' ? fd.label(f, a) : fd.label; } catch { return key; } } return key; };
+    const KIND = { hdist: 'horizontal', vdist: 'vertical', dist: 'distance', radius: 'radius', diameter: 'diameter', angle: 'angle', pointLine: 'distance' };
+    const dims = DIM.dimsOf(a.doc).filter((d) => !d.driven && ((d.where === 'field' && d.f === f) || (d.where === 'sketch' && sketches.has(d.f.id))));
+    const box = el('div', { class: 'quick-dims', 'data-quick-dims': f.id });
+    const head = el('div', { class: 'qd-h' }, `${icon(iconFor(f))}<b>${esc(f.name)}</b>`);
+    const editBtn = el('button', { class: 'pm-btn', title: 'Open its Property panel' }, esc(tr('Edit Feature')));
+    const x0 = el('button', { class: 'x', title: 'Close' }, '✕');
+    head.append(editBtn, x0);
+    box.appendChild(head);
+    if (!dims.length) box.appendChild(el('div', { class: 'pm-hint' }, esc(tr('It has no sizes to change here: Edit Feature for its settings.'))));
+    const vars = a.liveVars ? a.liveVars() : a.result?.vars || {};
+    for (const d of dims) {
+      const what = d.where === 'field' ? labelOf(d.key) : `${d.f.name}, ${KIND[d.item.kind] || 'dimension'}`;
+      const unit = d.where === 'sketch' && d.item.kind === 'angle' ? '°' : d.where === 'field' && /angle/i.test(d.key) ? '°' : 'mm';
+      let pending = null;
+      const inp = this.exprInput(d.expr ?? '', unit === '°' ? '°' : 'mm', (v) => { pending = v; });
+      inp.dataset.quickDim = d.did || d.key;
+      const field = inp.querySelector('input');
+      field.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter') return;
+        e.preventDefault(); e.stopPropagation();
+        if (pending === null || pending === '') return;
+        try { if (!Number.isFinite(evaluate(pending, vars))) return; } catch { return; }
+        if (d.where === 'field') d.f[d.key] = pending; else d.item.value = pending;
+        pending = null;
+        a.commit(); a.refresh();
+        a.status(`${d.did || ''} ${what} changed. Ctrl+Z to undo.`.trim());
+      });
+      box.appendChild(el('div', { class: 'qd-row' }, `<span class="qd-id">${esc(d.did || '')}</span><span class="qd-l">${esc(tr(what))}</span>`)).appendChild(inp);
+    }
+    box.appendChild(el('div', { class: 'pm-hint' }, esc(tr('Type a size and press Enter. Esc closes.'))));
+    // (closed before its handlers are added, they never are: none is left behind to swallow a later Esc)
+    let closed = false;
+    const close = () => { closed = true; box.remove(); document.removeEventListener('pointerdown', outside, true); document.removeEventListener('keydown', onKey, true); };
+    box._close = close;
+    const outside = (e) => { if (!box.contains(e.target)) close(); };
+    const onKey = (e) => {
+      // (Esc in a field showing its suggestions closes only them)
+      if (e.key === 'Escape' && !e.target.closest?.('[data-own-escape]')) { e.stopPropagation(); close(); return; }
+      // (Ctrl+Z / Ctrl+Y here undo and redo the model, not the typing; the box shows the sizes again)
+      const k = e.key.toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'y') && box.contains(e.target)) {
+        e.preventDefault(); e.stopPropagation();
+        if (k === 'y' || e.shiftKey) a.redo(); else a.undo();
+        const g = findFeature(a.doc, f.id);
+        close();
+        if (g) setTimeout(() => this.showQuickDims(g, x, y), 0);
+      }
+    };
+    x0.onclick = close;
+    editBtn.onclick = () => { close(); a.editFeature(f.id); };
+    document.body.appendChild(box);
+    const w = box.offsetWidth, h = box.offsetHeight;
+    box.style.left = Math.max(4, Math.min(x + 12, innerWidth - w - 4)) + 'px';
+    box.style.top = Math.max(4, Math.min(y + 12, innerHeight - h - 4)) + 'px';
+    setTimeout(() => { if (closed) return; document.addEventListener('pointerdown', outside, true); document.addEventListener('keydown', onKey, true); box.querySelector('input')?.focus(); box.querySelector('input')?.select(); }, 0);
+  }
+
   // A dimension's ID as a small tag before a field's label (drawn from its data-dim-id, so the label's text stays the
   // field's name): a click on it renames the dimension (and every value that uses it)
   dimTagOn(label, did) {
@@ -4531,7 +4670,7 @@ export class UI {
     if(['revolve','surfRevolve'].includes(f.type)){if(!f.extent){try{f.extent=evaluate(f.angle??360,a.result?.vars||{})>=360?'full':'angle';}catch{f.extent='angle';}}f.end ||= 'oneway';}
     if (f.type === 'surfPlanar') f.edges ||= [];
     if (f.type === 'surfPlanar' && pm.planarEdges === undefined) pm.planarEdges = !!f.edges?.length && !f.profiles.length;
-    this.pmHeader(root, iconFor(f), f.name);
+    this.pmHeader(root, iconFor(f), f.name, { next: !!pm.isNew });
     if(f.type==='point'&&f.pointType==='coords')root.appendChild(el('div',{'data-datum-status':'checking',class:'pm-msg'},'Updating preview…'));
     const err = a.result?.errors.get(f.id);
     if (f.type === 'loft' && f.ruled && pm.loftSlot === 'guides') { pm.loftSlot = 'profiles'; pm.loftDraft = null; pm.loftHover = null; }
@@ -4539,11 +4678,13 @@ export class UI {
     const waitingForProfiles = ['loft', 'surfLoft'].includes(f.type) && (f.profiles || []).length < 2;
     if (waitingForProfiles) root.appendChild(el('div', { class: 'pm-msg' }, 'Select two or more section profiles in the canvas.'));
     else if (f.type === 'extrude' && !f.profiles.length) root.appendChild(el('div', { class: 'pm-msg' }, 'Select one or more profiles in the canvas, or select a whole sketch in the tree.'));
-    else if (err && !waitingForRefs) root.appendChild(el('div', { class: 'pm-msg pm-status err' }, esc(err)));
+    else if (err && !waitingForRefs) root.appendChild(el('div', { class: 'pm-msg pm-status' + (a.waitingFor(f) ? '' : ' err') }, esc(err)));
     else if (pm.isNew && !waitingForRefs) root.appendChild(el('div', { class: 'pm-msg pm-status' }, 'Set the parameters. The model previews live. Click ✔ to accept.'));
 
     const note = a.result?.notes?.get(f.id);
     if (note && !err) root.appendChild(el('div', { class: 'pm-msg ok','data-pm-note':'' }, esc(note)));
+    const guessed = guessedRefs(f).length;
+    if (guessed && !err) root.appendChild(el('div', { class: 'pm-msg warn', 'data-pm-guessed': '' }, `${guessed} reference${guessed > 1 ? 's were' : ' was'} found again after the model changed by taking the nearest of faces or edges that look the same. Check ${guessed > 1 ? 'they are' : 'it is'} still the right one${guessed > 1 ? 's' : ''} (pick again if not); ✔ accepts ${guessed > 1 ? 'them' : 'it'}.`));
     const idx = doc.features.indexOf(f);
     const before = doc.features.slice(0, idx < 0 ? doc.features.length : idx);
     const schema = PM_SCHEMAS[f.type] || [];
@@ -4692,6 +4833,9 @@ export class UI {
               body.appendChild(this.row(label, inp));
             }
           }
+        } else if (fd.type === 'splitPick') {
+          const active = (pm.splitSlot || 'targets') === fd.slot;
+          body.appendChild(el('button', { class: 'pm-btn' + (active ? ' on' : ''), 'data-split-slot': fd.slot, 'aria-pressed': String(active), onclick: () => { pm.splitSlot = fd.slot; this.renderPM(); a.updateEdgeHighlights(); } }, (active ? '● ' : '') + fd.label));
         } else if (fd.type === 'trimTool') {
           const opts = [['', '— choose the trim tool —'], ...Object.entries(STD_PLANES).map(([k, p]) => [k, 'Plane: ' + p.name]),
             ...before.filter((x) => x.type === 'plane' && !x.suppressed).map((x) => [x.id, 'Plane: ' + x.name]),
@@ -4899,7 +5043,7 @@ export class UI {
       const g = this.pmGroup(root, 'Sketch Patterns', 'sk:patterns');
       for (const [i, p] of f.patterns.entries()) {
         const row = el('div', { class: 'pm-row' });
-        row.appendChild(el('button', { onclick: () => sk.linearPatternSel(p.id) }, `Edit Pattern ${i + 1}`));
+        row.appendChild(el('button', { onclick: () => (p.kind === 'circular' ? sk.circularPatternSel(p.id) : sk.linearPatternSel(p.id)) }, `Edit ${p.kind === 'circular' ? 'Circular ' : ''}Pattern ${i + 1}`));
         row.appendChild(el('button', { onclick: () => { SM.removeSketchPattern(f, p.id); sk.sel.clear(); sk.changed(); } }, 'Delete'));
         g.appendChild(row);
       }
@@ -5327,6 +5471,21 @@ export class UI {
       const lab = el('label'); lab.append(cb, document.createTextNode(' ' + label));
       og.appendChild(this.row(null, lab, 'check'));
     }
+    // a sheet metal blade: the nose rounded for the press brake, open at the tail
+    const bg = this.pmGroup(root, 'Sheet Metal Blade', 'sk:airfoilb');
+    bg.appendChild(this.row('Nose radius', this.exprInput(af.noseR || 0, 'mm', (v) => {
+      const x = num(v);
+      if (!(x >= 0)) { a.status('Not changed — the nose radius can\'t be negative'); return; }
+      const why = SM.airfoilProblem(f, { ...af, noseR: x });
+      if (why) { a.status(`Not changed — ${why}`); return; }
+      set((y) => { y.noseR = x; });
+    }, { min: 0 })));
+    const ob = el('input', { type: 'checkbox' });
+    ob.checked = !!af.open;
+    ob.onchange = () => set((x) => { x.open = ob.checked; });
+    const olab = el('label'); olab.append(ob, document.createTextNode(' Open at the trailing edge'));
+    bg.appendChild(this.row(null, olab, 'check'));
+    bg.appendChild(el('div', { class: 'pm-hint' }, 'For a blade folded from one sheet: round the nose to the outside radius of its press-brake bend (inside radius + thickness, e.g. R2 + 2.5 = 4.5) and open the trailing edge, then make it with Sheet Metal Extrude, the material inside. The nose is a bend; the surfaces are formed (rolled), with no bend lines. 0: the nose as drawn.'));
     og.appendChild(el('div', { class: 'pm-hint' }, 'The airfoil follows its chord line: drag the line\'s ends, or dimension it, and the airfoil scales with it. Extrude the sketch to make a wing section.'));
     og.appendChild(el('button', { class: 'pm-btn', style: 'margin-top:6px', onclick: () => { sk.deleteAirfoil(af); sk.sel.clear(); sk.changed(); } }, 'Delete airfoil'));
   }
@@ -5493,8 +5652,36 @@ export class UI {
     const clr = btn('filterClear', 'Clear Selection Filters (F5)', () => a.toggleFilter('clear'));
     clr.disabled = !a.filters.size;
     sep();
-    btn('undo', 'Undo (Ctrl+Z)', () => a.undo());
+    // (its arrow, or a right-click: the list of steps, to go back several at once)
+    const ub = btn('undo', 'Undo (Ctrl+Z) · its arrow or a right-click: the list of steps', (e, b) => (e.offsetX > b.offsetWidth - 10 ? this.showUndoHistory(b) : a.undo()), { drop: true });
+    ub.oncontextmenu = (e) => { e.preventDefault(); this.showUndoHistory(ub); };
     btn('redo', 'Redo (Ctrl+Y)', () => a.redo());
+  }
+
+  // The undo history: the part's last steps (in a sketch, the sketch's own since it was opened), newest at the top; a
+  // click goes straight back (or forward) to just after that step. Steps undone are shown greyed, still there to redo
+  // until something new is done.
+  showUndoHistory(anchor) {
+    const a = this.app, cm = $('#ctxmenu');
+    if (a.mode === 'sketch3d') { a.status('In a 3D sketch, Ctrl+Z and Ctrl+Y undo and redo its steps one at a time.'); return; }
+    const sk = a.mode === 'sketch' ? a.sketcher : null, h = a.history, steps = sk?.steps();
+    const n = sk ? steps.list.length : h.stack.length, idx = sk ? steps.idx : h.idx, what = sk ? 'sketch' : 'part';
+    const describe = (i) => (sk ? sk.describeStep(i) : h.describe(i)), goTo = (i) => (sk ? sk.undoTo(i) : a.undoTo(i));
+    cm.innerHTML = '';
+    cm.appendChild(el('div', { class: 'vis-h' }, esc(sk ? `Undo history: ${sk.f.name || 'sketch'}` : 'Undo history')));
+    const first = Math.max(0, n - 30);
+    for (let i = n - 1; i >= first; i--) {
+      const row = el('div', { class: 'mi undo-row' + (i > idx ? ' undone' : '') + (i === idx ? ' current' : ''), 'data-undo-step': i },
+        `<span class="mi-label">${esc(describe(i))}</span>${i === idx ? '<span class="mi-key">now</span>' : ''}`);
+      row.title = i === idx ? `The ${what} as it is now` : i > idx ? 'Undone: click to redo up to here' : 'Click to undo back to just after this step';
+      row.onclick = () => { this.closeContext(); goTo(i); };
+      cm.appendChild(row);
+    }
+    if (first > 0) cm.appendChild(el('div', { class: 'pm-hint', style: 'padding:4px 10px 6px' }, `and ${first} older step${first === 1 ? '' : 's'}`));
+    cm.hidden = false;
+    const r = anchor.getBoundingClientRect();
+    cm.style.left = Math.max(4, Math.min(r.left, innerWidth - cm.offsetWidth - 4)) + 'px';
+    cm.style.top = Math.min(r.bottom + 4, innerHeight - cm.offsetHeight - 4) + 'px';
   }
 
   // Visibility filter: tick what to show; it stays open while ticking.
@@ -5528,11 +5715,17 @@ export class UI {
     if (!bar) return;
     bar.innerHTML = '';
     bar.classList.add('doctabs');
+    // (a drawing named as a part that is open too, its usual name: "Drawing" after it, so the two tabs tell apart)
+    const partNames = new Set(a.tabs.map((t, i) => {
+      if (t.kind === 'drawing') return null;
+      const doc = i === a.tabIndex ? a.doc : t.doc, path = i === a.tabIndex ? a.filePath : t.filePath;
+      return doc ? (path ? fileStem(path) : doc.name) : null;
+    }).filter(Boolean));
     a.tabs.forEach((t, i) => {
       const cur = i === a.tabIndex;
       if (t.kind === 'drawing') {
-        const d = t.drawing;
-        const tab = el('div', { class: 'doctab' + (cur ? ' active' : ''), title: d.filePath || 'Not saved yet' }, `${icon(d.tabIcon || 'drawing')}<span>${esc(d.name)}${d.dirty ? ' *' : ''}</span>`);
+        const d = t.drawing, kind = d.kindLabel || 'Drawing', same = partNames.has(d.name);
+        const tab = el('div', { class: 'doctab' + (cur ? ' active' : ''), title: `${kind}: ${d.filePath || 'not saved yet'}` }, `${icon(d.tabIcon || 'drawing')}<span>${esc(d.name)}${same ? ` <small class="doctab-kind">${esc(tr(kind))}</small>` : ''}${d.dirty ? ' *' : ''}</span>`);
         const x = el('button', { class: 'doctab-x', title: `Close this ${(d.kindLabel || 'drawing').toLowerCase()}` }, '✕');
         x.onclick = (e) => { e.stopPropagation(); a.closeTab(i); };
         tab.appendChild(x);
@@ -6333,9 +6526,42 @@ export class UI {
       if (fd.shellThick) { const own = this.exprInput(r.t ?? '', 'mm', (value) => { r.t = value; a.preview(); }); own.dataset.shellWallThickness = i; own.title = 'This wall’s thickness'; li.insertBefore(own, li.querySelector('.x')); }
       li.querySelector('.x').onclick = () => { f[key].splice(i, 1); this.renderPM(); a.updateEdgeHighlights(); a.preview(); };
       ul.appendChild(li);
+      // (a hole on a flat face: where it is, typed as distances from the face's left and bottom edges)
+      const box = fd.holePos && a.holeFaceBox(r);
+      if (box) {
+        const row = el('div', { class: 'hole-pos', 'data-hole-pos': i });
+        for (const [k, lab, tip] of [['x', 'From left', 'From the left edge of the face (looking at it, its up as the part’s)'], ['y', 'From bottom', 'From the bottom edge of the face']]) {
+          const inp = this.exprInput(String(+box[k].toFixed(3)), 'mm', (v) => {
+            let val;
+            try { val = evaluate(v, a.liveVars ? a.liveVars() : a.result?.vars || {}); } catch { return; }
+            if (!Number.isFinite(val)) return;
+            const bx = a.holeFaceBox(r) || box; // (measured again when the model shown has changed)
+            a.setHolePos(r, bx, k === 'x' ? val : bx.x, k === 'y' ? val : bx.y);
+            a.updateEdgeHighlights(); a.preview();
+          });
+          inp.dataset.holeAxis = k; inp.title = tip;
+          row.append(el('span', { class: 'pm-hint' }, esc(tr(lab))), inp);
+        }
+        ul.appendChild(row);
+      }
     });
     body.appendChild(ul);
     if (f[key].length) body.appendChild(el('button', { class: 'pm-btn', onclick: () => { f[key].length = 0; this.renderPM(); a.updateEdgeHighlights(); a.preview(); } }, 'Clear'));
+  }
+
+  // A hole's typed positions shown again once the model shown changes (e.g. rolled back to before the hole being
+  // edited); a field being typed in is left alone
+  refreshHolePos() {
+    const f = this.app.pm?.feature;
+    if (f?.type !== 'hole') return;
+    for (const row of document.querySelectorAll('#pm [data-hole-pos]')) {
+      const box = this.app.holeFaceBox(f.faces?.[+row.dataset.holePos]);
+      if (!box) continue;
+      for (const w of row.querySelectorAll('[data-hole-axis]')) {
+        const inp = w.querySelector('input') || w;
+        if (document.activeElement !== inp) inp.value = String(+box[w.dataset.holeAxis].toFixed(3));
+      }
+    }
   }
 
   renderSweepSelection(body,f,before,fd){
@@ -6466,6 +6692,8 @@ export class UI {
     const a = this.app, pm = a.pm, key = fd.key, guide = key === 'guides';
     const extrude = f.type === 'extrude', planar = f.type === 'surfPlanar', common=['revolve','surfExtrude','surfRevolve'].includes(f.type), surface=['surfExtrude','surfRevolve'].includes(f.type);
     pm.loftSlot ||= 'profiles'; f[key] ||= [];
+    if(f.type==='surfLoft'&&!guide&&pm.loftModelEdges===undefined)pm.loftModelEdges=f.profiles.some(LR.isModelEdgeChain);
+    const modelEdges=f.type==='surfLoft'&&!guide&&!!pm.loftModelEdges;
     const active = !pm.loftEndSlot && pm.loftSlot === key && (!extrude || pm.extrudePick !== false) && (!planar || !pm.planarEdges) && (!common || pm.profilePick!==false && !pm.planarEdges);
     body.appendChild(el('button', { class: 'pm-btn' + (active ? ' on' : ''), 'aria-pressed': String(active), disabled: guide && f.ruled, 'data-loft-slot': key, onclick: () => {
       pm.loftEndSlot = null; pm.loftEndAxis = null; pm.loftConnector=null; pm.scopePick=false; pm.loftSlot = key; pm.loftDraft = null; pm.loftHover = null;
@@ -6474,13 +6702,20 @@ export class UI {
       if (common) { pm.profilePick=!active; pm.revolveEndPick=false; pm.planarEdges=false; pm.extrudeSurfaceSlot=null; }
       this.renderPM(); a.updateSketchDisplay(); a.status(guide ? 'Click the guide curves in the canvas.' : 'Click the section contours or inside closed profiles in the canvas.');
     } }, guide ? 'Select guides in canvas' : 'Select profiles in canvas'));
-    if (!guide) {
+    if(f.type==='surfLoft'&&!guide){
+      const source=el('select',{'data-loft-profile-source':''});
+      for(const [value,label] of [['sketch','Sketch contours'],['edges','Model edges']])source.appendChild(el('option',{value},label));
+      source.value=modelEdges?'edges':'sketch';
+      source.onchange=()=>{pm.loftModelEdges=source.value==='edges';pm.loftSlot='profiles';pm.loftEndSlot=null;pm.loftDraft=null;pm.loftModelDraft=null;pm.loftHover=null;this.renderPM();a.updateSketchDisplay();a.updateEdgeHighlights();};
+      body.appendChild(this.row('Profile Source',source));
+    }
+    if (!guide && !modelEdges) {
       const cb = el('input', { type: 'checkbox', 'data-loft-chain': '' }); cb.checked = pm.loftChain !== false;
       cb.onchange = () => { pm.loftChain = cb.checked; pm.loftDraft = null; pm.loftHover = null; this.renderPM(); a.updateSketchDisplay(); };
       const label = el('label'); label.append(cb, document.createTextNode(' Chain selection'));
       body.appendChild(this.row(null, label, 'check'));
     }
-    body.appendChild(el('div', { class: 'pm-hint' }, common ? (surface?'Select open or closed contours, regions or individual sketch entities. Closed contours stay uncapped. For Revolve, select the axis separately.':f.type==='revolve'?'Select closed profiles or flat faces of the model, or enable Thin Feature for open contours. Select the revolution axis separately (for a model face: a reference axis, a model edge or face, or a sketch line).':'Select closed profiles or enable Thin Feature for open contours. Select the revolution axis separately.') : planar ? 'Click inside closed regions or select sketch contours. Turn off Chain selection to pick individual entities, then add the closed contour. Select model edges in the section below.' : extrude ? 'Click inside closed regions or select contours, or click a flat face of the model. Click again to remove a profile. Profiles must be coplanar; open contours enable Thin Feature. Turn off canvas profile selection to pick end references or bodies.' : guide ? f.ruled ? 'Guide curves require a smooth loft. Remove the guides or untick straight (ruled) sides.' : 'Pick guide curves or connected chains, including construction curves. Guides must meet every section.' : f.type === 'loft' ? 'Pick closed contours or click inside regions. Each selection adds one section.' : 'Pick open or closed contours. All sections must be open, or all closed.'));
+    body.appendChild(el('div', { class: 'pm-hint' }, modelEdges?'Click only the model edges of the split portion, then add them as one profile. Repeat for the next section. Edges in each profile must form one connected chain.':common ? (surface?'Select open or closed contours, regions or individual sketch entities. Closed contours stay uncapped. For Revolve, select the axis separately.':f.type==='revolve'?'Select closed profiles or flat faces of the model, or enable Thin Feature for open contours. Select the revolution axis separately (for a model face: a reference axis, a model edge or face, or a sketch line).':'Select closed profiles or enable Thin Feature for open contours. Select the revolution axis separately.') : planar ? 'Click inside closed regions or select sketch contours. Turn off Chain selection to pick individual entities, then add the closed contour. Select model edges in the section below.' : extrude ? 'Click inside closed regions or select contours, or click a flat face of the model. Click again to remove a profile. Profiles must be coplanar; open contours enable Thin Feature. Turn off canvas profile selection to pick end references or bodies.' : guide ? f.ruled ? 'Guide curves require a smooth loft. Remove the guides or untick straight (ruled) sides.' : 'Pick guide curves or connected chains, including construction curves. Guides must meet every section.' : f.type === 'loft' ? 'Pick closed contours or click inside regions. Each selection adds one section.' : 'Pick open or closed contours. All sections must be open, or all closed.'));
     const ul = el('div', { class: 'pm-list', 'data-loft-list': key });
     if (!f[key].length) ul.appendChild(el('div', { class: 'li pm-hint' }, guide ? 'No guides selected' : 'No profiles selected'));
     f[key].forEach((ref, i) => {
@@ -6500,7 +6735,13 @@ export class UI {
       ul.appendChild(li);
     });
     body.appendChild(ul);
-    if (active && pm.loftChain === false) {
+    if(active&&modelEdges){
+      const count=pm.loftModelDraft?.edges.length||0;
+      body.appendChild(el('div',{class:'pm-hint'},`${count} model edges selected for this profile`));
+      body.appendChild(el('button',{class:'pm-btn','data-loft-model-finish':'',disabled:!count,onclick:()=>a.finishLoftModelSelection()},'Add selected edges as profile'));
+      if(count)body.appendChild(el('button',{class:'pm-btn',onclick:()=>{pm.loftModelDraft=null;this.renderPM();a.updateEdgeHighlights();}},'Clear selected edges'));
+    }
+    if (active && !modelEdges && pm.loftChain === false) {
       const count = pm.loftDraft?.curves.length || 0;
       body.appendChild(el('div', { class: 'pm-hint' }, `Manual selection: ${count} curves. Click segments to add/remove them, then confirm this contour.`));
       body.appendChild(el('button', { class: 'pm-btn', 'data-loft-finish': '', disabled: !count, onclick: () => a.finishLoftSelection() }, 'Add selected contour'));
@@ -6553,6 +6794,7 @@ export class UI {
       const on = f[fd.key].includes(b.id);
       const li = el('div', { class: 'li' + (on ? ' sel' : '') }, `<input type="checkbox" ${on ? 'checked' : ''} style="margin:0 4px 0 0">${icon(b.kind === 'surface' ? 'surfBody' : 'body')}<span>${esc(b.name)}</span>`);
       li.onclick = () => {
+        if(f.type==='split')a.pm.splitSlot='targets';
         const i = f[fd.key].indexOf(b.id);
         if (i >= 0) f[fd.key].splice(i, 1); else f[fd.key].push(b.id);
         this.renderPM(); a.updateEdgeHighlights(); a.preview();
@@ -6577,16 +6819,20 @@ export class UI {
 
   renderSplitTool(body, f, before) {
     const a = this.app;
-    const opts = [['', f.toolFace ? '✔ Flat face picked on the model' : '— click a flat face on the model —'],
+    const opts = [['', f.toolFace ? '✔ Face picked on the model' : '— select a splitting tool —'],
       ...Object.entries(STD_PLANES).map(([k, p]) => [k, p.name]),
       ...before.filter((x) => x.type === 'plane' && !x.suppressed).map((x) => [x.id, x.name]),
-      ...(a.result?.bodies || []).filter((b) => b.kind === 'surface').map((b) => [b.id, 'Surface: ' + b.name])];
+      ...(a.result?.bodies || []).filter((b) => b.kind === 'surface' && !f.bodies?.includes(b.id)).map((b) => [b.id, 'Surface: ' + b.name]),
+      ...(['split','splitLine'].includes(f.type) ? before.filter(x=>x.type==='sketch'&&!x.suppressed).map(x=>[x.id,'Sketch: '+x.name]) : [])];
     const s = el('select');
     for (const [v, l] of opts) { const o = el('option', { value: v }, esc(l)); if ((f.tool || '') === v) o.selected = true; s.appendChild(o); }
+    s.dataset.splitTool = '';
+    s.onfocus = () => { if(['split','splitLine'].includes(f.type)) a.pm.splitSlot = 'tool'; };
     s.onchange = () => { f.tool = s.value || ''; if (f.tool) f.toolFace = null; this.renderPM(); a.updateEdgeHighlights(); a.preview(); };
     const w = el('div', { class: 'pm-input' }); w.appendChild(s);
-    body.appendChild(this.row('Split with', w));
-    body.appendChild(el('div', { class: 'pm-hint' }, 'A plane, a flat face of the model or a surface body that cuts through the bodies.'));
+    body.appendChild(this.row(f.type==='printSplit'?'Split with':'Splitting Tool', w));
+    body.appendChild(el('div', { class: 'pm-hint' }, f.type==='printSplit'?'A plane or a flat face.':'Select a sketch, construction plane, model face or surface body. Extend Splitting Tool uses the underlying surface and extends open sketch ends.'));
+    if(f.toolFace)body.appendChild(el('button',{class:'pm-btn',onclick:()=>{f.toolFace=null;a.preview(true);}},'Clear tool face'));
   }
 
   // Mates for Move/Copy Body: each ties an entity of the moving bodies to fixed geometry.
@@ -6641,7 +6887,7 @@ export class UI {
       let r;
       try { r = await a.kernel.request('sheetCheck', { bodyId: b.id }); } catch (e) { box.appendChild(el('div', { class: 'pm-msg err' }, esc(`${b.name}: ${e.message}`))); continue; }
       const sec = el('div', { class: 'sm-check-body' });
-      sec.appendChild(el('div', { class: 'sm-check-h' }, `<b>${esc(b.name)}</b> · t ${r.t} mm · K ${r.K} · ${r.bends.length} bend${r.bends.length === 1 ? '' : 's'}${r.holes ? ` · ${r.holes} hole${r.holes === 1 ? '' : 's'}` : ''}${r.forms ? ` · ${r.forms} form${r.forms === 1 ? '' : 's'}` : ''}${r.lofted ? ` · lofted (${r.lofted})` : ''}`));
+      sec.appendChild(el('div', { class: 'sm-check-h' }, `<b>${esc(b.name)}</b> · t ${r.t} mm · K ${r.K} · ${r.bends.length} bend${r.bends.length === 1 ? '' : 's'}${r.formed ? ` · formed (rolled) curves, no bend lines` : ''}${r.holes ? ` · ${r.holes} hole${r.holes === 1 ? '' : 's'}` : ''}${r.forms ? ` · ${r.forms} form${r.forms === 1 ? '' : 's'}` : ''}${r.lofted ? ` · lofted (${r.lofted})` : ''}`));
       if (r.bends.length) {
         const f2 = (x) => (x == null ? '—' : +(+x).toFixed(2));
         const tbl = el('table', { class: 'sm-check-t' }, `<tr><th>Bend</th><th>Direction</th><th>Angle</th><th>Inside R</th><th>Length</th><th>Flange</th><th>Flange</th></tr>` + r.bends.map((x) => `<tr><td>B${x.n}</td><td>${x.up ? 'Up' : 'Down'}</td><td>${f2(x.ang)}°</td><td>${f2(x.R)}</td><td>${f2(x.w)}</td><td>${f2(x.flangeA)}</td><td>${f2(x.flangeB)}</td></tr>`).join(''));
@@ -6777,7 +7023,7 @@ export class UI {
     f.edges.forEach((e, i) => {
       const li = el('div', { class: 'li' }, `${icon('edge')}<span>Edge&lt;${i + 1}&gt;</span><span class="x" title="Remove">✕</span>`);
       if(f.type==='surfFill')li.dataset.patchEdgeRow=i;
-      if(sized){const own=this.exprInput(e.size??'','mm',value=>{if(value===''||value==null)delete e.size;else e.size=value;a.preview();});own.dataset.edgeSize=i;own.title='Own size (blank: the feature’s)';li.insertBefore(own,li.querySelector('.x'));}
+      if(sized){const own=this.exprInput(e.size??'','mm',value=>{if(value===''||value==null)delete e.size;else e.size=value;a.preview();},{optional:true});own.dataset.edgeSize=i;own.title='Own size (blank: the feature’s)';li.insertBefore(own,li.querySelector('.x'));}
       if(f.type==='surfFill'){
         const select=el('select',{'data-patch-edge':i,'aria-label':`Edge ${i+1} continuity`});
         for(const [value,label] of [['','Use boundary setting'],['G0','G0 Contact'],['G1','G1 Tangent'],['G2','G2 Curvature']]){
@@ -7066,8 +7312,9 @@ export class UI {
       const k = label.split('▸').pop().trim().toLowerCase();
       if (seen.has(k)) return;
       seen.add(k);
-      const own = Object.entries(this.shortcutPrefs()).find(([, v]) => v.k === k)?.[0];
-      out.push({ label, where, icon: d.icon || '', key: own || d.key || '', action: d.action, k });
+      const aliases = k==='split body'?['split','split (with a surface)']:k==='split face'?['split line','split-line']:[];
+      const own = Object.entries(this.shortcutPrefs()).find(([, v]) => v.k === k || aliases.includes(v.k))?.[0];
+      out.push({ label, where, aliases, icon: d.icon || '', key: own || d.key || '', action: d.action, k });
     };
     for (const [name, items] of Object.entries(this.menuDefs() || {})) for (const d of items || []) add(d, name + ' menu');
     let defs = {};
@@ -7103,7 +7350,7 @@ export class UI {
       if (!words.length) return [...recent.map((k) => all.find((c) => c.k === k)).filter(Boolean), ...all.filter((c) => !recent.includes(c.k))].slice(0, 12);
       const scored = [];
       for (const c of all) {
-        const name = tr(c.label).replace(/\u00ad/g, '').toLowerCase(), text = name + ' ' + c.label.toLowerCase() + ' ' + c.where.toLowerCase();
+        const name = tr(c.label).replace(/\u00ad/g, '').toLowerCase(), text = name + ' ' + c.label.toLowerCase() + ' ' + c.where.toLowerCase() + ' ' + (c.aliases||[]).join(' ');
         if (!words.every((w) => text.includes(w))) continue;
         const q0 = words.join(' '), last = c.k;
         let s = last.startsWith(q0) ? 0 : name.startsWith(q0) ? 1 : words.every((w) => new RegExp(`(^|[^a-z])${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).test(name)) ? 2 : 3;
@@ -7151,7 +7398,7 @@ export class UI {
     if (!map || !Object.keys(map).length) return false;
     const combo = comboOf(e), b = combo && map[combo];
     if (!b) return false;
-    const c = this.commandList().find((x) => x.k === b.k);
+    const commands=this.commandList(), c = commands.find(x=>x.k===b.k)||commands.find(x=>x.aliases?.includes(b.k));
     if (!c) { this.app.status(`${combo}: "${b.label}" is not available here.`); return true; }
     this.app.macros?.note(c.label);
     c.action();
@@ -7328,7 +7575,7 @@ export class UI {
   // template becomes the default (chosen first next time). Resolves { template, name, props, sheet } or null.
   // change: { key, sheet } switches an existing drawing's template instead (its current template is
   // chosen first; only the sheet size, orientation and projection are asked): resolves { template, sheet }.
-  async newDrawingSetup({ name = 'Drawing1', title = '', change = null } = {}) {
+  async newDrawingSetup({ name = 'Drawing1', title = '', change = null, fromModel = false } = {}) {
     const a = this.app;
     const prefs = (await platform.getPrefs().catch(() => ({}))) || {};
     const extra = Array.isArray(prefs.templatePaths) ? prefs.templatePaths : [];
@@ -7380,6 +7627,7 @@ export class UI {
           <div class="k">Projection</div><div><select class="nd-proj"><option value="first">First angle (ISO / Europe)</option><option value="third">Third angle (ANSI / USA)</option></select></div>
         </div>
         <label class="nd-def"><input type="checkbox" class="nd-default"> Use this template as my default</label>
+        ${fromModel && !change ? '<label class="nd-def"><input type="checkbox" class="nd-autodim"> Dimension the views (Auto Dimension)</label>' : ''}
         ${change ? '<div class="pm-hint">The drawing keeps its views, dimensions and title block entries. The template brings its sheet format, sheet size and projection (on every sheet), drawing settings and notes.</div>' : ''}`;
       const q = (c) => form.querySelector(c);
       // switching templates: only the sheet is asked
@@ -7392,6 +7640,7 @@ export class UI {
       }
       q('.nd-name').value = name;
       q('.nd-title').value = title;
+      if (q('.nd-autodim')) q('.nd-autodim').checked = this.prefs?.autoDimNew !== false;
       const fill = (t) => {
         const s = t.sheets?.[0] || {};
         q('.nd-tname').textContent = t.name;
@@ -7464,7 +7713,9 @@ export class UI {
         props.company = q('.nd-company').value.trim();
         if (q('.nd-default').checked && prefs.defaultDrawingTemplate !== chosenKey) platform.setPrefs({ ...prefs, defaultDrawingTemplate: chosenKey }).catch(() => {});
         else if (!q('.nd-default').checked && prefs.defaultDrawingTemplate === chosenKey) { const p2 = { ...prefs }; delete p2.defaultDrawingTemplate; platform.setPrefs(p2).catch(() => {}); }
-        finish({ template: current, name: q('.nd-name').value.trim() || name, props, sheet: { size: q('.nd-size').value, orientation: q('.nd-or').value, scale: [s1, s2], projection: q('.nd-proj').value } });
+        const autoDim = !!q('.nd-autodim')?.checked;
+        if (q('.nd-autodim') && (this.prefs?.autoDimNew !== false) !== autoDim) { this.prefs ||= {}; this.prefs.autoDimNew = autoDim; this.savePrefs(); }
+        finish({ template: current, name: q('.nd-name').value.trim() || name, props, autoDim, sheet: { size: q('.nd-size').value, orientation: q('.nd-or').value, scale: [s1, s2], projection: q('.nd-proj').value } });
         dlg.close();
         return true;
       };
@@ -7515,8 +7766,9 @@ export class UI {
     ]);
   }
 
-  // Update Now: the new setup downloaded (checked against the release) and run silently into this installation;
-  // RazorCAD closes and starts again once it is installed. Unsaved work is saved first, or the update waits.
+  // Update Now: the new setup downloaded (checked against the release) and started for this installation, in a
+  // small window of its own; RazorCAD closes once it answers, and the setup starts the new version when it has
+  // checked it. Unsaved work is saved first, or the update waits.
   async updateNow(r) {
     const a = this.app;
     if (a.dirtyTabs().length) {
@@ -7526,9 +7778,27 @@ export class UI {
       if (!ok || a.dirtyTabs().length) { a.toast('Not everything was saved: the update waits', true); return; }
     }
     const res = await a.withProgress(`Downloading RazorCAD ${r.latest}…`, () => platform.startUpdate(r.setup)).catch((e) => ({ error: e.message }));
-    if (!res?.ok) { a.toast(`${res?.error || 'The update could not start'}`, true); return; }
+    if (!res?.ok) {
+      if (res?.setup) return this.updateFailed(r.latest, res.error);
+      a.toast(`${res?.error || 'The update could not start'}`, true);
+      return;
+    }
     a.status(`Installing RazorCAD ${r.latest}… RazorCAD restarts after the update is verified${res.allUsers ? ' (Windows asks for permission first)' : ''}.`);
     setTimeout(() => platform.closeApp(), 600);
+  }
+
+  // What became of the last Update Now, at start: an update that did not get through says so here.
+  async updateOutcome() {
+    const r = await platform.updateResult().catch(() => null);
+    if (r?.state === 'installing') this.app.toast(`RazorCAD ${r.to} is still being installed. Close RazorCAD so it can finish.`, true);
+    else if (r?.state === 'failed') await this.updateFailed(r.to, r.error, r.log);
+  }
+  async updateFailed(version, reason, log = '') {
+    const c = await this.choose('Update RazorCAD', 'error', `<p><b>RazorCAD ${esc(version)} was not installed.</b></p><p>${esc(reason)}</p>${log ? `<p class="pm-hint">${esc(log)}</p>` : ''}<p class="pm-hint">Run the new setup yourself to update. Your parts and settings stay.</p>`,
+      [['setup', 'Run the Setup', true], ['later', 'Later']]);
+    if (c !== 'setup') return;
+    if (await platform.runSetup().catch(() => false)) this.app.toast('Follow the setup, then start RazorCAD again');
+    else platform.openUrl('https://github.com/Labs9119/RazorCAD/releases');
   }
 
   // ---- Reporting a problem (opt-in): a crash report, or none, as a GitHub issue. The text is shown (and can be

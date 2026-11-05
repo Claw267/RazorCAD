@@ -93,6 +93,35 @@ function browserDownload(data, name, type) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// The browser version's plug-ins: { id: { manifest, files: { rel: text }, modified } } in its own storage
+const PLUGINS_KEY = 'razorcad.plugins.v1';
+function webPlugins() { try { return JSON.parse(localStorage.getItem(PLUGINS_KEY) || '{}') || {}; } catch { return {}; } }
+function saveWebPlugins(all) {
+  try { localStorage.setItem(PLUGINS_KEY, JSON.stringify(all)); } catch { throw new Error('The browser has no room to keep that plug-in'); }
+}
+// A folder picked in the browser: its text files ({ 'folder/sub/name': text }, up to 8 MB), or null
+function pickFolder() {
+  return new Promise((resolve, reject) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.webkitdirectory = true;
+    input.onchange = async () => {
+      try {
+        const out = {};
+        let total = 0;
+        for (const f of input.files) {
+          if (!/\.(m?js|json|txt|md|csv|svg)$/i.test(f.name)) continue;
+          if ((total += f.size) > 8 << 20) throw new Error('That folder holds more than 8 MB of text');
+          out[f.webkitRelativePath || f.name] = await f.text();
+        }
+        resolve(out);
+      } catch (e) { reject(e); }
+    };
+    input.addEventListener('cancel', () => resolve(null));
+    input.click();
+  });
+}
+
 export const platform = {
   ready,
   get desktop() { return desktop; },
@@ -215,6 +244,8 @@ export const platform = {
   async checkUpdate(force = false) { return desktop ? api().check_update(force) : null; },
   // Update now (desktop, installed with the setup): { ok } once the setup is downloaded and started, else { error }
   async startUpdate(setup) { return desktop ? api().start_update(setup.url, setup.size, setup.digest) : { error: 'The browser version updates by itself' }; },
+  async updateResult() { return desktop ? api().update_result() : null; },
+  async runSetup() { return desktop ? api().run_setup() : false; },
   // a RazorCAD page (on GitHub) in the web browser
   // crash reports as GitHub issues (desktop): the reports kept, and one (or none: a plain problem report) as
   // { title, body, url } with personal details taken out
@@ -346,6 +377,68 @@ export const platform = {
       };
       input.click();
     });
+  },
+
+  // ---- plug-ins (plugins.js). Desktop: a folder each in Documents\RazorCAD\Plugins; the browser: installed into
+  // its own storage (a folder picked, its plugin.json, code and other text files)
+  // { folder, plugins: [{ id, manifest | error, modified }] }
+  async listPlugins() {
+    if (desktop) return api().list_plugins();
+    return { folder: null, plugins: Object.entries(webPlugins()).map(([id, p]) => ({ id, manifest: p.manifest, modified: p.modified })) };
+  },
+  // a plug-in's code: { files: { 'main.js': text, … } }
+  async readPlugin(id) {
+    if (desktop) return api().read_plugin(id);
+    const p = webPlugins()[id];
+    if (!p) throw new Error(`There is no plug-in "${id}"`);
+    return { files: Object.fromEntries(Object.entries(p.files).filter(([k]) => /\.m?js$/i.test(k))) };
+  },
+  // a file of the plug-in's own: text (base64 when binary: desktop only)
+  async readPluginFile(id, rel, binary = false) {
+    if (desktop) return api().read_plugin_file(id, rel, binary);
+    const t = webPlugins()[id]?.files?.[String(rel).replace(/^\.\//, '')];
+    if (t == null || binary) throw new Error(`The plug-in has no file ${rel}`);
+    return t;
+  },
+  // a new plug-in from files ({ 'plugin.json': text, 'main.js': text, … }): its id
+  async newPlugin(name, files) {
+    if (desktop) return api().new_plugin(name, files);
+    const all = webPlugins(), base = String(name || 'Plugin').replace(/[^A-Za-z0-9 ._-]+/g, '').trim() || 'Plugin';
+    let id = base, n = 2;
+    while (all[id]) id = `${base} ${n++}`;
+    let manifest = {};
+    try { manifest = JSON.parse(files['plugin.json'] || '{}'); } catch (e) { throw new Error('plugin.json: ' + e.message); }
+    all[id] = { manifest, files: { ...files }, modified: Date.now() };
+    saveWebPlugins(all);
+    return id;
+  },
+  // a plug-in installed (desktop: a .zip; the browser: a folder): its id, or null
+  async installPlugin() {
+    if (desktop) return api().install_plugin();
+    const files = await pickFolder();
+    if (!files) return null;
+    // (plugin.json at the top of the folder picked, or of the one folder in it)
+    const json = Object.keys(files).filter((k) => k.endsWith('plugin.json')).sort((a, b) => a.split('/').length - b.split('/').length)[0];
+    if (!json) throw new Error('There is no plugin.json in that folder');
+    const pre = json.slice(0, -'plugin.json'.length), mine = {};
+    for (const [k, v] of Object.entries(files)) if (k.startsWith(pre)) mine[k.slice(pre.length)] = v;
+    let manifest = {};
+    try { manifest = JSON.parse(mine['plugin.json']); } catch (e) { throw new Error('plugin.json: ' + e.message); }
+    return this.newPlugin(manifest.name || pre.split('/').filter(Boolean).pop() || 'Plugin', mine);
+  },
+  // (the browser only: the desktop's plug-ins are folders, deleted in Explorer)
+  async removePlugin(id) {
+    if (desktop) return false;
+    const all = webPlugins();
+    delete all[id];
+    saveWebPlugins(all);
+    return true;
+  },
+  async openPluginsFolder(id = '') { return desktop ? api().open_plugins_folder(id) : false; },
+  // RazorCAD's version (null in development)
+  async appVersion() {
+    if (desktop) return (await api().update_settings().catch(() => null))?.version || null;
+    return window.RAZORCAD_WEB?.version || null;
   },
 
   // A macro file (.js): { name, content } or null.

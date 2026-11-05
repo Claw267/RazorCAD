@@ -977,3 +977,39 @@
 977|Droite
 978|Dessous
 979|Trimétrique
+980|Diviser le corps
+981|Diviser la face
+982|Corps à diviser
+983|Faces à diviser
+984|Outil de division
+985|Sélectionner des corps
+986|Sélectionner des faces
+987|Sélectionner l’outil de division
+988|Tous les corps traversés
+989|Prolonger l’outil de division
+990|Type de division
+991|Direction de projection
+992|Normale à l’esquisse
+993|Selon un vecteur
+994|Côté positif
+995|Côté négatif
+996|Source du profil
+997|Contours d’esquisse
+998|Arêtes du modèle
+999|Ajouter les arêtes sélectionnées comme profil
+1000|Effacer les arêtes sélectionnées
+1001|Lancer le programme d’installation
+1002|Lancez vous-même le nouveau programme d’installation pour mettre à jour. Vos pièces et réglages sont conservés.
+1003|Suivez le programme d’installation, puis relancez RazorCAD
+1004|Lignes de rupture
+1005|Supprimer les lignes de rupture
+1006|Détacher de la vue parente
+1007|Déplacer vers la feuille…
+1008|Contraintes standard
+1009|Contraintes avancées
+1010|Contraintes mécaniques
+1011|Charnière
+1012|Joint de cardan
+1013|Coupleur linéaire
+1014|Autres moteurs
+1015|+ Ajouter un moteur

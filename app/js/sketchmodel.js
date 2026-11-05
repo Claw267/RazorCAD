@@ -124,7 +124,7 @@ export function endTangent(sk, c, id) {
 // Copies of items (curve / point ids) moved by M(x, y) → [x, y]; returns the new ids.
 const ROT_KEEPS = new Set(['coincident', 'tangent', 'equal', 'equalLength', 'parallel', 'perpendicular', 'concentric', 'midpoint', 'midpointCoincident', 'onCurve', 'collinear', 'symmetric']);
 const ROT_DIMS = new Set(['distance', 'radius', 'diameter', 'angle', 'pointLine', 'arcDist']);
-export function copyItems(sk, ids, M, { rotates = false } = {}) {
+export function copyItems(sk, ids, M, { rotates = false, airfoils = false } = {}) {
   const map = new Map(), out = [];
   const mp = (id) => {
     if (!id) return id;
@@ -151,6 +151,8 @@ export function copyItems(sk, ids, M, { rotates = false } = {}) {
     }
     map.set(id, out[out.length - 1]);
   }
+  // (an airfoil on a copied chord line comes along: moved or turned, not mirrored, it keeps its options)
+  if (airfoils) for (const af of [...(sk.airfoils || [])]) if (ids.includes(af.line) && map.has(af.line)) sk.airfoils.push({ ...JSON.parse(JSON.stringify(af)), id: nid(sk, 'a'), line: map.get(af.line) });
   // relations and dimensions among the copied entities come along
   for (const k of [...sk.constraints]) {
     if (k.type === 'fix' || k.type === 'projected' || k.type === 'offset' || k.type === 'offsetGeometry' || k.offsetGroup || k.type === 'sketchPattern' || k.driven) continue;
@@ -357,7 +359,7 @@ export function linearPattern(sk, ids, { n1 = 2, d1 = 10, a1 = 0, n2 = 1, d2 = 1
   for (let i = 0; i < Math.max(1, n1); i++) for (let j = 0; j < Math.max(1, n2); j++) {
     if (!i && !j) continue;
     const dx = u[0] * d1 * i + v[0] * d2 * j, dy = u[1] * d1 * i + v[1] * d2 * j;
-    out.push(...copyItems(sk, ids, (x, y) => [x + dx, y + dy]));
+    out.push(...copyItems(sk, ids, (x, y) => [x + dx, y + dy], { airfoils: true }));
   }
   return out;
 }
@@ -402,12 +404,13 @@ export function patternAlongCurve(sk, ids, pathId, { n = 3, d = 10, turn = false
     out.push(...copyItems(sk, ids, (x, y) => {
       const rx = x - base.p[0], ry = y - base.p[1];
       return [q.p[0] + rx * co - ry * si, q.p[1] + rx * si + ry * co];
-    }, { rotates: turn }));
+    }, { rotates: turn, airfoils: true }));
     made++;
   }
   return { ids: out, made };
 }
-// Persistent sketch patterns own their generated geometry. Sources and paths remain ordinary sketch
+// Persistent sketch patterns own their generated geometry (linear, along a curve, or circular: kind 'circular',
+// { sources, n, total, centre (a point id) or cx, cy }). Sources and paths remain ordinary sketch
 // entities; rebuilding reuses output ids so dimensions and later features keep their references.
 export function patternEntities(sk) {
   return new Set((sk.patterns || []).flatMap((p) => [...(p.generated?.points || []), ...(p.generated?.curves || [])]));
@@ -420,28 +423,39 @@ export function removeSketchPattern(sk, id) {
   sk.points = sk.points.filter((q) => !gone.has(q.id));
   sk.curves = sk.curves.filter((c) => !gone.has(c.id));
   sk.constraints = sk.constraints.filter((k) => k.pattern !== id && !k.refs.some((r) => gone.has(r)));
+  if (sk.airfoils) sk.airfoils = sk.airfoils.filter((a) => a.pattern !== id);
   sk.patterns = sk.patterns.filter((q) => q !== p);
 }
 
 export function updateSketchPatterns(sk, ev = Number) {
   for (const p of sk.patterns || []) {
     if (!p.sources.length || p.sources.some((id) => !getCurve(sk, id) && !getPoint(sk, id))) throw new Error('A sketch pattern source is missing');
-    const path = p.path ? getCurve(sk, p.path) : null;
-    if (p.path && !path) throw new Error('The sketch pattern path is missing');
-    const o = Object.fromEntries(['n1', 'd1', 'a1', 'n2', 'd2', 'a2'].map((k) => [k, ev(String(p[k] ?? ({ n1: 3, d1: 20, a1: 0, n2: 1, d2: 20, a2: 90 })[k]))]));
-    o.n1 = Math.round(o.n1); o.n2 = Math.round(o.n2);
-    const curved = path && path.type !== 'line';
-    if (curved) o.n2 = 1;
-    if (!Object.values(o).every(Number.isFinite) || o.n1 < 1 || o.n2 < 1 || o.n1 * o.n2 < 2 || o.n1 * o.n2 > 500 || !(o.d1 > 0) || (o.n2 > 1 && !(o.d2 > 0))) throw new Error('Use 2 to 500 instances and positive spacing');
-    if (path?.type === 'line') {
-      const a = getPoint(sk, path.p1), b = getPoint(sk, path.p2);
-      if (Math.hypot(b.x - a.x, b.y - a.y) < 1e-9) throw new Error('The pattern direction has no length');
-      o.a1 = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
-    }
     const owned = new Set([...(p.generated?.points || []), ...(p.generated?.curves || [])]);
-    const tmp = { ...sk, points: sk.points.filter((q) => !owned.has(q.id)).map((q) => ({ ...q })), curves: sk.curves.filter((c) => !owned.has(c.id)).map((c) => JSON.parse(JSON.stringify(c))), constraints: [] };
-    const np = tmp.points.length, nc = tmp.curves.length;
-    const result = curved ? patternAlongCurve(tmp, p.sources, path.id, { n: o.n1, d: o.d1, turn: !!p.turn }) : { ids: linearPattern(tmp, p.sources, o), made: o.n1 * o.n2 - 1 };
+    const tmp = { ...sk, points: sk.points.filter((q) => !owned.has(q.id)).map((q) => ({ ...q })), curves: sk.curves.filter((c) => !owned.has(c.id)).map((c) => JSON.parse(JSON.stringify(c))), constraints: [], airfoils: (sk.airfoils || []).filter((a) => a.pattern !== p.id).map((a) => JSON.parse(JSON.stringify(a))) };
+    const np = tmp.points.length, nc = tmp.curves.length, na = tmp.airfoils.length;
+    let result;
+    if (p.kind === 'circular') {
+      // round a centre (a sketch point, which may move, or fixed numbers): n instances over the total angle
+      const C = p.centre ? getPoint(sk, p.centre) : null;
+      if (p.centre && !C) throw new Error('The centre point of the circular sketch pattern is missing');
+      const o = { n: Math.round(ev(String(p.n ?? 6))), total: ev(String(p.total ?? 360)), cx: C ? C.x : ev(String(p.cx ?? 0)), cy: C ? C.y : ev(String(p.cy ?? 0)) };
+      if (!Object.values(o).every(Number.isFinite) || o.n < 2 || o.n > 500 || !(Math.abs(o.total) > 1e-6)) throw new Error('Use 2 to 500 instances over a non-zero angle');
+      result = { ids: circularPattern(tmp, p.sources, o), made: o.n - 1 };
+    } else {
+      const path = p.path ? getCurve(sk, p.path) : null;
+      if (p.path && !path) throw new Error('The sketch pattern path is missing');
+      const o = Object.fromEntries(['n1', 'd1', 'a1', 'n2', 'd2', 'a2'].map((k) => [k, ev(String(p[k] ?? ({ n1: 3, d1: 20, a1: 0, n2: 1, d2: 20, a2: 90 })[k]))]));
+      o.n1 = Math.round(o.n1); o.n2 = Math.round(o.n2);
+      const curved = path && path.type !== 'line';
+      if (curved) o.n2 = 1;
+      if (!Object.values(o).every(Number.isFinite) || o.n1 < 1 || o.n2 < 1 || o.n1 * o.n2 < 2 || o.n1 * o.n2 > 500 || !(o.d1 > 0) || (o.n2 > 1 && !(o.d2 > 0))) throw new Error('Use 2 to 500 instances and positive spacing');
+      if (path?.type === 'line') {
+        const a = getPoint(sk, path.p1), b = getPoint(sk, path.p2);
+        if (Math.hypot(b.x - a.x, b.y - a.y) < 1e-9) throw new Error('The pattern direction has no length');
+        o.a1 = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
+      }
+      result = curved ? patternAlongCurve(tmp, p.sources, path.id, { n: o.n1, d: o.d1, turn: !!p.turn }) : { ids: linearPattern(tmp, p.sources, o), made: o.n1 * o.n2 - 1 };
+    }
     const points = tmp.points.slice(np), curves = tmp.curves.slice(nc);
     p.pointIds ||= []; p.curveIds ||= [];
     const map = new Map();
@@ -456,6 +470,13 @@ export function updateSketchPatterns(sk, ev = Number) {
     });
     sk.points = sk.points.filter((q) => !owned.has(q.id)).concat(points);
     sk.curves = sk.curves.filter((c) => !owned.has(c.id)).concat(curves);
+    // the copies' airfoils (on copied chord lines), kept with stable ids as the pattern's own
+    const foils = tmp.airfoils.slice(na);
+    if (foils.length || sk.airfoils?.some((a) => a.pattern === p.id)) {
+      p.airfoilIds ||= [];
+      foils.forEach((a, i) => { a.id = p.airfoilIds[i] ||= nid(sk, 'a'); a.line = map.get(a.line) || a.line; a.pattern = p.id; });
+      sk.airfoils = (sk.airfoils || []).filter((a) => a.pattern !== p.id).concat(foils);
+    }
     sk.constraints = sk.constraints.filter((k) => k.pattern !== p.id);
     p.constraintId ||= nid(sk, 'k');
     if (points.length) sk.constraints.push({ id: p.constraintId, type: 'sketchPattern', pattern: p.id, refs: curves.map((c) => c.id), pts: Object.fromEntries(points.map((q) => [q.id, [q.x, q.y]])), radii: Object.fromEntries(curves.filter((c) => c.type === 'circle').map((c) => [c.id, c.r])), minors: Object.fromEntries(curves.filter(isEll).map((c) => [c.id, c.r2])) });
@@ -481,7 +502,7 @@ export function circularPattern(sk, ids, { n = 4, total = 360, cx = 0, cy = 0 })
   const out = [], step = (total >= 360 - 1e-9 ? total / n : total / Math.max(1, n - 1)) * (Math.PI / 180);
   for (let i = 1; i < n; i++) {
     const a = step * i, co = Math.cos(a), si = Math.sin(a);
-    out.push(...copyItems(sk, ids, (x, y) => [cx + (x - cx) * co - (y - cy) * si, cy + (x - cx) * si + (y - cy) * co], { rotates: true }));
+    out.push(...copyItems(sk, ids, (x, y) => [cx + (x - cx) * co - (y - cy) * si, cy + (x - cx) * si + (y - cy) * co], { rotates: true, airfoils: true }));
   }
   return out;
 }
@@ -2443,7 +2464,10 @@ export function gearPolylines(sk) {
 // An airfoil drawn on a sketch line, the chord: its leading edge at the line's start (or end: swap),
 // the camber to the line's left (or right: flip). Generated geometry like the gears: it follows the line
 // (dimension the line to set the chord) but is not part of the solver. Stored in sk.airfoils:
-//   { id, line, spec, sharpTE (closed trailing edge), flip, swap }
+//   { id, line, spec, sharpTE (closed trailing edge), flip, swap, noseR, open }
+// noseR (mm, 0: none): the leading edge rounded to this radius, an arc touching both surfaces (a sheet metal
+// blade's nose, folded on a press brake); open: not joined at the trailing edge, so it is one open chain
+// (a blade's profile for Sheet Metal Extrude)
 // spec: { kind: 'naca4', m (max camber, % chord), p (its position, % chord), t (thickness, % chord) }
 //     | { kind: 'naca5', cl (design lift coefficient), p (max camber position, % chord), reflex, t }
 //     | { kind: 'clarky', t (thickness, % chord; 11.7 as drawn by Clark) }
@@ -2579,7 +2603,42 @@ export function airfoilProblem(sk, af) {
   if (!c || c.type !== 'line') return 'its chord line was deleted';
   const A = getPoint(sk, c.p1), B = getPoint(sk, c.p2);
   if (!A || !B || Math.hypot(B.x - A.x, B.y - A.y) < 1e-9) return 'its chord line has no length';
-  return airfoilSpecProblem(af.spec);
+  const bad = airfoilSpecProblem(af.spec);
+  if (bad) return bad;
+  if (af.noseR != null && !(af.noseR >= 0)) return 'the nose radius can\'t be negative';
+  if (af.noseR > 0 && !airfoilNose(airfoilSides(af.spec, af.sharpTE !== false), af.noseR / Math.hypot(B.x - A.x, B.y - A.y))) return 'the nose radius is too big for this airfoil and chord';
+  return '';
+}
+
+// The rounded nose on a unit chord: the circle of radius r inside the airfoil touching both surfaces,
+// { c, bu, bl } (centre; where it touches the upper and lower surface, as their β), or null when there is
+// none (r too big).
+export function airfoilNose(sides, r) {
+  const h = 1e-7;
+  const tan = (fn, b) => { const p = fn(Math.max(0, b - h)), q = fn(Math.min(Math.PI, b + h)), L = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1; return [(q[0] - p[0]) / L, (q[1] - p[1]) / L]; };
+  // centres r inside each surface (the upper one runs nose to tail with the inside on its right, the lower
+  // one with it on its left)
+  const cu = (b) => { const p = sides.upper(b), t = tan(sides.upper, b); return [p[0] + r * t[1], p[1] - r * t[0]]; };
+  const cl = (b) => { const p = sides.lower(b), t = tan(sides.lower, b); return [p[0] - r * t[1], p[1] + r * t[0]]; };
+  const gap = (bu, bl) => { const a = cu(bu), b = cl(bl); return [a[0] - b[0], a[1] - b[1]]; };
+  for (const start of [0.05, 0.15, 0.3, 0.6, 1]) {
+    let bu = start, bl = start;
+    for (let it = 0; it < 60; it++) {
+      const g = gap(bu, bl);
+      if (Math.hypot(g[0], g[1]) < 1e-13) break;
+      const e = 1e-6, gu = gap(bu + e, bl), gl = gap(bu, bl + e);
+      const J = [[(gu[0] - g[0]) / e, (gl[0] - g[0]) / e], [(gu[1] - g[1]) / e, (gl[1] - g[1]) / e]];
+      const det = J[0][0] * J[1][1] - J[0][1] * J[1][0];
+      if (Math.abs(det) < 1e-18) break;
+      let du = (-g[0] * J[1][1] + g[1] * J[0][1]) / det, dl = (-g[1] * J[0][0] + g[0] * J[1][0]) / det;
+      const step = Math.max(Math.abs(du), Math.abs(dl));
+      if (step > 0.2) { du *= 0.2 / step; dl *= 0.2 / step; }
+      bu = Math.min(Math.PI * 0.9, Math.max(1e-6, bu + du)); bl = Math.min(Math.PI * 0.9, Math.max(1e-6, bl + dl));
+    }
+    const g = gap(bu, bl);
+    if (Math.hypot(g[0], g[1]) < 1e-9 && bu > 1e-5 && bl > 1e-5 && bu < Math.PI * 0.85 && bl < Math.PI * 0.85) return { c: cu(bu), bu, bl };
+  }
+  return null;
 }
 
 // The airfoil as smooth cubic Bézier pieces in sketch coordinates, round the outline from the trailing
@@ -2594,23 +2653,38 @@ export function airfoilPieces(sk, af, perSide = af.spec?.kind === 'clarky' ? 40 
   const nx = (-uy / L) * s, ny = (ux / L) * s;
   const map = ([x, y]) => [A.x + x * ux + y * L * nx, A.y + x * uy + y * L * ny];
   const sides = airfoilSides(af.spec, af.sharpTE !== false);
-  // Hermite pieces of one side, from the nose to the trailing edge, with tangents from the surface itself
-  const piecesOf = (fn) => {
+  // a rounded nose: the surfaces start where its arc touches them
+  const nose = af.noseR > 0 ? airfoilNose(sides, af.noseR / L) : null;
+  // Hermite pieces of one side, from the nose (β = from) to the trailing edge, with tangents from the surface
+  // itself (spaced by β as the points are: close together at the nose)
+  const piecesOf = (fn, from = 0) => {
     const P = (b) => map(fn(b)), h = 1e-6;
     const D = (b) => { const b0 = Math.max(0, b - h), b1 = Math.min(Math.PI, b + h), p0 = P(b0), p1 = P(b1); return [(p1[0] - p0[0]) / (b1 - b0), (p1[1] - p0[1]) / (b1 - b0)]; };
     const out = [];
     for (let k = 0; k < perSide; k++) {
-      const b0 = (Math.PI * k) / perSide, b1 = (Math.PI * (k + 1)) / perSide, db = b1 - b0;
+      const b0 = from + ((Math.PI - from) * k) / perSide, b1 = from + ((Math.PI - from) * (k + 1)) / perSide, db = b1 - b0;
       const a = P(b0), b = P(b1), d0 = D(b0), d1 = D(b1);
       out.push({ a, c1: [a[0] + (d0[0] * db) / 3, a[1] + (d0[1] * db) / 3], c2: [b[0] - (d1[0] * db) / 3, b[1] - (d1[1] * db) / 3], b });
     }
     return out;
   };
-  const up = piecesOf(sides.upper).reverse().map((q) => ({ a: q.b, c1: q.c2, c2: q.c1, b: q.a }));
-  const low = piecesOf(sides.lower);
-  low[0].a = up[up.length - 1].b; // (one point at the nose)
-  const pieces = [...up, ...low];
+  const up = piecesOf(sides.upper, nose?.bu || 0).reverse().map((q) => ({ a: q.b, c1: q.c2, c2: q.c1, b: q.a }));
+  const low = piecesOf(sides.lower, nose?.bl || 0);
+  let mid = [];
+  if (nose) {
+    // the nose arc, from the upper surface round the front to the lower one: { a, m, b, c, r }
+    const c = nose.c, a = up[up.length - 1].b, b = low[0].a, C = map(c);
+    const au = Math.atan2(sides.upper(nose.bu)[1] - c[1], sides.upper(nose.bu)[0] - c[0]), al = Math.atan2(sides.lower(nose.bl)[1] - c[1], sides.lower(nose.bl)[0] - c[0]);
+    // (the way round that passes the front, away from the trailing edge at +x)
+    let sw = al - au;
+    while (sw <= 0) sw += 2 * Math.PI;
+    const front = Math.cos(au + sw / 2) < 0 ? au + sw / 2 : au + sw / 2 - Math.PI;
+    const r = af.noseR / L, m = map([c[0] + r * Math.cos(front), c[1] + r * Math.sin(front)]);
+    mid = [{ a, m, b, c: C, r: af.noseR, arc: true }];
+  } else low[0].a = up[up.length - 1].b; // (one point at the nose)
+  const pieces = [...up, ...mid, ...low];
   const teU = up[0].a, teL = low[low.length - 1].b;
+  if (af.open) return pieces; // (an open chain: no edge across the trailing edge)
   if (Math.hypot(teU[0] - teL[0], teU[1] - teL[1]) > 1e-9 * L) pieces.push({ a: teL, b: teU });
   else low[low.length - 1].b = teU;
   return pieces;
@@ -2622,6 +2696,14 @@ export function airfoilPolyline(sk, af, perPiece = 8) {
   if (!pieces) return null;
   const pts = [pieces[0].a];
   for (const q of pieces) {
+    if (q.arc) {
+      // (the nose arc: from a through m to b about c)
+      const ang = (p) => Math.atan2(p[1] - q.c[1], p[0] - q.c[0]), a0 = ang(q.a), am = ang(q.m), a1 = ang(q.b);
+      const norm = (x) => ((x % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+      const ccw = norm(am - a0) < norm(a1 - a0), sw = ccw ? norm(a1 - a0) : -norm(a0 - a1), n = perPiece * 2;
+      for (let i = 1; i <= n; i++) { const t = a0 + (sw * i) / n; pts.push(i === n ? q.b : [q.c[0] + q.r * Math.cos(t), q.c[1] + q.r * Math.sin(t)]); }
+      continue;
+    }
     if (!q.c1) { pts.push(q.b); continue; }
     for (let i = 1; i <= perPiece; i++) {
       const t = i / perPiece, u = 1 - t;

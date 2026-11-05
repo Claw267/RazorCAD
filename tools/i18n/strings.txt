@@ -977,3 +977,39 @@ Left
 Right
 Bottom
 Trimetric
+Split Body
+Split Face
+Bodies to Split
+Faces to Split
+Splitting Tool
+Select bodies
+Select faces
+Select splitting tool
+All intersected bodies
+Extend Splitting Tool
+Split Type
+Projection Direction
+Sketch normal
+Along Vector
+Positive side
+Negative side
+Profile Source
+Sketch contours
+Model edges
+Add selected edges as profile
+Clear selected edges
+Run the Setup
+Run the new setup yourself to update. Your parts and settings stay.
+Follow the setup, then start RazorCAD again
+Break Lines
+Remove Break Lines
+Break from Parent View
+Move to Sheet…
+Standard Mates
+Advanced Mates
+Mechanical Mates
+Hinge
+Universal Joint
+Linear Coupler
+More Drivers
++ Add a driver

@@ -625,6 +625,38 @@ const UI = {
     return { ok: true, detail: `${notes.length} parts restored without rebuilding (${(bytes / 1048576).toFixed(1)} MB of BRep; meshing ${mesh1} ms → ${mesh2} ms)` };
   },
 
+  // a big part's states written out (more edges and vertices in all its states than a call can take as
+  // arguments: this used to overflow the kernel's stack and restart it after the part opened)
+  async 'feature-states-of-a-big-part'() {
+    const k = window.app.kernel;
+    const d = M.newDoc();
+    // (a sheet metal plate first: its states hold loose faces and edges, so the faces and edges of every
+    // state's bodies are listed when they are written)
+    const rect = (s, x0, y0, x1, y1) => { const q = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]; Object.assign(s, { points: q.map(([x, y], i) => ({ id: 'p' + i, x, y })), curves: q.map((_, i) => ({ id: 'c' + i, type: 'line', p1: 'p' + i, p2: 'p' + ((i + 1) % 4), construction: false })), constraints: [] }); return s; };
+    const ss = rect(M.createFeature(d, 'sketch', { plane: { ref: 'front' } }), 300, 0, 400, 100);
+    d.features.push(ss, M.createFeature(d, 'smBase', { sketch: ss.id, thickness: 2, radius: 2, kFactor: 0.44 }));
+    const n = 3000, sk = M.createFeature(d, 'sketch', { plane: { ref: 'front' } });
+    Object.assign(sk, {
+      points: Array.from({ length: n }, (_, i) => ({ id: 'p' + i, x: 200 * Math.cos((2 * Math.PI * i) / n), y: 200 * Math.sin((2 * Math.PI * i) / n) })),
+      curves: Array.from({ length: n }, (_, i) => ({ id: 'c' + i, type: 'line', p1: 'p' + i, p2: 'p' + ((i + 1) % n), construction: false })), constraints: [],
+    });
+    d.features.push(sk, M.createFeature(d, 'extrude', { sketch: sk.id, depth: 10 }));
+    for (let j = 0; j < 20; j++) {
+      const s = rect(M.createFeature(d, 'sketch', { plane: { ref: 'front' } }), -150 + 15 * j, -5, -140 + 15 * j, 5);
+      d.features.push(s, M.createFeature(d, 'extrude', { sketch: s.id, op: 'cut', end: 'through2' }));
+    }
+    const r = await k.rebuild(d, null, null);
+    if (r.errors?.length) return { ok: false, detail: `rebuild: ${JSON.stringify(r.errors)}` };
+    let snaps;
+    try { snaps = await k.request('exportSnaps', { ids: d.features.map((f) => f.id) }); } catch (e) { return { ok: false, detail: `writing the states: ${e.message}` }; }
+    if (!snaps?.brep) return { ok: false, detail: `not written out (${snaps?.error || 'nothing'})` };
+    await k.rebuild(M.newDoc(), null, null);
+    if (!(await k.request('importSnaps', { snaps }))) return { ok: false, detail: 'not read back' };
+    const r2 = await k.rebuild(d, null, null);
+    return r2.timing?.reused === d.features.length ? { ok: true, detail: `${n}-sided plate with 20 cuts and a sheet metal plate: ${snaps.n} states' shapes written (${(snaps.brep.length / 1048576).toFixed(1)} MB) and reused` }
+      : { ok: false, detail: `${r2.timing?.reused} of ${d.features.length} features reused` };
+  },
+
   async 'extrude-contour-references'() {
     const a = window.app, S = await import('/js/sketchmodel.js'), LR = await import('/js/loftrefs.js');
     const d = M.newDoc(), sk = M.createFeature(d, 'sketch', { plane: { ref: 'top' } });
@@ -912,6 +944,586 @@ const UI = {
     if(!text().includes('Clearance round the part'))bad.push('no clearance for a slipped-on flange');
     a.cancelPM?.();
     return {ok:!bad.length,detail:bad.length?bad.join('; '):`${native.results.length} kernel cases by hand; the pipe and its flange; the panel`};
+  },
+
+  // What a hands-on run with a multibody part and an assembly found: a pin moved into a plate's hole with mates
+  // (Move/Copy Body) follows the hole when the hole moves, mated to its edge or to its wall; a hole being edited
+  // shows its place measured on the model before it (not on the pin later put in it); a new Move/Copy Body says what
+  // to pick, not an error; two flat faces made Coincident keep the body the right way up; the face menu has
+  // Move/Copy Body; a part's highlighted faces are not left over an assembly's tab
+  async 'multibody-mates-hands-on'() {
+    const a=window.app,S=await import('/js/sketchmodel.js'),bad=[];
+    const done=()=>until(()=>!a.kernel.pending,60000,50);
+    const d=M.newDoc(),s1=M.createFeature(d,'sketch',{plane:{ref:'top'}}),q=[[0,0],[100,0],[100,60],[0,60]].map(([u,v])=>S.addPoint(s1,u,v));q.forEach((p,i)=>S.addLine(s1,p,q[(i+1)%4]));
+    const plate=M.createFeature(d,'extrude',{sketch:s1.id,depth:10}),hole=M.createFeature(d,'hole',{holeType:'simple',size:'custom',diameter:20,end:'through',faces:[{p:[50,10,-30],n:[0,1,0]}]});
+    const s2=M.createFeature(d,'sketch',{plane:{ref:'top'}});S.addCircle(s2,S.addPoint(s2,-50,-50),10);
+    const pin=M.createFeature(d,'extrude',{sketch:s2.id,depth:40,merge:false});
+    d.features.push(s1,plate,hole,s2,pin);
+    await a.newDocument?.();closeModals();await a.setDoc(d);await done();
+    // (a new Move/Copy Body: what to pick, not an error)
+    a.startFeature('moveBody');await done();
+    const st=document.querySelector('#pm .pm-status');
+    if(!st||st.classList.contains('err')||/error/.test(document.querySelector('#status-rebuild').textContent))bad.push(`new Move Body shown as an error: ${st?.className} / ${document.querySelector('#status-rebuild').textContent}`);
+    // (mates: the pin's wall concentric with the hole's top edge; its top face on the plate's top: picked as in the
+    // view, so it keeps the right way up)
+    const mb=a.pm.feature;mb.bodies=[pin.id];mb.mode='mates';
+    mb.mates=[{type:'concentric',a:{kind:'face',p:[-40,20,50]},b:{kind:'edge',p:[50,10,-40]},value:10,flip:false},{type:'coincident',a:null,b:null,value:10,flip:false}];
+    a.pm.mateSlot={i:1,which:'a'};a.pmPickMate({kind:'face',p:[-50,40,50],n:[0,1,0]});a.pmPickMate({kind:'face',p:[20,10,-10],n:[0,1,0]});
+    if(mb.mates[1].flip!==true)bad.push('two upward faces made Coincident would turn the pin over');
+    await a.okPM();await done();
+    const pinAt=(cx,cz)=>{const P=a.viewport.edgeList.flatMap(e=>e.pts).filter(p=>Math.abs(Math.hypot(p.x-cx,p.z-cz)-10)<0.01);return P.length?[Math.min(...P.map(p=>p.y)),Math.max(...P.map(p=>p.y))]:null;};
+    let y=pinAt(50,-30);
+    if(a.result.errors.size||!y||Math.abs(y[0]+30)>1e-6||Math.abs(y[1]-10)>1e-6)bad.push(`pin not in the hole: ${y} ${[...a.result.errors.values()]}`);
+    // (the hole moved: the pin with it)
+    const H=()=>M.findFeature(a.doc,hole.id),MB=()=>M.findFeature(a.doc,mb.id);
+    H().faces[0].p=[25,10,-30];a.commit();await a.rebuild();await done();
+    y=pinAt(25,-30);
+    if(a.result.errors.size||!y)bad.push(`pin did not follow the hole (edge mate): ${[...a.result.errors.values()]}`);
+    // (mated to the hole's wall instead, and the hole moved again)
+    MB().mates[0].b={kind:'face',p:[35,5,-30]};a.commit();await a.rebuild();await done();
+    H().faces[0].p=[70,10,-25];a.commit();await a.rebuild();await done();
+    y=pinAt(70,-25);
+    if(a.result.errors.size||!y)bad.push(`pin did not follow the hole (wall mate): ${[...a.result.errors.values()]}`);
+    // (the hole edited: its place measured on the plate before it, though the pin now sits in it)
+    a.editFeature(hole.id);await done();await until(()=>document.querySelector('[data-hole-pos] input')?.value==='70',5000,50);
+    const pos=[...document.querySelectorAll('[data-hole-pos] input')].map(i=>i.value);
+    if(pos.join()!=='70,25')bad.push(`edited hole shows ${pos}`);
+    a.cancelPM();await done();
+    // (the face menu: Move/Copy Body)
+    a.viewport.setStandardView('iso',false);a.viewport.fitAll?.();await wait(80);
+    const sp=a.viewport.project(new (a.viewport.camera.position.constructor)(5,5,-0.001)),r=a.viewport.canvas.getBoundingClientRect();
+    a.viewportMenu({clientX:r.left+sp.x,clientY:r.top+sp.y,button:2,type:'contextmenu',preventDefault(){},stopPropagation(){}});await wait(80);
+    if(!/Move\/Copy Body/.test(document.querySelector('#ctxmenu')?.textContent||''))bad.push('no Move/Copy Body in the face menu');
+    a.ui.closeContext();
+    // (a feature selected, then an assembly's tab: its highlighted faces gone)
+    a.select({kind:'feature',id:plate.id});await wait(80);
+    const had=Object.keys(a.viewport._faceSets||{}).length;
+    const ed={attach(){},detach(){},doc:{},name:'x'};try{a.enterDrawing(ed);}catch{}
+    const left=Object.keys(a.viewport._faceSets||{}).length;
+    try{a.exitDrawing();}catch{}
+    if(!had||left)bad.push(`highlighted faces: ${had} before, ${left} left over the assembly`);
+    return {ok:!bad.length,detail:bad.length?bad.join('; '):'pin follows the hole (edge and wall mates), edited hole place, no error while picking, right way up, face menu, no leftover highlight'};
+  },
+
+  // The suggested fixes: a reference found again as the nearest of look-alikes is marked for checking (and accepted);
+  // too close to call, it fails rather than taking the wrong one; a curved face (a countersink's cone) found again
+  // when it moves; sizes typed for arcs, ellipses, slots and a polygon's sides; the undo history inside a sketch; a
+  // drawing view with no clear spot offered the largest scale that gives it one
+  async 'suggested-fixes'() {
+    const a=window.app,S=await import('/js/sketchmodel.js'),D=await import('/js/drawing.js'),bad=[];
+    const done=()=>until(()=>!a.kernel.pending,60000,50);
+    const plate=(holeProps)=>{const d=M.newDoc(),s1=M.createFeature(d,'sketch',{plane:{ref:'top'}}),q=[[0,0],[100,0],[100,60],[0,60]].map(([u,v])=>S.addPoint(s1,u,v));q.forEach((p,i)=>S.addLine(s1,p,q[(i+1)%4]));
+      const hole=M.createFeature(d,'hole',{end:'through',...holeProps}),s2=M.createFeature(d,'sketch',{plane:{ref:'top'}});S.addCircle(s2,S.addPoint(s2,-50,-50),holeProps.pin);delete hole.pin;
+      const pin=M.createFeature(d,'extrude',{sketch:s2.id,depth:40,merge:false});d.features.push(s1,M.createFeature(d,'extrude',{sketch:s1.id,depth:10}),hole,s2,pin);return {d,hole,pin};};
+    const mate=async(pin,a0,b0)=>{a.startFeature('moveBody');await done();const mb=a.pm.feature;mb.bodies=[pin.id];mb.mode='mates';mb.mates=[{type:'concentric',a:a0,b:b0,value:10,flip:false}];await a.okPM();await done();return mb;};
+    // (two holes the same size: the pin's wall mated to the first one's; the first one moved nearer the edge)
+    {
+      const {d,hole,pin}=plate({holeType:'simple',size:'custom',diameter:20,faces:[{p:[30,10,-30],n:[0,1,0]},{p:[70,10,-30],n:[0,1,0]}],pin:10});
+      await a.newDocument?.();closeModals();await a.setDoc(d);await done();
+      const mb=await mate(pin,{kind:'face',p:[-40,20,50]},{kind:'face',p:[20,5,-30]});
+      const H=()=>M.findFeature(a.doc,hole.id),MB=()=>M.findFeature(a.doc,mb.id);
+      const pinAt=(cx)=>a.viewport.edgeList.flatMap(e=>e.pts).some(p=>Math.abs(Math.hypot(p.x-cx,p.z+30)-10)<0.01&&p.y>10.5);
+      if(!MB().mates[0].b.sf)bad.push('the hole wall the pin is mated to: what it is not kept');
+      H().faces[0].p=[12,10,-30];a.commit();await a.rebuild();await done();
+      if(a.result.errors.size||!pinAt(12)||pinAt(70))bad.push(`the pin did not follow its hole past the other: ${[...a.result.errors.values()]}`);
+      if(M.guessedRefs(MB()).length!==1||!document.querySelector(`[data-fid="${mb.id}"] .twarn`))bad.push(`not marked for checking: ${M.guessedRefs(MB()).length}`);
+      if(!a.ui.featureMenu(MB()).some(x=>x.label==='Accept Found References'))bad.push('no Accept Found References');
+      a.acceptFoundRefs(mb.id);await done();
+      if(M.guessedRefs(MB()).length||document.querySelector(`[data-fid="${mb.id}"] .twarn`))bad.push('still marked after Accept');
+      await a.rebuild();await done();
+      if(M.guessedRefs(MB()).length)bad.push('marked again after a rebuild');
+      // (edited and accepted with ✔: no longer marked either)
+      H().faces[0].p=[28,10,-30];a.commit();await a.rebuild();await done();
+      a.editFeature(mb.id);await done();
+      if(!document.querySelector('[data-pm-guessed]'))bad.push('the panel does not say a reference was guessed');
+      await a.okPM();await done();await a.rebuild();await done();
+      if(M.guessedRefs(MB()).length)bad.push('still marked after ✔');
+      // (moved past the other hole, so it is nearer the old place: not found, rather than the wrong hole)
+      H().faces[0].p=[88,10,-30];a.commit();await a.rebuild();await done();
+      if(!a.result.errors.get(mb.id))bad.push('too close to call, yet a hole was taken');
+    }
+    // (a countersink's cone: the pin mated to it follows the hole)
+    {
+      const {d,hole,pin}=plate({holeType:'csink',size:'M10',faces:[{p:[50,10,-30],n:[0,1,0]}],pin:5});
+      await a.newDocument?.();closeModals();await a.setDoc(d);await done();
+      const mb=await mate(pin,{kind:'face',p:[-45,20,50]},{kind:'face',p:[59.35,8,-30]});
+      if(M.findFeature(a.doc,mb.id).mates[0].b.sf?.t!=='CONE')bad.push('the cone is not kept as a cone');
+      M.findFeature(a.doc,hole.id).faces[0].p=[20,10,-30];a.commit();await a.rebuild();await done();
+      const P=a.viewport.edgeList.flatMap(e=>e.pts).filter(p=>p.y>12),x=P.length?(Math.min(...P.map(p=>p.x))+Math.max(...P.map(p=>p.x)))/2:null;
+      if(a.result.errors.size||Math.abs(x-20)>1e-6)bad.push(`the pin did not follow the countersink: ${x} ${[...a.result.errors.values()]}`);
+    }
+    // (sizes typed: an arc, an ellipse, a slot, a polygon's sides, a tangent arc, a 3 point arc's radius)
+    await a.newDocument?.();closeModals();await a.setDoc(M.newDoc());await done();
+    a.select({kind:'plane',id:'front'});await a.startSketch();await until(()=>a.mode==='sketch',5000,50);
+    const sk=a.sketcher,cv=a.viewport.canvas.getBoundingClientRect(),cx=cv.left+cv.width/2,cy=cv.top+cv.height/2;
+    const at=(dx,dy)=>({button:0,clientX:cx+dx,clientY:cy+dy,ctrlKey:false,shiftKey:false,metaKey:false});
+    const key=(k,t=window)=>t.dispatchEvent(new KeyboardEvent('keydown',{key:k,bubbles:true,cancelable:true}));
+    const labels=()=>[...document.querySelectorAll('.sk-type .sk-type-row span')].map(s=>s.textContent).join();
+    const type=async(vals)=>{const ins=[...document.querySelectorAll('.sk-type input')];vals.forEach((v,i)=>{ins[i].value=v;ins[i].dispatchEvent(new Event('input',{bubbles:true}));});key('Enter',ins[0]);await wait(30);};
+    const dims=()=>sk.f.constraints.filter(k=>k.type==='dim').map(k=>k.kind+(k.axis?'/'+k.axis:'')+':'+k.value);
+    const arcOf=(c)=>{const C=S.getPoint(sk.f,c.c),A=S.getPoint(sk.f,c.p1),B=S.getPoint(sk.f,c.p2);return {r:Math.hypot(A.x-C.x,A.y-C.y),sweep:(((Math.atan2(B.y-C.y,B.x-C.x)-Math.atan2(A.y-C.y,A.x-C.x))*180/Math.PI)%360+360)%360,C};};
+    sk.setTool('arc');sk.pointerDown(at(-200,0));sk.pointerMove(at(-150,0));key('2');await wait(30);
+    if(labels()!=='Radius,Sweep °')bad.push(`arc box: ${labels()}`);
+    await type(['20','120']);
+    const arc=sk.f.curves.find(c=>c.type==='arc'),g=arc&&arcOf(arc);
+    if(!g||Math.abs(g.r-20)>1e-6||Math.abs(g.sweep-120)>1e-6)bad.push(`typed arc ${g?.r} ${g?.sweep}`);
+    sk.setTool('ellipse');sk.pointerDown(at(0,0));sk.pointerMove(at(40,10));key('3');await wait(30);await type(['30','12']);
+    const e=sk.f.curves.find(c=>c.type==='ellipse'),eg=e&&S.ellipseGeom(sk.f,e);
+    if(!eg||Math.abs(eg.ra-30)>1e-6||Math.abs(eg.rb-12)>1e-6)bad.push(`typed ellipse ${eg?.ra} ${eg?.rb}`);
+    sk.setTool('slot');sk.pointerDown(at(-100,120));sk.pointerMove(at(-50,100));key('5');await wait(30);
+    if(labels()!=='Length,Width')bad.push(`slot box: ${labels()}`);
+    await type(['50','16']);
+    const slotArcs=sk.f.curves.filter(c=>c.type==='arc').slice(1).map(arcOf);
+    if(slotArcs.length!==2||slotArcs.some(x=>Math.abs(x.r-8)>1e-6)||Math.abs(Math.hypot(slotArcs[0].C.x-slotArcs[1].C.x,slotArcs[0].C.y-slotArcs[1].C.y)-50)>1e-6)bad.push('typed slot not 50 long, 16 wide');
+    sk.setTool('polygon');sk.pointerDown(at(150,-120));sk.pointerMove(at(180,-120));key('4');await wait(30);await type(['40','8']);
+    if(sk.polySides!==8||sk.f.curves.filter(c=>c.type==='line'&&!c.construction).length!==10)bad.push(`typed polygon: ${sk.polySides} sides`);
+    const want=['radius:20','radius/major:30','radius:12','distance:50','diameter:16','diameter:40'];
+    if(dims().join()!==want.join())bad.push(`dimensions ${dims()}`);
+    // (a tangent arc from a line's end: R 15, 90°)
+    sk.setTool('line');sk.pointerDown(at(-250,-150));sk.pointerDown(at(-200,-150));sk.endDraw();
+    const ln=sk.f.curves.filter(c=>c.type==='line').pop(),P0=S.getPoint(sk.f,ln.p2);
+    sk.setTool('tarc');sk.draw={tool:'tarc',from:ln.p2,curve:ln.id,t:S.endTangent(sk.f,ln,ln.p2),p0:{x:P0.x,y:P0.y},p1:{x:P0.x+10,y:P0.y+5}};
+    key('1');await wait(30);await type(['15','90']);
+    const ta=arcOf(sk.f.curves.filter(c=>c.type==='arc').pop());
+    if(Math.abs(ta.r-15)>1e-6||Math.abs(Math.min(ta.sweep,360-ta.sweep)-90)>1e-6)bad.push(`typed tangent arc ${ta.r} ${ta.sweep}`);
+    // (a 3 point arc's radius; one too small refused in the box)
+    sk.setTool('arc3');const A0={x:100,y:100,kind:'grid'},B0={x:140,y:100,kind:'grid'};
+    sk.draw={tool:'arc3',stage:2,s0:A0,p0:A0,s1:B0,p1:B0,p2:{x:120,y:110},sweep:0};
+    key('5');await wait(30);await type(['5']);
+    if(!/at least half/.test(document.querySelector('.sk-type .merr')?.textContent||''))bad.push('a too small radius was not refused');
+    key('Escape',document.querySelector('.sk-type input'));await wait(30);
+    sk.draw={tool:'arc3',stage:2,s0:A0,p0:A0,s1:B0,p1:B0,p2:{x:120,y:110},sweep:0};
+    key('2');await wait(30);await type(['25']);
+    const a3=arcOf(sk.f.curves.filter(c=>c.type==='arc').pop());
+    if(Math.abs(a3.r-25)>1e-6||a3.C.y>100)bad.push(`typed 3 point arc r ${a3.r}, centre y ${a3.C.y}`);
+    sk.endDraw();
+    // (the sketch's undo history: in words; one step per typed shape; back to just after the arc)
+    const st=sk.steps(),steps=st.list.map((_,i)=>sk.describeStep(i));
+    if(steps[1]!=='Added Arc with 1 dimension'||steps[0]!=='Opened')bad.push(`sketch steps ${steps.join(' | ')}`);
+    a.ui.showUndoHistory(document.querySelector('#hud'));
+    const rows=[...document.querySelectorAll('#ctxmenu [data-undo-step]')];
+    if(rows.length!==st.list.length||!/^Undo history: /.test(document.querySelector('#ctxmenu .vis-h')?.textContent||''))bad.push(`${rows.length} rows in the sketch's undo list`);
+    rows.find(r=>r.dataset.undoStep==='1')?.click();await wait(50);
+    if(sk.f.curves.length!==1||sk.steps().idx!==1)bad.push(`the undo list did not go back to just after the arc: ${sk.f.curves.length} curves`);
+    a.ui.showUndoHistory(document.querySelector('#hud'));document.querySelector('#ctxmenu [data-undo-step]')?.click();await wait(50);
+    if(!sk.f.curves.some(c=>c.type==='ellipse'))bad.push('the undo list did not redo to the end');
+    a.exitSketch(true);await done();
+    // (a drawing view far too big for its sheet: the largest scale that gives it a clear spot, offered)
+    {
+      const d=M.newDoc(),s1=M.createFeature(d,'sketch',{plane:{ref:'front'}}),q=[[0,0],[100,0],[100,60],[0,60]].map(([u,v])=>S.addPoint(s1,u,v));q.forEach((p,i)=>S.addLine(s1,p,q[(i+1)%4]));
+      d.features.push(s1,M.createFeature(d,'extrude',{sketch:s1.id,depth:20}));
+      await a.newDocument?.();closeModals();await a.setDoc(d);await done();
+      const keep=a.ui.newDrawingSetup;
+      a.ui.newDrawingSetup=async(o)=>({template:BUILTIN_TEMPLATES.find((t)=>t.id==='builtin:A4L'),name:o.name,props:{},sheet:null,autoDim:false});
+      try{await a.newDrawing(true);}finally{a.ui.newDrawingSetup=keep;}
+      const ed=a.drawing,v=ed.doc.views.find(x=>x.type==='model');
+      await until(()=>ed.geos.get(v.id),10000,50);
+      v.scale=[5,1];ed.changed();await wait(300);ed.placeClear(v);await until(()=>document.querySelector('#modal-root .modal'),5000,50);
+      const btns=[...document.querySelectorAll('#modal-root .modal button')];
+      if(!btns.some(b=>b.textContent==='Scale the view down to 1 : 1')||!btns.some(b=>/larger sheet \(A1\)/.test(b.textContent)))bad.push(`offered ${btns.map(b=>b.textContent)}`);
+      btns.find(b=>/Scale/.test(b.textContent))?.click();await wait(300);
+      if(JSON.stringify(v.scale)!=='[1,1]'||!ed.clearSpot(v)||document.querySelector('#modal-root .modal'))bad.push(`after scaling down: ${JSON.stringify(v.scale)}`);
+    }
+    return {ok:!bad.length,detail:bad.length?bad.join('; '):'guessed reference marked, accepted and refused when too close; cone found again; typed arc, ellipse, slot, polygon, tangent and 3 point arcs; sketch undo history; view offered a scale that fits'};
+  },
+
+  // What hands-on use of sheet metal, patterns and configurations, a bigger assembly and STEP found: a second hole
+  // clicked on a face adds one (it took the first away); a blind hole follows a thicker plate (it was left buried)
+  // and keeps its distance from the edge as a configuration changes the width; a flat pattern's DXF is named after
+  // the part; a view placed clear of the other views' dimensions too; a bill of materials placed clear of the views;
+  // a nut through two plates bolted together goes under both (it went between them); a body's own colour in the STEP
+  async 'hands-on-round-3'() {
+    const a=window.app,S=await import('/js/sketchmodel.js'),D=await import('/js/drawing.js'),bad=[];
+    const done=()=>until(()=>!a.kernel.pending,60000,50);
+    const plateDoc=(w,h,t,faces,name='Plate')=>{const d=M.newDoc();d.name=name;const s=M.createFeature(d,'sketch',{plane:{ref:'top'}}),q=[[-w/2,-h/2],[w/2,-h/2],[w/2,h/2],[-w/2,h/2]].map(([u,v])=>S.addPoint(s,u,v));q.forEach((p,i)=>S.addLine(s,p,q[(i+1)%4]));
+      const ex=M.createFeature(d,'extrude',{sketch:s.id,depth:t});d.features.push(s,ex);if(faces)d.features.push(M.createFeature(d,'hole',{holeType:'simple',size:'custom',diameter:11,end:'through',faces}));return {d,ex};};
+    // (two holes clicked on one face; a click on one takes it away)
+    {
+      const {d}=plateDoc(200,120,10);
+      await a.newDocument?.();closeModals();await a.setDoc(d);await done();
+      a.viewport.setStandardView('iso',false);a.viewport.fitAll?.();await wait(150);
+      const V3=a.viewport.camera.position.constructor,r=a.viewport.canvas.getBoundingClientRect();
+      const ev=(x,y,z)=>{const sp=a.viewport.project(new V3(x,y,z));return {clientX:r.left+sp.x,clientY:r.top+sp.y,button:0,shiftKey:false};};
+      a.startFeature('hole');await done();
+      a.handleClick(ev(-60,10,0));await done();a.handleClick(ev(60,10,0));await done();a.handleClick(ev(0,10,0));await done();
+      const n3=a.pm.feature.faces.length;a.handleClick(ev(0,10,0));await done();
+      if(n3!==3||a.pm.feature.faces.length!==2)bad.push(`holes clicked on one face: ${n3}, then ${a.pm.feature.faces.length} after a click on one`);
+      a.cancelPM();await done();
+    }
+    // (a blind hole in a plate made thicker; 20 from the left edge, as the plate is made narrower)
+    {
+      const {d,ex}=plateDoc(100,60,10);
+      const h=M.createFeature(d,'hole',{holeType:'simple',size:'custom',diameter:10,end:'blind',depth:6,faces:[{p:[-30,10,0],n:[0,1,0]}]});d.features.push(h);
+      const sk=d.features[0];
+      await a.newDocument?.();closeModals();await a.setDoc(d);await done();
+      const ys=()=>[...new Set(a.viewport.edgeList.flatMap(e=>e.pts).filter(p=>Math.abs(Math.hypot(p.x+30,p.z)-5)<0.01).map(p=>+p.y.toFixed(3)))].sort((x,y)=>x-y).join();
+      M.findFeature(a.doc,ex.id).depth=20;a.commit();await a.rebuild();await done();
+      if(ys()!=='14,20')bad.push(`blind hole after the plate was made thicker: at y ${ys()}`);
+      // (the plate narrower: its left edge moves in by 20; the hole stays 20 from it)
+      const sk2=M.findFeature(a.doc,sk.id);for(const p of sk2.points)if(p.x<0)p.x+=20;a.commit();await a.rebuild();await done();
+      const xs=a.viewport.edgeList.flatMap(e=>e.pts).filter(p=>Math.abs(p.y-20)<1e-6&&Math.abs(p.z)<5.01&&p.x<0&&p.x>-29.9).map(p=>p.x);
+      const cx=xs.length?(Math.min(...xs)+Math.max(...xs))/2:null;
+      if(a.result.errors.size||Math.abs(cx+10)>1e-3)bad.push(`hole after the left edge moved in by 20: centre x ${cx} (left edge -30) ${[...a.result.errors.values()]}`);
+    }
+    // (a sheet metal part: its flat pattern named after the part, not the last feature)
+    {
+      const d=M.newDoc();d.name='Bracket';const s=M.createFeature(d,'sketch',{plane:{ref:'top'}}),q=[[-50,-30],[50,-30],[50,30],[-50,30]].map(([u,v])=>S.addPoint(s,u,v));q.forEach((p,i)=>S.addLine(s,p,q[(i+1)%4]));
+      d.features.push(s,M.createFeature(d,'smBase',{sketch:s.id}),M.createFeature(d,'hole',{holeType:'simple',size:'custom',diameter:8,end:'through',faces:[{p:[0,2,0],n:[0,1,0]}]}));
+      await a.newDocument?.();closeModals();await a.setDoc(d);await done();
+      const b=a.result.bodies.find(x=>x.sheet);
+      if(a.sheetPartName(b)!=='Bracket')bad.push(`flat pattern named ${a.sheetPartName(b)} (body ${b.name})`);
+      a.updateBody(b.id,{name:'Side panel'});await done();
+      if(a.sheetPartName(a.result.bodies.find(x=>x.sheet))!=='Side panel')bad.push('a named body: not its name on the flat pattern');
+    }
+    // (an assembly: two plates bolted together, legs under them)
+    const top=plateDoc(400,240,10,[-150,-50,50,150].flatMap(x=>[-80,0,80].map(z=>({p:[x,10,z],n:[0,1,0]}))),'Clamp plate').d;
+    const leg=plateDoc(40,40,300,null,'Leg');leg.d.bodies={[leg.ex.id]:{color:'#cc2222'}};
+    a.newAssembly();await wait(300);closeModals();
+    const asm=a.drawing,pp=asm.addPart(top,null,null),pl=asm.addPart(leg.d,null,null);
+    await asm.addComponent(pp);await asm.addComponent(pp);
+    const [cA,cB]=asm.doc.components;Object.assign(cA,{pos:[0,0,0],rot:[0,0,0,1],fixed:true});Object.assign(cB,{pos:[0,10,0],rot:[0,0,0,1],fixed:true});
+    for(const [x,z] of [[-180,-100],[180,-100],[180,100],[-180,100]]){await asm.addComponent(pl);Object.assign(asm.doc.components.at(-1),{pos:[x,-300,z],rot:[0,0,0,1],fixed:true});}
+    await asm.loadParts();asm.solve();
+    const ref={comp:cB.id,kind:'axis',p:[-150,10,-80],d:[0,-1,0],r:5.5,circle:true};
+    const h=asm.holeOf(ref),hs=asm.throughStack(h);
+    if(Math.abs(hs.depth-20)>1e-6)bad.push(`the hole through both plates is ${hs.depth} deep`);
+    await asm.insertStdPart('hexBolt','M10',40,'steel',h,{all:true,washer:true,nut:true});
+    const ys=(re)=>[...new Set(asm.doc.components.filter(c=>re.test(c.name)).map(c=>+c.pos[1].toFixed(3)))].sort((x,y)=>x-y).join();
+    if(asm.doc.components.length!==54||ys(/Nut/)!=='-2'||ys(/Washer/)!=='0,20')bad.push(`${asm.doc.components.length} components; nuts at y ${ys(/Nut/)}, washers at ${ys(/Washer/)}`);
+    const coll=await asm.collisions({});
+    if((Array.isArray(coll)?coll.length:coll?.pairs?.length)!==0)bad.push('the fastened plates interfere');
+    // (its STEP: the leg's own colour kept)
+    const step=await a.readStepAssembly(new TextDecoder().decode((await (a.kernelPool||a.kernel).request('exportAssemblySTEP',{doc:JSON.stringify(asm.exportDoc())},'asm-parts')).bytes));
+    if(step.parts.find(p=>p.name==='Leg')?.appearance?.c!==0xcc2222)bad.push(`the leg's colour in the STEP: ${JSON.stringify(step.parts.find(p=>p.name==='Leg')?.appearance)}`);
+    // (its drawing: the bill of materials clear of the views)
+    const keep=a.ui.newDrawingSetup;
+    a.ui.newDrawingSetup=async(o)=>({template:BUILTIN_TEMPLATES.find((t)=>t.id==='builtin:A3L'),name:o.name,props:{},sheet:null,autoDim:false});
+    try{await a.newDrawing(true);}finally{a.ui.newDrawingSetup=keep;}
+    const ed=a.drawing;await until(()=>ed.doc.views.length&&ed.doc.views.every(v=>ed.geos.get(v.id)),60000,50);
+    ed.addBOM();ed.draw();
+    const bom=ed.doc.anns.find(x=>x.type==='bom'),pts=(ed.annCache.get(bom.id)||[]).flatMap(p=>p.a?[p.a,p.b]:p.pts||(p.p?[p.p]:[]));
+    const bx=[Math.min(...pts.map(q=>q[0])),Math.min(...pts.map(q=>q[1])),Math.max(...pts.map(q=>q[0])),Math.max(...pts.map(q=>q[1]))];
+    const over=ed.doc.views.filter(v=>{const r=D.viewRect(ed.doc,v,ed.geos);return r.x0<bx[2]&&r.x1>bx[0]&&r.y0<bx[3]&&r.y1>bx[1];}).map(v=>v.name);
+    if(over.length)bad.push(`the bill of materials lies over ${over.join(', ')}`);
+    // (a view placed where another view's dimension is: moved clear of it)
+    const v1=ed.doc.views[0],r1=D.viewRect(ed.doc,v1,ed.geos);
+    ed.doc.anns.push({id:D.newId(ed.doc,'a'),type:'note',sheet:v1.sheet,text:'CLEAR OF THIS NOTE',pos:[r1.x1+30,(r1.y0+r1.y1)/2],h:5});ed.draw();
+    const note=ed.doc.anns.at(-1),v2=ed.doc.views.find(v=>v.type==='projected'&&v.side==='right');
+    if(v2){v2.x+=note.pos[0]-(D.viewRect(ed.doc,v2,ed.geos).x0+D.viewRect(ed.doc,v2,ed.geos).x1)/2;ed.placeClear(v2,20,false);ed.draw();
+      const r2=D.viewRect(ed.doc,v2,ed.geos),np=(ed.annCache.get(note.id)||[]).flatMap(p=>p.a?[p.a,p.b]:p.pts||(p.p?[p.p]:[]));
+      if(np.some(q=>q[0]>r2.x0&&q[0]<r2.x1&&q[1]>r2.y0&&q[1]<r2.y1))bad.push('a view placed over a note was left there');}
+    return {ok:!bad.length,detail:bad.length?bad.join('; '):'holes clicked on one face, blind hole on a thicker plate, hole kept from its edge, flat pattern named after the part, nut under a stack, STEP colour, bill of materials and view placed clear'};
+  },
+
+  // View scales: a view and the views made from it share one scale (set on any of them, the others follow and keep
+  // their gaps), a detail view keeps its own; Break from Parent View leaves a projected or section view as it is but
+  // on its own (scaled alone, moved to another sheet, kept when its parent is deleted); an old drawing with a
+  // projected view at a scale of its own opens with it broken free, looking as it did
+  async 'view-scales'() {
+    const a=window.app,S=await import('/js/sketchmodel.js'),D=await import('/js/drawing.js'),bad=[];
+    const done=()=>until(()=>!a.kernel.pending,60000,50);
+    const d=M.newDoc();d.name='Block';const s=M.createFeature(d,'sketch',{plane:{ref:'front'}}),q=[[-50,-30],[50,-30],[50,30],[-50,30]].map(([u,v])=>S.addPoint(s,u,v));q.forEach((p,i)=>S.addLine(s,p,q[(i+1)%4]));
+    d.features.push(s,M.createFeature(d,'extrude',{sketch:s.id,depth:20}));
+    await a.newDocument?.();closeModals();await a.setDoc(d);await done();
+    const keep=a.ui.newDrawingSetup;
+    a.ui.newDrawingSetup=async(o)=>({template:BUILTIN_TEMPLATES.find((t)=>t.id==='builtin:A3L'),name:o.name,props:{},sheet:null,autoDim:false});
+    try{await a.newDrawing(true);}finally{a.ui.newDrawingSetup=keep;}
+    const ed=a.drawing,doc=ed.doc,ready=()=>until(()=>doc.views.every(v=>v.type==='detail'||ed.geos.get(v.id)),60000,50);
+    await until(()=>doc.views.length>=3,20000,50);await ready();
+    const front=doc.views.find(v=>v.type==='model'),side=doc.views.find(v=>v.type==='projected'&&(v.side==='right'||v.side==='left')),vert=doc.views.find(v=>v.type==='projected'&&v.side!==side.side);
+    const R=(v)=>D.viewRect(doc,v,ed.geos),mid=(r)=>[(r.x0+r.x1)/2,(r.y0+r.y1)/2],k=(v)=>D.viewScale(doc,v);
+    const gapX=()=>{const f=R(front),r=R(side);return r.x0>f.x1?r.x0-f.x1:f.x0-r.x1;},gapY=()=>{const f=R(front),r=R(vert);return r.y0>f.y1?r.y0-f.y1:f.y0-r.y1;};
+    // (the side view's scale set: the front and top follow; the front keeps its middle, the others their gaps)
+    const k0=k(front),c0=mid(R(front)),gx=gapX(),gy=gapY();
+    ed.startViewProps(side);
+    if(!document.querySelector('#pm [data-scale-family]'))bad.push('the side view\'s panel does not say what it scales with');
+    ed.setFamilyScale(side,k0>=1?[k0*2,1]:[1,1/(k0*2)]);
+    if([front,side,vert].some(v=>Math.abs(k(v)-k0*2)>1e-6)||side.scale||!front.scale)bad.push(`scales after the side view was scaled: ${[front,side,vert].map(k)} (own ${JSON.stringify([front.scale,side.scale])})`);
+    if(Math.hypot(mid(R(front))[0]-c0[0],mid(R(front))[1]-c0[1])>1e-6||Math.abs(gapX()-gx)>1e-6||Math.abs(gapY()-gy)>1e-6)bad.push(`layout after scaling: front middle ${mid(R(front))} (was ${c0}), gaps ${gapX()} / ${gapY()} (were ${gx} / ${gy})`);
+    ed.cancelTool?.();
+    // (a detail view of the front keeps its own scale as the front's changes)
+    const det={id:D.newId(doc,'v'),name:'Detail View A',type:'detail',parent:front.id,model:front.model,sheet:front.sheet,x:60,y:60,scale:[5,1],detail:{c:[40,20],r:8,letter:'A'}};
+    doc.views.push(det);ed.setFamilyScale(front,null);
+    if(k(det)!==5||Math.abs(k(side)-D.sheetScale(doc,front.sheet))>1e-9)bad.push(`detail scale ${k(det)}, side ${k(side)} after the front went back to the sheet scale`);
+    // (a section of the front, then the side view broken free: it looks as it did, and scales on its own)
+    const sec={id:D.newId(doc,'v'),name:'Section View B-B',type:'section',parent:front.id,model:front.model,sheet:front.sheet,style:'hlr',tangent:true,x:front.x,y:front.y+120,scale:null,section:{a:[-60,0],b:[60,0],arrow:[0,-1],horizontal:true,letter:'B'}};
+    doc.views.push(sec);ed.changed();await ready();
+    const cam0=D.viewCamera(doc,side),r0=R(side);
+    ed.breakView(side);await ready();
+    const cam1=D.viewCamera(doc,side),r1=R(side);
+    if(side.type!=='model'||side.parent||!side.name||Math.hypot(...cam0.dir.map((x,i)=>x-cam1.dir[i]))>1e-9||Math.hypot(...cam0.y.map((x,i)=>x-cam1.y[i]))>1e-9||Math.abs(r0.x0-r1.x0)+Math.abs(r0.y0-r1.y0)+Math.abs(r0.x1-r1.x1)>1e-6)bad.push(`broken side view: ${side.type}, parent ${side.parent}, camera ${cam1.dir} (was ${cam0.dir}), rect ${JSON.stringify(r1)} (was ${JSON.stringify(r0)})`);
+    ed.setFamilyScale(side,[1,10]);
+    if(Math.abs(k(side)-0.1)>1e-9||Math.abs(k(front)-D.sheetScale(doc,front.sheet))>1e-9)bad.push(`the broken view scaled alone: ${k(side)}, the front ${k(front)}`);
+    // (the section broken free: same cut, survives its parent's deletion)
+    const pl0=D.sectionPlane(doc,sec);ed.breakView(sec);
+    const pl1=D.sectionPlane(doc,sec);
+    if(!sec.free||Math.hypot(...pl0.n.map((x,i)=>x-pl1.n[i]))>1e-9||Math.hypot(...pl0.o.map((x,i)=>x-pl1.o[i]))>1e-9||D.alignAxis(sec))bad.push(`broken section: free ${sec.free}, plane ${JSON.stringify(pl1)} (was ${JSON.stringify(pl0)})`);
+    // (moved to a new sheet, with its own scale)
+    const ch=a.ui.choose;a.ui.choose=async()=> 'new';
+    try{await ed.moveToSheet(side);}finally{a.ui.choose=ch;}
+    if(doc.sheets.length!==2||side.sheet!==doc.sheets[1].id||ed.sheetId!==side.sheet||Math.abs(k(side)-0.1)>1e-9)bad.push(`moved to a new sheet: ${doc.sheets.length} sheets, on ${side.sheet}, scale ${k(side)}`);
+    ed.removeItems([front.id]);ed.changed();await ready();
+    if(!doc.views.includes(sec)||sec.parent||doc.views.includes(vert)||doc.views.includes(det)||ed.errors.get(sec.id))bad.push(`front deleted: section ${doc.views.includes(sec)} (parent ${sec.parent}, ${ed.errors.get(sec.id)}), top ${doc.views.includes(vert)}, detail ${doc.views.includes(det)}`);
+    // (an old drawing: a projected view with a scale of its own other than its parent's)
+    const old={views:[{id:'v1',type:'model',orient:'front',sheet:'s1',x:100,y:100,scale:null},{id:'v2',type:'projected',parent:'v1',side:'right',sheet:'s1',x:200,y:100,scale:[1,5]},{id:'v3',type:'projected',parent:'v1',side:'up',sheet:'s1',x:100,y:50,scale:[1,2]}],sheets:[{id:'s1',scale:[1,2],projection:'first'}]};
+    const c2=D.viewCamera(old,old.views[1]);D.upgradeViewScales(old);
+    const [o1,o2,o3]=old.views;
+    if(o2.type!=='model'||o2.parent||Math.abs(D.viewScale(old,o2)-0.2)>1e-9||Math.hypot(...c2.dir.map((x,i)=>x-D.viewCamera(old,o2).dir[i]))>1e-9||o3.scale||o3.parent!=='v1')bad.push(`old drawing: ${JSON.stringify(old.views)}`);
+    return {ok:!bad.length,detail:bad.length?bad.join('; '):'family scaled together keeping its gaps, detail on its own scale, projected and section views broken free as they were, moved to a new sheet, kept when the parent went, an old drawing upgraded'};
+  },
+
+  // The bigger usability items: sizes typed while drawing a rectangle, a circle and a line (made at those sizes and
+  // dimensioned); the grid's step in the status bar; the undo history (described, and gone straight back to); ✔+
+  // starts another of the same; a drawing made with Dimension the views ticked is dimensioned; a view placed over
+  // the title block moved clear of it; an edge picked on a thin sheet is the one nearer the eye
+  // A small circle drawn with two clicks a few pixels apart: the edge click snaps back onto the centre (the same
+  // grid point, or the centre point itself), which gave a radius of 0 and silently no circle. The pointer's own
+  // position is used instead, so the circle is made and can be sized by its dimension.
+  async 'sketch-small-circle-click'() {
+    const a=window.app;
+    await a.newDocument?.();closeModals();await a.setDoc(M.newDoc());await until(()=>!a.kernel.pending,60000,50);
+    a.select({kind:'plane',id:'front'});await a.startSketch();await until(()=>a.mode==='sketch',5000,50);
+    const sk=a.sketcher,cv=a.viewport.canvas.getBoundingClientRect(),cx=cv.left+cv.width/2+37,cy=cv.top+cv.height/2+23;
+    const at=(dx,dy)=>({button:0,clientX:cx+dx,clientY:cy+dy,ctrlKey:false,shiftKey:false,metaKey:false});
+    const click=(p)=>{sk.pointerMove(at(...p));sk.pointerDown(at(...p));sk.pointerUp(at(...p));};
+    sk.setTool('circle');click([0,0]);click([3,0]);
+    const n=sk.f.curves.filter(c=>c.type==='circle').length;
+    return {ok:n===1,detail:n===1?'two clicks 3 px apart make a circle':`${n} circles from two clicks 3 px apart`};
+  },
+
+  // A click whose grid snap lands on an existing sketch point, just outside the point's own snap distance: it joins
+  // that point instead of making a second, unconnected one on top of it (an arc started there was left loose).
+  async 'sketch-grid-snap-joins-point'() {
+    const a=window.app,S=await import('/js/sketchmodel.js');
+    await a.newDocument?.();closeModals();await a.setDoc(M.newDoc());await until(()=>!a.kernel.pending,60000,50);
+    a.select({kind:'plane',id:'front'});await a.startSketch();await until(()=>a.mode==='sketch',5000,50);
+    // (a zoom of 0.2 mm a pixel: a 5 mm grid, 25 px apart; the pointer 12 px right of the point, past its snap
+    // distance and still nearest that grid point)
+    const sk=a.sketcher;sk.wpp=()=>0.2;
+    const g=sk.gridStep(),id=S.addPoint(sk.f,3*g,2*g);
+    sk.setTool('arc');
+    const s=sk.snap({x:3*g+12*0.2,y:2*g});delete sk.wpp;
+    const ok=s.kind==='point'&&s.id===id;
+    return {ok,detail:ok?'a grid snap onto an existing point uses that point':`snapped to a ${s.kind} at (${s.x}, ${s.y}), not the point`};
+  },
+
+  // Sketch Fillet: corners after the first are made Equal to it, but another radius typed starts again (they were
+  // all made equal to the first, R20, with R10 showing in the panel).
+  async 'sketch-fillet-new-size'() {
+    const a=window.app,S=await import('/js/sketchmodel.js');
+    await a.newDocument?.();closeModals();await a.setDoc(M.newDoc());await until(()=>!a.kernel.pending,60000,50);
+    a.select({kind:'plane',id:'front'});await a.startSketch();await until(()=>a.mode==='sketch',5000,50);
+    const sk=a.sketcher,q=[[0,0],[100,0],[100,60],[0,60]].map(([x,y])=>S.addPoint(sk.f,x,y));q.forEach((p,i)=>S.addLine(sk.f,p,q[(i+1)%4]));
+    sk.setTool('sfillet');
+    const round=(i,r)=>{sk.filletR=r;const c=S.blendCorner(sk.f,q[i],r);return sk.equalToFirstBlend('sfillet',q[i],c)?'equal':'own';};
+    const got=[round(0,20),round(1,20),round(2,10),round(3,10)].join(' ');
+    const radii=sk.f.constraints.filter(k=>k.type==='dim'&&k.kind==='radius').map(k=>k.value).sort((x,y)=>x-y).join(' ');
+    const ok=got==='own equal own equal'&&radii==='10 20';
+    return {ok,detail:ok?'R20, R20 equal to it, then R10 typed: its own dimension and the next equal to that':`fillets ${got}, radius dimensions ${radii}`};
+  },
+
+  // A dimension's new value the solver can't reach in one go is tried a step at a time from the old value (an
+  // outline with 0.5 mm slot arcs, under defined, failed a 12 mm move that went through as 2 mm + 10 mm). Here a
+  // stand-in solver that can only move 3 mm at once.
+  async 'dimension-change-in-steps'() {
+    const a=window.app,S=await import('/js/sketchmodel.js');
+    await a.newDocument?.();closeModals();await a.setDoc(M.newDoc());await until(()=>!a.kernel.pending,60000,50);
+    a.select({kind:'plane',id:'front'});await a.startSketch();await until(()=>a.mode==='sketch',5000,50);
+    const sk=a.sketcher,p=S.addPoint(sk.f,10,0),q=S.addPoint(sk.f,10,30),l=S.addLine(sk.f,p,q);
+    S.addRel(sk.f,'vertical',[l]);S.addRel(sk.f,'dim',['O',l],{kind:'pointLine',value:10});sk.solve();
+    const k=sk.f.constraints.at(-1),real=sk.solve.bind(sk);let at=10;
+    sk.solve=(o)=>{const v=sk.ev(k.value);if(Math.abs(v-at)>3+1e-9)return {ok:false,bad:[]};at=v;return real(o);};
+    let r;try{k.value=22;r=sk.solve();if(!r.ok)r=sk.solveInSteps(k,10);}finally{delete sk.solve;}
+    const x=S.getPoint(sk.f,p).x,ok=r.ok&&k.value===22&&Math.abs(Math.abs(x)-22)<1e-6;
+    return {ok,detail:ok?'10 → 22 in steps where one go failed':`solved ${r.ok}, value ${k.value}, line at ${x}`};
+  },
+
+  // The wheel over a dimension label zooms the view, as over the model (it did nothing there: zooming in on a
+  // corner full of dimensions stopped whenever the cursor was on one).
+  async 'wheel-over-label-zooms'() {
+    const a=window.app,S=await import('/js/sketchmodel.js');
+    await a.newDocument?.();closeModals();await a.setDoc(M.newDoc());await until(()=>!a.kernel.pending,60000,50);
+    a.select({kind:'plane',id:'front'});await a.startSketch();await until(()=>a.mode==='sketch',5000,50);
+    const sk=a.sketcher,p=S.addPoint(sk.f,0,0),q=S.addPoint(sk.f,40,0);S.addLine(sk.f,p,q);S.addRel(sk.f,'dim',[p,q],{kind:'distance',value:40});sk.changed();await wait(50);
+    const lab=a.viewport.labelsEl.querySelector('.dim');
+    if(!lab)return {ok:false,detail:'no dimension label drawn'};
+    const r=lab.getBoundingClientRect(),z0=a.viewport.camera.zoom;
+    lab.dispatchEvent(new WheelEvent('wheel',{deltaY:-100,clientX:r.left+r.width/2,clientY:r.top+r.height/2,bubbles:true,cancelable:true}));
+    const z1=a.viewport.camera.zoom,ok=z1>z0*1.05;
+    return {ok,detail:ok?'the wheel over a dimension label zooms the view':`zoom ${z0} → ${z1} with the wheel over the label`};
+  },
+
+  // Wireframe draws every edge, so every edge can be picked: one behind the part's faces was drawn but not clickable.
+  async 'wireframe-picks-hidden-edge'() {
+    const a=window.app,S=await import('/js/sketchmodel.js'),done=()=>until(()=>!a.kernel.pending,60000,50);
+    const d=M.newDoc(),s=M.createFeature(d,'sketch',{plane:{ref:'top'}}),q=[[-40,-30],[40,-30],[40,30],[-40,30]].map(([u,w])=>S.addPoint(s,u,w));q.forEach((p,i)=>S.addLine(s,p,q[(i+1)%4]));
+    d.features.push(s,M.createFeature(d,'extrude',{sketch:s.id,depth:20}));
+    await a.newDocument?.();closeModals();await a.setDoc(d);await done();
+    const vp=a.viewport;vp.setStandardView('iso',false);vp.fitAll?.();await wait(80);
+    // (the straight edge furthest from the eye: behind the faces)
+    const dir=new vp.camera.position.constructor();vp.camera.getWorldDirection(dir);
+    const mid=(e)=>e.pts[0].clone().lerp(e.pts[e.pts.length-1],.5),depth=(p)=>p.clone().sub(vp.camera.position).dot(dir);
+    const back=vp.edgeList.filter((e)=>e.pts.length===2).reduce((x,y)=>(depth(mid(y))>depth(mid(x))?y:x));
+    const m=mid(back),sp=vp.project(m),r=vp.canvas.getBoundingClientRect(),ev={clientX:r.left+sp.x,clientY:r.top+sp.y};
+    const onIt=(h)=>!!h&&h.point.distanceTo(m)<1,keep=vp.displayStyle;
+    const shaded=onIt(vp.pickEdge(ev,6));
+    vp.displayStyle='wireframe';const wire=onIt(vp.pickEdge(ev,6));vp.displayStyle=keep;
+    const ok=!shaded&&wire;
+    return {ok,detail:ok?'the edge behind the faces: not picked shaded, picked in Wireframe':`picked shaded ${shaded}, in Wireframe ${wire}`};
+  },
+
+  async 'bigger-usability'() {
+    const a=window.app,S=await import('/js/sketchmodel.js'),bad=[];
+    const done=()=>until(()=>!a.kernel.pending,60000,50);
+    await a.newDocument?.();closeModals();await a.setDoc(M.newDoc());await done();
+    a.select({kind:'plane',id:'front'});await a.startSketch();await until(()=>a.mode==='sketch',5000,50);
+    const sk=a.sketcher,cv=a.viewport.canvas.getBoundingClientRect(),cx=cv.left+cv.width/2,cy=cv.top+cv.height/2;
+    const at=(dx,dy)=>({button:0,clientX:cx+dx,clientY:cy+dy,ctrlKey:false,shiftKey:false,metaKey:false});
+    const key=(k,t=window)=>t.dispatchEvent(new KeyboardEvent('keydown',{key:k,bubbles:true,cancelable:true}));
+    const type=async(vals)=>{const ins=[...document.querySelectorAll('.sk-type input')];vals.forEach((v,i)=>{if(v==null)return;ins[i].value=v;ins[i].dispatchEvent(new Event('input',{bubbles:true}));});key('Enter',ins[0]);await wait(30);};
+    // (a rectangle: first corner, mouse to the upper right, 4 typed: Width 40, Height 25)
+    sk.setTool('rect');sk.pointerDown(at(-100,40));sk.pointerMove(at(-60,10));key('4');await wait(30);
+    if(!document.querySelector('.sk-type'))bad.push('no size box when typing during a rectangle');
+    else await type(['40','25']);
+    const dims=()=>sk.f.constraints.filter(k=>k.type==='dim');
+    const lines=sk.f.curves.filter(c=>c.type==='line'),P=id=>S.getPoint(sk.f,id);
+    const xs=lines.flatMap(c=>[P(c.p1).x,P(c.p2).x]),ys=lines.flatMap(c=>[P(c.p1).y,P(c.p2).y]);
+    const W=Math.max(...xs)-Math.min(...xs),H=Math.max(...ys)-Math.min(...ys);
+    if(lines.length!==4||Math.abs(W-40)>1e-6||Math.abs(H-25)>1e-6)bad.push(`rectangle ${lines.length} lines ${W} × ${H}`);
+    if(dims().length!==2)bad.push(`${dims().length} dimensions on the typed rectangle`);
+    // (a circle: Ø 30)
+    sk.setTool('circle');sk.pointerDown(at(80,0));sk.pointerMove(at(100,0));key('3');await wait(30);await type(['30']);
+    const circ=sk.f.curves.find(c=>c.type==='circle');
+    if(!circ||Math.abs(S.radiusOf(sk.f,circ)-15)>1e-6)bad.push(`circle r ${circ&&S.radiusOf(sk.f,circ)}`);
+    if(!dims().some(k=>k.kind==='diameter'&&+k.value===30))bad.push('no Ø30 dimension');
+    // (a line: length 50 at 90°: vertical)
+    sk.setTool('line');sk.pointerDown(at(0,-120));sk.pointerMove(at(10,-160));key('5');await wait(30);await type(['50','90']);
+    const ln=sk.f.curves.filter(c=>c.type==='line').pop(),A=P(ln.p1),B=P(ln.p2);
+    if(Math.abs(Math.hypot(B.x-A.x,B.y-A.y)-50)>1e-6||Math.abs(B.x-A.x)>1e-6)bad.push(`line ${B.x-A.x}, ${B.y-A.y}`);
+    if(!sk.f.constraints.some(k=>k.type==='vertical'&&k.refs[0]===ln.id))bad.push('the typed 90° line is not vertical');
+    sk.endDraw();
+    // (the grid's step shown)
+    await wait(80);
+    if(!/^Grid /.test(document.querySelector('#status-grid')?.textContent||'')||document.querySelector('#status-grid').hidden)bad.push('no grid size in the status bar');
+    a.exitSketch(true);await done();
+    if(!document.querySelector('#status-grid').hidden)bad.push('grid size still shown after the sketch');
+    // (✔+: the extrude applied, another started)
+    a.startFeature('extrude','add');a.pm.feature.profiles=[a.doc.features[0].id];a.ui.renderPM();await done();
+    await a.okAndNext();await done();
+    if(a.doc.features.filter(f=>f.type==='extrude'&&f!==a.pm?.feature).length!==1||a.pm?.feature?.type!=='extrude'||!a.pm.isNew)bad.push(`✔+: ${a.doc.features.map(f=>f.type)} / ${a.pm?.feature?.type}`);
+    a.cancelPM();await done();
+    // (undo history: Sketch1 added, then Extrude1; back to just after the sketch)
+    const h=a.history,steps=h.stack.map((_,i)=>h.describe(i));
+    if(steps[h.idx]!=='Added Extrude1'||!steps.includes('Added Sketch1'))bad.push(`history ${steps.join(' | ')}`);
+    a.ui.showUndoHistory(document.querySelector('#hud'));
+    const rows=[...document.querySelectorAll('#ctxmenu [data-undo-step]')];
+    if(rows.length!==h.stack.length)bad.push(`${rows.length} rows in the undo list, ${h.stack.length} steps`);
+    rows.find(r=>r.textContent.includes('Added Sketch1'))?.click();await done();
+    if(a.doc.features.some(f=>f.type==='extrude'))bad.push('the undo list did not go back to before the extrude');
+    a.redo();await done();
+    // (a drawing with Dimension the views ticked)
+    const keep=a.ui.newDrawingSetup;
+    a.ui.newDrawingSetup=async(o)=>({template:BUILTIN_TEMPLATES.find((t)=>t.id==='builtin:A3L'),name:o.name,props:{},sheet:null,autoDim:true});
+    try{await a.newDrawing(true);}finally{a.ui.newDrawingSetup=keep;}
+    const ed=a.drawing;
+    if(!ed?.doc.anns.length)bad.push('the new drawing was not dimensioned');
+    // (a view put over the title block: moved clear of it)
+    const {titleBlockRect}=await import('/js/drawingformats.js'),D=await import('/js/drawing.js');
+    const tb=titleBlockRect(ed.sheet,ed.doc.format),v=ed.doc.views.find(x=>x.type==='model'),r0=D.viewRect(ed.doc,v,ed.geos);
+    v.x+=(tb.x0+tb.x1)/2-(r0.x0+r0.x1)/2;v.y+=(tb.y0+tb.y1)/2-(r0.y0+r0.y1)/2;ed.placeClear(v);
+    const r1=D.viewRect(ed.doc,v,ed.geos);
+    if(r1.x0<tb.x1&&r1.x1>tb.x0&&r1.y0<tb.y1&&r1.y1>tb.y0)bad.push('the view was left over the title block');
+    // (a thin sheet seen at a slant: its top edge picked, not the bottom one just behind it)
+    {
+      const d=M.newDoc(),s=M.createFeature(d,'sketch',{plane:{ref:'top'}}),q=[[-40,-30],[40,-30],[40,30],[-40,30]].map(([u,w])=>S.addPoint(s,u,w));q.forEach((p,i)=>S.addLine(s,p,q[(i+1)%4]));
+      d.features.push(s,M.createFeature(d,'smBase',{sketch:s.id,thickness:2}));
+      await a.newDocument?.();closeModals();await a.setDoc(d);await done();
+      a.viewport.setStandardView('iso',false);a.viewport.fitAll?.();await wait(80);
+      const E=a.viewport.edgeList,yTop=Math.max(...E.flatMap(e=>e.pts.map(p=>p.y))),zMax=Math.max(...E.flatMap(e=>e.pts.map(p=>p.z)));
+      const top=E.find(e=>e.pts.every(p=>Math.abs(p.y-yTop)<1e-6&&Math.abs(p.z-zMax)<1e-6));
+      if(!top)bad.push('no top front edge found');
+      else{
+        const mid=top.pts[0].clone().lerp(top.pts[top.pts.length-1],.5),sp=a.viewport.project(mid),r=a.viewport.canvas.getBoundingClientRect();
+        const below=mid.clone();below.y-=2;const sb=a.viewport.project(below);
+        // (clicked between the two, a little nearer the bottom one)
+        const px=sp.x*.4+sb.x*.6,py=sp.y*.4+sb.y*.6,hit=a.viewport.pickEdge({clientX:r.left+px,clientY:r.top+py},6);
+        if(!hit||Math.abs(hit.point.y-yTop)>1e-3)bad.push(`thin sheet edge picked at y ${hit?.point.y} (top ${yTop})`);
+      }
+    }
+    return {ok:!bad.length,detail:bad.length?bad.join('; '):'typed rectangle, circle and line, grid size, undo history, ✔+, auto-dimensioned drawing, view moved clear, top edge picked'};
+  },
+
+  // The hands-on review's fixes: a feature left open when another is started is asked about (applied here), never
+  // lost; a hole's place typed from the face's edges; double-click sizes (the feature's and its sketch's) typed in a
+  // box; blank own sizes of fillet edges not shown as errors; an empty sketch says so; Edge Flange edges on both faces
+  // of the sheet fold the same way; an Extruded Surface and a Structural Member go on from the sketch drawn for them;
+  // a drawing's tab says Drawing beside a part of the same name; a view over the title block is warned about
+  async 'usability-fixes'() {
+    const a=window.app,S=await import('/js/sketchmodel.js'),bad=[];
+    const done=()=>until(()=>!a.kernel.pending,60000,50);
+    const plate=()=>{const d=M.newDoc(),s=M.createFeature(d,'sketch',{plane:{ref:'front'}}),q=[[-50,-30],[50,-30],[50,30],[-50,30]].map(([u,v])=>S.addPoint(s,u,v));q.forEach((p,i)=>S.addLine(s,p,q[(i+1)%4]));S.addRel(s,'dim',[q[0],q[1]],{kind:'hdist',value:100,s:1});d.features.push(s,M.createFeature(d,'extrude',{sketch:s.id,depth:20}));return d;};
+    await a.newDocument?.();closeModals();await a.setDoc(plate());await done();
+    a.viewport.setStandardView('front',false);a.viewport.fitAll?.();await wait(50);
+    // (a hole on the front face, typed 20 from the left and 15 from the bottom)
+    a.startFeature('hole');a.pm.feature.faces.push({p:[0,0,20],n:[0,0,1]});a.ui.renderPM();await done();
+    const pos=[...document.querySelectorAll('[data-hole-pos] input')];
+    if(pos.length!==2||Math.abs(+pos[0].value-50)>1e-3||Math.abs(+pos[1].value-30)>1e-3)bad.push(`hole place shown ${pos.map(i=>i.value)}`);
+    else{pos[0].value='20';pos[0].dispatchEvent(new Event('input',{bubbles:true}));pos[1].value='15';pos[1].dispatchEvent(new Event('input',{bubbles:true}));}
+    const hp=a.pm.feature.faces[0].p;if(Math.abs(hp[0]+30)>1e-6||Math.abs(hp[1]+15)>1e-6)bad.push(`hole moved to ${hp}`);
+    // (Chamfer started with the hole open: asked; Apply keeps the hole)
+    a.startFeature('chamfer');await until(()=>document.querySelector('.modal-back'),5000,50);
+    const dlg=document.querySelector('.modal-back');
+    if(!dlg||!/Hole1 is still open/.test(dlg.textContent))bad.push('no question about the open hole');
+    [...(dlg?.querySelectorAll('.modal-f button')||[])].find(b=>b.textContent==='Apply')?.click();
+    await until(()=>a.pm?.feature?.type==='chamfer',8000,50);
+    if(!a.doc.features.some(f=>f.type==='hole'))bad.push('the hole was lost');
+    if(a.pm?.feature?.type!=='chamfer')bad.push('Chamfer did not start after Apply');
+    a.cancelPM();await done();
+    // (fillet edges: a blank own size is no error)
+    a.startFeature('fillet');a.pm.feature.edges=[{p:[-50,0,20]},{p:[50,0,20]}];a.ui.renderPM();await done();
+    if([...document.querySelectorAll('[data-edge-size] input, input[data-edge-size]')].some(i=>i.classList.contains('bad')))bad.push('blank edge sizes shown as errors');
+    a.cancelPM();await done();
+    // (double-click sizes: the extrude's depth and its sketch's width, typed)
+    const ex=a.doc.features.find(f=>f.type==='extrude');a.ui.showQuickDims(ex,300,300);await wait(30);
+    const qd=document.querySelector('.quick-dims'),rows=[...(qd?.querySelectorAll('[data-quick-dim]')||[])];
+    if(rows.length!==2)bad.push(`${rows.length} sizes in the double-click box`);
+    const depth=rows.map(r=>r.querySelector('input')).find(i=>i.value==='20');
+    if(depth){depth.value='35';depth.dispatchEvent(new Event('input',{bubbles:true}));depth.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));await done();if(+M.findFeature(a.doc,ex.id).depth!==35)bad.push('the typed depth was not applied');}
+    else bad.push('no depth in the double-click box');
+    document.querySelector('.quick-dims')?.remove();
+    // (an empty sketch)
+    const s2=M.createFeature(a.doc,'sketch',{plane:{ref:'top'}});a.doc.features.push(s2);await a.editSketch(s2.id);await wait(100);
+    if(!/Empty/.test(document.querySelector('#pm')?.textContent||''))bad.push('an empty sketch does not say it is empty');
+    a.exitSketch(false);await done();
+    // (edge flanges on the top and the bottom face of the sheet: both up)
+    {
+      const d=M.newDoc(),s=M.createFeature(d,'sketch',{plane:{ref:'top'}}),q=[[-30,-25],[40,-25],[40,30],[-30,30]].map(([u,v])=>S.addPoint(s,u,v));q.forEach((p,i)=>S.addLine(s,p,q[(i+1)%4]));
+      d.features.push(s,M.createFeature(d,'smBase',{sketch:s.id}),M.createFeature(d,'smFlange',{edges:[{p:[5,2,25]},{p:[40,0,2.5]}]}));
+      await a.setDoc(d);await done();
+      let lo=Infinity;const V=a.result.body?.vertices||[];for(let i=1;i<V.length;i+=3)lo=Math.min(lo,V[i]);
+      if(a.result.errors.size||!(lo>-1e-6))bad.push(`flanges on both faces: lowest ${lo}, ${[...a.result.errors.values()]}`);
+    }
+    // (an Extruded Surface and a Structural Member started with nothing drawn: sketched first, then on with it)
+    for(const [type,draw] of [['surfExtrude',(sk)=>{const p=[[0,0],[40,30],[80,0]].map(([x,y])=>S.addPoint(sk,x,y));S.addLine(sk,p[0],p[1]);S.addLine(sk,p[1],p[2]);}],['structMember',(sk)=>{const q=[[0,0],[200,0],[200,100],[0,100]].map(([x,y])=>S.addPoint(sk,x,y));q.forEach((p,i)=>S.addLine(sk,p,q[(i+1)%4]));}]]){
+      await a.newDocument?.();closeModals();await a.setDoc(M.newDoc());await done();
+      a.select({kind:'plane',id:'front'});a.startFeature(type);await until(()=>a.mode==='sketch',5000,50);
+      if(!/continues with it/.test(document.querySelector('#vp-banner')?.textContent||''))bad.push(`${type}: no word that it continues after the sketch`);
+      draw(a.sketcher.f);a.exitSketch(true);await until(()=>a.pm?.feature?.type===type,8000,50);await done();
+      if(a.pm?.feature?.type!==type||a.result.errors.get(a.pm.feature.id))bad.push(`${type} after its sketch: ${a.pm?.feature?.type} ${a.result.errors.get(a.pm?.feature?.id)||''}`);
+      a.cancelPM();await done();
+    }
+    // (a drawing of a part of the same name: its tab says Drawing; a view over the title block: warned)
+    await a.newDocument?.();closeModals();await a.setDoc(plate());await done();
+    const keep=a.ui.newDrawingSetup;
+    a.ui.newDrawingSetup=async(o)=>({template:BUILTIN_TEMPLATES.find((t)=>t.id==='builtin:A3L'),name:o.name,props:{},sheet:null});
+    try{await a.newDrawing(true);}finally{a.ui.newDrawingSetup=keep;}
+    const ed=a.drawing;
+    await until(()=>ed.doc.views.every((v)=>(ed.geos.get(v.id)?.edges?.length||0)>0),60000,100);
+    if(!document.querySelector('#doc-title .doctab-kind'))bad.push('the drawing tab does not say Drawing');
+    const {titleBlockRect}=await import('/js/drawingformats.js'),tb=titleBlockRect(ed.sheet,ed.doc.format),v=ed.doc.views[2];
+    v.x=(tb.x0+tb.x1)/2;v.y=(tb.y0+tb.y1)/2;ed.warnOverlap(v);await wait(50);
+    if(!/lies over the title block/.test(document.querySelector('#toast')?.textContent||''))bad.push('no warning for a view over the title block');
+    return {ok:!bad.length,detail:bad.length?bad.join('; '):'open feature asked about, hole place typed, double-click sizes, edge sizes, empty sketch, flanges one way, surface and members after their sketch, drawing tab, overlap warning'};
   },
 
   // Bodies selected together: with the body filter on, a click selects a body, Ctrl+click adds one or takes it away
@@ -1593,6 +2205,142 @@ const UI = {
     return { ok: true, detail: 'Fit-point drawing, tangent/strength drag, fit-point translation, constraints and DOFs, undo/redo, serialization, copies, blocks, patterns, linked projection and solid extrusion' };
   },
 
+  // Plug-ins (plugins.js), as the browser version keeps them: one with two modules (a relative import), a form, a
+  // part command and an assembly command on a tab of its own, its settings and the rebuilt event; one that fails in
+  // activate() (shown, the other unharmed); the New Plug-in template's generator; turned off, its tab goes
+  // an Update Now that did not get through says so at the next start and offers the setup (the release page when
+  // that can't run); nothing is shown when there is nothing to tell
+  async 'update-outcome'() {
+    const a = window.app, { platform } = await import('/js/platform.js');
+    const saved = { updateResult: platform.updateResult, runSetup: platform.runSetup, openUrl: platform.openUrl };
+    const modal = () => document.querySelector('.modal-back');
+    const press = (label) => [...modal().querySelectorAll('button')].find((b) => b.textContent.trim() === label).click();
+    let ran = 0, setupRuns = true;
+    const pages = [];
+    closeModals();
+    Object.assign(platform, {
+      updateResult: async () => ({ state: 'failed', to: '9.9.9', error: 'The disk is full', log: 'C:\\t\\update.log' }),
+      runSetup: async () => { ran++; return setupRuns; }, openUrl: (url) => pages.push(url),
+    });
+    try {
+      const shown = a.ui.updateOutcome();
+      await until(modal, 5000);
+      const text = modal().textContent;
+      for (const part of ['9.9.9 was not installed', 'The disk is full', 'update.log']) if (!text.includes(part)) return { ok: false, detail: `Not said: ${part} (${text})` };
+      press('Run the Setup');
+      await shown;
+      if (ran !== 1 || pages.length) return { ok: false, detail: `Setup runs ${ran}, pages ${pages.length}` };
+      setupRuns = false;
+      const gone = a.ui.updateOutcome();
+      await until(modal, 5000);
+      press('Run the Setup');
+      await gone;
+      if (!pages[0]?.endsWith('/releases')) return { ok: false, detail: `A setup that can't run opens ${pages[0]}` };
+      const later = a.ui.updateOutcome();
+      await until(modal, 5000);
+      press('Later');
+      await later;
+      if (ran !== 2) return { ok: false, detail: 'Later ran the setup' };
+      platform.updateResult = async () => null;
+      await a.ui.updateOutcome();
+      if (modal()) return { ok: false, detail: 'A dialog with nothing to tell' };
+      return { ok: true, detail: 'failed update reported; setup, release page and Later work' };
+    } finally {
+      Object.assign(platform, saved);
+      closeModals();
+    }
+  },
+
+  async 'plugins'() {
+    const a = window.app, { platform } = await import('/js/platform.js'), { pluginTemplate, linkModules } = await import('/js/plugins.js');
+    const P = a.plugins, KEY = 'razorcad.plugins.v1';
+    localStorage.removeItem(KEY); a.ui.prefs.plugins = {}; a.ui.prefs.pluginData = {};
+    await a.newDocument?.(); closeModals();
+    // (relative imports in a circle refused, not hung)
+    try { linkModules({ 'a.js': "import './b.js';", 'b.js': "import './a.js';" }, 'a.js'); return { ok: false, detail: 'A circle of imports was not refused' }; } catch { /* refused */ }
+    const files = {
+      'plugin.json': JSON.stringify({ name: 'Test Tools', version: '2.0.0', tab: 'Test Tools', main: 'main.js', razorcad: '0.1' }),
+      'lib/size.js': 'export const twice = (x) => 2 * x;',
+      'sizes.json': '{"default": 15}',
+      'main.js': `import { twice } from './lib/size.js';
+        export async function activate(api) {
+          const { default: d } = await api.readJSON('sizes.json');
+          api.on('rebuilt', () => api.settings.set('rebuilds', (api.settings.get('rebuilds', 0)) + 1));
+          api.command({ id: 'block', label: 'Test Block', icon: 'extrude', async run(rc) {
+            const v = await api.form('Test Block', [{ key: 'w', label: 'Width', type: 'number', unit: 'mm', value: d, min: 1 }, { key: 'tall', label: 'Tall', type: 'checkbox', value: false }]);
+            if (!v) return;
+            const sk = await rc.sketch('top', (s) => s.centerRect(0, 0, v.w, v.w));
+            await rc.extrude(sk, v.tall ? twice(v.w) : v.w);
+            api.settings.set('last', v.w);
+          } });
+          api.separator();
+          api.command({ id: 'asm', label: 'Test Assembly Tool', in: ['assembly'], run() {} });
+        }`,
+    };
+    const id = await platform.newPlugin('Test Tools', files), bad = await platform.newPlugin('Broken', { 'plugin.json': '{"name":"Broken"}', 'main.js': 'export function activate() { throw new Error("no good"); }' });
+    await P.reload();
+    let p = P.list.find((x) => x.id === id), pb = P.list.find((x) => x.id === bad);
+    if (!p || !pb || p.state !== 'off' || pb.state !== 'off') return { ok: false, detail: 'Plug-ins found were started before being turned on: ' + JSON.stringify(P.list.map((x) => [x.id, x.state])) };
+    await P.setOn(pb, true); await P.setOn(p, true);
+    if (pb.state !== 'failed' || !/no good/.test(pb.error)) return { ok: false, detail: 'A plug-in failing in activate() was not shown as failed: ' + pb.state + ' ' + pb.error };
+    if (p.state !== 'running') return { ok: false, detail: 'The plug-in did not start: ' + p.error };
+    // (turned on again, and run again, while running: started once, its commands not added twice)
+    await P.setOn(p, true); await P.run(p);
+    if (p.state !== 'running' || p.commands.filter((c) => c !== 'sep').length !== 2) return { ok: false, detail: `Started twice: ${p.state} ${p.error || ''}, ${p.commands.length} commands` };
+    // its tab on the part ribbon, after the built-in ones, with its part command only
+    const tab = document.querySelector(`#cm-tabs [data-tab="plugin:${id}"]`);
+    if (!tab || tab.textContent.trim() !== 'Test Tools') return { ok: false, detail: 'No Test Tools tab on the ribbon' };
+    tab.click(); await wait(20);
+    const btns = [...document.querySelectorAll('#cm-buttons .cm-btn')].map((b) => b.textContent.trim());
+    if (btns.join('|') !== 'Test Block') return { ok: false, detail: 'The tab shows ' + JSON.stringify(btns) };
+    if (!a.ui.menuDefs().Tools.some((d) => d.label === 'Test Tools ▸ Test Block') || !a.ui.commandList().some((c) => c.label === 'Test Tools ▸ Test Block')) return { ok: false, detail: 'The command is not in the Tools menu and command search' };
+    // run from its button: the form (the value from the plug-in's own file), a wrong value refused, then built
+    const n0 = a.doc.features.length, rebuilds0 = P.data(id).rebuilds || 0;
+    document.querySelector('#cm-buttons .cm-btn').click(); await wait(60);
+    const form = document.querySelector('.plugin-form'), w = form?.querySelector('[data-key="w"]');
+    if (!w || w.value !== '15') return { ok: false, detail: 'The form did not offer the size from sizes.json: ' + w?.value };
+    w.value = '0'; w.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await wait(20);
+    if (!document.contains(form) || !w.classList.contains('bad')) return { ok: false, detail: 'A width below its minimum was accepted' };
+    w.value = '40/2'; form.querySelector('[data-key="tall"]').checked = true;
+    w.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    for (let i = 0; i < 100 && a.macros.running; i++) await wait(50);
+    const ex = a.doc.features[a.doc.features.length - 1];
+    if (a.doc.features.length !== n0 + 2 || ex.type !== 'extrude' || ex.depth !== 40 || (a.result?.errors?.size || 0)) return { ok: false, detail: `The command did not add a 20 wide, 40 tall block (depth ${ex.depth}: the form's 40/2 and the module's twice())` };
+    if (P.data(id).last !== 20) return { ok: false, detail: 'The plug-in\'s setting was not kept' };
+    await wait(50);
+    if (!((P.data(id).rebuilds || 0) > rebuilds0)) return { ok: false, detail: 'The rebuilt event did not reach the plug-in' };
+    a.undo(); await wait(50);
+    if (a.doc.features.length !== n0) return { ok: false, detail: 'The command was not one undo step' };
+    // the New Plug-in template: its generator makes a new part, a plate with four holes
+    const tid = await platform.newPlugin('Template Test', pluginTemplate('Template Test', '0.21.4-beta'));
+    await P.reload();
+    const pt = P.list.find((x) => x.id === tid);
+    await P.setOn(pt, true);
+    if (pt.state !== 'running') return { ok: false, detail: 'The template plug-in did not start: ' + pt.error };
+    const doc0 = a.doc, run = P.exec(pt, pt.commands[0]);
+    await wait(60);
+    const tf = document.querySelector('.plugin-form');
+    if (!tf) return { ok: false, detail: 'The template\'s form did not open' };
+    tf.querySelector('[data-key="width"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    const r = await run;
+    if (!r.ok) return { ok: false, detail: 'The template\'s command failed: ' + r.error };
+    const types = a.doc.features.filter((f) => !['plane', 'axis', 'point'].includes(f.type)).map((f) => f.type + (f.op === 'cut' ? '-cut' : '')).join(',');
+    if (a.doc === doc0 || types !== 'sketch,extrude,sketch,extrude-cut' || (a.result?.errors?.size || 0)) return { ok: false, detail: 'The template did not make a new part with a plate and holes: ' + types };
+    // in an assembly: the assembly command on the tab; turned off: the tab gone
+    await a.newAssembly?.(); await wait(100);
+    const asmTab = document.querySelector(`#cm-tabs [data-tab="plugin:${id}"]`);
+    if (a.mode === 'drawing' && !asmTab) return { ok: false, detail: 'No plug-in tab on the assembly ribbon' };
+    if (asmTab) { asmTab.click(); await wait(20); if ([...document.querySelectorAll('#cm-buttons .cm-btn')].map((b) => b.textContent.trim()).join('|') !== 'Test Assembly Tool') return { ok: false, detail: 'The assembly tab shows the wrong commands' }; }
+    p = P.list.find((x) => x.id === id); // (the list as reloaded for the template)
+    await P.setOn(p, false);
+    if (document.querySelector(`#cm-tabs [data-tab="plugin:${id}"]`) || P.menuItems().some((d) => /Test Block/.test(d.label))) return { ok: false, detail: `Turned off, the plug-in's tab or commands stayed (state ${p.state}, mode ${a.mode}, tabs ${[...document.querySelectorAll('#cm-tabs button')].map((b) => b.dataset.tab || b.textContent).join('/')})` };
+    for (const x of [id, bad, tid]) await platform.removePlugin(x);
+    localStorage.removeItem(KEY); a.ui.prefs.plugins = {}; a.ui.prefs.pluginData = {};
+    await P.reload();
+    closeModals();
+    return { ok: true, detail: 'two modules, form (checked, remembered), part and assembly tabs, one undo step, settings, rebuilt event, failed plug-in shown, template generator, turned off' };
+  },
+
   async 'expression-parameter-completion'() {
     const a = window.app, S = await import('/js/sketchmodel.js');
     const doc = M.newDoc(); doc.equations = [{ name: 'neck_length', expr: '120' }, { name: 'neck_width', expr: '20' }];
@@ -1601,7 +2349,10 @@ const UI = {
     S.addRel(f, 'horizontal', [line]);
     const dim = S.addRel(f, 'dim', ['O', p], { kind: 'hdist', value: 100, s: 1 });
     // (a part of its own in front: an earlier test may leave a drawing there)
-    doc.features.push(f); await a.newDocument?.(); closeModals(); await a.setDoc(doc); closeModals(); await a.enterSketch(f, false);
+    doc.features.push(f); await a.newDocument?.(); closeModals(); await a.setDoc(doc); closeModals();
+    // (a quick-sizes box closed before its key handler was added left it behind, swallowing the Escape below)
+    a.ui.showQuickDims(f, 20, 20); document.querySelector('.quick-dims .x').click(); await wait(20);
+    await a.enterSketch(f, false);
     const sk = a.sketcher;
     const key = (input, k) => input.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
     const type = (input, text, caret = text.length) => { input.focus(); input.value = text; input.setSelectionRange(caret, caret); input.dispatchEvent(new Event('input', { bubbles: true })); };
@@ -1612,8 +2363,10 @@ const UI = {
     if (options.length !== 2 || !options[0].textContent.includes('120')) return { ok: false, detail: 'Missing parameter names or evaluated values' };
     key(input, 'ArrowDown'); key(input, 'Tab');
     if (input.value !== 'neck_width' || !sk.modifyEl || document.querySelector('.expr-complete') || S.getPoint(f, p).x !== 100) return { ok: false, detail: 'Tab failed to complete or prematurely applied the dimension' };
-    type(input, 'neck_l'); key(input, 'Escape');
-    if (!sk.modifyEl || document.querySelector('.expr-complete') || input.value !== 'neck_l') return { ok: false, detail: 'Escape cancelled the dimension instead of only the suggestions' };
+    type(input, 'neck_l');
+    const shown = !!document.querySelector('.expr-complete'), focus = document.activeElement === input ? 'field' : document.activeElement?.tagName;
+    key(input, 'Escape');
+    if (!sk.modifyEl || document.querySelector('.expr-complete') || input.value !== 'neck_l') return { ok: false, detail: `Escape cancelled the dimension instead of only the suggestions (suggestions shown: ${shown}, focus: ${focus})` };
     type(input, '(neck_l+4)/2', 7); key(input, 'Enter');
     if (input.value !== '(neck_length+4)/2' || !sk.modifyEl) return { ok: false, detail: 'Completion damaged the surrounding formula or confirmed the dialog' };
     key(input, 'Enter');
@@ -2264,7 +3017,8 @@ const UI = {
       await until(() => panel.querySelector('.hv-article h2')?.textContent === 'Fillet' || null, 5000);
       panel.querySelector('[data-help-pop]').click();
       const P = await import('/js/platform.js');
-      const win = await until(() => { const w = P.platform._helpWin; return w && !w.closed && w.document?.querySelector('.hv-article h2') ? w : null; }, 10000).catch(() => null);
+      // (a slow machine: the window and its manual take a while to load)
+      const win = await until(() => { const w = P.platform._helpWin; return w && !w.closed && w.document?.querySelector('.hv-article h2') ? w : null; }, 40000).catch(() => null);
       out.push(['⧉: a window of its own at the same section, the panel closed', !!win && win.document.querySelector('.hv-article h2').textContent === 'Fillet' && panel.hidden, win ? win.document.querySelector('.hv-article h2')?.textContent : 'no window (pop-ups blocked?)']);
       if (win) {
         await a.ui.help.open('Freeform');
@@ -2320,7 +3074,8 @@ const UI = {
     fire('pointerup', ...to, { button: 0, buttons: 0 }); await wait(100);
     await until(() => !a.kernel.pending, 30000);
     await wait(300);
-    a.okPM?.(); await wait(200); await a.rebuild();
+    // (OK finished before measuring: while the feature is open the part is shown without it)
+    await a.okPM?.(); await until(() => (!a.pm?.feature && !a.kernel.pending) || null, 30000); await a.rebuild();
     const v1 = await vol(), note = a.result.notes.get(ff.id) || '';
     const ok = h1 > 2.5 && Math.abs(during[1] - (10 + h1)) < 1e-6 && v1 > v0 + 1 && /met to/.test(note) && !a.result.errors?.size;
     return { ok, detail: `handle dragged from 2 to ${h1} mm (its mark at y ${during[1]?.toFixed?.(3)} while dragging); volume ${v0?.toFixed(2)} → ${v1?.toFixed(2)} mm³; ${note}${a.result.errors?.size ? ' ' + JSON.stringify([...a.result.errors]) : ''}` };
@@ -3116,7 +3871,7 @@ const UI = {
     const list=a.ductPatternList();if(list.length!==2||list.reduce((s,p)=>s+p.qty,0)!==5)return {ok:false,detail:'The patterns of the elbow',list};
     const DX=await import('/js/dxf.js'),DU=await import('/js/ducts.js'),dxf=DX.buildDXF(DU.patternEnts(list),{OUTLINE:{color:7,ltype:'CONTINUOUS'},NOTES:{color:7,ltype:'CONTINUOUS'}});
     if(!dxf.includes('Elbow end gore x2'))return {ok:false,detail:'The DXF lacks the gore names'};
-    a.editFeature(d.feature.id);await settle();if(!(document.querySelector('#pm')?.textContent||'').includes('Gores'))return {ok:false,detail:'No panel'};a.cancelPM?.();
+    a.editFeature(d.feature.id);await settle();if(!(document.querySelector('#pm')?.textContent||'').includes('Gores'))return {ok:false,detail:'No panel'};a.cancelPM?.();await settle(); // (the rebuild cancelling starts is done before the next test)
     return {ok:true,detail:`${native.results.length} cases (an elbow's and a cone's exact volumes, transition / offset / lateral solids; gore heights, the cone's sector, unfolded lengths of a transition and an offset, a lateral's branch and main); the patterns to DXF`};
   },
 
@@ -3248,6 +4003,53 @@ const UI = {
     return { ok: true, detail: 'a titled table from rows pasted with tabs and |, the header bold, a drawing property filled in, its grid' };
   },
 
+  // Insert Components lists assemblies open in other tabs (not itself) and puts the chosen one in whole, as a
+  // sub-assembly; only parts were listed, so a sub-assembly had to be browsed for even when it was open.
+  async 'assembly-insert-open-subassembly'() {
+    const a = window.app, S = await import('/js/sketchmodel.js');
+    const p = M.newDoc(); p.name = 'Plate'; const s = M.createFeature(p, 'sketch', { plane: { ref: 'front' } });
+    const P = [[0, 0], [40, 0], [40, 20], [0, 20]].map((q) => S.addPoint(s, ...q)); P.forEach((id, i) => S.addLine(s, id, P[(i + 1) % 4]));
+    p.features.push(s, M.createFeature(p, 'extrude', { sketch: s.id, depth: 5 }));
+    a.newAssembly(); await wait(300); closeModals();
+    const sub = a.drawing; sub.doc.name = 'Sub assembly';
+    await sub.addComponent(sub.addPart(p, null, null));
+    a.newAssembly(); await wait(300); closeModals();
+    const top = a.drawing;
+    top.insertComponents(); await wait(100);
+    const rows = [...document.querySelectorAll('.modal .pm-list .li')];
+    const row = rows.find((r) => r.textContent.includes('Sub assembly')), self = rows.some((r) => r.textContent.includes(top.doc.name));
+    if (!row) { closeModals(); return { ok: false, detail: `the open assembly is not listed (${rows.map((r) => r.textContent).join(' | ')})` }; }
+    row.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); await wait(300);
+    const part = top.doc.parts[0], ok = !self && top.doc.components.length === 1 && part && Array.isArray(part.doc?.components) && part.doc !== sub.doc;
+    return { ok, detail: ok ? 'the other open assembly listed (not this one) and inserted whole, as a copy' : `listed itself ${self}, components ${top.doc.components.length}, part ${JSON.stringify(part && Object.keys(part))}` };
+  },
+
+  // One coincident mate between faces at right angles, the part inserted a metre away: reached (the solver turned the
+  // part to close the distance instead of moving it and gave up: "can't be reached").
+  async 'assembly-mate-far-quarter-turn'() {
+    const a = window.app, S = await import('/js/sketchmodel.js'), A = await import('/js/assembly.js');
+    const box = (name, x0, x1, y0, y1, d) => { const p = M.newDoc(); p.name = name; const s = M.createFeature(p, 'sketch', { plane: { ref: 'front' } }); const P = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]].map((q) => S.addPoint(s, ...q)); P.forEach((id, i) => S.addLine(s, id, P[(i + 1) % 4])); p.features.push(s, M.createFeature(p, 'extrude', { sketch: s.id, depth: d })); return p; };
+    a.newAssembly(); await wait(300); closeModals();
+    const asm = a.drawing;
+    await asm.addComponent(asm.addPart(box('Plate', -600, 600, -500, 500, 5), null, null));
+    await asm.addComponent(asm.addPart(box('Motor', -350, 285.5, -200, 200, 300), null, null));
+    const [plate, motor] = asm.doc.components;
+    motor.pos = [1136.352393, -305.415314, -36]; motor.rot = [0, 0, 0, 1];
+    const fa = { comp: motor.id, kind: 'plane', p: [285.51, 0, 0], n: [1, 0, 0], what: 'Face' }, fb = { comp: plate.id, kind: 'plane', p: [-116.165042, 96.557399, 5], n: [0, 0, 1], what: 'Face' };
+    // (the solver alone, from where the motor was put: out of reach)
+    const alone = A.solveAssembly(asm.view(), { only: [{ id: 't', type: 'coincident', a: fa, b: fb, align: -1, side: 1, value: null }] });
+    motor.pos = [1136.352393, -305.415314, -36]; motor.rot = [0, 0, 0, 1];
+    asm.startMate(); asm.pmPick(fa); asm.pmPick(fb);
+    const on = () => { const w = asm.worldRef(fa); return !asm.pm.error && Math.abs(Math.abs(w.n[2]) - 1) < 1e-6 && Math.abs(w.p[2] - 5) < 1e-6 ? Math.sign(w.n[2]) : 0; };
+    const first = on();
+    // (the other way round, as the panel's Aligned / Anti-Aligned button does)
+    asm.pm.align = -asm.pm.align; asm.pm.flipped = true; asm.previewMate();
+    const second = on();
+    asm.cancelMate?.();
+    const ok = first !== 0 && second === -first;
+    return { ok, detail: ok ? `the motor turned a quarter turn and moved across onto the plate, either way round (the solver alone from there: ${alone.ok ? 'reached' : 'not reached'})` : `first ${first}, flipped ${second}` };
+  },
+
   async 'drawing-alternate-position'() {
     const a = window.app, S = await import('/js/sketchmodel.js'), Dm = await import('/js/drawing.js');
     const box = (name, w, h) => { const p = M.newDoc(); p.name = name; const s = M.createFeature(p, 'sketch', { plane: { ref: 'front' } }); const P = [[-w / 2, 0], [w / 2, 0], [w / 2, h], [-w / 2, h]].map((q) => S.addPoint(s, ...q)); P.forEach((id, i) => S.addLine(s, id, P[(i + 1) % 4])); p.features.push(s, M.createFeature(p, 'extrude', { sketch: s.id, depth: 10 })); return p; };
@@ -3362,6 +4164,39 @@ const UI = {
     // (the projected views: the one beside it, looking along x, is unchanged in width; the one above grows too)
     const kidsFollow = k1.some((w, i) => Math.abs(w - k0[i] - 50) < 1e-3);
     return grew && kidsFollow ? { ok: true, detail: `front view ${r6(w0)} → ${r6(w1)} mm wide; projected views follow` } : { ok: false, detail: `front ${w0} → ${w1}, projected ${JSON.stringify(k0)} → ${JSON.stringify(k1)}` };
+  },
+
+  // explode lines follow each step: a cube moved up 40, then across 50 and 10 more, has its line go up and
+  // turn the corner (not straight across); a cube moved one way only has a straight line
+  async 'explode-line-corners'() {
+    const a = window.app;
+    const p = M.newDoc(); p.name = 'Cube';
+    const s = M.createFeature(p, 'sketch', { plane: { ref: 'top' } });
+    const pts = [[-10, -10], [10, -10], [10, 10], [-10, 10]];
+    Object.assign(s, { points: pts.map(([x, y], i) => ({ id: 'p' + (i + 1), x, y })), curves: pts.map((_, i) => ({ id: 'c' + (i + 1), type: 'line', p1: 'p' + (i + 1), p2: 'p' + ((i + 1) % 4 + 1), construction: false })), constraints: [] });
+    p.features.push(s, M.createFeature(p, 'extrude', { sketch: s.id, depth: 20 }));
+    a.newAssembly();
+    await wait(400);
+    closeModals();
+    const asm = a.drawing;
+    const pid = asm.addPart(p, null, null);
+    await asm.addComponent(pid); await asm.addComponent(pid);
+    await until(() => asm.doc.components.every((c) => asm.geo(c)?.mesh), 30000);
+    const [c1, c2] = asm.doc.components;
+    asm.doc.explodes.push({ id: 'ex1', name: 'Exploded View 1', steps: [
+      { id: 's1', items: [c1.id, c2.id], dir: [0, 1, 0], dist: 40 },
+      { id: 's2', items: [c2.id], dir: [1, 0, 0], dist: 50 },
+      { id: 's3', items: [c2.id], dir: [1, 0, 0], dist: 10 }] });
+    asm.doc.exploded = 'ex1';
+    asm.buildMesh();
+    const lines = [];
+    asm._exLines?.traverse((o) => { if (o.isLine) { const P = o.geometry.attributes.position; lines.push(Array.from({ length: P.count }, (_, i) => [P.getX(i), P.getY(i), P.getZ(i)])); } });
+    const rel = (L) => L.map((q) => q.map((x, i) => r6(x - L[0][i])));
+    const got = lines.map(rel).sort((x, y) => x.length - y.length);
+    const want = [[[0, 0, 0], [0, 40, 0]], [[0, 0, 0], [0, 40, 0], [60, 40, 0]]];
+    const ok = JSON.stringify(got) === JSON.stringify(want);
+    asm.doc.exploded = null; asm.buildMesh();
+    return ok ? { ok: true, detail: 'straight line for one move; up 40 then across 60 with the corner shown' } : { ok: false, detail: JSON.stringify(got) };
   },
 
   // assembly interference: of three 20 mm cubes, one overlapping another by 5 mm (2000 mm³) and one only
@@ -3721,9 +4556,15 @@ const UI = {
     asm.setFlexible(cs.id, true);
     const flex = asm.solveOk, z = cs.flex?.b?.pos?.[2];
     const leafB = asm.leaves().find((l) => l.comp === cs && l.chain[0] === 'b'), zl = leafB?.M.elements[14];
-    const ok = !rigid.ok && flex && Math.abs(z - 30) < 1e-6 && Math.abs(zl - 30) < 1e-6 && sub.components[1].pos[2] === 10;
+    // (solved again it stays: the mate's reference goes with b, not with the sub-assembly)
+    asm.solve();
+    const z2 = cs.flex?.b?.pos?.[2];
+    // (b moved off the plane in this assembly: the mate no longer met, and solving brings it back)
+    asm.setFlexPose(`${cs.id}/b`, [0, 0, 45], [0, 0, 0, 1]);
+    const r3 = asm.solve(), z3 = cs.flex?.b?.pos?.[2];
+    const ok = !rigid.ok && flex && Math.abs(z - 30) < 1e-6 && Math.abs(zl - 30) < 1e-6 && sub.components[1].pos[2] === 10 && Math.abs(z2 - 30) < 1e-6 && r3.ok && Math.abs(z3 - 30) < 1e-6;
     asm.setFlexible(cs.id, false);
-    return ok ? { ok: true, detail: 'rigid: the mate on a part inside the sub-assembly cannot be met; flexible: that part moves 20 to meet it (kept in this assembly, the sub-assembly unchanged); rigid again' } : { ok: false, detail: { rigid: rigid.ok, flex, z, zl } };
+    return ok ? { ok: true, detail: 'rigid: the mate on a part inside the sub-assembly cannot be met; flexible: that part moves 20 to meet it (kept in this assembly, the sub-assembly unchanged), stays there solved again and goes back there when moved off; rigid again' } : { ok: false, detail: { rigid: rigid.ok, flex, z, zl, z2, z3, r3: r3.ok } };
   },
 
   async 'assembly-fasten-all-holes'() {
@@ -3876,6 +4717,251 @@ ENDSEC;END-ISO-10303-21;`;
     return ok ? { ok: true, detail: `${etch.length} etch segments, ${r6(len)} mm long (line + circle ≈ ${r6(want)}); volume unchanged` } : { ok: false, detail: `dxf ${inDxf}, volume ${v0} → ${v1}, ${etch.length} segments, inside ${inside}, length ${len} (want ${want}); notes ${JSON.stringify(r.notes?.[et.id])}` };
   },
 
+  // a fan scroll as sheet metal: SM-Extrude of a profile that starts with an arc (R400 into R500, then a straight
+  // side), 3 thick, 300 deep, with a 300 x 200 opening cut in the R500 roll (a straight-sided cut across a big bend:
+  // all of it cut, not a sliver); and an inlet plate: a base flange with a hole in its middle, sketched on an offset
+  // plane and made the other way, with flanges on two edges, stays where it was drawn (it does not fold about a flange)
+  async 'sheet-scroll-opening-and-holed-plate'() {
+    const k = window.app.kernel, bad = [];
+    const vol = async (r, id) => { const m = await k.request('measure', { refs: [{ kind: 'body', id }] }); return (m.items?.[0] || m).volume; };
+    const d = M.newDoc();
+    const s = M.createFeature(d, 'sketch', { plane: { ref: 'front' } });
+    Object.assign(s, {
+      points: [{ id: 'c1', x: 100, y: 0 }, { id: 'a', x: 100, y: -400 }, { id: 'b', x: 500, y: 0 }, { id: 'c', x: -500, y: 0 }, { id: 'e', x: -500, y: -200 }],
+      curves: [{ id: 'k1', type: 'arc', c: 'c1', p1: 'a', p2: 'b', construction: false }, { id: 'k2', type: 'arc', c: 'O', p1: 'b', p2: 'c', construction: false },
+        { id: 'k3', type: 'line', p1: 'c', p2: 'e', construction: false }],
+      constraints: [],
+    });
+    const sc = M.createFeature(d, 'smExtrude', { sketch: s.id, depth: 300, thickness: 3, side: 'other', radius: 3 });
+    d.features.push(s, sc);
+    let r = await k.rebuild(d, null, null);
+    if (r.errors?.length || !r.body?.bodies?.length) return { ok: false, detail: `scroll: ${JSON.stringify(r.errors)}` };
+    const v0 = await vol(r, r.body.bodies[0].id);
+    // the opening: from a plane above the roll, cut down through it
+    const pl = M.createFeature(d, 'plane', { refs: [{ kind: 'plane', id: 'top' }], offset: 600 });
+    const cs = M.createFeature(d, 'sketch', { plane: { ref: pl.id } });
+    const q = [[-150, -250], [150, -250], [150, -50], [-150, -50]];
+    Object.assign(cs, { points: q.map(([x, y], i) => ({ id: 'p' + i, x, y })), curves: q.map((_, i) => ({ id: 'l' + i, type: 'line', p1: 'p' + i, p2: 'p' + ((i + 1) % 4), construction: false })), constraints: [] });
+    d.features.push(pl, cs, M.createFeature(d, 'extrude', { sketch: cs.id, op: 'cut', end: 'blind', depth: 150, reverse: true }));
+    r = await k.rebuild(d, null, null);
+    if (r.errors?.length) return { ok: false, detail: `opening: ${JSON.stringify(r.errors)}` };
+    const v1 = await vol(r, r.body.bodies[0].id);
+    // what the opening takes: 200 deep across the ring R500..R503 where |x| < 150
+    let area = 0;
+    for (let i = 0, n = 3000; i < n; i++) { const x = -150 + (300 * (i + 0.5)) / n; area += (Math.sqrt(503 * 503 - x * x) - Math.sqrt(500 * 500 - x * x)) * (300 / n); }
+    const want = 200 * area, got = v0 - v1;
+    if (!r.body.bodies[0].sheet || Math.abs(got - want) > 0.005 * want) bad.push(`opening took ${r6(got)} mm³, want ${r6(want)}`);
+    // the inlet plate
+    const d2 = M.newDoc();
+    const p2 = M.createFeature(d2, 'plane', { refs: [{ kind: 'plane', id: 'front' }], offset: -500 });
+    const ps = M.createFeature(d2, 'sketch', { plane: { ref: p2.id } });
+    const r4 = [[-400, -300], [400, -300], [400, 300], [-400, 300]];
+    Object.assign(ps, {
+      points: [...r4.map(([x, y], i) => ({ id: 'p' + i, x, y }))],
+      curves: [...r4.map((_, i) => ({ id: 'l' + i, type: 'line', p1: 'p' + i, p2: 'p' + ((i + 1) % 4), construction: false })), { id: 'h', type: 'circle', c: 'O', r: 250, construction: false }],
+      constraints: [],
+    });
+    const bf = M.createFeature(d2, 'smBase', { sketch: ps.id, thickness: 5, radius: 5, reverse: true });
+    const ef = M.createFeature(d2, 'smFlange', { edges: [{ p: [0, -300, -505] }, { p: [0, 300, -505] }], length: 40, lengthRef: 'outer', position: 'inside' });
+    d2.features.push(p2, ps, bf, ef);
+    const r2 = await k.rebuild(d2, null, null);
+    let box = null;
+    const b2 = r2.body?.bodies?.[0];
+    if (b2) {
+      const V = r2.body.vertices, T = r2.body.triangles, lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+      for (let i = b2.triStart; i < b2.triStart + b2.triCount; i++) for (let j = 0; j < 3; j++) { const x = V[3 * T[i] + j]; lo[j] = Math.min(lo[j], x); hi[j] = Math.max(hi[j], x); }
+      box = [lo, hi];
+    }
+    const placed = box && Math.abs(box[0][0] + 400) < 0.2 && Math.abs(box[1][0] - 400) < 0.2 && Math.abs(box[0][1] + 300) < 0.2 && Math.abs(box[1][1] - 300) < 0.2 && Math.abs(box[1][2] + 500) < 0.2 && Math.abs(box[0][2] + 540) < 0.2;
+    if (r2.errors?.length || !placed) bad.push(`plate: ${JSON.stringify(r2.errors)} box ${JSON.stringify(box)}`);
+    return bad.length ? { ok: false, detail: bad.join('; ') } : { ok: true, detail: `scroll made (starts with a roll); the opening took ${r6(got)} mm³ (${r6(want)}); the holed plate stayed put with its flanges` };
+  },
+
+  // a whole cone as a Lofted Bend (formed) between two circles open only at a 0.5 mm seam (it came out 2.5 m long);
+  // a roll trimmed to a rounded panel by a cut round it (a ring: the panel kept, not lost); a sketch spline made a
+  // surface (one face) and converted to sheet metal; and a circular pattern's body copies called after their body
+  async 'sheet-cone-loft-ring-cut-spline-and-pattern-names'() {
+    const k = window.app.kernel, bad = [];
+    const vol = async (id) => { const m = await k.request('measure', { refs: [{ kind: 'body', id }] }); return (m.items?.[0] || m).volume; };
+    const boxOf = (r, b) => {
+      const V = r.body.vertices, T = r.body.triangles, lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+      for (let i = b.triStart; i < b.triStart + b.triCount; i++) for (let j = 0; j < 3; j++) { const x = V[3 * T[i] + j]; lo[j] = Math.min(lo[j], x); hi[j] = Math.max(hi[j], x); }
+      return [lo, hi];
+    };
+    const sketchOn = (d, plane, points, curves) => { const s = M.createFeature(d, 'sketch', { plane }); Object.assign(s, { points, curves: curves.map((c) => ({ construction: false, ...c })), constraints: [] }); return s; };
+    // the cone: R344.94 at Y 110 to R201.88 at Y 185, 2.5 thick
+    {
+      const d = M.newDoc(), prof = [];
+      for (const [y, r] of [[110, 344.94], [185, 201.88]]) {
+        const pl = M.createFeature(d, 'plane', { refs: [{ kind: 'plane', id: 'top' }], offset: y }), h = 0.25 / r;
+        const s = sketchOn(d, { ref: pl.id }, [{ id: 'a', x: r * Math.cos(h), y: r * Math.sin(h) }, { id: 'b', x: r * Math.cos(-h), y: r * Math.sin(-h) }], [{ id: 'c', type: 'arc', c: 'O', p1: 'a', p2: 'b' }]);
+        d.features.push(pl, s); prof.push(s.id);
+      }
+      d.features.push(M.createFeature(d, 'smLoft', { profileA: prof[0], profileB: prof[1], thickness: 2.5, method: 'formed', bends: 72 }));
+      const r = await k.rebuild(d, null, null), b = r.body?.bodies?.[0];
+      const box = b && boxOf(r, b), wide = box && Math.max(box[1][0] - box[0][0], box[1][2] - box[0][2]);
+      if (r.errors?.length || !b?.sheet || !(wide > 690 && wide < 694)) bad.push(`cone: ${JSON.stringify(r.errors)} ${wide} wide`);
+      // one piece of sheet: one smooth face each side (with the two ends and the seam: 6 faces), and its blank
+      // two arcs (concentric) and the two seam lines
+      else {
+        const f = await k.request('sheetFlat', { bodyId: b.id, flip: false });
+        const out = f.ents.filter((e) => e.layer === 'OUTLINE'), arcs = out.filter((e) => e.type === 'ARC');
+        const kinds = out.map((e) => e.type).sort().join(',');
+        const conc = arcs.length === 2 && Math.hypot(arcs[0].c[0] - arcs[1].c[0], arcs[0].c[1] - arcs[1].c[1]) < 0.05;
+        if (b.faceCount !== 6 || kinds !== 'ARC,ARC,LINE,LINE' || !conc) bad.push(`cone: ${b.faceCount} faces, blank ${kinds.length > 60 ? out.length + ' entities' : kinds}`);
+      }
+    }
+    // the ring cut: an R500 roll (50° to 130°, 300 deep) and a frame |x| < 350 (past the roll), Z -50..350, round a
+    // 400 x 200 R20 panel
+    {
+      const d = M.newDoc(), c5 = Math.cos((50 * Math.PI) / 180) * 500, s5 = Math.sin((50 * Math.PI) / 180) * 500;
+      const s = sketchOn(d, { ref: 'front' }, [{ id: 'a', x: c5, y: s5 }, { id: 'b', x: -c5, y: s5 }], [{ id: 'c', type: 'arc', c: 'O', p1: 'a', p2: 'b' }]);
+      const pl = M.createFeature(d, 'plane', { refs: [{ kind: 'plane', id: 'top' }], offset: 600 });
+      const P = [], C = [];
+      const pt = (x, y) => { const id = 'p' + P.length; P.push({ id, x, y }); return id; };
+      const fr = [pt(-350, -350), pt(350, -350), pt(350, 50), pt(-350, 50)];
+      fr.forEach((q, i) => C.push({ id: 'f' + i, type: 'line', p1: q, p2: fr[(i + 1) % 4] }));
+      const [u0, u1, v0, v1, rr] = [-200, 200, -250, -50, 20];
+      const lines = [[[u0 + rr, v0], [u1 - rr, v0]], [[u1, v0 + rr], [u1, v1 - rr]], [[u1 - rr, v1], [u0 + rr, v1]], [[u0, v1 - rr], [u0, v0 + rr]]];
+      const arcs = [[[u1 - rr, v0 + rr], [u1 - rr, v0], [u1, v0 + rr]], [[u1 - rr, v1 - rr], [u1, v1 - rr], [u1 - rr, v1]], [[u0 + rr, v1 - rr], [u0 + rr, v1], [u0, v1 - rr]], [[u0 + rr, v0 + rr], [u0, v0 + rr], [u0 + rr, v0]]];
+      const key = new Map(), at = (q) => { const kk = q.join(); if (!key.has(kk)) key.set(kk, pt(...q)); return key.get(kk); };
+      lines.forEach(([a, b], i) => C.push({ id: 'l' + i, type: 'line', p1: at(a), p2: at(b) }));
+      arcs.forEach(([c, a, b], i) => C.push({ id: 'r' + i, type: 'arc', c: pt(...c), p1: at(a), p2: at(b) }));
+      const cs = sketchOn(d, { ref: pl.id }, P, C);
+      d.features.push(s, M.createFeature(d, 'smExtrude', { sketch: s.id, depth: 300, thickness: 3, side: 'other', radius: 3 }), pl, cs,
+        M.createFeature(d, 'extrude', { sketch: cs.id, op: 'cut', end: 'blind', depth: 300, reverse: true }));
+      const r = await k.rebuild(d, null, null);
+      let area = 0;
+      for (let i = 0, n = 4000; i < n; i++) { const x = -200 + (400 * (i + 0.5)) / n; area += (Math.sqrt(503 * 503 - x * x) - Math.sqrt(500 * 500 - x * x)) * (400 / n); }
+      const want = 200 * area - (4 * (400 - Math.PI * 100) * 3) / Math.cos(Math.asin(190 / 501.5));
+      const vs = [];
+      for (const b of r.body?.bodies || []) vs.push(await vol(b.id));
+      const panel = Math.max(0, ...vs), pb = r.body?.bodies?.[vs.indexOf(panel)];
+      // (and its flat pattern, kept up to date by the cut: the panel alone, at the neutral radius 500 + 0.44 × 3; the
+      // cut's edges are traced where they cross the sheet's middle, R501.5)
+      const Rn = 500 + 0.44 * 3, Rm = 501.5;
+      const wantFlat = Rn * 2 * Math.asin(200 / Rm) * 200 - 4 * (400 - Math.PI * 100);
+      const flatOk = pb?.sheet && !pb.sheet.stale && Math.abs(pb.sheet.flatArea - wantFlat) < 0.01 * wantFlat;
+      if (r.errors?.length || Math.abs(panel - want) > 0.002 * want || !flatOk) bad.push(`ring cut: ${JSON.stringify(r.errors)} panel ${r6(panel)} mm³, want ${r6(want)}; flat ${JSON.stringify(pb?.sheet)}`);
+    }
+    // the spline: 7 points, a surface 100 deep (one face), made a 2 thick sheet
+    {
+      const d = M.newDoc(), q = [[0, 0], [40, 18], [80, 22], [120, 10], [160, -6], [200, -8], [240, 4]];
+      const s = sketchOn(d, { ref: 'top' }, q.map(([x, y], i) => ({ id: 'p' + i, x, y })), [{ id: 's', type: 'spline', pts: q.map((_, i) => 'p' + i), p1: 'p0', p2: 'p6', closed: false }]);
+      const sf = M.createFeature(d, 'surfExtrude', { sketch: s.id, depth: 100 });
+      d.features.push(s, sf);
+      let r = await k.rebuild(d, null, null);
+      const faces = r.body?.bodies?.[0]?.faceCount;
+      d.features.push(M.createFeature(d, 'smConvert', { face: { p: [120, 50, -10], n: [0, 0, 1] }, autoThickness: false, thickness: 2, thickSide: 'one' }));
+      r = await k.rebuild(d, null, null);
+      if (faces !== 1 || r.errors?.length || !r.body?.bodies?.some((b) => b.sheet)) bad.push(`spline: ${faces} faces, ${JSON.stringify(r.errors)}`);
+    }
+    // the pattern: a named block, 4 round Y
+    {
+      const d = M.newDoc(), q = [[100, -10], [140, -10], [140, 10], [100, 10]];
+      const s = sketchOn(d, { ref: 'top' }, q.map(([x, y], i) => ({ id: 'p' + i, x, y })), q.map((_, i) => ({ id: 'l' + i, type: 'line', p1: 'p' + i, p2: 'p' + ((i + 1) % 4) })));
+      const ex = M.createFeature(d, 'extrude', { sketch: s.id, depth: 10 });
+      d.features.push(s, ex, M.createFeature(d, 'cpattern', { bodies: [ex.id], axis: 'y', angle: 360, count: 4, equal: true }));
+      d.bodies = { [ex.id]: { name: 'Lug', material: null, description: '', props: [] } };
+      const r = await k.rebuild(d, null, null);
+      const names = (r.body?.bodies || []).map((b) => b.kname).filter(Boolean);
+      if (names.join() !== 'Lug (2),Lug (3),Lug (4)') bad.push(`pattern names ${JSON.stringify(names)}`);
+    }
+    return bad.length ? { ok: false, detail: bad.join('; ') } : { ok: true, detail: 'whole cone lofted; the ring cut kept the panel; the spline surface one face, converted; copies called Lug (2) … (4)' };
+  },
+
+  // a fan blade folded from one sheet: a Clark Y airfoil (13.8 %, chord 164.5) with its nose rounded R4.5 (R2
+  // inside, 2.5 thick) and open at the tail, made by Sheet Metal Extrude 180 deep with the material inside. The nose
+  // is the one bend (one bend line, R2, in the blank); the two skins are formed (no bend lines, and no lines where
+  // their arcs meet in the view); the upper skin (the profile's start) is cut back where it would run into the lower
+  // one. Closed, the airfoil is refused; a solid extrude of the open one is too.
+  async 'sheet-airfoil-blade'() {
+    const k = window.app.kernel, bad = [];
+    const make = (open, type = 'smExtrude') => {
+      const d = M.newDoc(), s = M.createFeature(d, 'sketch', { plane: { ref: 'top' } });
+      Object.assign(s, {
+        points: [{ id: 'p1', x: 0, y: 220 }, { id: 'p2', x: 155, y: 275 }],
+        curves: [{ id: 'c1', type: 'line', p1: 'p1', p2: 'p2', construction: true }], constraints: [],
+        airfoils: [{ id: 'a1', line: 'c1', spec: { kind: 'clarky', t: 13.8 }, sharpTE: true, flip: false, swap: false, noseR: 4.5, open }],
+      });
+      const f = M.createFeature(d, type, type === 'smExtrude' ? { sketch: s.id, depth: 180, thickness: 2.5, side: 'one', radius: 2, trimAt: 'start' } : { sketch: s.id, depth: 180 });
+      d.features.push(s, f);
+      return { d, f };
+    };
+    const { d, f } = make(true);
+    const r = await k.rebuild(d, null, null), b = r.body?.bodies?.[0], note = r.notes?.[f.id] || '';
+    if (r.errors?.length || !b?.sheet) bad.push(`blade: ${JSON.stringify(r.errors)}`);
+    else {
+      const fl = await k.request('sheetFlat', { bodyId: b.id, flip: false });
+      const bends = fl.ents.filter((e) => e.layer === 'BEND_UP' || e.layer === 'BEND_DOWN'), out = fl.ents.filter((e) => e.layer === 'OUTLINE');
+      const xs = out.flatMap((e) => [e.a[0], e.b[0]]), ys = out.flatMap((e) => [e.a[1], e.b[1]]);
+      const w = Math.max(...xs) - Math.min(...xs), h = Math.max(...ys) - Math.min(...ys);
+      // (the blank: a rectangle 180 wide; its length the profile's neutral layer, about 300)
+      if (bends.length !== 1 || !/R2\b/.test(bends[0].note) || out.length !== 4 || Math.abs(Math.min(w, h) - 180) > 1e-6 || !(Math.max(w, h) > 290 && Math.max(w, h) < 330)) bad.push(`blank: ${bends.length} bend lines (${bends.map((e) => e.note)}), ${out.length} outline edges, ${w} × ${h}`);
+      if (b.sheet.bends !== 1 || !(b.sheet.formed > 10)) bad.push(`sheet info: ${JSON.stringify(b.sheet)}`);
+      if (!/2 curves formed/.test(note) || !/trimmed back [\d.]+ mm at its start/.test(note)) bad.push(`note: ${note}`);
+      // (shown: the outlines at both ends, the nose's own lines and the sheet's ends, not a line per arc)
+      // (the lines up the blade, along Y: where faces meet; the outlines at the two ends are drawn)
+      const up = (e) => { const p = e.pts, n = p.length; return Math.abs(p[n - 3] - p[0]) < 1e-6 && Math.abs(p[n - 1] - p[2]) < 1e-6 && Math.abs(p[n - 2] - p[1]) > 1; };
+      const lines = r.body.edges.slice(b.edgeStart, b.edgeStart + b.edgeCount).filter((e) => e.type === 'LINE' && up(e)).length;
+      if (lines > 8) bad.push(`${lines} lines up the blade shown (${b.faceCount} faces)`);
+    }
+    const closed = await k.rebuild(make(false).d, null, null);
+    if (!/Open at the trailing edge/.test(JSON.stringify(closed.errors))) bad.push(`closed airfoil: ${JSON.stringify(closed.errors)}`);
+    const solid = await k.rebuild(make(true, 'extrude').d, null, null);
+    if (!/open at its trailing edge/.test(JSON.stringify(solid.errors))) bad.push(`solid extrude of the open one: ${JSON.stringify(solid.errors)}`);
+    return bad.length ? { ok: false, detail: bad.join('; ') } : { ok: true, detail: `one bend line (R2), formed skins, ${note}` };
+  },
+
+  // the same blade in drawing views: seen end on, its outline is there (the skins' long flat arcs, R up to ~3 m,
+  // were dropped as "reaching far outside the part" by their whole circles); seen from the side, no line where the
+  // formed skins' arcs meet (as in the 3D view), only the nose's and the ends'
+  async 'drawing-formed-blade'() {
+    const k = window.app.kernel, bad = [];
+    const d = M.newDoc(), s = M.createFeature(d, 'sketch', { plane: { ref: 'top' } });
+    Object.assign(s, {
+      points: [{ id: 'p1', x: 0, y: 220 }, { id: 'p2', x: 155, y: 275 }],
+      curves: [{ id: 'c1', type: 'line', p1: 'p1', p2: 'p2', construction: true }], constraints: [],
+      airfoils: [{ id: 'a1', line: 'c1', spec: { kind: 'clarky', t: 13.8 }, sharpTE: true, flip: false, swap: false, noseR: 4.5, open: true }],
+    });
+    d.features.push(s, M.createFeature(d, 'smExtrude', { sketch: s.id, depth: 180, thickness: 2.5, side: 'one', radius: 2, trimAt: 'start' }));
+    const r = await k.rebuild(d, null, null);
+    if (r.errors?.length) return { ok: false, detail: JSON.stringify(r.errors) };
+    const views = await k.request('drawingViews', { doc: JSON.stringify(d), views: [{ id: 'end', dir: [0, 1, 0], up: [0, 0, -1] }, { id: 'side', dir: [0, 0, 1], up: [0, 1, 0] }] });
+    const end = views.find((v) => v.id === 'end'), side = views.find((v) => v.id === 'side');
+    // end on: the arcs of the outline seen (about 25 a skin side), the big flat ones among them
+    const arcs = end.edges.filter((e) => e.k === 'v' && e.g.t === 'a');
+    if (arcs.length < 40 || !arcs.some((e) => e.g.r > 1000)) bad.push(`end view: ${arcs.length} arcs, largest R${Math.round(Math.max(0, ...arcs.map((e) => e.g.r)))}`);
+    // from the side: the lines up the blade (180 long, along the view's y)
+    const up = side.edges.filter((e) => e.g.t === 'l' && Math.abs(e.g.a[0] - e.g.b[0]) < 1e-3 && Math.abs(Math.abs(e.g.a[1] - e.g.b[1]) - 180) < 0.5);
+    // (the nose's lines are within 5 of x 0, the trimmed skin's end at 138, the tail at 154 to 155; none between)
+    const mid = up.filter((e) => e.g.a[0] > 8 && e.g.a[0] < 135);
+    if (mid.length || up.length < 4) bad.push(`side view: lines up the blade at x ${up.map((e) => e.g.a[0].toFixed(1)).join(' ')}`);
+    // (and the ends' outlines still drawn: lines across at the bottom and top, each made of the arcs seen edge on)
+    const across = (y) => side.edges.filter((e) => e.k === 'v' && e.g.t === 'l' && Math.abs(e.g.a[1] - y) < 1e-3 && Math.abs(e.g.b[1] - y) < 1e-3).reduce((t, e) => t + Math.abs(e.g.a[0] - e.g.b[0]), 0);
+    if (!(across(0) > 100 && across(180) > 100)) bad.push(`side view: ${across(0).toFixed(1)} and ${across(180).toFixed(1)} mm of line across the ends`);
+    return bad.length ? { ok: false, detail: bad.join('; ') } : { ok: true, detail: `end on ${arcs.length} arcs; from the side ${up.length} lines up the blade` };
+  },
+
+  // a diameter dimension as a leader only: one arrow onto the circle and no line across it (the usual one has two
+  // arrows and its line through the centre)
+  async 'drawing-diameter-leader'() {
+    const D = await import('/js/drawing.js');
+    const dwg = D.newDrawing();
+    dwg.views.push({ id: 'v1', type: 'model', model: 'm1', sheet: 's1', orient: 'front', x: 100, y: 100, scale: null });
+    const a = { id: 'a1', type: 'dim', kind: 'diameter', view: 'v1', sheet: 's1', c: [0, 0], r: 20, pos: [40, -40] };
+    const arrows = (ps) => ps.filter((p) => p.t === 'poly' && p.fill).length;
+    // (the closest any line comes to the circle's centre, on the sheet: [100, 100])
+    const nearest = (ps) => Math.min(...ps.filter((p) => p.t === 'line').map(({ a: p, b: q }) => {
+      const d = [q[0] - p[0], q[1] - p[1]], t = Math.max(0, Math.min(1, ((100 - p[0]) * d[0] + (100 - p[1]) * d[1]) / (d[0] * d[0] + d[1] * d[1])));
+      return Math.hypot(p[0] + t * d[0] - 100, p[1] + t * d[1] - 100);
+    }));
+    const full = D.annPrims(dwg, a, {}), lead = D.annPrims(dwg, { ...a, leaderOnly: true }, {});
+    const ok = arrows(full) === 2 && nearest(full) < 1e-6 && arrows(lead) === 1 && nearest(lead) > 19.9 && D.dimText(dwg, { ...a, leaderOnly: true }) === D.dimText(dwg, a);
+    return ok ? { ok: true, detail: `across: ${arrows(full)} arrows through the centre; leader: ${arrows(lead)} arrow, ${nearest(lead).toFixed(1)} from it` }
+      : { ok: false, detail: `across ${arrows(full)} arrows, ${nearest(full)}; leader ${arrows(lead)} arrows, ${nearest(lead)}` };
+  },
+
   // motion studies: gear A turned two full turns (72 steps) carries gear B (−360°) and the rack (2π·10·2 mm) with
   // it, past the half turn one jump couldn't do; a Distance mate driven from 10 to 40 mm
   async 'motion-study'() {
@@ -3933,6 +5019,104 @@ ENDSEC;END-ISO-10303-21;`;
     const ok = !r.error && r.done === 72 && Math.abs((turnB * 180) / Math.PI + 360) < 0.01 && Math.abs(rackX - 2 * Math.PI * 10 * 2) < 0.01 && !r2.error && Math.abs(bx - 40) < 1e-4;
     return ok ? { ok: true, detail: `720° of gear A → B ${r6((turnB * 180) / Math.PI)}°, rack ${r6(rackX)} mm; Distance mate 10 → ${r6(bx)} mm; clearances 15 and ${r6(c2)} mm` }
       : { ok: false, detail: `error ${r.error}, done ${r.done}, B ${(turnB * 180) / Math.PI}°, rack ${rackX}; mate: ${r2.error} b ${bx}` };
+  },
+
+  // mechanical mates: a hinge (concentric + touching faces) turns free and stops at its limit; a universal joint at
+  // 30° turns the second shaft unevenly (≈4.1° ahead or behind at 45°, level again at 90° and after a whole turn); a
+  // linear coupler slides one block twice the other's (the other way when reversed); a motion study with two drivers
+  // moves both at once; each type has its group and icon
+  async 'mechanical-mates'() {
+    const A = await import('/js/assembly.js');
+    const { motionFrames } = await import('/js/motion.js');
+    const { ICONS } = await import('/js/icons.js');
+    const THREE = await import('three');
+    const ax = (p, d, r) => ({ kind: 'axis', p, d, r });
+    const pl = (p, n) => ({ kind: 'plane', p, n });
+    const comp = (id, fixed = false, pos = [0, 0, 0]) => ({ id, part: 'p', name: id, pos, rot: [0, 0, 0, 1], fixed });
+    const bad = [];
+    const tools = (doc) => {
+      const byId = (id) => doc.components.find((c) => c.id === id);
+      const poseOf = (id) => { const c = byId(id); return { p: c.pos.slice(), q: new THREE.Quaternion(...c.rot) }; };
+      const worldRef = (r) => { const ps = poseOf(r.comp); const v = (x) => new THREE.Vector3(...x).applyQuaternion(ps.q).toArray(); return { kind: r.kind, p: v(r.p).map((x, i) => x + ps.p[i]), n: r.n && v(r.n), d: r.d && v(r.d), r: r.r }; };
+      const turn = (id, axis, deg) => { const c = byId(id), q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(...axis), (deg * Math.PI) / 180).multiply(new THREE.Quaternion(...c.rot)); c.rot = [q.x, q.y, q.z, q.w]; };
+      const angle = (id, axis) => { const q = byId(id).rot; return (2 * Math.atan2(q[0] * axis[0] + q[1] * axis[1] + q[2] * axis[2], q[3]) * 180) / Math.PI; };
+      return { byId, poseOf, worldRef, turn, angle };
+    };
+    // (a hinge: a lid on a base about Z, 5 mm up to start; then limited to ±45° and turned 80°)
+    {
+      const doc = { components: [comp('base', true), comp('lid', false, [0, 0, 5])], mates: [] };
+      const T = tools(doc);
+      const h = { id: 'h', name: 'Hinge1', type: 'hinge', a: { comp: 'base', ...ax([0, 0, 0], [0, 0, 1], 4) }, b: { comp: 'lid', ...ax([0, 0, 0], [0, 0, 1], 4) }, a2: { comp: 'base', ...pl([0, 0, 0], [0, 0, 1]) }, b2: { comp: 'lid', ...pl([0, 0, 0], [0, 0, -1]) } };
+      Object.assign(h, A.jointRefs(h, T.poseOf('base'), T.poseOf('lid'), T.worldRef(h.a), T.worldRef(h.b)));
+      doc.mates.push(h);
+      const r1 = A.solveAssembly(doc);
+      T.turn('lid', [0, 0, 1], 30);
+      const r2 = A.solveAssembly(doc), a2 = T.angle('lid', [0, 0, 1]);
+      Object.assign(h, { limit: true, min: -45, max: 45 });
+      T.turn('lid', [0, 0, 1], 50);
+      const r3 = A.solveAssembly(doc), a3 = T.angle('lid', [0, 0, 1]);
+      if (!r1.ok || Math.abs(T.byId('lid').pos[2]) > 1e-6 || !r2.ok || Math.abs(a2 - 30) > 1e-4 || r1.dofs.get('lid') !== 1 || !r3.ok || Math.abs(a3 - 45) > 1e-3) bad.push(`hinge: z ${T.byId('lid').pos[2]} (dofs ${r1.dofs.get('lid')}), turned 30 → ${a2}, 80 against ±45 → ${a3} (${r1.ok}/${r2.ok}/${r3.ok})`);
+    }
+    // (a universal joint: shaft A along X, shaft B 30° off it in XY, meeting at the origin; A turned a whole turn)
+    let uj = '';
+    {
+      const c30 = Math.cos(Math.PI / 6), s30 = Math.sin(Math.PI / 6), dB = [c30, s30, 0];
+      const doc = { components: [comp('base', true), comp('sa'), comp('sb')], mates: [
+        { id: 'c1', name: 'Concentric1', type: 'concentric', a: { comp: 'base', ...ax([0, 0, 0], [1, 0, 0]) }, b: { comp: 'sa', ...ax([0, 0, 0], [1, 0, 0], 5) } },
+        { id: 'p1', name: 'Coincident1', type: 'coincident', align: 1, a: { comp: 'base', ...pl([-50, 0, 0], [1, 0, 0]) }, b: { comp: 'sa', ...pl([-50, 0, 0], [1, 0, 0]) } },
+        { id: 'c2', name: 'Concentric2', type: 'concentric', a: { comp: 'base', ...ax([0, 0, 0], dB) }, b: { comp: 'sb', ...ax([0, 0, 0], dB, 5) } },
+        { id: 'p2', name: 'Coincident2', type: 'coincident', align: 1, a: { comp: 'base', ...pl(dB.map((x) => 50 * x), dB) }, b: { comp: 'sb', ...pl(dB.map((x) => 50 * x), dB) } },
+      ] };
+      const T = tools(doc);
+      const u = { id: 'u', name: 'Universal Joint1', type: 'universal', a: doc.mates[0].b, b: doc.mates[2].b };
+      Object.assign(u, A.jointRefs(u, T.poseOf('sa'), T.poseOf('sb'), T.worldRef(u.a), T.worldRef(u.b)));
+      doc.mates.push(u);
+      const r0 = A.solveAssembly(doc);
+      const r = motionFrames(doc, { driver: { kind: 'turn', comp: 'sa', mate: 'c1', side: 'b', amount: 360 }, steps: 72 }, (v, o) => A.solveAssembly(v, o));
+      const tw = (f, d) => 2 * Math.atan2(f.rot[0] * d[0] + f.rot[1] * d[1] + f.rot[2] * d[2], f.rot[3]);
+      let tb = 0;
+      const outAt = [];
+      for (let i = 1; i < r.frames.length; i++) {
+        let d = tw(r.frames[i].find((f) => f.id === 'sb'), dB) - tw(r.frames[i - 1].find((f) => f.id === 'sb'), dB);
+        while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
+        tb += d; outAt[i] = (tb * 180) / Math.PI;
+      }
+      // (a Cardan joint at 30°: tan θ2 = tan θ1 · cos 30° or / cos 30°, so 40.9° or 49.1° at 45°)
+      const dev = Math.abs(Math.abs(outAt[9]) - 45);
+      uj = `at 45° → ${r6(Math.abs(outAt[9]))}°, 90° → ${r6(Math.abs(outAt[18]))}°, 360° → ${r6(Math.abs(outAt[72]))}°`;
+      if (!r0.ok || r.error || r.done !== 72 || Math.abs(dev - 4.1066) > 0.02 || Math.abs(Math.abs(outAt[18]) - 90) > 0.01 || Math.abs(Math.abs(outAt[72]) - 360) > 0.01) bad.push(`universal joint: ${r0.ok}, ${r.error}, done ${r.done}, ${uj}`);
+    }
+    // (a linear coupler: block a on a rail along X, b on one along Y, ratio 2; c on a rail along Z, driven too)
+    {
+      const rail = (id, n1, n2) => [
+        { id: id + '1', type: 'coincident', align: 1, a: { comp: 'base', ...pl([0, 0, 0], n1) }, b: { comp: id, ...pl([0, 0, 0], n1) } },
+        { id: id + '2', type: 'coincident', align: 1, a: { comp: 'base', ...pl([0, 0, 0], n2) }, b: { comp: id, ...pl([0, 0, 0], n2) } },
+        { id: id + '3', type: 'parallel', align: 1, a: { comp: 'base', ...pl([0, 0, 0], n1.map((x, i) => (i === 0 ? n2[1] * n1[2] - n2[2] * n1[1] : i === 1 ? n2[2] * n1[0] - n2[0] * n1[2] : n2[0] * n1[1] - n2[1] * n1[0]))) }, b: { comp: id, ...pl([0, 0, 0], n1.map((x, i) => (i === 0 ? n2[1] * n1[2] - n2[2] * n1[1] : i === 1 ? n2[2] * n1[0] - n2[0] * n1[2] : n2[0] * n1[1] - n2[1] * n1[0]))) } },
+      ];
+      const doc = { components: [comp('base', true), comp('a'), comp('b'), comp('c')], mates: [...rail('a', [0, 1, 0], [0, 0, 1]), ...rail('b', [1, 0, 0], [0, 0, 1]), ...rail('c', [1, 0, 0], [0, 1, 0])] };
+      const T = tools(doc);
+      const k = { id: 'k', name: 'Linear Coupler1', type: 'coupler', side: 1, value: 2, a: { comp: 'a', ...ax([0, 0, 0], [1, 0, 0]) }, b: { comp: 'b', ...ax([0, 0, 0], [0, 1, 0]) } };
+      k.ref = A.mechRef(k, T.poseOf, T.worldRef);
+      doc.mates.push(k);
+      const ch = A.mateChoices(T.worldRef(k.a), T.worldRef(k.b));
+      T.byId('a').pos[0] = 10;
+      const r1 = A.solveAssembly(doc, { pinned: new Set(['a']) }), y1 = T.byId('b').pos[1];
+      k.side = -1; k.ref = A.mechRef(k, T.poseOf, T.worldRef);
+      T.byId('a').pos[0] = 15;
+      const r2 = A.solveAssembly(doc, { pinned: new Set(['a']) }), y2 = T.byId('b').pos[1];
+      if (!ch.includes('coupler') || !r1.ok || Math.abs(y1 - 20) > 1e-5 || !r2.ok || Math.abs(y2 - 10) > 1e-5) bad.push(`coupler: choices ${ch}, a 10 → b ${y1}; reversed, a +5 → b ${y2}`);
+      // (two drivers: a slid 10 more (b follows, 10 back), c slid 15 up, at once)
+      const st = { driver: { kind: 'slide', comp: 'a', mate: 'k', side: 'a', amount: 10 }, more: [{ kind: 'slide', comp: 'c', mate: 'c3', side: 'b', amount: 15 }], steps: 5 };
+      const r = motionFrames(doc, st, (v, o) => A.solveAssembly(v, o)), last = r.frames[r.frames.length - 1], at = (id) => last.find((f) => f.id === id).pos;
+      if (r.error || r.done !== 5 || Math.abs(at('a')[0] - 25) > 1e-5 || Math.abs(at('b')[1] - (10 - 20)) > 1e-5 || Math.abs(Math.abs(at('c')[2]) - 15) > 1e-5) bad.push(`two drivers: ${r.error}, a ${at('a')}, b ${at('b')}, c ${at('c')}`);
+      st.more.push({ kind: 'slide', comp: 'a', mate: 'k', side: 'a', amount: 5 });
+      if (!/moved by another driver/.test(motionFrames(doc, st, (v, o) => A.solveAssembly(v, o)).error || '')) bad.push('a component driven twice is not refused');
+    }
+    // (every type in a group of the Mate panel, with an icon of its own)
+    const lost = Object.entries(A.MATE_TYPES).filter(([, t]) => !A.MATE_GROUPS.some(([g]) => g === t.group) || !ICONS[t.icon]).map(([k]) => k);
+    const axes = A.mateChoices(ax([0, 0, 0], [0, 0, 1], 5), ax([10, 0, 0], [0, 0, 1], 5));
+    if (lost.length || !['hinge', 'universal', 'gear', 'screw', 'coupler'].every((t) => axes.includes(t))) bad.push(`types without a group or icon: ${lost}; two cylinders offer ${axes}`);
+    return { ok: !bad.length, detail: bad.length ? bad.join('; ') : `hinge free and stopped at 45°; universal joint ${uj}; coupler 2:1 and reversed; two drivers at once` };
   },
 
   // more kernels at once: an assembly of six different (slow) parts built side by side, faster than in one kernel
@@ -4918,6 +6102,27 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
       : { ok: false, detail: `together ${t1} | one by one ${t0}; made ${made}; oneByOne clean ${noneOneByOne}; edit same ${same2}, cuts made ${together.timing.cutsMade} then ${madeByEdit}; faces ${n(ff1)}/${n(ff0)}; section ${n(sec1)}/${n(sec0)} ${JSON.stringify(sec1).slice(0, 80)}; errors ${JSON.stringify(together.errors)}` };
   },
 
+  // a hole clicked on the floor of a pocket that an earlier cut made: the cut is made before the hole looks for its face
+  // (the hole would otherwise wait with it, and not find the floor)
+  async 'hole-on-cut-floor'() {
+    const d = M.newDoc(); d.name = 'Pocket hole';
+    const rect = (x0, y0, x1, y1) => {
+      const sk = M.createFeature(d, 'sketch', { plane: { ref: 'top' } }), pts = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+      Object.assign(sk, { points: pts.map(([x, y], i) => ({ id: 'p' + i, x, y })), curves: pts.map((_, i) => ({ id: 'c' + i, type: 'line', p1: 'p' + i, p2: 'p' + ((i + 1) % 4), construction: false })), constraints: [] });
+      d.features.push(sk); return sk;
+    };
+    d.features.push(M.createFeature(d, 'extrude', { sketch: rect(-50, -30, 50, 30).id, depth: 20 }));
+    d.features.push(M.createFeature(d, 'extrude', { sketch: rect(-20, -15, 20, 15).id, op: 'cut', depth: 8 }));
+    // (counterbored: from the floor the counterbore is in the material, from the plate's underside in the pocket)
+    const hole = M.createFeature(d, 'hole', { holeType: 'cbore', size: 'custom', diameter: 5, cboreD: 9, cboreDepth: 3, end: 'through', faces: [{ p: [0, 8, 0], n: [0, -1, 0] }] });
+    d.features.push(hole);
+    const r = await window.app.kernel.rebuild(d, null, null);
+    const m = await window.app.kernel.request('measure', { refs: [{ kind: 'body', id: r.body.bodies[0].id }] });
+    const vol = (m.items?.[0] || m).volume, want = 100 * 60 * 20 - 40 * 30 * 8 - Math.PI * (4.5 * 4.5 * 3 + 2.5 * 2.5 * 9);
+    const ok = !r.errors.length && Math.abs(vol - want) < 0.5;
+    return ok ? { ok: true, detail: `the hole on the pocket floor: volume ${vol.toFixed(1)} (${want.toFixed(1)} wanted)` } : { ok: false, detail: { errors: r.errors, vol, want } };
+  },
+
   // previews of cuts: a pattern of overlapping holes previewed, the material it removes (one intersection with all
   // its copies) is what the pattern really removes (the body with and without it); previewing the last cut after a
   // full rebuild takes the other waiting cuts from it (none made again)
@@ -5541,6 +6746,39 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     return { ok: !sk.patterns.length && !sk.curves.some((c) => c.id === first), detail: 'Source dimension, path, quantity expression and spacing followed; stable IDs; save/reopen and kernel rebuild; source deletion removes copies' };
   },
 
+  // a bolt hole Ø12.5 on PCD 250 (a horizontal centerline from the origin, 125 long) patterned 10 round the origin: the
+  // copies are kept with the pattern, so the sketch is fully defined, they follow the hole and the PCD, and the count
+  // can be changed later; and an airfoil's chord patterned brings the airfoil
+  async 'sketch-pattern-circular'() {
+    const S = await import('/js/sketchmodel.js'), V = await import('/js/solver.js');
+    const sk = S.newSketchData(), ev = Number;
+    const c = S.addPoint(sk, 125, 0), hole = S.addCircle(sk, c, 6.25), cl = S.addLine(sk, 'O', c, true);
+    S.addRel(sk, 'horizontal', [cl]);
+    const pcd = S.addRel(sk, 'dim', ['O', c], { kind: 'distance', value: 125 }), dia = S.addRel(sk, 'dim', [hole], { kind: 'diameter', value: 12.5 });
+    const p = S.setSketchPattern(sk, { kind: 'circular', sources: [hole], n: '10', total: '360', centre: 'O' }, ev);
+    const at = (k) => S.getPoint(sk, S.getCurve(sk, p.generated.curves[k]).c);
+    const near = (q, a, r) => Math.hypot(q.x - r * Math.cos((a * Math.PI) / 180), q.y - r * Math.sin((a * Math.PI) / 180)) < 1e-6;
+    let r = V.solveSketch(sk, ev);
+    const dof = V.analyzeSketch(sk, ev).dofDefined;
+    if (!r.ok || p.made !== 9 || !near(at(0), 36, 125) || !near(at(8), 324, 125) || dof !== 0) return { ok: false, detail: `made ${p.made}, first at ${JSON.stringify(at(0))}, ${dof} freedoms` };
+    pcd.value = 150; dia.value = 14; p.n = '8';
+    r = V.solveSketch(sk, ev);
+    const rr = S.getCurve(sk, p.generated.curves[6]).r;
+    if (!r.ok || p.made !== 7 || !near(at(0), 45, 150) || Math.abs(rr - 7) > 1e-6) return { ok: false, detail: `after the change: made ${p.made}, first at ${JSON.stringify(at(0))}, radius ${rr}` };
+    // an airfoil on a chord line, patterned 11 round: each copy of the chord carries its airfoil, which follows the
+    // original's section; deleting the pattern takes them away
+    const sa = S.newSketchData(), le = S.addPoint(sa, 0, 220), te = S.addPoint(sa, 155, 275), ch = S.addLine(sa, le, te, true);
+    sa.airfoils = [{ id: 'af1', line: ch, spec: { kind: 'clarky', t: 13.8 }, sharpTE: true, flip: false, swap: false, noseR: 4.5, open: true }];
+    const pa = S.setSketchPattern(sa, { kind: 'circular', sources: [ch], n: '11', total: '360', centre: 'O' }, ev);
+    sa.airfoils[0].spec.t = 12;
+    V.solveSketch(sa, ev);
+    const foils = sa.airfoils.filter((a) => a.pattern === pa.id);
+    if (foils.length !== 10 || !foils.every((a) => pa.generated.curves.includes(a.line) && a.spec.t === 12 && a.noseR === 4.5)) return { ok: false, detail: `airfoil copies: ${JSON.stringify(foils.map((a) => [a.line, a.spec.t]))}` };
+    S.removeSketchPattern(sa, pa.id);
+    if (sa.airfoils.length !== 1) return { ok: false, detail: `${sa.airfoils.length} airfoils left after removing the pattern` };
+    return { ok: true, detail: '9 copies, fully defined; followed the PCD, the hole size and a count of 8; an airfoil patterned with its chord' };
+  },
+
   async 'sketch-pattern-curved-updates'() {
     const S = await import('/js/sketchmodel.js'), V = await import('/js/solver.js');
     const sk = S.newSketchData(), o = S.addPoint(sk, 0, 0), a = S.addPoint(sk, 50, 0), b = S.addPoint(sk, 0, 50);
@@ -5864,6 +7102,56 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
     if (back !== 'y') bad.push('not back to Y up');
     if (!bad.length) out.push('Top plane XY, ΔY kept as −ΔZ, Z axis is RazorCAD\'s Y; Z up from the Origin\'s right-click menu');
     return bad.length ? { ok: false, detail: bad.join('; ') } : { ok: true, detail: out.join('; ') };
+  },
+
+  async 'loft-model-edges'() {
+    const {run,fixture}=await import('/tests/loft-model-edges-cases.js'),native=await run({threads:threadsPerKernel()});
+    if(!native.ok)return {ok:false,detail:native.results.filter(r=>!r.ok)};
+    const d=fixture();d.doc.features.pop();const a=window.app;await a.setDoc(d.doc);closeModals();a.startFeature('surfLoft');await wait(120);
+    const source=document.querySelector('[data-loft-profile-source]');if(!source)return {ok:false,detail:'No Model edges source selector'};
+    source.value='edges';source.dispatchEvent(new Event('change'));
+    if(a.pickMode()!=='edge')return {ok:false,detail:'Model-edge profiles still pick sketches'};
+    for(let i=0;i<2;i++){
+      const body=a.result.bodies.find(b=>b.id===d.sources[i].id),edge=a.result.body.edges.slice(body.edgeStart,body.edgeStart+body.edgeCount).find(e=>Math.abs(e.mid[0]-5)<1e-6&&e.mid[1]>7&&e.mid[1]<10);
+      if(!edge)return {ok:false,detail:'The split boundary edge is missing'};
+      const index=a.result.body.edges.indexOf(edge);a.applyModelPick({index,edge});
+      const add=document.querySelector('[data-loft-model-finish]');if(!add||add.disabled)return {ok:false,detail:'Cannot finish a model-edge profile'};add.click();await wait(120);
+    }
+    if(a.pm.feature.profiles.length!==2||a.pm.feature.profiles.some(r=>r.kind!=='modelEdgeChain'))return {ok:false,detail:'Whole sketches were selected instead of model edges'};
+    await a.okPM();await until(()=>!a.kernel.pending);
+    if(a.result.errors.size||a.result.bodies.length!==3)return {ok:false,detail:'Model-edge loft could not be committed'};
+    return {ok:true,detail:`${native.results.length} CAD checks; actual split-edge picks, separate profile confirmation and commit`};
+  },
+
+  async 'split-body-face'() {
+    const {run,fixture}=await import('/tests/split-cases.js'),native=await run({threads:threadsPerKernel()});
+    if(!native.ok)return {ok:false,detail:native.results.filter(r=>!r.ok)};
+    const a=window.app,d=fixture('plane'),clean=JSON.parse(JSON.stringify(d.doc));await a.setDoc(d.doc);closeModals();
+    const commands=a.ui.commandList();
+    if(!commands.find(c=>c.k==='split body')?.aliases.includes('split')||!commands.find(c=>c.k==='split face')?.aliases.includes('split line'))return {ok:false,detail:'Legacy command aliases missing'};
+    a.startFeature('split');await wait(120);
+    if(a.pickMode()!=='body')return {ok:false,detail:'Split Body must start by picking bodies'};
+    a.pmPickBody(d.source.id);
+    if(!a.pm.feature.bodies.includes(d.source.id)||a.pm.feature.tool)return {ok:false,detail:'Surface target was mistaken for a tool'};
+    document.querySelector('[data-split-slot="tool"]').click();
+    if(a.pickMode()!=='anyface')return {ok:false,detail:'Tool slot did not change picking mode'};
+    a.pmPick('plane','front');
+    if(a.pm.feature.tool!=='front'||!a.pm.feature.bodies.includes(d.source.id))return {ok:false,detail:'Tool pick changed the targets'};
+    await a.okPM();await until(()=>!a.kernel.pending);
+    if(a.result.errors.size||a.result.bodies.length!==2)return {ok:false,detail:'Split Body was not committed as two surface bodies'};
+    await a.setDoc(clean);
+    a.startFeature('splitLine');await wait(120);
+    if(a.pickMode()!=='faces')return {ok:false,detail:'Split Face must start by picking faces'};
+    document.querySelector('[data-split-slot="tool"]').click();a.pmPick('sketch',d.sk.id);
+    if(a.pm.feature.tool!==d.sk.id||a.pm.feature.faces.length)return {ok:false,detail:'Sketch tool was not assigned separately from target faces'};
+    await a.cancelPM();
+    return {ok:true,detail:`${native.results.length} CAD checks; separate target/tool slots, surface targets, tree selection and cancel`};
+  },
+
+  async 'exact-spline-surfaces'() {
+    const { run } = await import('/tests/exact-spline-surfaces-cases.js');
+    const result = await run({ threads: threadsPerKernel() });
+    return { ok: result.ok, detail: result.ok ? `${result.results.length} exact spline surface checks: degrees 2–7, weights, reversed contours, planar borders and lofts with different span counts` : result.results.filter(r => !r.ok) };
   },
 
   // a control-point spline: the B-spline of its control points for degree 2 to 5 (against a plain de Boor
@@ -6423,6 +7711,51 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
       const ok = def.f.corner === 'square' && def.f.cornerGap === 0.5 && !def.r.errors.length && /4 corners closed/.test(def.note) && !!end && nf(def) === want && nf(thick) === want
         && Math.abs(def.v - sq.v) < 1e-6 * sq.v && Math.abs(def.v - butt.v) > 1e-5 * butt.v && Math.abs(def.v - over.v) > 1e-4 * over.v;
       return { ok, detail: `default corner '${def.f.corner}', ${def.note || JSON.stringify(def.r.errors)}; wall end square at z ${zEnd.toFixed(4)}: ${end ? 'yes' : 'no'}; faces ${nf(def)}, 3 thick ${nf(thick)}; volume ${def.v.toFixed(3)} (square ${sq.v.toFixed(3)}, mitred ${butt.v.toFixed(3)}, overlap ${over.v.toFixed(3)})` };
+    } finally { k.dispose(); }
+  },
+
+  // Edge-Flange corners at other angles than 90° (the walls of a tray's 120° flanges passed through each other at its
+  // corners): leaning in (120°) or out (60°), mitred, each wall is cut back or run on to the mitre (|x| − |z| = 20 at
+  // the tray's corners, by symmetry): no wall face across it, the nearest the gap / 2 from it, and the flat pattern
+  // still made; corner to corner and overlap close the four corners too
+  async 'flange-corner-angled'() {
+    const { KernelClient } = await import('/js/kernelclient.js'), k = new KernelClient({ threads: threadsPerKernel() });
+    try {
+      const tray = JSON.parse(await (await fetch('/tests/parts/sheet-metal-tray.rcad')).text());
+      const edges = tray.features[2].edges, gap = 0.5;
+      const build = async (props) => {
+        const d = JSON.parse(JSON.stringify(tray)); d.features = d.features.slice(0, 2);
+        const f = M.createFeature(d, 'smFlange', { edges, length: 20, cornerGap: gap, ...props });
+        d.features.push(f);
+        const r = await k.rebuild(d, null, null);
+        // the walls' plane faces (clear of the bends): how many lie across the mitre, and the nearest to it
+        const V = r.body?.vertices, T = r.body?.triangles;
+        // (and the bends: none across it, and they meet at the base's corner point, the gap opening from there; nothing
+        // of the walls in the gap)
+        let across = 0, near = Infinity, bendsAcross = 0, inGap = 0, bendsNear = Infinity;
+        // (and every plane face either a face of the sheet or a cut square to it, as a laser cuts: none bevelled)
+        const nrm = (g) => { const [i, j, l] = [0, 1, 2].map((o) => 3 * T[g.start + o]); const u = [0, 1, 2].map((c) => V[j + c] - V[i + c]), v = [0, 1, 2].map((c) => V[l + c] - V[i + c]); const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]], m = Math.hypot(...n); return { n: n.map((c) => c / m), a: m / 2 }; };
+        const planes = (r.body?.faceGroups || []).filter((g) => g.surf?.t === 'PLANE' && g.count >= 3).map((g) => ({ g, n: nrm(g).n, area: (() => { let a = 0; for (let q = g.start; q < g.start + g.count; q += 3) a += nrm({ start: q }).a; return a; })() }));
+        const sheetNs = planes.filter((x) => x.area > 100).map((x) => x.n), dt = (a, b) => Math.abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2]);
+        const bevelled = planes.filter((x) => !sheetNs.some((n) => dt(n, x.n) > 1 - 1e-4 || dt(n, x.n) < 1e-4)).length;
+        for (const g of r.body?.faceGroups || []) {
+          const ds = [], ys = [];
+          for (let q = g.start; q < g.start + g.count; q++) { const i = 3 * T[q]; ys.push(Math.abs(V[i + 1])); ds.push((20 - (Math.abs(V[i]) - Math.abs(V[i + 2]))) / Math.SQRT2); }
+          if (g.surf?.t !== 'PLANE') { if (Math.min(...ds) < -1e-6 && Math.max(...ds) > 1e-6) bendsAcross++; bendsNear = Math.min(bendsNear, ...ds.map(Math.abs)); continue; }
+          for (const [k, dd] of ds.entries()) if (Math.abs(dd) < gap / 2 - 1e-3 && ys[k] > 1.5 + 1e-6) inGap++;
+          if (Math.max(...ys) < 8) continue;
+          if (Math.min(...ds) < -1e-6 && Math.max(...ds) > 1e-6) across++;
+          near = Math.min(near, ...ds.map(Math.abs));
+        }
+        const flat = r.body?.bodies?.[0] && !r.errors?.length ? await k.request('sheetFlat', { bodyId: r.body.bodies[0].id, flip: false }).then(() => true, () => false) : false;
+        return { r, note: r.notes?.[f.id] || '', across, near, bendsAcross, bendsNear, inGap, flat, bevelled, txt: `${props.angle}° ${props.corner}${props.offset ? ` offset ${props.offset}` : ''}: ${r.notes?.[f.id] || JSON.stringify(r.errors)}, ${across} across, nearest ${near.toFixed(4)}, bends across ${bendsAcross}, bends to the mitre ${bendsNear.toFixed(4)}, in the gap ${inGap}, bevelled ${bevelled}, flat ${flat}` };
+      };
+      const lean = await build({ angle: 120, corner: 'butt' }), out = await build({ angle: 60, corner: 'butt' });
+      const off = await build({ angle: 120, corner: 'butt', position: 'inside', offset: 2, length: 30, sameSide: true });
+      const sq = await build({ angle: 120, corner: 'square' }), over = await build({ angle: 120, corner: 'closed' });
+      const mitred = (x) => !x.r.errors?.length && /4 corners closed/.test(x.note) && x.across === 0 && Math.abs(x.near - gap / 2) < 1e-3 && x.bendsAcross === 0 && x.bendsNear < 1e-3 && x.inGap === 0 && x.bevelled === 0 && x.flat;
+      const ok = mitred(lean) && mitred(out) && mitred(off) && !sq.r.errors?.length && /4 corners closed/.test(sq.note) && sq.across === 0 && sq.bendsAcross === 0 && sq.bevelled === 0 && sq.flat && !over.r.errors?.length && /4 corners closed/.test(over.note) && over.bevelled === 0 && over.flat;
+      return { ok, detail: [lean, out, off, sq, over].map((x) => x.txt).join('; ') };
     } finally { k.dispose(); }
   },
   async 'loft-guides'() {
@@ -7849,7 +9182,9 @@ const h = await rc.sketch('top', (s) => { s.circle(-20, 0, 4); s.circle(20, 0, 4
       a.selection = { kind: 'face', face: side };
       a.startSection();
       const s = a.sectionState;
-      const started = a.pm?.kind === 'section' && s.plane === 'custom' && s.custom.n.x > 0.999 && Math.abs(vp.section.constant - side.d) < 1e-6 && !!vp._secArrow;
+      let started = a.pm?.kind === 'section' && s.plane === 'custom' && s.custom.n.x > 0.999 && Math.abs(vp.section.constant - side.d) < 1e-6 && !!vp._secArrow;
+      // (a rebuild with the panel open: its edge highlights once read the panel's feature, which it has none of)
+      try { await a.refresh(); } catch (e) { started = false; console.error('rebuild with Section View open: ' + e.message); }
       // drag the arrow 150 px back into the part, seen from the front
       vp.setStandardView('front', false); vp.zoomToFit(null, false); vp.camera.updateMatrixWorld(); vp._secArrow.place();
       const n = a.sectionFrame().n, wpp = vp.worldPerPixel(), g = vp._secArrow.group;
@@ -8146,7 +9481,13 @@ async function drawingResult(doc) {
       const key = `${k}:${g.t}`;
       counts[key] = (counts[key] || 0) + 1;
       if (k !== 'v' && k !== 't') continue;
-      if (g.t === 'l') { pt(g.a); pt(g.b); } else if (g.t === 'c' || g.t === 'a') { pt([g.c[0] - g.r, g.c[1] - g.r]); pt([g.c[0] + g.r, g.c[1] + g.r]); } else if (g.pts) g.pts.forEach(pt);
+      if (g.t === 'l') { pt(g.a); pt(g.b); } else if (g.t === 'c') { pt([g.c[0] - g.r, g.c[1] - g.r]); pt([g.c[0] + g.r, g.c[1] + g.r]); }
+      else if (g.t === 'a') {
+        // (an arc: its ends and the quadrant points it passes, not its whole circle)
+        const span = ((g.a1 - g.a0) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI), at = (t) => [g.c[0] + g.r * Math.cos(t), g.c[1] + g.r * Math.sin(t)];
+        pt(at(g.a0)); pt(at(g.a0 + span));
+        for (let q = Math.ceil(g.a0 / (Math.PI / 2)) * (Math.PI / 2); q < g.a0 + span; q += Math.PI / 2) pt(at(q));
+      } else if (g.pts) g.pts.forEach(pt);
     }
     out[r.id] = { counts: Object.fromEntries(Object.entries(counts).sort()), size: Number.isFinite(x0) ? [r6(x1 - x0), r6(y1 - y0)] : null };
   }

@@ -4,6 +4,7 @@ Built into a single RazorCAD-Setup-<version>.exe by build_installer.bat, with Ra
 
     RazorCAD-Setup.exe                 setup wizard
     RazorCAD-Setup.exe /S [/D=folder] [/ALLUSERS] [/NODESKTOP] [/NOASSOC]   silent install
+    RazorCAD-Setup.exe /UPDATE /D=folder /STATUS=file [/ALLUSERS]           Update Now: a small window, RazorCAD restarted
     uninstall.exe (copied into the install folder; also run from Windows' Installed apps)
 
 What it installs:
@@ -18,6 +19,8 @@ Copyright (C) 2026 Labs9119 and the RazorCAD contributors.
 Licensed under the GNU General Public License v3.0 or later: see LICENSE.
 """
 import ctypes
+import hashlib
+import json
 import os
 import queue
 import shutil
@@ -25,6 +28,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import urllib.request
 import winreg
 
@@ -36,6 +40,7 @@ DOTNET48_URL = 'https://go.microsoft.com/fwlink/?LinkId=2085155'      # .NET Fra
 DOTNET_MIN_RELEASE = 461808                                          # 4.7.2
 UNINSTALL_KEY = r'Software\Microsoft\Windows\CurrentVersion\Uninstall\RazorCAD'
 CREATE_NO_WINDOW = 0x08000000
+UPDATE_MUTEX = 'RazorCAD-Update'                                     # held while Update Now runs (the same as razorcad.py's)
 # RazorCAD's file types (the same as razorcad.py's FILE_TYPES)
 FILE_TYPES = (('.rcad', 'RazorCAD.Part', 'RazorCAD Part'),
               ('.rasm', 'RazorCAD.Assembly', 'RazorCAD Assembly'),
@@ -282,9 +287,16 @@ def install(opts, log, progress):
         except OSError:
             pass
         files.append(('RazorCADThumbs.dll', thumbs))
-    for i, (src, dst) in enumerate(files):
-        shutil.copyfile(payload(src), dst)
-        progress((i + 1) / (len(files) + 1))
+    try:
+        for i, (src, dst) in enumerate(files):
+            shutil.copyfile(payload(src), dst)
+            progress((i + 1) / (len(files) + 1))
+    except OSError:
+        try:
+            os.replace(target + '.old', target)  # (a full disk must not leave no RazorCAD at all)
+        except OSError:
+            pass
+        raise
     for old in (target + '.old', thumbs + '.old'):
         try:
             os.remove(old)
@@ -296,8 +308,9 @@ def install(opts, log, progress):
     progress(1.0)
 
     # 3. shortcuts
-    menu_lnk, desk_lnk = shortcut_paths(opts['all_users'])
     icon = os.path.join(folder, 'razorcad.ico')
+    if opts['startmenu'] or opts['desktop']:
+        menu_lnk, desk_lnk = shortcut_paths(opts['all_users'])
     if opts['startmenu']:
         log('Creating the Start-menu shortcut…')
         make_shortcut(menu_lnk, target, folder, icon)
@@ -315,6 +328,8 @@ def install(opts, log, progress):
             notify_assoc_changed()
 
     # 5. Installed apps entry
+    if not opts.get('entry', True):
+        return target
     log('Registering RazorCAD in Installed apps…')
     root = winreg.HKEY_LOCAL_MACHINE if opts['all_users'] else winreg.HKEY_CURRENT_USER
     size_kb = sum(os.path.getsize(os.path.join(folder, f)) for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))) // 1024
@@ -362,6 +377,207 @@ def uninstall(remove_user_data, log=print):
     subprocess.Popen(f'cmd /c ping 127.0.0.1 -n 3 >nul & del /f /q "{me}" & rmdir "{folder}"',
                      creationflags=CREATE_NO_WINDOW, close_fds=True)
     log('RazorCAD was removed.')
+
+
+# ------------------------------------------------------------ Update Now
+def in_use(path):
+    """Is this program running? Windows refuses to open a running .exe for writing, whoever started it."""
+    try:
+        with open(path, 'r+b'):
+            return False
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return True
+
+
+def file_hash(path):
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for chunk in iter(lambda: f.read(1 << 20), b''):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def check_installed(folder):
+    """The update is only done when this version is really in the folder."""
+    with open(os.path.join(folder, 'version.txt'), encoding='utf-8') as f:
+        found = f.read().strip()
+    if found != version():
+        raise RuntimeError(f'The folder has version {found} after installing {version()}.')
+    if file_hash(os.path.join(folder, f'{APP}.exe')) != file_hash(payload(f'{APP}.exe')):
+        raise RuntimeError(f'{APP}.exe was not replaced by the new version.')
+
+
+def start_app(exe):
+    """Starts RazorCAD, not as administrator (Explorer starts it as the signed-in user), and with a clean frozen
+    environment: it is a one-file program of its own, not a child of this one."""
+    if is_admin():
+        subprocess.Popen(['explorer.exe', exe], close_fds=True)
+    else:
+        subprocess.Popen([exe], cwd=os.path.dirname(exe), close_fds=True, env={**os.environ, 'PYINSTALLER_RESET_ENVIRONMENT': '1'})
+
+
+def write_status(path, state, **more):
+    """What the running update has reached, for RazorCAD: it closes once this file appears, and reads it at its next
+    start. The log beside it is what a problem report needs."""
+    tmp = path + '.tmp'
+    try:
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump({'state': state, 'version': version(), **more}, f)
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+def write_log(status_path, text):
+    try:
+        with open(os.path.join(os.path.dirname(status_path), 'update.log'), 'a', encoding='utf-8') as f:
+            f.write(f'{time.strftime("%Y-%m-%dT%H:%M:%S")} {text}\n')
+    except OSError:
+        pass
+
+
+def update_steps(opts, cancelled, say, log):
+    """Waits for RazorCAD to close (for as long as the window stays open, so one reopened by hand only holds the
+    update up), installs and verifies. Returns the program, or None when cancelled."""
+    target = os.path.join(opts['dir'], f'{APP}.exe')
+    say('waiting', 'Waiting for RazorCAD to close…')
+    waited, told = time.time(), False
+    while in_use(target):
+        if cancelled.is_set():
+            return None
+        if not told and time.time() - waited > 8:
+            told = True
+            say('waiting', 'Close RazorCAD so the update can continue.')
+        time.sleep(0.2)
+    say('installing', f'Installing RazorCAD {version()}…')
+    install(opts, log, lambda p: None)
+    check_installed(opts['dir'])
+    return target
+
+
+def run_update(opts, status_path):
+    import tkinter as tk
+    from tkinter import ttk
+
+    ctypes.windll.kernel32.CreateMutexW(None, False, UPDATE_MUTEX)  # (released when setup exits)
+    write_status(status_path, 'started')
+    write_log(status_path, f'Starting update to {version()} in {opts["dir"]}')
+    refused = None
+    if opts['all_users'] and not is_admin():
+        if relaunch_elevated(['/UPDATE', f'/D={opts["dir"]}', f'/STATUS={status_path}', '/ALLUSERS']):
+            return
+        refused = 'Administrator rights were not granted, so RazorCAD was not updated.'
+
+    root = tk.Tk()
+    root.title(f'{APP} Update')
+    root.geometry('480x176')
+    root.resizable(False, False)
+    root.attributes('-topmost', True)  # (it must not open unseen behind RazorCAD or a window it left)
+    try:
+        root.iconbitmap(payload('razorcad.ico'))
+    except Exception:
+        pass
+    style = ttk.Style()
+    try:
+        style.theme_use('vista')
+    except tk.TclError:
+        pass
+    style.configure('Title.TLabel', font=('Segoe UI', 12, 'bold'))
+    style.configure('Body.TLabel', font=('Segoe UI', 10), wraplength=440)
+    body = ttk.Frame(root, padding=(20, 16))
+    body.pack(fill='both', expand=True)
+    title = ttk.Label(body, text=f'Updating {APP} to {version()}', style='Title.TLabel')
+    title.pack(anchor='w')
+    text = ttk.Label(body, style='Body.TLabel', text='Starting…')
+    text.pack(anchor='w', pady=(8, 8))
+    bar = ttk.Progressbar(body, mode='indeterminate')
+    bar.pack(fill='x')
+    footer = ttk.Frame(body)
+    footer.pack(side='bottom', fill='x')
+    close_btn = ttk.Button(footer, text='Cancel')
+    close_btn.pack(side='right', padx=(6, 0))
+    retry_btn = ttk.Button(footer, text='Try Again')
+    q = queue.Queue()
+    cancelled = threading.Event()
+    busy = {'installing': False, 'worker': False}
+
+    def say(state, message):
+        write_status(status_path, state)
+        q.put(('say', state, message))
+
+    def worker():
+        try:
+            q.put(('done', update_steps(opts, cancelled, say, lambda t: write_log(status_path, t)), None))
+        except Exception as e:
+            q.put(('error', str(e), None))
+
+    def cancel():
+        if busy['installing']:
+            return  # (never between files)
+        cancelled.set()
+        if not busy['worker']:
+            root.destroy()
+
+    def failed(message):
+        write_status(status_path, 'failed', error=message)
+        write_log(status_path, f'FAILED: {message}')
+        bar.stop()
+        bar.pack_forget()
+        title.configure(text=f'{APP} was not updated')
+        text.configure(text=f'{message}\n\nThe log is in {os.path.dirname(status_path)}.')
+        close_btn.configure(text='Close', command=root.destroy)
+        close_btn.state(['!disabled'])
+        retry_btn.pack(side='right')
+
+    def start():
+        busy['worker'] = True
+        cancelled.clear()
+        title.configure(text=f'Updating {APP} to {version()}')
+        retry_btn.pack_forget()
+        bar.pack(fill='x', before=footer)
+        bar.start(12)
+        close_btn.configure(text='Cancel', command=cancel)
+        threading.Thread(target=worker, daemon=True).start()
+        poll()
+
+    def poll():
+        try:
+            while True:
+                kind, a, b = q.get_nowait()
+                if kind == 'say':
+                    busy['installing'] = a == 'installing'
+                    close_btn.state(['disabled' if busy['installing'] else '!disabled'])
+                    text.configure(text=b)
+                elif kind == 'error':
+                    busy.update(installing=False, worker=False)
+                    return failed(a)
+                else:
+                    busy.update(installing=False, worker=False)
+                    if a is None:
+                        write_status(status_path, 'cancelled')
+                        write_log(status_path, 'Cancelled')
+                        return root.destroy()
+                    try:
+                        start_app(a)
+                    except OSError as e:
+                        return failed(f'{APP} was updated, but could not be started: {e}')
+                    write_status(status_path, 'done')
+                    write_log(status_path, f'Verified replacement and restarted version {version()}')
+                    return root.destroy()
+        except queue.Empty:
+            pass
+        root.after(80, poll)
+
+    retry_btn.configure(command=start)
+    root.protocol('WM_DELETE_WINDOW', cancel)
+    if refused:
+        failed(refused)
+        retry_btn.pack_forget()
+    else:
+        start()
+    root.mainloop()
 
 
 def relaunch_elevated(args):
@@ -547,7 +763,7 @@ def run_wizard(start_opts=None):
 
         def finish():
             if state['launch'].get():
-                subprocess.Popen([exe], cwd=os.path.dirname(exe), close_fds=True)
+                start_app(exe)
             root.destroy()
 
         back_btn.state(['disabled'])
@@ -591,14 +807,19 @@ def run_uninstaller(silent):
 
 def main():
     args = sys.argv[1:]
-    flags = {a.upper() for a in args if not a.upper().startswith('/D=')}
+    flags = {a.upper() for a in args if not a.upper().startswith(('/D=', '/STATUS='))}
     folder = next((a[3:] for a in args if a.upper().startswith('/D=')), None)
+    status = next((a[8:] for a in args if a.upper().startswith('/STATUS=')), None)
     name = os.path.basename(sys.executable).lower()
     if '/UNINSTALL' in flags or name.startswith('uninstall'):
         return run_uninstaller('/S' in flags)
     all_users = '/ALLUSERS' in flags
     opts = {'dir': folder or existing_install()[0] or default_dir(all_users), 'all_users': all_users,
-            'desktop': '/NODESKTOP' not in flags, 'startmenu': '/NOSTARTMENU' not in flags, 'assoc': '/NOASSOC' not in flags, 'launch': False}
+            'desktop': '/NODESKTOP' not in flags, 'startmenu': '/NOSTARTMENU' not in flags, 'assoc': '/NOASSOC' not in flags,
+            'entry': '/NOENTRY' not in flags, 'launch': False}
+    if '/UPDATE' in flags:
+        run_update({**opts, 'desktop': False, 'startmenu': False}, status)  # (shortcuts stay as the user left them)
+        return
     if '/S' in flags:
         if all_users and not is_admin():
             print('Installing for all users needs administrator rights.')

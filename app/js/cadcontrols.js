@@ -106,6 +106,12 @@ export class CadControls {
     this.onChange();
   }
 
+  // The wheel: zoom toward the cursor (also for the wheel over labels drawn on top of the view)
+  wheel(e) {
+    e.preventDefault();
+    this.zoomAt(Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0015)), e.clientX, e.clientY);
+  }
+
   _worldAt(clientX, clientY) {
     const r = this.dom.getBoundingClientRect();
     const ndc = new THREE.Vector3(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1, 0);
@@ -185,11 +191,7 @@ export class CadControls {
     };
     el.addEventListener('pointerup', end);
     el.addEventListener('pointercancel', end);
-    el.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      const factor = Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0015));
-      this.zoomAt(factor, e.clientX, e.clientY);
-    }, { passive: false });
+    el.addEventListener('wheel', (e) => this.wheel(e), { passive: false });
     el.addEventListener('auxclick', (e) => { if (e.button === 1) e.preventDefault(); });
   }
 }
